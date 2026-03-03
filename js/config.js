@@ -28,15 +28,43 @@ const SITE_CONFIG = {
     },
 
     // -----------------------------------------------------------------------
-    // YOUTUBE VIDEOS — Content Section
+    // YOUTUBE API — Auto-updating Content Section
+    //
+    // When configured, the homepage fetches your latest videos automatically.
+    // Falls back to the static `videos` list below if not configured.
+    //
+    // HOW TO GET YOUR CHANNEL ID:
+    //   → Go to https://www.youtube.com/@RealTrueBeast
+    //   → Click your profile icon → YouTube Studio
+    //   → Settings (left sidebar) → Channel → Basic info
+    //   → Copy the "Channel ID" (starts with UC...)
+    //
+    // HOW TO CREATE A RESTRICTED API KEY (free, ~100 searches/day):
+    //   1. Go to https://console.cloud.google.com/
+    //   2. Create a project (or reuse an existing one)
+    //   3. In the search bar type "YouTube Data API v3" → Enable it
+    //   4. Sidebar: APIs & Services → Credentials → Create Credentials → API key
+    //   5. Click "Edit API key" (pencil icon):
+    //        - Name: "TrueBeast Site — YouTube"
+    //        - Application restrictions: "Websites" → Add https://truebeast.io/*
+    //        - API restrictions: Restrict key → select "YouTube Data API v3"
+    //        - Save
+    //   6. Copy the key and paste it below
+    // -----------------------------------------------------------------------
+    youtube: {
+        channelId: 'UCB0IEt5tWnlxvXAv0LG2gMw',   // Your YouTube channel ID (UC...)
+        apiKey:    'PASTE_YOUR_YOUTUBE_API_KEY',    // From Google Cloud Console (step 4 above)
+        maxResults: 4,                               // How many video cards to show (2 or 4)
+    },
+
+    // -----------------------------------------------------------------------
+    // YOUTUBE VIDEOS — Static Fallback
+    // Shown when the YouTube API is not configured or unreachable.
+    // These are also used as placeholders until the API loads.
+    //
     // Find a video ID: go to the video on YouTube, copy the part after "?v="
     //   Example URL:  https://www.youtube.com/watch?v=dQw4w9WgXcQ
     //   Video ID:     dQw4w9WgXcQ
-    //
-    // Each video needs:
-    //   id       — YouTube video ID (REQUIRED)
-    //   title    — Display title shown on the card
-    //   category — Tag shown on the card (e.g. "Gaming", "IRL", "Highlights")
     // -----------------------------------------------------------------------
     videos: [
         {
@@ -109,12 +137,21 @@ const SITE_CONFIG = {
     //            match /tickets/{ticketId} {
     //              allow create: if true;
     //              allow get:    if true;
-    //              allow list, update, delete: if request.auth != null;
+    //              // Unauthenticated users can only add replies (responses + updatedAt).
+    //              // Admins can update anything.
+    //              allow update: if request.auth != null ||
+    //                request.resource.data.diff(resource.data).affectedKeys()
+    //                  .hasOnly(['responses', 'updatedAt']);
+    //              allow list, delete: if request.auth != null;
     //            }
     //            match /reviews/{reviewId} {
-    //              allow create:   if true;
-    //              allow get, list: if true;          // public — homepage reads approved reviews
+    //              allow create:        if true;
+    //              allow get, list:     if true;    // public — homepage reads approved reviews
     //              allow update, delete: if request.auth != null;
+    //            }
+    //            match /announcements/{docId} {
+    //              allow read:          if true;    // public — homepage reads announcements
+    //              allow write:         if request.auth != null;
     //            }
     //          }
     //        }

@@ -8,8 +8,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="../js/config.js?v=3"></script>
-    <script src="../js/firebase-db.js?v=3"></script>
+    <script src="../js/config.js?v=4"></script>
+    <script src="../js/firebase-db.js?v=4"></script>
     <link rel="stylesheet" href="../css/shared.css">
     <link rel="stylesheet" href="../css/glass.css?v=4">
     <link rel="stylesheet" href="../css/admin.css?v=3">
@@ -150,10 +150,11 @@
             <div id="d-review-stats" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
         </div>
 
-        <!-- Top-level tabs: Tickets / Reviews -->
-        <div class="flex gap-2 mb-5">
+        <!-- Top-level tabs: Tickets / Reviews / Announcements -->
+        <div class="flex gap-2 mb-5 flex-wrap">
             <button id="tab-tickets" onclick="setMainTab('tickets')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-active">Tickets</button>
             <button id="tab-reviews" onclick="setMainTab('reviews')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
+            <button id="tab-announcements" onclick="setMainTab('announcements')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Announcements</button>
         </div>
 
         <!-- Error banner -->
@@ -171,6 +172,39 @@
         <div id="panel-reviews" style="display:none">
             <div id="r-filters" class="flex gap-2 flex-wrap mb-4"></div>
             <div id="r-list" class="list-scroll space-y-3"></div>
+        </div>
+
+        <!-- Announcements panel -->
+        <div id="panel-announcements" style="display:none">
+            <!-- Post form -->
+            <div class="liquid-glass rounded-2xl p-6 mb-6">
+                <h3 class="font-display font-semibold text-lg mb-4">Post New Announcement</h3>
+                <div class="space-y-3">
+                    <input id="a-title" type="text" placeholder="Title (e.g. Game Night Tonight!)"
+                        class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm" />
+                    <select id="a-type"
+                        class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white text-sm appearance-none"
+                        style="background-color:rgba(255,255,255,0.04)">
+                        <option value="general">General</option>
+                        <option value="game-night">Game Night</option>
+                        <option value="movie-night">Movie Night</option>
+                        <option value="update">Update</option>
+                        <option value="event">Event</option>
+                    </select>
+                    <textarea id="a-text" rows="3" placeholder="Announcement details…"
+                        class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none"></textarea>
+                    <div class="flex items-center justify-between gap-3">
+                        <p class="text-xs text-gray-500">Announcements appear on the homepage for everyone to see.</p>
+                        <button onclick="postAnnouncement()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold whitespace-nowrap flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                            Post
+                        </button>
+                    </div>
+                    <p id="a-msg" style="display:none" class="text-green-400 text-xs"></p>
+                </div>
+            </div>
+            <!-- Existing announcements -->
+            <div id="a-list" class="space-y-3"></div>
         </div>
 
     </div>
@@ -222,11 +256,9 @@
 
     /* ── nav refresh ── */
     function refreshCurrent() {
-        if (mainTab === 'reviews') {
-            loadReviews();
-        } else {
-            loadTickets();
-        }
+        if (mainTab === 'reviews')        loadReviews();
+        else if (mainTab === 'announcements') loadAnnouncements();
+        else                              loadTickets();
     }
 
     /* ── auth ── */
@@ -273,10 +305,11 @@
     /* ── main tab switch ── */
     function setMainTab(tab) {
         mainTab = tab;
-        document.getElementById('tab-tickets').className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === 'tickets' ? 'tab-active' : 'tab-inactive');
-        document.getElementById('tab-reviews').className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === 'reviews' ? 'tab-active' : 'tab-inactive');
-        document.getElementById('panel-tickets').style.display = tab === 'tickets' ? 'block' : 'none';
-        document.getElementById('panel-reviews').style.display = tab === 'reviews' ? 'block' : 'none';
+        ['tickets','reviews','announcements'].forEach(function(t) {
+            document.getElementById('tab-' + t).className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === t ? 'tab-active' : 'tab-inactive');
+            document.getElementById('panel-' + t).style.display = tab === t ? 'block' : 'none';
+        });
+        if (tab === 'announcements') loadAnnouncements();
     }
 
     /* ════════════════════════════════════════════════════════
@@ -534,7 +567,7 @@
             { label:'Negative',  value: allReviews.filter(function(r){return r.rating==='negative';}).length,          color:'text-red-400' },
         ];
         document.getElementById('d-review-stats').innerHTML = rows.map(function(r) {
-            return '<div class="liquid-glass rounded-2xl p-4 text-center">' +
+            return '<div class="liquid-glass rounded-2xl p-4 text-center" style="transform:translateZ(0)">' +
                    '<div class="text-3xl font-display font-bold ' + r.color + '">' + r.value + '</div>' +
                    '<div class="text-xs text-gray-500 mt-1">' + r.label + '</div></div>';
         }).join('');
@@ -605,6 +638,103 @@
         activeReview = null;
         setMainTab('reviews');
         show('dashboard');
+    }
+
+    /* ════════════════════════════════════════════════════════
+       ANNOUNCEMENTS
+    ════════════════════════════════════════════════════════ */
+    var allAnnouncements = [];
+
+    var TYPE_LABELS = {
+        'general':    { label: 'General',    color: 'text-gray-300',   bg: 'bg-gray-500/20' },
+        'game-night': { label: 'Game Night', color: 'text-green-400',  bg: 'bg-green-500/20' },
+        'movie-night':{ label: 'Movie Night',color: 'text-blue-400',   bg: 'bg-blue-500/20' },
+        'update':     { label: 'Update',     color: 'text-violet-400', bg: 'bg-violet-500/20' },
+        'event':      { label: 'Event',      color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
+    };
+
+    function loadAnnouncements() {
+        document.getElementById('a-list').innerHTML =
+            '<div class="liquid-glass rounded-2xl p-8 text-center">' +
+            '<div class="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full spin mx-auto mb-3"></div>' +
+            '<p class="text-gray-500 text-sm">Loading announcements…</p></div>';
+
+        FirebaseDB.getAllAnnouncements().then(function(items) {
+            allAnnouncements = items;
+            renderAnnouncements();
+        }).catch(function(ex) {
+            document.getElementById('a-list').innerHTML =
+                '<p class="text-red-400 text-sm">Failed to load: ' + esc(ex.message) + '</p>';
+        });
+    }
+
+    function renderAnnouncements() {
+        var el = document.getElementById('a-list');
+        if (allAnnouncements.length === 0) {
+            el.innerHTML = '<div class="liquid-glass rounded-2xl p-8 text-center text-gray-500 text-sm">No announcements yet. Post one above!</div>';
+            return;
+        }
+        el.innerHTML = allAnnouncements.map(function(a) {
+            var type = TYPE_LABELS[a.type] || TYPE_LABELS['general'];
+            return '<div class="liquid-glass rounded-2xl p-5 flex items-start gap-4">' +
+                '<div class="flex-1 min-w-0">' +
+                '<div class="flex items-center gap-2 mb-1">' +
+                '<span class="text-xs font-medium px-2 py-0.5 rounded-full ' + type.bg + ' ' + type.color + '">' + esc(type.label) + '</span>' +
+                '<span class="text-xs text-gray-600">' + esc(new Date(a.createdAt).toLocaleString()) + '</span>' +
+                '</div>' +
+                '<p class="font-semibold text-sm mb-1">' + esc(a.title) + '</p>' +
+                '<p class="text-gray-400 text-sm whitespace-pre-wrap">' + esc(a.text) + '</p>' +
+                '</div>' +
+                '<button onclick="deleteAnnouncementById(\'' + esc(a.id) + '\')" ' +
+                'class="flex-shrink-0 text-gray-600 hover:text-red-400 transition-colors p-1" title="Delete">' +
+                '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>' +
+                '</button>' +
+                '</div>';
+        }).join('');
+    }
+
+    function postAnnouncement() {
+        var title = (document.getElementById('a-title').value || '').trim();
+        var type  = document.getElementById('a-type').value;
+        var text  = (document.getElementById('a-text').value || '').trim();
+        var msg   = document.getElementById('a-msg');
+        if (!title || !text) {
+            msg.textContent = 'Please fill in both a title and the announcement text.';
+            msg.className = 'text-red-400 text-xs';
+            msg.style.display = 'block';
+            return;
+        }
+        var announcement = {
+            id:        'ANN-' + Date.now().toString(36).toUpperCase(),
+            title:     title,
+            type:      type,
+            text:      text,
+            createdAt: new Date().toISOString(),
+        };
+        msg.textContent = 'Posting…';
+        msg.className = 'text-gray-400 text-xs';
+        msg.style.display = 'block';
+        FirebaseDB.saveAnnouncement(announcement).then(function() {
+            document.getElementById('a-title').value = '';
+            document.getElementById('a-text').value = '';
+            msg.textContent = 'Posted! Refresh the homepage to see it.';
+            msg.className = 'text-green-400 text-xs';
+            allAnnouncements.unshift(announcement);
+            renderAnnouncements();
+        }).catch(function(ex) {
+            msg.textContent = 'Failed: ' + esc(ex.message);
+            msg.className = 'text-red-400 text-xs';
+        });
+    }
+
+    function deleteAnnouncementById(id) {
+        if (!confirm('Delete this announcement?')) return;
+        FirebaseDB.deleteAnnouncement(id).then(function() {
+            allAnnouncements = allAnnouncements.filter(function(a){ return a.id !== id; });
+            renderAnnouncements();
+        }).catch(function(ex) {
+            alert('Delete failed: ' + ex.message);
+        });
     }
 
     function renderReviewDetail() {

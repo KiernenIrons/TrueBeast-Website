@@ -278,6 +278,62 @@ const FirebaseDB = {
     },
 
     // -----------------------------------------------------------------------
+    // Announcements
+    // -----------------------------------------------------------------------
+
+    async saveAnnouncement(announcement) {
+        _ensureApp();
+        if (_isConfigured()) {
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('announcements').doc(announcement.id).set(announcement),
+                    8000
+                );
+                return announcement;
+            } catch (err) {
+                console.warn('FirebaseDB.saveAnnouncement fell back to localStorage:', err.message);
+            }
+        }
+        const existing = JSON.parse(localStorage.getItem('tb_announcements') || '[]');
+        localStorage.setItem('tb_announcements', JSON.stringify([announcement, ...existing]));
+        return announcement;
+    },
+
+    async getAllAnnouncements() {
+        _ensureApp();
+        if (_isConfigured()) {
+            try {
+                const snap = await _withTimeout(
+                    firebase.firestore().collection('announcements').orderBy('createdAt', 'desc').get(),
+                    8000
+                );
+                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            } catch (err) {
+                console.warn('FirebaseDB.getAllAnnouncements fell back to localStorage:', err.message);
+            }
+        }
+        const items = JSON.parse(localStorage.getItem('tb_announcements') || '[]');
+        return items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    },
+
+    async deleteAnnouncement(id) {
+        _ensureApp();
+        if (_isConfigured()) {
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('announcements').doc(id).delete(),
+                    8000
+                );
+                return;
+            } catch (err) {
+                console.warn('FirebaseDB.deleteAnnouncement fell back to localStorage:', err.message);
+            }
+        }
+        const items = JSON.parse(localStorage.getItem('tb_announcements') || '[]');
+        localStorage.setItem('tb_announcements', JSON.stringify(items.filter(a => a.id !== id)));
+    },
+
+    // -----------------------------------------------------------------------
     // Admin Authentication
     // -----------------------------------------------------------------------
 

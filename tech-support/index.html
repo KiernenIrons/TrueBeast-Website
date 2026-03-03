@@ -13,8 +13,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="../js/config.js?v=3"></script>
-    <script src="../js/firebase-db.js?v=3"></script>
+    <script src="../js/config.js?v=4"></script>
+    <script src="../js/firebase-db.js?v=4"></script>
     <link rel="stylesheet" href="../css/shared.css">
     <link rel="stylesheet" href="../css/glass.css">
     <link rel="stylesheet" href="../css/tech-support.css">
@@ -53,16 +53,20 @@
 
         // Email sending function
         const sendTicketConfirmation = async (ticketData) => {
-            try {
-                const ejsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs : {};
-                const siteUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
-                const viewTicketUrl = `${siteUrl}/ticket/?id=${ticketData.id}`;
-                const adminUrl      = `${siteUrl}/admin/`;
-                const discordLink   = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social && SITE_CONFIG.social.discord) || 'https://discord.gg/Nk8vekY';
+            const ejsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs : {};
+            if (!ejsCfg.serviceId || ejsCfg.serviceId === 'YOUR_SERVICE_ID') {
+                console.warn('[TrueBeast Email] EmailJS not configured — no email sent. Add serviceId to js/config.js');
+                return;
+            }
+            const siteUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
+            const viewTicketUrl = `${siteUrl}/ticket/?id=${ticketData.id}`;
+            const adminUrl      = `${siteUrl}/admin/`;
+            const discordLink   = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social && SITE_CONFIG.social.discord) || 'https://discord.gg/Nk8vekY';
 
-                // Confirmation email to the user
+            // Confirmation email to the user
+            try {
                 await emailjs.send(
-                    ejsCfg.serviceId || "YOUR_SERVICE_ID",
+                    ejsCfg.serviceId,
                     ejsCfg.ticketTemplateId || "YOUR_TEMPLATE_ID",
                     {
                         to_email:        ticketData.email,
@@ -79,10 +83,15 @@
                         created_at:      new Date().toLocaleString(),
                     }
                 );
+                console.log('[TrueBeast Email] Confirmation sent to', ticketData.email);
+            } catch (err) {
+                console.error('[TrueBeast Email] User confirmation failed:', err.text || err.message || err);
+            }
 
-                // Admin notification to kiernenyt@gmail.com
+            // Admin notification to kiernenyt@gmail.com
+            try {
                 await emailjs.send(
-                    ejsCfg.serviceId || "YOUR_SERVICE_ID",
+                    ejsCfg.serviceId,
                     ejsCfg.adminTemplateId || ejsCfg.ticketTemplateId || "YOUR_ADMIN_TEMPLATE_ID",
                     {
                         to_email:    'kiernenyt@gmail.com',
@@ -99,12 +108,9 @@
                         admin_url:   adminUrl,
                     }
                 );
-
-                return true;
-            } catch (error) {
-                console.error("Email failed:", error);
-                // Still return true so ticket is never lost even if email fails
-                return true;
+                console.log('[TrueBeast Email] Admin notification sent');
+            } catch (err) {
+                console.error('[TrueBeast Email] Admin notification failed:', err.text || err.message || err);
             }
         };
 
@@ -132,6 +138,10 @@
                                 
                                 <div className="flex items-center gap-4">
                                     <a href="../" className="text-gray-300 hover:text-white transition-colors">Home</a>
+                                    <a href="../my-tickets/" className="text-gray-300 hover:text-green-400 transition-colors flex items-center gap-1.5">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                        My Tickets
+                                    </a>
                                     <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
                                        className="btn-glass liquid-glass px-5 py-2.5 rounded-xl text-sm font-medium text-white hover:bg-white/10 flex items-center gap-2">
                                         <i data-lucide="youtube" className="w-4 h-4"></i>
@@ -169,7 +179,8 @@
                 { value: 'networking', label: 'Networking/WiFi', icon: 'wifi' },
                 { value: 'peripherals', label: 'Peripherals', icon: 'mouse' },
                 { value: 'streaming', label: 'Streaming Setup', icon: 'video' },
-                { value: 'gaming', label: 'Gaming Performance', icon: 'gamepad-2' }
+                { value: 'gaming', label: 'Gaming Performance', icon: 'gamepad-2' },
+                { value: 'other', label: 'Other', icon: 'more-horizontal' }
             ];
 
             const priorities = [
@@ -196,8 +207,15 @@
                     // Save ticket (Firebase if configured, localStorage fallback)
                     await FirebaseDB.saveTicket(newTicket);
 
+                    // Remember this ticket ID so the user can find it on My Tickets
+                    const myIds = JSON.parse(localStorage.getItem('tb_my_ticket_ids') || '[]');
+                    if (!myIds.includes(newTicket.id)) {
+                        myIds.unshift(newTicket.id);
+                        localStorage.setItem('tb_my_ticket_ids', JSON.stringify(myIds));
+                    }
+
                     // Send confirmation email (requires EmailJS to be configured)
-                    await sendTicketConfirmation(newTicket);
+                    sendTicketConfirmation(newTicket).catch(err => console.warn('Email failed (non-fatal):', err));
 
                     setTicketId(newTicket.id);
                     setShowSuccess(true);
@@ -490,11 +508,13 @@
                                     onChange={e => setReplyText(e.target.value)}
                                     placeholder="Add a reply..."
                                     className="flex-1 liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500" />
-                                <button type="submit" disabled={replying || !replyText.trim()} className="btn-glass liquid-glass px-6 py-3 rounded-xl font-medium text-green-400 disabled:opacity-50">
-                                    {replying
-                                        ? <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i>
-                                        : <i data-lucide="send" className="w-5 h-5"></i>
-                                    }
+                                <button type="submit" disabled={replying || !replyText.trim()} className="btn-glass liquid-glass px-6 py-3 rounded-xl font-medium text-green-400 disabled:opacity-50 flex items-center gap-2">
+                                    {replying ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                                    ) : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                                    )}
+                                    {replying ? 'Sending…' : 'Send'}
                                 </button>
                             </form>
                         )}

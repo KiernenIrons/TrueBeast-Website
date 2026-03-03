@@ -12,8 +12,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="js/config.js?v=3"></script>
-    <script src="js/firebase-db.js?v=3"></script>
+    <script src="js/config.js?v=4"></script>
+    <script src="js/firebase-db.js?v=4"></script>
     <link rel="stylesheet" href="css/shared.css">
     <link rel="stylesheet" href="css/glass.css?v=4">
     <link rel="stylesheet" href="css/index.css?v=2">
@@ -265,10 +265,10 @@
                                     <span className="text-gradient">TrueBeast</span>
                                 </h2>
                                 <p className="text-gray-400 text-lg leading-relaxed mb-6">
-                                    What's up! I'm Kiernen, but most people know me as TrueBeast. I'm just a gamer who enjoys hanging out with friends and sharing those moments with all of you. I started this channel because I wanted to build a community of chill people, a place where people can come through, game together, and feel like they're part of something bigger.
+                                    I’m Kiernen, but most people online know me as TrueBeast. I studied computer game programming and have worked in tech and hardware, which probably explains why I’m obsessed with how things work, how they look, and how they can be improved. This channel started because I wanted a space where I could share the games I enjoy, experiment with new tech, and build something of my own. The streams aren’t scripted or forced, they’re built around what I’m genuinely into at the time, whether that’s horror games, co-op chaos with friends, or testing out new setups.
                                 </p>
                                 <p className="text-gray-500 leading-relaxed mb-8">
-                                    My content is all about gaming, vibing with the community, and giving you a look into my life. Whether we're checking out new tech, trying new games, or just chilling in Discord, every stream and video is about having a good time together. The TrueBeast server isn't just viewers, we're a community that supports each other.
+                                    TrueBeast has grown into more than just gameplay. It’s a community of people who show up, hang out in Discord, jump into game nights, and actually care about being part of something consistent. I’m big on quality, on building things properly, and on creating an environment where people can relax and just enjoy being there. At the end of the day, this isn’t about chasing trends. It’s about building something real, improving over time, and bringing people along for the journey.
                                 </p>
                                 
                                 <div className="flex flex-wrap gap-3">
@@ -285,10 +285,71 @@
             );
         };
         
+        // ── YouTube API helpers ──────────────────────────────────────────────
+        const YT_CFG = () => (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.youtube) || {};
+        const YT_API_CONFIGURED = () => {
+            const cfg = YT_CFG();
+            return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
+        };
+
+        async function fetchYouTubeVideos() {
+            const cfg = YT_CFG();
+            const maxResults = cfg.maxResults || 4;
+            const base = 'https://www.googleapis.com/youtube/v3/search';
+
+            // Try to find a live broadcast first
+            let liveVideo = null;
+            try {
+                const liveRes = await fetch(
+                    `${base}?part=snippet&channelId=${cfg.channelId}&eventType=live&type=video&maxResults=1&key=${cfg.apiKey}`
+                );
+                const liveData = await liveRes.json();
+                if (liveData.items && liveData.items.length > 0) {
+                    const item = liveData.items[0];
+                    liveVideo = {
+                        id:       item.id.videoId,
+                        title:    item.snippet.title,
+                        category: 'LIVE NOW',
+                        isLive:   true,
+                    };
+                }
+            } catch { /* live check is optional */ }
+
+            // Fetch latest videos (one extra if we have a live video, to avoid repeats)
+            const needed = liveVideo ? maxResults - 1 : maxResults;
+            const res = await fetch(
+                `${base}?part=snippet&channelId=${cfg.channelId}&order=date&type=video&maxResults=${needed + 1}&key=${cfg.apiKey}`
+            );
+            if (!res.ok) throw new Error(`YouTube API ${res.status}`);
+            const data = await res.json();
+            if (data.error) throw new Error(data.error.message);
+
+            const regular = (data.items || [])
+                .filter(item => !liveVideo || item.id.videoId !== liveVideo.id)
+                .slice(0, needed)
+                .map(item => ({
+                    id:       item.id.videoId,
+                    title:    item.snippet.title,
+                    category: item.snippet.liveBroadcastContent === 'upcoming' ? 'Upcoming' : 'Latest',
+                }));
+
+            return liveVideo ? [liveVideo, ...regular] : regular;
+        }
+
         // Content Section
         const ContentSection = () => {
-            const videos = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.videos) || [];
-            
+            const staticVideos = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.videos) || [];
+            const [videos, setVideos] = useState(staticVideos);
+            const [apiActive, setApiActive] = useState(false);
+
+            useEffect(() => {
+                if (!YT_API_CONFIGURED()) return;
+                setApiActive(true);
+                fetchYouTubeVideos()
+                    .then(vids => { if (vids.length > 0) setVideos(vids); })
+                    .catch(err => console.warn('[TrueBeast YouTube] API fetch failed, using static fallback:', err.message));
+            }, []);
+
             return (
                 <section id="content" className="py-24 px-6">
                     <div className="max-w-6xl mx-auto">
@@ -301,10 +362,10 @@
                                 Fresh content uploaded not so regularly (my bad). Subscribe to never miss an upload.
                             </p>
                         </div>
-                        
+
                         <div className="grid md:grid-cols-2 gap-6">
                             {videos.map((video, i) => (
-                                <a key={i} href={`https://www.youtube.com/watch?v=${video.id}`} target="_blank" rel="noopener noreferrer"
+                                <a key={video.id || i} href={`https://www.youtube.com/watch?v=${video.id}`} target="_blank" rel="noopener noreferrer"
                                    className="reveal video-card liquid-glass rounded-2xl overflow-hidden group cursor-pointer" style={{textDecoration: 'none', color: 'inherit'}}>
                                     <div className="aspect-video relative overflow-hidden bg-gray-900">
                                         <img src={video.customThumbnail || `https://img.youtube.com/vi/${video.id}/maxresdefault.jpg`}
@@ -315,21 +376,22 @@
                                                 <i data-lucide="play" className="w-6 h-6 ml-1"></i>
                                             </div>
                                         </div>
-                                        <div className="absolute top-3 left-3 liquid-glass px-2 py-1 rounded-lg text-xs font-medium text-green-400">
+                                        <div className={`absolute top-3 left-3 liquid-glass px-2 py-1 rounded-lg text-xs font-medium ${video.isLive ? 'text-red-400 animate-pulse' : 'text-green-400'}`}>
+                                            {video.isLive && <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1"></span>}
                                             {video.category}
                                         </div>
                                     </div>
                                     <div className="p-5">
-                                        <h3 className="font-semibold text-lg mb-2 group-hover:text-green-400 transition-colors">{video.title}</h3>
+                                        <h3 className="font-semibold text-lg mb-2 group-hover:text-green-400 transition-colors leading-snug">{video.title}</h3>
                                         <div className="flex items-center gap-2 text-sm text-gray-500">
                                             <i data-lucide="youtube" className="w-4 h-4 text-red-500"></i>
-                                            <span>Watch on YouTube</span>
+                                            <span>{video.isLive ? 'Watch Live on YouTube' : 'Watch on YouTube'}</span>
                                         </div>
                                     </div>
                                 </a>
                             ))}
                         </div>
-                        
+
                         <div className="text-center mt-12 reveal">
                             <a href="https://www.youtube.com/@RealTrueBeast/videos" target="_blank" rel="noopener noreferrer"
                                className="btn-glass liquid-glass px-8 py-4 rounded-2xl font-medium inline-flex items-center gap-2">
@@ -342,6 +404,65 @@
             );
         };
         
+        // ── Announcements Section ────────────────────────────────────────
+        const TYPE_STYLES = {
+            'general':     { label: 'General',     color: '#d1d5db', bg: 'rgba(107,114,128,0.2)' },
+            'game-night':  { label: 'Game Night',  color: '#4ade80', bg: 'rgba(34,197,94,0.15)' },
+            'movie-night': { label: 'Movie Night', color: '#60a5fa', bg: 'rgba(59,130,246,0.15)' },
+            'update':      { label: 'Update',      color: '#c084fc', bg: 'rgba(167,139,250,0.15)' },
+            'event':       { label: 'Event',       color: '#fbbf24', bg: 'rgba(245,158,11,0.15)' },
+        };
+
+        const AnnouncementsSection = () => {
+            const [announcements, setAnnouncements] = useState([]);
+
+            useEffect(() => {
+                FirebaseDB.getAllAnnouncements()
+                    .then(items => setAnnouncements(items.slice(0, 3)))
+                    .catch(() => {});
+            }, []);
+
+            if (announcements.length === 0) return null;
+
+            return (
+                <section id="announcements" className="py-16 px-6">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="flex items-center justify-between mb-8 reveal">
+                            <div>
+                                <span className="text-yellow-400 font-medium text-sm tracking-wider uppercase mb-2 block">Community</span>
+                                <h2 className="font-display font-bold text-3xl md:text-4xl">Announcements</h2>
+                            </div>
+                            <a href="https://discord.gg/Nk8vekY" target="_blank" rel="noopener noreferrer"
+                               className="btn-glass liquid-glass px-4 py-2 rounded-xl text-sm font-medium text-gray-300 flex items-center gap-2 hidden md:flex">
+                                <i data-lucide="message-circle" className="w-4 h-4"></i>
+                                Discord
+                            </a>
+                        </div>
+                        <div className="grid md:grid-cols-3 gap-5">
+                            {announcements.map((ann, i) => {
+                                const style = TYPE_STYLES[ann.type] || TYPE_STYLES['general'];
+                                return (
+                                    <div key={ann.id || i} className="liquid-glass rounded-2xl p-5 reveal flex flex-col gap-3" style={{ transform: 'translateZ(0)' }}>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-medium px-2.5 py-1 rounded-full"
+                                                  style={{ color: style.color, background: style.bg }}>
+                                                {style.label}
+                                            </span>
+                                            <span className="text-xs text-gray-600">
+                                                {new Date(ann.createdAt).toLocaleDateString()}
+                                            </span>
+                                        </div>
+                                        <h3 className="font-display font-semibold text-lg leading-snug">{ann.title}</h3>
+                                        <p className="text-gray-400 text-sm whitespace-pre-wrap flex-1">{ann.text}</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+
         // ── Review Modal ─────────────────────────────────────────────────
         const ReviewModal = ({ onClose }) => {
             const [name,       setName]       = useState('');
@@ -733,6 +854,7 @@
                         <HeroSection />
                         <AboutSection />
                         <ContentSection />
+                        <AnnouncementsSection />
                         <CommunitySection />
                         <ConnectSection />
                     </main>
