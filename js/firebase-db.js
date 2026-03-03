@@ -8,10 +8,10 @@
  * MODES:
  *   Firebase mode  — when SITE_CONFIG.firebase.apiKey is configured.
  *                    Tickets are stored in Firestore (cross-device, persistent).
- *   Fallback mode  — when Firebase is NOT yet configured.
- *                    Tickets are stored in browser localStorage (temporary,
- *                    same-device only). Everything still works so you can
- *                    test before finishing Firebase setup.
+ *   Fallback mode  — when Firebase is NOT yet configured, or Firestore is
+ *                    unreachable (e.g. database not created yet, rules blocking,
+ *                    or network issue). Tickets are stored in localStorage so
+ *                    the form always completes successfully.
  *
  * Requires the Firebase compat SDK script tags to be loaded before this file:
  *   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -42,6 +42,49 @@ function _ensureApp() {
     _appInitialized = true;
 }
 
+/**
+ * Wraps a Firestore promise with a timeout so it always resolves/rejects
+ * within the given ms instead of hanging indefinitely.
+ */
+function _withTimeout(promise, ms) {
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore timeout — check that your database is created and Security Rules are published')), ms)
+    );
+    return Promise.race([promise, timeout]);
+}
+
+// ---------------------------------------------------------------------------
+// localStorage helpers (always available as fallback)
+// ---------------------------------------------------------------------------
+
+function _lsSave(ticket) {
+    const existing = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
+    localStorage.setItem('tb_tickets', JSON.stringify([ticket, ...existing]));
+    return ticket;
+}
+
+function _lsGet(id) {
+    const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
+    return tickets.find(t => t.id.toLowerCase() === id.toLowerCase()) || null;
+}
+
+function _lsGetAll() {
+    const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
+    return tickets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function _lsUpdate(id, payload) {
+    const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
+    const updated = tickets.map(t => t.id === id ? { ...t, ...payload } : t);
+    localStorage.setItem('tb_tickets', JSON.stringify(updated));
+    return updated.find(t => t.id === id) || null;
+}
+
+function _lsDelete(id) {
+    const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
+    localStorage.setItem('tb_tickets', JSON.stringify(tickets.filter(t => t.id !== id)));
+}
+
 // ---------------------------------------------------------------------------
 // Public API — FirebaseDB
 // ---------------------------------------------------------------------------
@@ -62,59 +105,82 @@ const FirebaseDB = {
     async saveTicket(ticket) {
         _ensureApp();
         if (_isConfigured()) {
-            await firebase.firestore().collection('tickets').doc(ticket.id).set(ticket);
-            return ticket;
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('tickets').doc(ticket.id).set(ticket),
+                    8000
+                );
+                return ticket;
+            } catch (err) {
+                console.warn('FirebaseDB.saveTicket fell back to localStorage:', err.message);
+            }
         }
-        // localStorage fallback
-        const existing = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-        localStorage.setItem('tb_tickets', JSON.stringify([ticket, ...existing]));
-        return ticket;
+        return _lsSave(ticket);
     },
 
     async getTicket(id) {
         _ensureApp();
         if (_isConfigured()) {
-            const snap = await firebase.firestore().collection('tickets').doc(id).get();
-            return snap.exists ? { id: snap.id, ...snap.data() } : null;
+            try {
+                const snap = await _withTimeout(
+                    firebase.firestore().collection('tickets').doc(id).get(),
+                    8000
+                );
+                return snap.exists ? { id: snap.id, ...snap.data() } : null;
+            } catch (err) {
+                console.warn('FirebaseDB.getTicket fell back to localStorage:', err.message);
+            }
         }
-        const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-        return tickets.find(t => t.id.toLowerCase() === id.toLowerCase()) || null;
+        return _lsGet(id);
     },
 
     async getAllTickets() {
         _ensureApp();
         if (_isConfigured()) {
-            const snap = await firebase.firestore()
-                .collection('tickets')
-                .orderBy('createdAt', 'desc')
-                .get();
-            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            try {
+                const snap = await _withTimeout(
+                    firebase.firestore().collection('tickets').orderBy('createdAt', 'desc').get(),
+                    8000
+                );
+                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            } catch (err) {
+                console.warn('FirebaseDB.getAllTickets fell back to localStorage:', err.message);
+            }
         }
-        const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-        return tickets.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return _lsGetAll();
     },
 
     async updateTicket(id, updates) {
         _ensureApp();
         const payload = { ...updates, updatedAt: new Date().toISOString() };
         if (_isConfigured()) {
-            await firebase.firestore().collection('tickets').doc(id).update(payload);
-            return this.getTicket(id);
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('tickets').doc(id).update(payload),
+                    8000
+                );
+                return this.getTicket(id);
+            } catch (err) {
+                console.warn('FirebaseDB.updateTicket fell back to localStorage:', err.message);
+            }
         }
-        const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-        const updated = tickets.map(t => t.id === id ? { ...t, ...payload } : t);
-        localStorage.setItem('tb_tickets', JSON.stringify(updated));
-        return updated.find(t => t.id === id) || null;
+        return _lsUpdate(id, payload);
     },
 
     async deleteTicket(id) {
         _ensureApp();
         if (_isConfigured()) {
-            await firebase.firestore().collection('tickets').doc(id).delete();
-            return;
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('tickets').doc(id).delete(),
+                    8000
+                );
+                return;
+            } catch (err) {
+                console.warn('FirebaseDB.deleteTicket fell back to localStorage:', err.message);
+            }
         }
-        const tickets = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-        localStorage.setItem('tb_tickets', JSON.stringify(tickets.filter(t => t.id !== id)));
+        _lsDelete(id);
     },
 
     // -----------------------------------------------------------------------
