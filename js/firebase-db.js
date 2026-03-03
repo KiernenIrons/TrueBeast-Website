@@ -214,10 +214,17 @@ const FirebaseDB = {
                     callback(null);
                 }
             }, 6000);
-            firebase.auth().onAuthStateChanged(u => {
-                if (!settled) { settled = true; clearTimeout(timer); }
-                callback(u);
-            });
+            try {
+                firebase.auth().onAuthStateChanged(u => {
+                    if (!settled) { settled = true; clearTimeout(timer); }
+                    callback(u);
+                });
+            } catch (err) {
+                // firebase.auth() threw synchronously — Auth service likely not enabled
+                console.warn('FirebaseDB: firebase.auth() error:', err.message,
+                    '\n→ Go to Firebase Console → Build → Authentication → Get started → enable Email/Password');
+                if (!settled) { settled = true; clearTimeout(timer); callback(null); }
+            }
         } else {
             callback(null);
         }

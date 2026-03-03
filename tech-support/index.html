@@ -13,11 +13,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="js/config.js"></script>
-    <script src="js/firebase-db.js"></script>
-    <link rel="stylesheet" href="css/shared.css">
-    <link rel="stylesheet" href="css/glass.css">
-    <link rel="stylesheet" href="css/tech-support.css">
+    <script src="../js/config.js"></script>
+    <script src="../js/firebase-db.js"></script>
+    <link rel="stylesheet" href="../css/shared.css">
+    <link rel="stylesheet" href="../css/glass.css">
+    <link rel="stylesheet" href="../css/tech-support.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -56,8 +56,8 @@
             try {
                 const ejsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs : {};
                 const siteUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
-                const viewTicketUrl = `${siteUrl}/ticket.html?id=${ticketData.id}`;
-                const adminUrl      = `${siteUrl}/admin.html`;
+                const viewTicketUrl = `${siteUrl}/ticket/?id=${ticketData.id}`;
+                const adminUrl      = `${siteUrl}/admin/`;
                 const discordLink   = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social && SITE_CONFIG.social.discord) || 'https://discord.gg/Nk8vekY';
 
                 // Confirmation email to the user
@@ -123,7 +123,7 @@
                     <div className="max-w-7xl mx-auto px-6">
                         <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
                             <div className="flex items-center justify-between">
-                                <a href="index.html" className="flex items-center gap-3 group">
+                                <a href="../" className="flex items-center gap-3 group">
                                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center pulse-glow">
                                         <span className="font-display font-bold text-lg">TB</span>
                                     </div>
@@ -131,7 +131,7 @@
                                 </a>
                                 
                                 <div className="flex items-center gap-4">
-                                    <a href="index.html" className="text-gray-300 hover:text-white transition-colors">Home</a>
+                                    <a href="../" className="text-gray-300 hover:text-white transition-colors">Home</a>
                                     <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
                                        className="btn-glass liquid-glass px-5 py-2.5 rounded-xl text-sm font-medium text-white hover:bg-white/10 flex items-center gap-2">
                                         <i data-lucide="youtube" className="w-4 h-4"></i>
@@ -237,7 +237,7 @@
                             }} className="btn-glass liquid-glass px-6 py-3 rounded-xl font-medium">
                                 Submit Another
                             </button>
-                            <a href={`ticket.html?id=${ticketId}`} className="btn-glass liquid-glass-strong glass-glow px-6 py-3 rounded-xl font-medium text-green-400 flex items-center justify-center gap-2">
+                            <a href={`../ticket/?id=${ticketId}`} className="btn-glass liquid-glass-strong glass-glow px-6 py-3 rounded-xl font-medium text-green-400 flex items-center justify-center gap-2">
                                 <i data-lucide="external-link" className="w-4 h-4"></i>
                                 View Ticket
                             </a>
@@ -656,7 +656,7 @@
                                     <i data-lucide="search" className="w-5 h-5"></i>
                                     Check Status
                                 </button>
-                                <a href="admin.html"
+                                <a href="../admin/"
                                     className="liquid-glass px-6 py-3 rounded-xl font-medium text-gray-400 hover:text-white flex items-center gap-2">
                                     <i data-lucide="shield" className="w-5 h-5"></i>
                                     Admin
@@ -751,7 +751,7 @@
                                     Free tech support for the community. Stay grinding. 🎮
                                 </p>
                                 <div className="flex items-center gap-4">
-                                    <a href="index.html" className="text-gray-400 hover:text-white transition-colors">Home</a>
+                                    <a href="../" className="text-gray-400 hover:text-white transition-colors">Home</a>
                                     <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
                                        className="liquid-glass p-3 rounded-xl hover:bg-white/10 transition-colors">
                                         <i data-lucide="youtube" className="w-5 h-5"></i>

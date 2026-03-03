@@ -12,11 +12,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="js/config.js"></script>
-    <script src="js/firebase-db.js"></script>
-    <link rel="stylesheet" href="css/shared.css">
-    <link rel="stylesheet" href="css/glass.css">
-    <link rel="stylesheet" href="css/ticket.css">
+    <script src="../js/config.js"></script>
+    <script src="../js/firebase-db.js"></script>
+    <link rel="stylesheet" href="../css/shared.css">
+    <link rel="stylesheet" href="../css/glass.css">
+    <link rel="stylesheet" href="../css/ticket.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -34,18 +34,18 @@
                 <div className="max-w-5xl mx-auto px-6">
                     <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
                         <div className="flex items-center justify-between">
-                            <a href="index.html" className="flex items-center gap-3 group">
+                            <a href="../" className="flex items-center gap-3 group">
                                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center pulse-glow">
                                     <span className="font-display font-bold text-lg">TB</span>
                                 </div>
                                 <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
                             </a>
                             <div className="flex items-center gap-3">
-                                <a href="tech-support.html" className="btn-glass liquid-glass px-4 py-2 rounded-xl text-sm font-medium text-gray-300 hover:text-white flex items-center gap-2">
+                                <a href="../tech-support/" className="btn-glass liquid-glass px-4 py-2 rounded-xl text-sm font-medium text-gray-300 hover:text-white flex items-center gap-2">
                                     <i data-lucide="plus-circle" className="w-4 h-4"></i>
                                     New Ticket
                                 </a>
-                                <a href="index.html" className="text-gray-400 hover:text-white text-sm transition-colors">Home</a>
+                                <a href="../" className="text-gray-400 hover:text-white text-sm transition-colors">Home</a>
                             </div>
                         </div>
                     </div>
@@ -184,7 +184,7 @@
                     {ticket.status === 'resolved' ? (
                         <div className="flex items-center gap-3 liquid-glass rounded-xl p-4 border-l-4 border-l-gray-500">
                             <i data-lucide="check-circle" className="w-5 h-5 text-gray-400 flex-shrink-0"></i>
-                            <p className="text-gray-400 text-sm">This ticket has been marked as resolved. Need more help? <a href="tech-support.html" className="text-green-400 hover:underline">Submit a new ticket.</a></p>
+                            <p className="text-gray-400 text-sm">This ticket has been marked as resolved. Need more help? <a href="../tech-support/" className="text-green-400 hover:underline">Submit a new ticket.</a></p>
                         </div>
                     ) : (
                         <div className="flex items-center gap-3 liquid-glass rounded-xl p-4 border-l-4 border-l-green-500/50">
@@ -195,7 +195,7 @@
 
                     {/* Footer CTAs */}
                     <div className="mt-6 pt-6 border-t border-white/10 flex flex-wrap gap-3">
-                        <a href="tech-support.html" className="btn-glass liquid-glass px-5 py-2.5 rounded-xl text-sm font-medium text-gray-300 hover:text-white flex items-center gap-2">
+                        <a href="../tech-support/" className="btn-glass liquid-glass px-5 py-2.5 rounded-xl text-sm font-medium text-gray-300 hover:text-white flex items-center gap-2">
                             <i data-lucide="plus-circle" className="w-4 h-4"></i>
                             Submit New Ticket
                         </a>

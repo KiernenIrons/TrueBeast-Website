@@ -12,7 +12,7 @@ const SITE_CONFIG = {
     // Your live website URL. Used to build "View Ticket" links in emails.
     // For GitHub Pages it's usually: https://USERNAME.github.io/REPO-NAME
     // -----------------------------------------------------------------------
-    siteUrl: 'https://kiernenIrons.github.io/TrueBeast-Website',
+    siteUrl: 'https://truebeast.io',
 
     // -----------------------------------------------------------------------
     // SOCIAL MEDIA LINKS

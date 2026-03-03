@@ -12,11 +12,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="js/config.js"></script>
-    <script src="js/firebase-db.js"></script>
-    <link rel="stylesheet" href="css/shared.css">
-    <link rel="stylesheet" href="css/glass.css">
-    <link rel="stylesheet" href="css/admin.css">
+    <script src="../js/config.js"></script>
+    <script src="../js/firebase-db.js"></script>
+    <link rel="stylesheet" href="../css/shared.css">
+    <link rel="stylesheet" href="../css/glass.css">
+    <link rel="stylesheet" href="../css/admin.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -39,7 +39,7 @@
                     <p className="text-gray-400 text-sm mb-6 leading-relaxed">
                         The admin panel requires Firebase to be set up. Open <code className="text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded">js/config.js</code> and follow the step-by-step instructions in the Firebase section to get started — it takes about 10 minutes and is completely free.
                     </p>
-                    <a href="index.html" className="btn-glass liquid-glass px-6 py-3 rounded-xl text-sm font-medium text-gray-300 hover:text-white inline-flex items-center gap-2">
+                    <a href="../" className="btn-glass liquid-glass px-6 py-3 rounded-xl text-sm font-medium text-gray-300 hover:text-white inline-flex items-center gap-2">
                         <i data-lucide="arrow-left" className="w-4 h-4"></i>
                         Back to Site
                     </a>
@@ -90,7 +90,7 @@
                             )}
 
                             <div className="flex gap-3 pt-2">
-                                <a href="tech-support.html" className="flex-1 liquid-glass px-4 py-3 rounded-xl text-gray-300 hover:text-white text-center text-sm font-medium">
+                                <a href="../tech-support/" className="flex-1 liquid-glass px-4 py-3 rounded-xl text-gray-300 hover:text-white text-center text-sm font-medium">
                                     Cancel
                                 </a>
                                 <button type="submit" disabled={loading}
@@ -448,7 +448,7 @@
                     <div className="max-w-5xl mx-auto px-6">
                         <div className={`liquid-glass rounded-2xl px-6 py-4 ${scrolled ? 'shadow-2xl' : ''}`}>
                             <div className="flex items-center justify-between">
-                                <a href="index.html" className="flex items-center gap-3 group">
+                                <a href="../" className="flex items-center gap-3 group">
                                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center pulse-glow">
                                         <span className="font-display font-bold text-lg">TB</span>
                                     </div>
@@ -458,7 +458,7 @@
                                     </div>
                                 </a>
                                 <div className="flex items-center gap-3">
-                                    <a href="tech-support.html" className="text-gray-400 hover:text-white text-sm transition-colors">Support Portal</a>
+                                    <a href="../tech-support/" className="text-gray-400 hover:text-white text-sm transition-colors">Support Portal</a>
                                     {user && (
                                         <button onClick={onSignOut} className="liquid-glass px-3 py-2 rounded-xl text-sm text-gray-400 hover:text-white flex items-center gap-2">
                                             <i data-lucide="log-out" className="w-4 h-4"></i>
