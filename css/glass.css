@@ -43,6 +43,7 @@
     inset: -1px;
     border-radius: inherit;
     padding: 1px;
+    pointer-events: none; /* must not intercept clicks on child elements */
     -webkit-mask:
         linear-gradient(#fff, #fff) content-box,
         linear-gradient(#fff, #fff);

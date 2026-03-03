@@ -15,7 +15,7 @@
     <script src="js/config.js?v=3"></script>
     <script src="js/firebase-db.js?v=3"></script>
     <link rel="stylesheet" href="css/shared.css">
-    <link rel="stylesheet" href="css/glass.css?v=3">
+    <link rel="stylesheet" href="css/glass.css?v=4">
     <link rel="stylesheet" href="css/index.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -477,56 +477,83 @@
             );
         };
 
-        // Community Reviews Data - stored in localStorage for demo
+        // Palette for assigning avatar colours to Firebase reviews
+        const REVIEW_COLORS = [
+            'from-green-500 to-emerald-600',
+            'from-blue-500 to-cyan-500',
+            'from-purple-500 to-violet-600',
+            'from-orange-500 to-red-500',
+            'from-pink-500 to-rose-500',
+            'from-indigo-500 to-blue-600',
+        ];
+        const FALLBACK_REVIEWS = [
+            { id: 'f1', name: "ShadowHunter", tag: "#2417", text: "TrueBeast helped me fix my PC when no one else could. Legend!", color: "from-green-500 to-emerald-600" },
+            { id: 'f2', name: "GameOn",       tag: "#8832", text: "The Discord community is amazing. Made so many friends here!", color: "from-blue-500 to-cyan-500" },
+            { id: 'f3', name: "TechWiz",      tag: "#1205", text: "Kiernen actually responds and cares about his community. Rare these days.", color: "from-purple-500 to-violet-600" },
+            { id: 'f4', name: "NightOwl",     tag: "#4451", text: "Best gaming streams hands down. Always a good time.", color: "from-orange-500 to-red-500" },
+        ];
+
+        // Normalise Firebase reviews into the shape the cards expect
+        function normaliseReview(r, idx) {
+            return {
+                id:    r.id,
+                name:  r.name || 'Anonymous',
+                tag:   r.tag  || ('#' + String(r.id).replace(/[^A-Z0-9]/gi,'').slice(-4).toUpperCase()),
+                text:  r.text,
+                color: r.color || REVIEW_COLORS[idx % REVIEW_COLORS.length],
+            };
+        }
+
         const useCommunityReviews = () => {
-            const [reviews, setReviews] = useState([]);
-            const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
-            
+            const [pool,    setPool]    = useState([]);
+            const [shown,   setShown]   = useState([]);
+            const [visible, setVisible] = useState(true);
+
+            // Load approved reviews from Firebase, fall back to hardcoded
             useEffect(() => {
-                // Load approved reviews from localStorage
-                const stored = localStorage.getItem('tb_approved_reviews');
-                let approvedReviews = stored ? JSON.parse(stored) : [];
-                
-                // Default reviews if none exist
-                if (approvedReviews.length === 0) {
-                    approvedReviews = [
-                        { id: 1, name: "ShadowHunter", tag: "#2417", text: "TrueBeast helped me fix my PC when no one else could. Legend!", color: "from-green-500 to-emerald-600", approved: true },
-                        { id: 2, name: "GameOn", tag: "#8832", text: "The Discord community is amazing. Made so many friends here!", color: "from-blue-500 to-cyan-500", approved: true },
-                        { id: 3, name: "TechWiz", tag: "#1205", text: "Kiernen actually responds and cares about his community. Rare these days.", color: "from-purple-500 to-violet-600", approved: true },
-                        { id: 4, name: "NightOwl", tag: "#4451", text: "Best gaming streams hands down. Always a good time.", color: "from-orange-500 to-red-500", approved: true },
-                    ];
-                    localStorage.setItem('tb_approved_reviews', JSON.stringify(approvedReviews));
+                if (typeof FirebaseDB !== 'undefined') {
+                    FirebaseDB.getAllReviews().then(reviews => {
+                        const approved = reviews
+                            .filter(r => r.status === 'approved')
+                            .map(normaliseReview);
+                        if (approved.length > 0) {
+                            setPool(approved);
+                            setShown(approved.slice(0, Math.min(4, approved.length)));
+                            return;
+                        }
+                        setPool(FALLBACK_REVIEWS);
+                        setShown(FALLBACK_REVIEWS);
+                    }).catch(() => {
+                        setPool(FALLBACK_REVIEWS);
+                        setShown(FALLBACK_REVIEWS);
+                    });
+                } else {
+                    setPool(FALLBACK_REVIEWS);
+                    setShown(FALLBACK_REVIEWS);
                 }
-                
-                setReviews(approvedReviews);
             }, []);
-            
-            // Rotate through reviews
+
+            // Cycle through reviews when there are more than 4:
+            // fade grid out → swap content → fade back in
             useEffect(() => {
-                if (reviews.length === 0) return;
+                if (pool.length <= 4) return;
                 const interval = setInterval(() => {
-                    setCurrentReviewIndex((prev) => (prev + 1) % reviews.length);
+                    setVisible(false);
+                    setTimeout(() => {
+                        const shuffled = [...pool].sort(() => Math.random() - 0.5);
+                        setShown(shuffled.slice(0, 4));
+                        setVisible(true);
+                    }, 450); // matches CSS transition duration
                 }, 5000);
                 return () => clearInterval(interval);
-            }, [reviews]);
-            
-            const getDisplayReviews = () => {
-                if (reviews.length === 0) return [];
-                const displayCount = Math.min(4, reviews.length);
-                const display = [];
-                for (let i = 0; i < displayCount; i++) {
-                    const idx = (currentReviewIndex + i) % reviews.length;
-                    display.push({ ...reviews[idx], position: i });
-                }
-                return display;
-            };
-            
-            return { reviews, displayReviews: getDisplayReviews() };
+            }, [pool]);
+
+            return { displayReviews: shown, visible };
         };
         
         // Community Section
         const CommunitySection = () => {
-            const { displayReviews } = useCommunityReviews();
+            const { displayReviews, visible } = useCommunityReviews();
             const [showReviewModal, setShowReviewModal] = useState(false);
 
             return (
@@ -578,11 +605,14 @@
                                 </div>
                                 
                                 <div className="relative">
-                                    <div className="grid grid-cols-2 gap-4">
+                                    {/* opacity transition handles smooth cycling — content swaps while invisible */}
+                                    <div className="grid grid-cols-2 gap-4"
+                                         style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.45s ease' }}>
                                         {displayReviews.map((review, i) => (
-                                            <div key={review.id} className={`liquid-glass rounded-2xl p-4 ${i % 2 === 0 ? 'float' : 'float-delayed'} animate-fade-in`}>
+                                            <div key={i} className={`liquid-glass rounded-2xl p-4 ${i % 2 === 0 ? 'float' : 'float-delayed'}`}
+                                                 style={{ minHeight: '110px' }}>
                                                 <div className="flex items-center gap-3 mb-3">
-                                                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${review.color}`}></div>
+                                                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${review.color} flex-shrink-0`}></div>
                                                     <div>
                                                         <div className="font-medium text-sm">{review.name}</div>
                                                         <div className="text-xs text-gray-500">{review.tag}</div>
