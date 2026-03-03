@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrueBeast | Kiernen Irons</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-highlight: rgba(255, 255, 255, 0.15);
+            --accent-green: #22c55e;
+            --accent-green-dark: #16a34a;
+            --accent-green-light: #4ade80;
+            --accent-neon: #39ff14;
+        }
+        
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: #0a0a0f;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+        
+        .font-display {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        
+        /* Animated Gradient Background */
+        .gradient-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            background: 
+                radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 80%, rgba(57, 255, 20, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 40% 60%, rgba(22, 163, 74, 0.1) 0%, transparent 40%),
+                #050505;
+        }
+        
+        .gradient-bg::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(ellipse at 60% 30%, rgba(74, 222, 128, 0.06) 0%, transparent 40%);
+            animation: gradientShift 20s ease-in-out infinite;
+        }
+        
+        @keyframes gradientShift {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(5%, -5%) scale(1.1); }
+            50% { transform: translate(-5%, 5%) scale(0.95); }
+            75% { transform: translate(3%, 3%) scale(1.05); }
+        }
+        
+        /* Liquid Glass Effect */
+        .liquid-glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--glass-border);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 var(--glass-highlight),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+        
+        .liquid-glass-strong {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(40px) saturate(200%);
+            -webkit-backdrop-filter: blur(40px) saturate(200%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 
+                0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2),
+                inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Animated border glow */
+        .glass-glow {
+            position: relative;
+        }
+        
+        .glass-glow::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(135deg, 
+                rgba(34, 197, 94, 0.6), 
+                rgba(57, 255, 20, 0.4),
+                rgba(22, 163, 74, 0.5),
+                rgba(74, 222, 128, 0.4)
+            );
+            -webkit-mask: 
+                linear-gradient(#fff 0 0) content-box, 
+                linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            animation: borderRotate 8s linear infinite;
+        }
+        
+        @keyframes borderRotate {
+            0% { filter: hue-rotate(0deg); }
+            100% { filter: hue-rotate(360deg); }
+        }
+        
+        /* Floating animation */
+        .float {
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        .float-delayed {
+            animation: float 6s ease-in-out infinite;
+            animation-delay: -3s;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        
+        /* Pulse glow */
+        .pulse-glow {
+            animation: pulseGlow 3s ease-in-out infinite;
+        }
+        
+        @keyframes pulseGlow {
+            0%, 100% { 
+                box-shadow: 0 0 20px rgba(34, 197, 94, 0.3),
+                            0 0 40px rgba(34, 197, 94, 0.1);
+            }
+            50% { 
+                box-shadow: 0 0 30px rgba(34, 197, 94, 0.5),
+                            0 0 60px rgba(34, 197, 94, 0.2);
+            }
+        }
+        
+        /* Scroll animations */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #050505;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #22c55e, #16a34a);
+            border-radius: 4px;
+        }
+        
+        /* Noise texture overlay */
+        .noise {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+            pointer-events: none;
+        }
+        
+        /* Button hover effects */
+        .btn-glass {
+            transition: all 0.3s ease;
+        }
+        
+        .btn-glass:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
+        }
+        
+        /* Video card hover */
+        .video-card {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .video-card:hover {
+            transform: translateY(-8px) scale(1.02);
+        }
+        
+        /* Text gradient */
+        .text-gradient {
+            background: linear-gradient(135deg, #fff 0%, #4ade80 50%, #22c55e 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .text-green-glow {
+            color: #22c55e;
+            text-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+        }
+        
+        /* Social icon hover */
+        .social-icon {
+            transition: all 0.3s ease;
+        }
+        
+        .social-icon:hover {
+            transform: scale(1.1) rotate(5deg);
+            filter: drop-shadow(0 0 20px currentColor);
+        }
+        
+        /* Cursor glow effect */
+        .cursor-glow {
+            position: fixed;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(34, 197, 94, 0.12) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: -1;
+            transform: translate(-50%, -50%);
+            transition: opacity 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="gradient-bg"></div>
+    <div class="noise"></div>
+    <div class="cursor-glow" id="cursorGlow"></div>
+    
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        
+        // Custom hook for scroll reveal
+        const useScrollReveal = () => {
+            useEffect(() => {
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('active');
+                        }
+                    });
+                }, { threshold: 0.1 });
+                
+                document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+                
+                return () => observer.disconnect();
+            }, []);
+        };
+        
+        // Custom hook for mouse tracking
+        const useMouseTracking = () => {
+            useEffect(() => {
+                const cursorGlow = document.getElementById('cursorGlow');
+                let rafId;
+                let mouseX = 0, mouseY = 0;
+                
+                const handleMouseMove = (e) => {
+                    mouseX = e.clientX;
+                    mouseY = e.clientY;
+                };
+                
+                const updateCursor = () => {
+                    cursorGlow.style.left = mouseX + 'px';
+                    cursorGlow.style.top = mouseY + 'px';
+                    rafId = requestAnimationFrame(updateCursor);
+                };
+                
+                document.addEventListener('mousemove', handleMouseMove, { passive: true });
+                rafId = requestAnimationFrame(updateCursor);
+                
+                return () => {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    cancelAnimationFrame(rafId);
+                };
+            }, []);
+        };
+        
+        // Navigation Component
+        const Navigation = () => {
+            const [scrolled, setScrolled] = useState(false);
+            const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+            
+            useEffect(() => {
+                const handleScroll = () => setScrolled(window.scrollY > 50);
+                window.addEventListener('scroll', handleScroll, { passive: true });
+                return () => window.removeEventListener('scroll', handleScroll);
+            }, []);
+            
+            const navLinks = [
+                { name: 'Home', href: '#home' },
+                { name: 'About', href: '#about' },
+                { name: 'Content', href: '#content' },
+                { name: 'Community', href: '#community' },
+                { name: 'Connect', href: '#connect' },
+            ];
+            
+            return (
+                <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'py-3' : 'py-6'}`}>
+                    <div className="max-w-7xl mx-auto px-6">
+                        <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
+                            <div className="flex items-center justify-between">
+                                <a href="#home" className="flex items-center gap-3 group">
+                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center pulse-glow">
+                                        <span className="font-display font-bold text-lg">TB</span>
+                                    </div>
+                                    <span className="font-display font-bold text-xl tracking-tight group-hover:text-violet-400 transition-colors">TrueBeast</span>
+                                </a>
+                                
+                                {/* Desktop Nav */}
+                                <div className="hidden md:flex items-center gap-8">
+                                    {navLinks.map(link => (
+                                        <a key={link.name} href={link.href} 
+                                           className="text-sm font-medium text-gray-300 hover:text-white transition-colors relative group">
+                                            {link.name}
+                                            <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-green-500 to-emerald-500 transition-all duration-300 group-hover:w-full"></span>
+                                        </a>
+                                    ))}
+                                </div>
+                                
+                                <div className="hidden md:flex items-center gap-4">
+                                    <a href="tech-support.html"
+                                       className="btn-glass liquid-glass px-5 py-2.5 rounded-xl text-sm font-medium text-white hover:bg-white/10 flex items-center gap-2">
+                                        <i data-lucide="headphones" className="w-4 h-4"></i>
+                                        Tech Support
+                                    </a>
+                                    <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
+                                       className="btn-glass liquid-glass px-5 py-2.5 rounded-xl text-sm font-medium text-white hover:bg-white/10 flex items-center gap-2">
+                                        <i data-lucide="youtube" className="w-4 h-4"></i>
+                                        Subscribe
+                                    </a>
+                                </div>
+                                
+                                {/* Mobile Menu Button */}
+                                <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                                        className="md:hidden liquid-glass p-2 rounded-xl">
+                                    <i data-lucide={mobileMenuOpen ? "x" : "menu"} className="w-6 h-6"></i>
+                                </button>
+                            </div>
+                            
+                            {/* Mobile Menu */}
+                            {mobileMenuOpen && (
+                                <div className="md:hidden mt-4 pt-4 border-t border-white/10">
+                                    <div className="flex flex-col gap-3">
+                                        {navLinks.map(link => (
+                                            <a key={link.name} href={link.href}
+                                               onClick={() => setMobileMenuOpen(false)}
+                                               className="text-gray-300 hover:text-white py-2 transition-colors">
+                                                {link.name}
+                                            </a>
+                                        ))}
+                                        <a href="tech-support.html"
+                                           className="btn-glass liquid-glass px-5 py-3 rounded-xl text-center font-medium">
+                                            <i data-lucide="headphones" className="w-4 h-4 inline mr-2"></i>
+                                            Tech Support
+                                        </a>
+                                        <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
+                                           className="btn-glass liquid-glass px-5 py-3 rounded-xl text-center font-medium">
+                                            Subscribe on YouTube
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </nav>
+            );
+        };
+        
+        // Hero Section
+        const HeroSection = () => {
+            return (
+                <section id="home" className="min-h-screen flex items-center justify-center relative pt-24 pb-12 px-6">
+                    <div className="max-w-6xl mx-auto text-center relative z-10">
+                        {/* Floating decorative elements */}
+                        <div className="absolute top-20 left-10 w-20 h-20 rounded-full liquid-glass float opacity-60 hidden lg:block"></div>
+                        <div className="absolute bottom-20 right-10 w-32 h-32 rounded-full liquid-glass float-delayed opacity-40 hidden lg:block"></div>
+                        <div className="absolute top-40 right-20 w-16 h-16 rounded-2xl liquid-glass rotate-45 float opacity-50 hidden lg:block"></div>
+                        
+                        {/* Main content */}
+                        <div className="reveal">
+                            <div className="inline-flex items-center gap-2 liquid-glass px-4 py-2 rounded-full mb-8">
+                                <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                                <span className="text-sm font-medium text-gray-300">Live. Game. Repeat.</span>
+                            </div>
+                        </div>
+                        
+                        <h1 className="reveal font-display font-bold text-6xl md:text-8xl lg:text-9xl mb-6 leading-none">
+                            <span className="text-gradient">TrueBeast</span>
+                        </h1>
+                        
+                        <p className="reveal text-xl md:text-2xl text-gray-400 max-w-2xl mx-auto mb-4 font-light">
+                            Yo, I'm Kiernen Irons
+                        </p>
+                        
+                        <p className="reveal text-gray-400 max-w-xl mx-auto mb-12">
+                            Welcome to my world. I game hard, hang with friends, and share my life with the best community out there. Come through and meet some amazing people while you're at it.
+                        </p>
+                        
+                        <div className="reveal flex flex-col sm:flex-row items-center justify-center gap-4">
+                            <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
+                               className="btn-glass liquid-glass-strong glass-glow px-8 py-4 rounded-2xl font-semibold text-lg flex items-center gap-3 group">
+                                <i data-lucide="play" className="w-5 h-5 group-hover:scale-110 transition-transform"></i>
+                                Watch Latest
+                            </a>
+                            <a href="https://discord.gg/Nk8vekY" target="_blank" rel="noopener noreferrer"
+                               className="btn-glass liquid-glass px-8 py-4 rounded-2xl font-semibold text-lg flex items-center gap-3 text-gray-300 hover:text-white">
+                                <i data-lucide="message-circle" className="w-5 h-5"></i>
+                                Join Discord
+                            </a>
+                        </div>
+                        
+                        {/* Stats */}
+                        <div className="reveal mt-20 grid grid-cols-2 md:grid-cols-4 gap-6 max-w-3xl mx-auto">
+                            {[
+                                { value: 'YouTube', label: '@RealTrueBeast', icon: 'youtube' },
+                                { value: 'Discord', label: 'Squad Up Here', icon: 'users' },
+                                { value: 'Gaming', label: 'Daily Content', icon: 'gamepad-2' },
+                                { value: 'Community', label: 'Family Vibes', icon: 'heart' },
+                            ].map((stat, i) => (
+                                <div key={i} className="liquid-glass rounded-2xl p-6 text-center group hover:bg-white/5 transition-all duration-300">
+                                    <i data-lucide={stat.icon} className="w-6 h-6 mx-auto mb-3 text-green-400 group-hover:scale-110 transition-transform"></i>
+                                    <div className="font-display font-bold text-lg">{stat.value}</div>
+                                    <div className="text-xs text-gray-500 mt-1">{stat.label}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+        
+        // About Section
+        const AboutSection = () => {
+            return (
+                <section id="about" className="py-24 px-6">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="grid lg:grid-cols-2 gap-12 items-center">
+                            <div className="reveal">
+                                <div className="relative">
+                                    <div className="liquid-glass-strong glass-glow rounded-3xl p-2">
+                                        <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-green-900/50 to-emerald-900/50 relative">
+                                            <img src="http://static.photos/gaming/640x360/42" 
+                                                 alt="TrueBeast" 
+                                                 className="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity duration-500" />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+                                            <div className="absolute bottom-6 left-6 right-6">
+                                                <div className="liquid-glass rounded-xl px-4 py-3 inline-flex items-center gap-3">
+                                                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+                                                    <span className="text-sm font-medium">Live & Gaming</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {/* Decorative elements */}
+                                    <div className="absolute -top-6 -right-6 w-24 h-24 liquid-glass rounded-2xl float opacity-60"></div>
+                                    <div className="absolute -bottom-6 -left-6 w-16 h-16 liquid-glass rounded-full float-delayed opacity-60"></div>
+                                </div>
+                            </div>
+                            
+                            <div className="reveal">
+                                <span className="text-green-400 font-medium text-sm tracking-wider uppercase mb-4 block">Who I Am</span>
+                                <h2 className="font-display font-bold text-4xl md:text-5xl mb-6">
+                                    The Story Behind<br/>
+                                    <span className="text-gradient">TrueBeast</span>
+                                </h2>
+                                <p className="text-gray-400 text-lg leading-relaxed mb-6">
+                                    What's good! I'm Kiernen, but most people know me as TrueBeast. I'm just a gamer who loves hanging out with friends and sharing those moments with all of you. I started this channel because I wanted to build something real — a place where people can come through, game together, and feel like they're part of something bigger.
+                                </p>
+                                <p className="text-gray-500 leading-relaxed mb-8">
+                                    My content is all about gaming, vibing with the community, and giving you a look into my life. Whether we're grinding ranked, trying new games, or just chilling in Discord, every stream and video is about having a good time together. The TrueBeast family isn't just viewers — we're a community that supports each other.
+                                </p>
+                                
+                                <div className="flex flex-wrap gap-3">
+                                    {['Gaming', 'Community First', 'Real Talk', 'Good Vibes Only'].map((tag, i) => (
+                                        <span key={i} className="liquid-glass px-4 py-2 rounded-full text-sm font-medium text-gray-300">
+                                            {tag}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+        
+        // Content Section
+        const ContentSection = () => {
+            const videos = [
+                { title: 'Latest Upload', duration: '15:42', views: '12K views', time: '2 days ago', seed: 101 },
+                { title: 'Community Favorite', duration: '22:18', views: '45K views', time: '1 week ago', seed: 102 },
+                { title: 'Trending Now', duration: '18:55', views: '89K views', time: '2 weeks ago', seed: 103 },
+                { title: 'Deep Dive', duration: '31:24', views: '23K views', time: '3 weeks ago', seed: 104 },
+            ];
+            
+            return (
+                <section id="content" className="py-24 px-6">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="text-center mb-16 reveal">
+                            <span className="text-violet-400 font-medium text-sm tracking-wider uppercase mb-4 block">Content</span>
+                            <h2 className="font-display font-bold text-4xl md:text-5xl mb-4">
+                                Latest <span className="text-gradient">Creations</span>
+                            </h2>
+                            <p className="text-gray-400 max-w-xl mx-auto">
+                                Fresh content uploaded regularly. Subscribe to never miss an upload.
+                            </p>
+                        </div>
+                        
+                        <div className="grid md:grid-cols-2 gap-6">
+                            {videos.map((video, i) => (
+                                <div key={i} className="reveal video-card liquid-glass rounded-2xl overflow-hidden group cursor-pointer">
+                                    <div className="aspect-video relative overflow-hidden">
+                                        <img src={`http://static.photos/gaming/640x360/${video.seed}`} 
+                                             alt={video.title}
+                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                            <div className="w-16 h-16 rounded-full liquid-glass-strong flex items-center justify-center">
+                                                <i data-lucide="play" className="w-6 h-6 ml-1"></i>
+                                            </div>
+                                        </div>
+                                        <div className="absolute bottom-3 right-3 liquid-glass px-2 py-1 rounded-lg text-xs font-medium">
+                                            {video.duration}
+                                        </div>
+                                    </div>
+                                    <div className="p-5">
+                                        <h3 className="font-semibold text-lg mb-2 group-hover:text-green-400 transition-colors">{video.title}</h3>
+                                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                                            <span className="flex items-center gap-1">
+                                                <i data-lucide="eye" className="w-4 h-4"></i>
+                                                {video.views}
+                                            </span>
+                                            <span className="flex items-center gap-1">
+                                                <i data-lucide="clock" className="w-4 h-4"></i>
+                                                {video.time}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <div className="text-center mt-12 reveal">
+                            <a href="https://www.youtube.com/@RealTrueBeast/videos" target="_blank" rel="noopener noreferrer"
+                               className="btn-glass liquid-glass px-8 py-4 rounded-2xl font-medium inline-flex items-center gap-2">
+                                View All Videos
+                                <i data-lucide="arrow-right" className="w-4 h-4"></i>
+                            </a>
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+        
+        // Community Reviews Data - stored in localStorage for demo
+        const useCommunityReviews = () => {
+            const [reviews, setReviews] = useState([]);
+            const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
+            
+            useEffect(() => {
+                // Load approved reviews from localStorage
+                const stored = localStorage.getItem('tb_approved_reviews');
+                let approvedReviews = stored ? JSON.parse(stored) : [];
+                
+                // Default reviews if none exist
+                if (approvedReviews.length === 0) {
+                    approvedReviews = [
+                        { id: 1, name: "ShadowHunter", tag: "#2417", text: "TrueBeast helped me fix my PC when no one else could. Legend!", color: "from-green-500 to-emerald-600", approved: true },
+                        { id: 2, name: "GameOn", tag: "#8832", text: "The Discord community is amazing. Made so many friends here!", color: "from-blue-500 to-cyan-500", approved: true },
+                        { id: 3, name: "TechWiz", tag: "#1205", text: "Kiernen actually responds and cares about his community. Rare these days.", color: "from-purple-500 to-violet-600", approved: true },
+                        { id: 4, name: "NightOwl", tag: "#4451", text: "Best gaming streams hands down. Always a good time.", color: "from-orange-500 to-red-500", approved: true },
+                    ];
+                    localStorage.setItem('tb_approved_reviews', JSON.stringify(approvedReviews));
+                }
+                
+                setReviews(approvedReviews);
+            }, []);
+            
+            // Rotate through reviews
+            useEffect(() => {
+                if (reviews.length === 0) return;
+                const interval = setInterval(() => {
+                    setCurrentReviewIndex((prev) => (prev + 1) % reviews.length);
+                }, 5000);
+                return () => clearInterval(interval);
+            }, [reviews]);
+            
+            const getDisplayReviews = () => {
+                if (reviews.length === 0) return [];
+                const displayCount = Math.min(4, reviews.length);
+                const display = [];
+                for (let i = 0; i < displayCount; i++) {
+                    const idx = (currentReviewIndex + i) % reviews.length;
+                    display.push({ ...reviews[idx], position: i });
+                }
+                return display;
+            };
+            
+            return { reviews, displayReviews: getDisplayReviews() };
+        };
+        
+        // Community Section
+        const CommunitySection = () => {
+            const { displayReviews } = useCommunityReviews();
+            const [showReviewModal, setShowReviewModal] = useState(false);
+            const [newReview, setNewReview] = useState({ name: '', text: '' });
+            const [submitted, setSubmitted] = useState(false);
+            
+            const handleSubmitReview = (e) => {
+                e.preventDefault();
+                const pending = JSON.parse(localStorage.getItem('tb_pending_reviews') || '[]');
+                pending.push({
+                    id: Date.now(),
+                    name: newReview.name,
+                    tag: `#${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`,
+                    text: newReview.text,
+                    submittedAt: new Date().toISOString()
+                });
+                localStorage.setItem('tb_pending_reviews', JSON.stringify(pending));
+                setSubmitted(true);
+                setTimeout(() => {
+                    setShowReviewModal(false);
+                    setSubmitted(false);
+                    setNewReview({ name: '', text: '' });
+                }, 2000);
+            };
+            
+            return (
+                <section id="community" className="py-24 px-6 relative">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="liquid-glass-strong glass-glow rounded-3xl p-8 md:p-16 relative overflow-hidden reveal">
+                            {/* Background decoration */}
+                            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                            
+                            <div className="relative z-10 grid lg:grid-cols-2 gap-12 items-center">
+                                <div>
+                                    <span className="text-green-400 font-medium text-sm tracking-wider uppercase mb-4 block">Community</span>
+                                    <h2 className="font-display font-bold text-4xl md:text-5xl mb-6">
+                                        Join the <span className="text-gradient">Family</span>
+                                    </h2>
+                                    <p className="text-gray-400 text-lg leading-relaxed mb-8">
+                                        This isn't just a Discord server — it's a family. We game together, hang out, support each other, and have a blast doing it. Come meet the squad and see what TrueBeast is really about.
+                                    </p>
+                                    
+                                    <div className="space-y-4 mb-8">
+                                        {[
+                                            { icon: 'gamepad-2', text: 'Daily gaming sessions & party games' },
+                                            { icon: 'mic', text: 'Voice chats that go way too late' },
+                                            { icon: 'users', text: 'Meet friends who actually get you' },
+                                            { icon: 'star', text: 'Community events & exclusive drops' },
+                                        ].map((item, i) => (
+                                            <div key={i} className="flex items-center gap-3 text-gray-300">
+                                                <div className="w-8 h-8 rounded-lg liquid-glass flex items-center justify-center">
+                                                    <i data-lucide={item.icon} className="w-4 h-4 text-green-400"></i>
+                                                </div>
+                                                <span>{item.text}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap gap-4">
+                                        <a href="https://discord.gg/Nk8vekY" target="_blank" rel="noopener noreferrer"
+                                           className="btn-glass liquid-glass-strong px-8 py-4 rounded-2xl font-semibold inline-flex items-center gap-3 text-lg">
+                                            <i data-lucide="message-circle" className="w-5 h-5"></i>
+                                            Join Discord
+                                        </a>
+                                        <button onClick={() => setShowReviewModal(true)}
+                                                className="btn-glass liquid-glass px-8 py-4 rounded-2xl font-semibold inline-flex items-center gap-3 text-gray-300 hover:text-white">
+                                            <i data-lucide="heart" className="w-5 h-5"></i>
+                                            Leave a Review
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div className="relative">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {displayReviews.map((review, i) => (
+                                            <div key={review.id} className={`liquid-glass rounded-2xl p-4 ${i % 2 === 0 ? 'float' : 'float-delayed'} animate-fade-in`}>
+                                                <div className="flex items-center gap-3 mb-3">
+                                                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${review.color}`}></div>
+                                                    <div>
+                                                        <div className="font-medium text-sm">{review.name}</div>
+                                                        <div className="text-xs text-gray-500">{review.tag}</div>
+                                                    </div>
+                                                </div>
+                                                <p className="text-xs text-gray-400">"{review.text}"</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Review Submission Modal */}
+                            {showReviewModal && (
+                                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setShowReviewModal(false)}>
+                                    <div className="liquid-glass-strong glass-glow rounded-3xl p-8 max-w-md w-full" onClick={e => e.stopPropagation()}>
+                                        {submitted ? (
+                                            <div className="text-center py-8">
+                                                <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+                                                    <i data-lucide="check" className="w-8 h-8 text-green-400"></i>
+                                                </div>
+                                                <h3 className="font-display font-bold text-2xl mb-2">Thanks!</h3>
+                                                <p className="text-gray-400">Your review is pending approval. Check back soon!</p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <h3 className="font-display font-bold text-2xl mb-2">Share Your Experience</h3>
+                                                <p className="text-gray-400 text-sm mb-6">Leave a review about the community or my tech support. All reviews are verified before posting.</p>
+                                                <form onSubmit={handleSubmitReview} className="space-y-4">
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-300 mb-2">Your Name / Discord</label>
+                                                        <input type="text" required value={newReview.name} onChange={e => setNewReview({...newReview, name: e.target.value})}
+                                                               className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50"
+                                                               placeholder="e.g. GamerPro#1234" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-sm font-medium text-gray-300 mb-2">Your Review</label>
+                                                        <textarea required value={newReview.text} onChange={e => setNewReview({...newReview, text: e.target.value})}
+                                                                  className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 h-32 resize-none"
+                                                                  placeholder="Tell us about your experience..."></textarea>
+                                                    </div>
+                                                    <div className="flex gap-3">
+                                                        <button type="button" onClick={() => setShowReviewModal(false)}
+                                                                className="flex-1 liquid-glass px-4 py-3 rounded-xl text-gray-300 hover:text-white">Cancel</button>
+                                                        <button type="submit"
+                                                                className="flex-1 btn-glass bg-green-600/20 border-green-500/30 px-4 py-3 rounded-xl text-green-400 hover:text-green-300">Submit</button>
+                                                    </div>
+                                                </form>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+        
+        // Connect Section
+        const ConnectSection = () => {
+            const socials = [
+                { name: 'YouTube', icon: 'youtube', url: 'https://www.youtube.com/@RealTrueBeast', color: 'text-red-500', bg: 'from-red-500/20 to-red-600/20' },
+                { name: 'Discord', icon: 'message-circle', url: 'https://discord.gg/Nk8vekY', color: 'text-indigo-400', bg: 'from-indigo-500/20 to-indigo-600/20' },
+                { name: 'Twitter', icon: 'twitter', url: '#', color: 'text-sky-400', bg: 'from-sky-500/20 to-sky-600/20' },
+                { name: 'Instagram', icon: 'instagram', url: '#', color: 'text-pink-400', bg: 'from-pink-500/20 to-pink-600/20' },
+                { name: 'TikTok', icon: 'music', url: '#', color: 'text-cyan-400', bg: 'from-cyan-500/20 to-cyan-600/20' },
+                { name: 'Twitch', icon: 'tv', url: '#', color: 'text-green-400', bg: 'from-green-500/20 to-emerald-600/20' },
+            ];
+            
+            return (
+                <section id="connect" className="py-24 px-6">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="text-center mb-16 reveal">
+                            <span className="text-green-400 font-medium text-sm tracking-wider uppercase mb-4 block">Connect</span>
+                            <h2 className="font-display font-bold text-4xl md:text-5xl mb-4">
+                                Let's <span className="text-gradient">Link Up</span>
+                            </h2>
+                            <p className="text-gray-400 max-w-xl mx-auto">
+                                Catch me on all platforms. I try to stay active everywhere and respond when I can. Let's connect!
+                            </p>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 reveal">
+                            {socials.map((social, i) => (
+                                <a key={i} href={social.url} target="_blank" rel="noopener noreferrer"
+                                   className="video-card liquid-glass rounded-2xl p-6 text-center group hover:bg-white/5">
+                                    <div className={`w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br ${social.bg} flex items-center justify-center social-icon`}>
+                                        <i data-lucide={social.icon} className={`w-8 h-8 ${social.color}`}></i>
+                                    </div>
+                                    <h3 className="font-semibold text-lg mb-1">{social.name}</h3>
+                                    <p className="text-sm text-gray-500 group-hover:text-gray-400 transition-colors">Follow</p>
+                                </a>
+                            ))}
+                        </div>
+                        
+                        <div className="mt-12 text-center reveal">
+                            <a href="tech-support.html"
+                               className="btn-glass liquid-glass px-8 py-4 rounded-2xl font-medium inline-flex items-center gap-2 text-gray-300 hover:text-white">
+                                <i data-lucide="headphones" className="w-5 h-5"></i>
+                                Need Tech Help? Submit a Ticket
+                            </a>
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+        
+        // Footer
+        const Footer = () => {
+            return (
+                <footer className="py-12 px-6 border-t border-white/5">
+                    <div className="max-w-6xl mx-auto">
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+                                    <span className="font-display font-bold text-lg">TB</span>
+                                </div>
+                                <span className="font-display font-bold text-xl">TrueBeast</span>
+                            </div>
+                            
+                            <p className="text-gray-500 text-sm">
+                                © 2024 TrueBeast. Stay grinding. 🎮
+                            </p>
+                            
+                            <div className="flex items-center gap-4">
+                                <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
+                                   className="liquid-glass p-3 rounded-xl hover:bg-white/10 transition-colors">
+                                    <i data-lucide="youtube" className="w-5 h-5"></i>
+                                </a>
+                                <a href="https://discord.gg/Nk8vekY" target="_blank" rel="noopener noreferrer"
+                                   className="liquid-glass p-3 rounded-xl hover:bg-white/10 transition-colors">
+                                    <i data-lucide="message-circle" className="w-5 h-5"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </footer>
+            );
+        };
+        
+        // Main App
+        const App = () => {
+            useScrollReveal();
+            useMouseTracking();
+            
+            useEffect(() => {
+                lucide.createIcons();
+            }, []);
+            
+            return (
+                <div className="relative">
+                    <Navigation />
+                    <main>
+                        <HeroSection />
+                        <AboutSection />
+                        <ContentSection />
+                        <CommunitySection />
+                        <ConnectSection />
+                    </main>
+                    <Footer />
+                </div>
+            );
+        };
+        
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
