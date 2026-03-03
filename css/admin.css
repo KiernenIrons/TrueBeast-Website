@@ -34,18 +34,15 @@ body { background: #050505; }
     background-clip: text;
 }
 
-/* Pulse glow — violet */
+/* Pulse glow — violet
+   Uses filter:drop-shadow instead of box-shadow so the animation runs on the
+   GPU compositor thread and never triggers a repaint of nearby backdrop-filter
+   elements (which was causing the glitching bar on glass panels). */
 .pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
 
 @keyframes pulseGlow {
-    0%, 100% {
-        box-shadow: 0 0 20px rgba(124, 58, 237, 0.3),
-                    0 0 40px rgba(124, 58, 237, 0.1);
-    }
-    50% {
-        box-shadow: 0 0 30px rgba(124, 58, 237, 0.5),
-                    0 0 60px rgba(124, 58, 237, 0.2);
-    }
+    0%, 100% { filter: drop-shadow(0 0 8px rgba(124, 58, 237, 0.5)); }
+    50%       { filter: drop-shadow(0 0 18px rgba(124, 58, 237, 0.9)); }
 }
 
 /* Button hover — violet shadow */

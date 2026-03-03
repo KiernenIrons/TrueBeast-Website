@@ -12,10 +12,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="js/config.js"></script>
-    <script src="js/firebase-db.js"></script>
+    <script src="js/config.js?v=3"></script>
+    <script src="js/firebase-db.js?v=3"></script>
     <link rel="stylesheet" href="css/shared.css">
-    <link rel="stylesheet" href="css/glass.css">
+    <link rel="stylesheet" href="css/glass.css?v=3">
     <link rel="stylesheet" href="css/index.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -406,7 +406,7 @@
                                 <div className="flex items-center justify-between mb-6">
                                     <h3 className="font-display font-bold text-xl">Leave a Review</h3>
                                     <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
-                                        <i data-lucide="x" className="w-5 h-5"></i>
+                                        <svg className="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                                     </button>
                                 </div>
                                 <form onSubmit={handleSubmit} className="space-y-5">
@@ -457,9 +457,15 @@
                                         <button type="submit" disabled={submitting}
                                             className="flex-1 btn-glass liquid-glass-strong px-4 py-3 rounded-xl font-semibold text-green-400 disabled:opacity-50 flex items-center justify-center gap-2">
                                             {submitting ? (
-                                                <><i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i> Submitting…</>
+                                                <>
+                                                    <svg className="w-4 h-4 spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                                                    Submitting…
+                                                </>
                                             ) : (
-                                                <><i data-lucide="send" className="w-4 h-4"></i> Submit Review</>
+                                                <>
+                                                    <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                                    Submit Review
+                                                </>
                                             )}
                                         </button>
                                     </div>
