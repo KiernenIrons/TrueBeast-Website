@@ -10,7 +10,10 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="js/config.js"></script>
+    <script src="js/firebase-db.js"></script>
     <link rel="stylesheet" href="css/shared.css">
     <link rel="stylesheet" href="css/glass.css">
     <link rel="stylesheet" href="css/index.css">
@@ -339,6 +342,135 @@
             );
         };
         
+        // ── Review Modal ─────────────────────────────────────────────────
+        const ReviewModal = ({ onClose }) => {
+            const [name,       setName]       = useState('');
+            const [email,      setEmail]      = useState('');
+            const [rating,     setRating]     = useState('');
+            const [text,       setText]       = useState('');
+            const [submitting, setSubmitting] = useState(false);
+            const [submitted,  setSubmitted]  = useState(false);
+            const [error,      setError]      = useState('');
+
+            const ratingOpts = [
+                { value: 'positive', label: 'Positive',    emoji: '👍', color: 'text-green-400',  ring: 'ring-green-500/50' },
+                { value: 'neutral',  label: 'Neutral',     emoji: '😐', color: 'text-yellow-400', ring: 'ring-yellow-500/50' },
+                { value: 'negative', label: 'Negative',    emoji: '👎', color: 'text-red-400',    ring: 'ring-red-500/50' },
+            ];
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!rating) { setError('Please select a rating.'); return; }
+                if (!text.trim()) { setError('Please write your review.'); return; }
+                setSubmitting(true);
+                setError('');
+                try {
+                    const id = 'RV-' + Math.random().toString(36).substr(2, 8).toUpperCase();
+                    const review = {
+                        id,
+                        name:      name.trim() || 'Anonymous',
+                        email:     email.trim(),
+                        rating,
+                        text:      text.trim(),
+                        status:    'pending',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                    };
+                    await FirebaseDB.saveReview(review);
+                    setSubmitted(true);
+                } catch (err) {
+                    setError('Something went wrong. Please try again.');
+                    console.error(err);
+                } finally {
+                    setSubmitting(false);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                     style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+                     onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+                    <div className="liquid-glass-strong glass-glow rounded-3xl p-8 w-full max-w-lg animate-fade-in">
+                        {submitted ? (
+                            <div className="text-center py-4">
+                                <div className="text-5xl mb-4">🎉</div>
+                                <h3 className="font-display font-bold text-2xl mb-2">Thanks for the review!</h3>
+                                <p className="text-gray-400 mb-6">Your feedback means a lot. It'll be reviewed shortly.</p>
+                                <button onClick={onClose}
+                                    className="btn-glass liquid-glass-strong px-8 py-3 rounded-2xl font-semibold text-green-400">
+                                    Close
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="font-display font-bold text-xl">Leave a Review</h3>
+                                    <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors">
+                                        <i data-lucide="x" className="w-5 h-5"></i>
+                                    </button>
+                                </div>
+                                <form onSubmit={handleSubmit} className="space-y-5">
+                                    {/* Rating */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-3">How was your experience?</label>
+                                        <div className="flex gap-3">
+                                            {ratingOpts.map(opt => (
+                                                <button key={opt.value} type="button"
+                                                    onClick={() => setRating(opt.value)}
+                                                    className={`flex-1 liquid-glass rounded-xl py-3 flex flex-col items-center gap-1 transition-all ${rating === opt.value ? 'ring-2 ' + opt.ring + ' bg-white/5' : ''}`}>
+                                                    <span className="text-2xl">{opt.emoji}</span>
+                                                    <span className={`text-xs font-medium ${rating === opt.value ? opt.color : 'text-gray-400'}`}>{opt.label}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    {/* Name */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Your name <span className="text-gray-500">(optional)</span></label>
+                                        <input type="text" value={name} onChange={e => setName(e.target.value)}
+                                            placeholder="e.g. ShadowHunter"
+                                            className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50" />
+                                    </div>
+                                    {/* Email */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Email <span className="text-gray-500">(optional — lets us say thanks)</span></label>
+                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                                            placeholder="your@email.com"
+                                            className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50" />
+                                    </div>
+                                    {/* Text */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Your review</label>
+                                        <textarea value={text} onChange={e => setText(e.target.value)} required
+                                            placeholder="Share your experience with TrueBeast…"
+                                            rows={4}
+                                            className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50 resize-none" />
+                                    </div>
+                                    {error && (
+                                        <p className="text-red-400 text-sm bg-red-500/10 rounded-lg px-3 py-2">{error}</p>
+                                    )}
+                                    <div className="flex gap-3">
+                                        <button type="button" onClick={onClose}
+                                            className="flex-1 liquid-glass px-4 py-3 rounded-xl text-gray-300 hover:text-white font-medium">
+                                            Cancel
+                                        </button>
+                                        <button type="submit" disabled={submitting}
+                                            className="flex-1 btn-glass liquid-glass-strong px-4 py-3 rounded-xl font-semibold text-green-400 disabled:opacity-50 flex items-center justify-center gap-2">
+                                            {submitting ? (
+                                                <><i data-lucide="loader-2" className="w-4 h-4 animate-spin"></i> Submitting…</>
+                                            ) : (
+                                                <><i data-lucide="send" className="w-4 h-4"></i> Submit Review</>
+                                            )}
+                                        </button>
+                                    </div>
+                                </form>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
         // Community Reviews Data - stored in localStorage for demo
         const useCommunityReviews = () => {
             const [reviews, setReviews] = useState([]);
@@ -389,9 +521,11 @@
         // Community Section
         const CommunitySection = () => {
             const { displayReviews } = useCommunityReviews();
-            
+            const [showReviewModal, setShowReviewModal] = useState(false);
+
             return (
                 <section id="community" className="py-24 px-6 relative">
+                {showReviewModal && <ReviewModal onClose={() => setShowReviewModal(false)} />}
                     <div className="max-w-6xl mx-auto">
                         <div className="liquid-glass-strong glass-glow rounded-3xl p-8 md:p-16 relative overflow-hidden reveal">
                             {/* Background decoration */}
@@ -429,11 +563,11 @@
                                             <i data-lucide="message-circle" className="w-5 h-5"></i>
                                             Join Discord
                                         </a>
-                                        <a href="https://discord.gg/Nk8vekY" target="_blank" rel="noopener noreferrer"
+                                        <button onClick={() => setShowReviewModal(true)}
                                            className="btn-glass liquid-glass px-8 py-4 rounded-2xl font-semibold inline-flex items-center gap-3 text-gray-300 hover:text-white">
                                             <i data-lucide="heart" className="w-5 h-5"></i>
                                             Leave a Review
-                                        </a>
+                                        </button>
                                     </div>
                                 </div>
                                 

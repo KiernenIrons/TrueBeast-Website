@@ -81,8 +81,11 @@ const SITE_CONFIG = {
     emailjs: {
         publicKey:        'ILZQ2BAHfBck_4yY-',
         serviceId:        'service_m74ipl2',
-        ticketTemplateId: 'template_8jr2abr',
-        adminTemplateId:  'template_9asbzsc',
+        ticketTemplateId:  'template_8jr2abr',
+        adminTemplateId:   'template_9asbzsc',
+        // thankYouTemplateId — sent to reviewers when you click "Send Thank You" in admin.
+        // Create a template in EmailJS dashboard with variables: {{to_name}}, {{to_email}}, {{rating}}, {{review}}
+        thankYouTemplateId: 'YOUR_THANK_YOU_TEMPLATE_ID',
     },
 
     // -----------------------------------------------------------------------
@@ -107,6 +110,10 @@ const SITE_CONFIG = {
     //              allow create: if true;
     //              allow get:    if true;
     //              allow list, update, delete: if request.auth != null;
+    //            }
+    //            match /reviews/{reviewId} {
+    //              allow create: if true;
+    //              allow list, get, update, delete: if request.auth != null;
     //            }
     //          }
     //        }

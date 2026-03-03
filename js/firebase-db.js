@@ -85,6 +85,30 @@ function _lsDelete(id) {
     localStorage.setItem('tb_tickets', JSON.stringify(tickets.filter(t => t.id !== id)));
 }
 
+// Review localStorage fallbacks
+function _lsSaveReview(review) {
+    const existing = JSON.parse(localStorage.getItem('tb_reviews') || '[]');
+    localStorage.setItem('tb_reviews', JSON.stringify([review, ...existing]));
+    return review;
+}
+
+function _lsGetAllReviews() {
+    const reviews = JSON.parse(localStorage.getItem('tb_reviews') || '[]');
+    return reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function _lsUpdateReview(id, payload) {
+    const reviews = JSON.parse(localStorage.getItem('tb_reviews') || '[]');
+    const updated = reviews.map(r => r.id === id ? { ...r, ...payload } : r);
+    localStorage.setItem('tb_reviews', JSON.stringify(updated));
+    return updated.find(r => r.id === id) || null;
+}
+
+function _lsDeleteReview(id) {
+    const reviews = JSON.parse(localStorage.getItem('tb_reviews') || '[]');
+    localStorage.setItem('tb_reviews', JSON.stringify(reviews.filter(r => r.id !== id)));
+}
+
 // ---------------------------------------------------------------------------
 // Public API — FirebaseDB
 // ---------------------------------------------------------------------------
@@ -181,6 +205,76 @@ const FirebaseDB = {
             }
         }
         _lsDelete(id);
+    },
+
+    // -----------------------------------------------------------------------
+    // Reviews
+    // -----------------------------------------------------------------------
+
+    async saveReview(review) {
+        _ensureApp();
+        if (_isConfigured()) {
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('reviews').doc(review.id).set(review),
+                    8000
+                );
+                return review;
+            } catch (err) {
+                console.warn('FirebaseDB.saveReview fell back to localStorage:', err.message);
+            }
+        }
+        return _lsSaveReview(review);
+    },
+
+    async getAllReviews() {
+        _ensureApp();
+        if (_isConfigured()) {
+            try {
+                const snap = await _withTimeout(
+                    firebase.firestore().collection('reviews').orderBy('createdAt', 'desc').get(),
+                    8000
+                );
+                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            } catch (err) {
+                console.warn('FirebaseDB.getAllReviews fell back to localStorage:', err.message);
+            }
+        }
+        return _lsGetAllReviews();
+    },
+
+    async updateReview(id, updates) {
+        _ensureApp();
+        const payload = { ...updates, updatedAt: new Date().toISOString() };
+        if (_isConfigured()) {
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('reviews').doc(id).update(payload),
+                    8000
+                );
+                const snap = await firebase.firestore().collection('reviews').doc(id).get();
+                return snap.exists ? { id: snap.id, ...snap.data() } : null;
+            } catch (err) {
+                console.warn('FirebaseDB.updateReview fell back to localStorage:', err.message);
+            }
+        }
+        return _lsUpdateReview(id, payload);
+    },
+
+    async deleteReview(id) {
+        _ensureApp();
+        if (_isConfigured()) {
+            try {
+                await _withTimeout(
+                    firebase.firestore().collection('reviews').doc(id).delete(),
+                    8000
+                );
+                return;
+            } catch (err) {
+                console.warn('FirebaseDB.deleteReview fell back to localStorage:', err.message);
+            }
+        }
+        _lsDeleteReview(id);
     },
 
     // -----------------------------------------------------------------------
