@@ -1,0 +1,196 @@
+<!--
+  TrueBeast — Ticket Confirmation Email Template
+  ================================================
+  HOW TO USE IN EMAILJS:
+    1. Go to emailjs.com > Email Templates > Create Template
+    2. Set the Subject to:  [TrueBeast Support] Ticket {{ticket_id}} Received
+    3. Switch to "HTML" mode and paste this entire file
+    4. Save the template and copy its Template ID
+    5. Paste that ID into js/config.js as "ticketTemplateId"
+
+  VARIABLES (EmailJS passes these from your code):
+    {{to_name}}         — Submitter's name
+    {{ticket_id}}       — e.g. TB-2QK1Z9
+    {{subject}}         — Ticket subject line
+    {{category}}        — Support category
+    {{priority}}        — low / medium / high
+    {{description}}     — Detailed description
+    {{device_info}}     — PC specs / OS info (may be empty)
+    {{discord}}         — Discord username (may be empty)
+    {{view_ticket_url}} — Full URL to ticket.html?id=...
+    {{discord_link}}    — Discord invite link
+    {{created_at}}      — Submission timestamp
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticket Received — TrueBeast Support</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0a0a0f;font-family:'Segoe UI',Arial,sans-serif;color:#e5e7eb;">
+
+  <!-- Wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0a0a0f;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+          <!-- ── HEADER ── -->
+          <tr>
+            <td align="center" style="padding-bottom:32px;">
+              <table cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:12px;width:48px;height:48px;text-align:center;vertical-align:middle;">
+                    <span style="font-size:22px;font-weight:900;color:#000;font-family:'Segoe UI',Arial,sans-serif;">TB</span>
+                  </td>
+                  <td style="padding-left:12px;vertical-align:middle;">
+                    <span style="font-size:22px;font-weight:800;color:#ffffff;font-family:'Segoe UI',Arial,sans-serif;">TrueBeast</span>
+                    <span style="display:block;font-size:12px;color:#6b7280;letter-spacing:2px;text-transform:uppercase;">Tech Support</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── CARD ── -->
+          <tr>
+            <td style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:40px 36px;">
+
+              <!-- Success icon -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding-bottom:24px;">
+                    <div style="display:inline-block;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.3);border-radius:50%;width:64px;height:64px;text-align:center;line-height:64px;font-size:28px;">✓</div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Greeting -->
+              <h1 style="margin:0 0 8px;font-size:26px;font-weight:800;color:#ffffff;text-align:center;">Ticket Received!</h1>
+              <p style="margin:0 0 28px;font-size:15px;color:#9ca3af;text-align:center;">Hey {{to_name}}, we got your message and we're on it.</p>
+
+              <!-- Ticket ID badge -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td align="center">
+                    <div style="display:inline-block;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:10px;padding:12px 28px;text-align:center;">
+                      <span style="display:block;font-size:11px;color:#6b7280;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">Your Ticket ID</span>
+                      <span style="font-size:22px;font-weight:800;color:#22c55e;font-family:'Courier New',monospace;letter-spacing:2px;">{{ticket_id}}</span>
+                      <span style="display:block;font-size:11px;color:#6b7280;margin-top:4px;">Save this — you'll need it to check your status</span>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- View ticket button -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td align="center">
+                    <a href="{{view_ticket_url}}" style="display:inline-block;background:linear-gradient(135deg,#22c55e,#16a34a);color:#000000;font-weight:700;font-size:15px;text-decoration:none;padding:14px 32px;border-radius:12px;">
+                      View My Ticket →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Divider -->
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 28px;">
+
+              <!-- Ticket details -->
+              <h2 style="margin:0 0 16px;font-size:16px;font-weight:700;color:#ffffff;">What you submitted:</h2>
+
+              <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:28px;">
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);width:36%;color:#6b7280;font-size:13px;vertical-align:top;">Subject</td>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#e5e7eb;font-size:13px;font-weight:600;vertical-align:top;">{{subject}}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#6b7280;font-size:13px;vertical-align:top;">Category</td>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#e5e7eb;font-size:13px;vertical-align:top;">{{category}}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#6b7280;font-size:13px;vertical-align:top;">Priority</td>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);font-size:13px;font-weight:600;vertical-align:top;">
+                    <span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 10px;border-radius:20px;text-transform:capitalize;">{{priority}}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#6b7280;font-size:13px;vertical-align:top;">Discord</td>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#e5e7eb;font-size:13px;vertical-align:top;">{{discord}}</td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#6b7280;font-size:13px;vertical-align:top;">Submitted</td>
+                  <td style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06);color:#e5e7eb;font-size:13px;vertical-align:top;">{{created_at}}</td>
+                </tr>
+              </table>
+
+              <!-- Description -->
+              <h3 style="margin:0 0 10px;font-size:14px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;">Description</h3>
+              <div style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:20px;">
+                <p style="margin:0;font-size:14px;color:#d1d5db;line-height:1.6;white-space:pre-wrap;">{{description}}</p>
+              </div>
+
+              <!-- Device info (if provided) -->
+              <h3 style="margin:0 0 10px;font-size:14px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;">Device / Setup Info</h3>
+              <div style="background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px;margin-bottom:32px;">
+                <p style="margin:0;font-size:13px;color:#9ca3af;font-family:'Courier New',monospace;line-height:1.6;white-space:pre-wrap;">{{device_info}}</p>
+              </div>
+
+              <!-- Divider -->
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:0 0 28px;">
+
+              <!-- Response times -->
+              <h2 style="margin:0 0 16px;font-size:16px;font-weight:700;color:#ffffff;">Expected response times:</h2>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td style="padding:8px 12px;background:rgba(34,197,94,0.08);border-radius:8px 8px 0 0;font-size:13px;color:#6b7280;">🟢 Low Priority</td>
+                  <td style="padding:8px 12px;background:rgba(34,197,94,0.08);border-radius:8px 8px 0 0;font-size:13px;color:#22c55e;text-align:right;font-weight:600;">48–72 hours</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 12px;background:rgba(245,158,11,0.06);font-size:13px;color:#6b7280;">🟡 Medium Priority</td>
+                  <td style="padding:8px 12px;background:rgba(245,158,11,0.06);font-size:13px;color:#f59e0b;text-align:right;font-weight:600;">24–48 hours</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 12px;background:rgba(239,68,68,0.06);border-radius:0 0 8px 8px;font-size:13px;color:#6b7280;">🔴 High Priority</td>
+                  <td style="padding:8px 12px;background:rgba(239,68,68,0.06);border-radius:0 0 8px 8px;font-size:13px;color:#ef4444;text-align:right;font-weight:600;">Same day</td>
+                </tr>
+              </table>
+
+              <!-- Free service note -->
+              <div style="background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:16px 20px;margin-bottom:28px;">
+                <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+                  💚 <strong style="color:#22c55e;">This is a completely free service.</strong> Tech support is Kiernen's way of giving back to the community. No charges, no upsells — just genuine help.
+                </p>
+              </div>
+
+              <!-- Discord CTA -->
+              <p style="margin:0 0 12px;font-size:14px;color:#9ca3af;text-align:center;">For quick questions or updates, hit up the Discord:</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="{{discord_link}}" style="display:inline-block;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#818cf8;font-weight:600;font-size:14px;text-decoration:none;padding:12px 28px;border-radius:10px;">
+                      Join the Discord
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- ── FOOTER ── -->
+          <tr>
+            <td style="padding:28px 0 0;text-align:center;">
+              <p style="margin:0 0 6px;font-size:13px;color:#4b5563;">© 2026 TrueBeast. Free tech support for the community.</p>
+              <p style="margin:0;font-size:12px;color:#374151;">You're receiving this because you submitted a ticket at TrueBeast Tech Support.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

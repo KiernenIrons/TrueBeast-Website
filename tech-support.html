@@ -10,6 +10,12 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/firebase-db.js"></script>
+    <link rel="stylesheet" href="css/shared.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -93,9 +99,9 @@
                 rgba(22, 163, 74, 0.5),
                 rgba(74, 222, 128, 0.4)
             );
-            -webkit-mask: 
-                linear-gradient(#fff 0 0) content-box, 
-                linear-gradient(#fff 0 0);
+            -webkit-mask:
+                linear-gradient(#fff, #fff) content-box,
+                linear-gradient(#fff, #fff);
             -webkit-mask-composite: xor;
             mask-composite: exclude;
             animation: borderRotate 8s linear infinite;
@@ -215,9 +221,10 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // Initialize EmailJS
+        // Initialize EmailJS from config
         const initEmailJS = () => {
-            emailjs.init("YOUR_PUBLIC_KEY"); // Replace with your EmailJS public key
+            const key = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs.publicKey : null;
+            if (key && key !== 'PASTE_YOUR_PUBLIC_KEY') emailjs.init(key);
         };
 
         const useScrollReveal = () => {
@@ -239,45 +246,56 @@
         // Email sending function
         const sendTicketConfirmation = async (ticketData) => {
             try {
-                // Send to user
+                const ejsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs : {};
+                const siteUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
+                const viewTicketUrl = `${siteUrl}/ticket.html?id=${ticketData.id}`;
+                const adminUrl      = `${siteUrl}/admin.html`;
+                const discordLink   = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social && SITE_CONFIG.social.discord) || 'https://discord.gg/Nk8vekY';
+
+                // Confirmation email to the user
                 await emailjs.send(
-                    "YOUR_SERVICE_ID", // Replace with your EmailJS service ID
-                    "YOUR_TEMPLATE_ID", // Replace with your EmailJS template ID
+                    ejsCfg.serviceId || "YOUR_SERVICE_ID",
+                    ejsCfg.ticketTemplateId || "YOUR_TEMPLATE_ID",
                     {
-                        to_email: ticketData.email,
-                        to_name: ticketData.name,
-                        ticket_id: ticketData.id,
-                        subject: ticketData.subject,
-                        category: ticketData.category,
-                        priority: ticketData.priority,
-                        description: ticketData.description,
-                        status_page_url: window.location.origin + "/tech-support.html",
-                        discord_link: "https://discord.gg/Nk8vekY"
+                        to_email:        ticketData.email,
+                        to_name:         ticketData.name,
+                        ticket_id:       ticketData.id,
+                        subject:         ticketData.subject,
+                        category:        ticketData.category.replace(/-/g, ' '),
+                        priority:        ticketData.priority,
+                        description:     ticketData.description,
+                        device_info:     ticketData.deviceInfo  || 'Not provided',
+                        discord:         ticketData.discord     || 'Not provided',
+                        view_ticket_url: viewTicketUrl,
+                        discord_link:    discordLink,
+                        created_at:      new Date().toLocaleString(),
                     }
                 );
 
-                // BCC to admin
+                // Admin notification to kiernenyt@gmail.com
                 await emailjs.send(
-                    "YOUR_SERVICE_ID",
-                    "YOUR_ADMIN_TEMPLATE_ID", // Create a similar template for admin notifications
+                    ejsCfg.serviceId || "YOUR_SERVICE_ID",
+                    ejsCfg.adminTemplateId || ejsCfg.ticketTemplateId || "YOUR_ADMIN_TEMPLATE_ID",
                     {
-                        to_email: "kiernenyt@gmail.com",
-                        user_email: ticketData.email,
-                        user_name: ticketData.name,
-                        ticket_id: ticketData.id,
-                        subject: ticketData.subject,
-                        category: ticketData.category,
-                        priority: ticketData.priority,
+                        to_email:    'kiernenyt@gmail.com',
+                        ticket_id:   ticketData.id,
+                        user_name:   ticketData.name,
+                        user_email:  ticketData.email,
+                        subject:     ticketData.subject,
+                        category:    ticketData.category.replace(/-/g, ' '),
+                        priority:    ticketData.priority,
                         description: ticketData.description,
-                        discord: ticketData.discord || "Not provided",
-                        device_info: ticketData.deviceInfo || "Not provided"
+                        device_info: ticketData.deviceInfo  || 'Not provided',
+                        discord:     ticketData.discord     || 'Not provided',
+                        created_at:  new Date().toLocaleString(),
+                        admin_url:   adminUrl,
                     }
                 );
 
                 return true;
             } catch (error) {
                 console.error("Email failed:", error);
-                // Still return true so ticket isn't lost, just log the error
+                // Still return true so ticket is never lost even if email fails
                 return true;
             }
         };
@@ -334,6 +352,7 @@
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [showSuccess, setShowSuccess] = useState(false);
             const [ticketId, setTicketId] = useState(null);
+            const [submitError, setSubmitError] = useState('');
 
             const categories = [
                 { value: 'general', label: 'General Support', icon: 'help-circle' },
@@ -354,31 +373,33 @@
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 setIsSubmitting(true);
+                setSubmitError('');
 
-                // Simulate API call
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                try {
+                    const newTicket = {
+                        id: 'TB-' + Date.now().toString(36).toUpperCase(),
+                        ...formData,
+                        status: 'open',
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                        responses: []
+                    };
 
-                const newTicket = {
-                    id: 'TB-' + Date.now().toString(36).toUpperCase(),
-                    ...formData,
-                    status: 'open',
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    responses: []
-                };
+                    // Save ticket (Firebase if configured, localStorage fallback)
+                    await FirebaseDB.saveTicket(newTicket);
 
-                // Store in localStorage
-                const existing = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-                localStorage.setItem('tb_tickets', JSON.stringify([newTicket, ...existing]));
+                    // Send confirmation email (requires EmailJS to be configured)
+                    await sendTicketConfirmation(newTicket);
 
-                // Send confirmation email
-                await sendTicketConfirmation(newTicket);
-
-                setTicketId(newTicket.id);
-                setShowSuccess(true);
-                setIsSubmitting(false);
-
-                if (onSubmit) onSubmit(newTicket);
+                    setTicketId(newTicket.id);
+                    setShowSuccess(true);
+                    if (onSubmit) onSubmit(newTicket);
+                } catch (err) {
+                    console.error('Ticket submission failed:', err);
+                    setSubmitError('Something went wrong submitting your ticket. Please try again.');
+                } finally {
+                    setIsSubmitting(false);
+                }
             };
 
             if (showSuccess) {
@@ -408,8 +429,12 @@
                             }} className="btn-glass liquid-glass px-6 py-3 rounded-xl font-medium">
                                 Submit Another
                             </button>
-                            <button onClick={onViewTickets} className="btn-glass liquid-glass-strong glass-glow px-6 py-3 rounded-xl font-medium text-green-400">
-                                View My Tickets
+                            <a href={`ticket.html?id=${ticketId}`} className="btn-glass liquid-glass-strong glass-glow px-6 py-3 rounded-xl font-medium text-green-400 flex items-center justify-center gap-2">
+                                <i data-lucide="external-link" className="w-4 h-4"></i>
+                                View Ticket
+                            </a>
+                            <button onClick={onViewTickets} className="btn-glass liquid-glass px-6 py-3 rounded-xl font-medium text-gray-400">
+                                Check Status
                             </button>
                         </div>
                     </div>
@@ -501,6 +526,13 @@
                                 className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 h-24 resize-none"
                                 placeholder="PC specs, OS version, software versions, etc."></textarea>
                         </div>
+
+                        {submitError && (
+                            <div className="p-4 liquid-glass rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-sm flex items-center gap-3">
+                                <i data-lucide="alert-circle" className="w-5 h-5 flex-shrink-0"></i>
+                                {submitError}
+                            </div>
+                        )}
 
                         <button type="submit" disabled={isSubmitting}
                             className="w-full btn-glass liquid-glass-strong glass-glow px-8 py-4 rounded-2xl font-semibold text-lg flex items-center justify-center gap-3 disabled:opacity-50">
@@ -709,307 +741,6 @@
             );
         };
 
-        // Admin Panel - Fixed Version
-        const AdminPanel = ({ onBack }) => {
-            const [tickets, setTickets] = useState([]);
-            const [filter, setFilter] = useState('all');
-            const [selectedTicket, setSelectedTicket] = useState(null);
-            const [replyText, setReplyText] = useState('');
-            const [password, setPassword] = useState('');
-            const [isAuthenticated, setIsAuthenticated] = useState(false);
-            const [loading, setLoading] = useState(true);
-
-            useEffect(() => {
-                // Load tickets on mount
-                const loadTickets = () => {
-                    const stored = JSON.parse(localStorage.getItem('tb_tickets') || '[]');
-                    setTickets(stored);
-                    setLoading(false);
-                };
-                loadTickets();
-            }, []);
-
-            const handleLogin = (e) => {
-                e.preventDefault();
-                if (password === 'beastmode2024') {
-                    setIsAuthenticated(true);
-                } else {
-                    alert('Invalid password');
-                }
-            };
-
-            const updateTicketStatus = (ticketId, newStatus) => {
-                const updated = tickets.map(t => 
-                    t.id === ticketId ? { ...t, status: newStatus, updatedAt: new Date().toISOString() } : t
-                );
-                localStorage.setItem('tb_tickets', JSON.stringify(updated));
-                setTickets(updated);
-                if (selectedTicket?.id === ticketId) {
-                    setSelectedTicket({ ...selectedTicket, status: newStatus });
-                }
-            };
-
-            const handleReply = (e) => {
-                e.preventDefault();
-                if (!replyText.trim() || !selectedTicket) return;
-                
-                const updated = tickets.map(t => {
-                    if (t.id === selectedTicket.id) {
-                        return {
-                            ...t,
-                            responses: [...(t.responses || []), {
-                                text: replyText,
-                                from: 'support',
-                                timestamp: new Date().toISOString()
-                            }],
-                            status: 'in-progress',
-                            updatedAt: new Date().toISOString()
-                        };
-                    }
-                    return t;
-                });
-
-                localStorage.setItem('tb_tickets', JSON.stringify(updated));
-                setTickets(updated);
-                setSelectedTicket(updated.find(t => t.id === selectedTicket.id));
-                setReplyText('');
-            };
-
-            const deleteTicket = (ticketId) => {
-                if (!confirm('Are you sure you want to delete this ticket?')) return;
-                const updated = tickets.filter(t => t.id !== ticketId);
-                localStorage.setItem('tb_tickets', JSON.stringify(updated));
-                setTickets(updated);
-                if (selectedTicket?.id === ticketId) {
-                    setSelectedTicket(null);
-                }
-            };
-
-            const filteredTickets = tickets.filter(t => {
-                if (filter === 'all') return true;
-                return t.status === filter;
-            }).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-
-            const stats = {
-                total: tickets.length,
-                open: tickets.filter(t => t.status === 'open').length,
-                inProgress: tickets.filter(t => t.status === 'in-progress').length,
-                resolved: tickets.filter(t => t.status === 'resolved').length,
-                urgent: tickets.filter(t => t.priority === 'high' && t.status !== 'resolved').length
-            };
-
-            // Login Screen
-            if (!isAuthenticated) {
-                return (
-                    <div className="min-h-[60vh] flex items-center justify-center">
-                        <div className="liquid-glass-strong glass-glow rounded-3xl p-8 max-w-md w-full">
-                            <div className="text-center mb-6">
-                                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500/20 to-blue-600/20 flex items-center justify-center mx-auto mb-4">
-                                    <i data-lucide="shield" className="w-8 h-8 text-violet-400"></i>
-                                </div>
-                                <h3 className="font-display font-bold text-2xl">Admin Access</h3>
-                                <p className="text-gray-400 text-sm">Enter password to manage tickets</p>
-                            </div>
-                            <form onSubmit={handleLogin} className="space-y-4">
-                                <input type="password" value={password}
-                                    onChange={e => setPassword(e.target.value)}
-                                    placeholder="Enter password"
-                                    className="w-full liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500" />
-                                <div className="flex gap-3">
-                                    <button type="button" onClick={onBack} className="flex-1 liquid-glass px-4 py-3 rounded-xl text-gray-300 hover:text-white">
-                                        Cancel
-                                    </button>
-                                    <button type="submit" className="flex-1 btn-glass liquid-glass-strong px-4 py-3 rounded-xl text-violet-400 font-medium">
-                                        Login
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
-
-            // Single Ticket View
-            if (selectedTicket) {
-                return (
-                    <div className="admin-panel animate-fade-in">
-                        <div className="liquid-glass-strong glass-glow rounded-3xl p-6 md:p-8">
-                            <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-                                <button onClick={() => setSelectedTicket(null)} className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors">
-                                    <i data-lucide="arrow-left" className="w-4 h-4"></i>
-                                    Back to List
-                                </button>
-                                <div className="flex gap-2 flex-wrap">
-                                    {['open', 'in-progress', 'resolved', 'urgent'].map(status => (
-                                        <button key={status}
-                                            onClick={() => updateTicketStatus(selectedTicket.id, status)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedTicket.status === status ? 'bg-green-500/30 text-green-400 border border-green-500/50' : 'liquid-glass text-gray-400 hover:text-white'}`}>
-                                            {status.replace('-', ' ').toUpperCase()}
-                                        </button>
-                                    ))}
-                                    <button onClick={() => deleteTicket(selectedTicket.id)}
-                                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30">
-                                        <i data-lucide="trash-2" className="w-3 h-3 inline mr-1"></i>
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="grid md:grid-cols-3 gap-4 mb-6">
-                                <div className="liquid-glass rounded-xl p-4">
-                                    <p className="text-xs text-gray-500 mb-1">From</p>
-                                    <p className="font-medium">{selectedTicket.name}</p>
-                                    <p className="text-sm text-gray-400">{selectedTicket.email}</p>
-                                    {selectedTicket.discord && <p className="text-sm text-violet-400">{selectedTicket.discord}</p>}
-                                </div>
-                                <div className="liquid-glass rounded-xl p-4">
-                                    <p className="text-xs text-gray-500 mb-1">Category</p>
-                                    <p className="font-medium">{selectedTicket.category.replace('-', ' ').toUpperCase()}</p>
-                                    <p className={`text-xs mt-1 ${selectedTicket.priority === 'high' ? 'text-red-400' : selectedTicket.priority === 'medium' ? 'text-yellow-400' : 'text-green-400'}`}>
-                                        Priority: {selectedTicket.priority.toUpperCase()}
-                                    </p>
-                                </div>
-                                <div className="liquid-glass rounded-xl p-4">
-                                    <p className="text-xs text-gray-500 mb-1">Timeline</p>
-                                    <p className="font-medium text-sm">Created: {new Date(selectedTicket.createdAt).toLocaleDateString()}</p>
-                                    <p className="text-xs text-gray-400">Updated: {new Date(selectedTicket.updatedAt).toLocaleDateString()}</p>
-                                    <p className="text-xs text-gray-500 mt-1">ID: {selectedTicket.id}</p>
-                                </div>
-                            </div>
-
-                            <h4 className="font-display font-bold text-xl mb-4">{selectedTicket.subject}</h4>
-
-                            <div className="space-y-4 mb-6 max-h-96 overflow-y-auto pr-2">
-                                <div className="liquid-glass rounded-xl p-4">
-                                    <p className="text-gray-300 whitespace-pre-wrap">{selectedTicket.description}</p>
-                                    {selectedTicket.deviceInfo && (
-                                        <div className="mt-4 pt-4 border-t border-white/10">
-                                            <p className="text-xs text-gray-500 mb-1">Device Info:</p>
-                                            <p className="text-sm text-gray-400 font-mono">{selectedTicket.deviceInfo}</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {(selectedTicket.responses || []).map((resp, i) => (
-                                    <div key={i} className={`liquid-glass rounded-xl p-4 ${resp.from === 'support' ? 'border-l-4 border-l-violet-500 bg-violet-500/5' : 'border-l-4 border-l-green-500 bg-green-500/5'}`}>
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <span className={`text-xs font-medium ${resp.from === 'support' ? 'text-violet-400' : 'text-green-400'}`}>
-                                                {resp.from === 'support' ? 'Support (You)' : selectedTicket.name}
-                                            </span>
-                                            <span className="text-xs text-gray-500">{new Date(resp.timestamp).toLocaleString()}</span>
-                                        </div>
-                                        <p className="text-gray-300 whitespace-pre-wrap">{resp.text}</p>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <form onSubmit={handleReply} className="flex gap-3">
-                                <textarea value={replyText}
-                                    onChange={e => setReplyText(e.target.value)}
-                                    placeholder="Type your response..."
-                                    className="flex-1 liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 h-24 resize-none"></textarea>
-                                <button type="submit" className="btn-glass liquid-glass-strong px-6 py-3 rounded-xl font-medium text-violet-400 self-end">
-                                    <i data-lucide="send" className="w-5 h-5"></i>
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
-
-            // Dashboard List View
-            return (
-                <div className="admin-panel space-y-6">
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex items-center gap-4">
-                            <button onClick={onBack} className="liquid-glass p-3 rounded-xl text-gray-400 hover:text-white">
-                                <i data-lucide="arrow-left" className="w-5 h-5"></i>
-                            </button>
-                            <div>
-                                <h3 className="font-display font-bold text-2xl">Ticket Dashboard</h3>
-                                <p className="text-gray-400 text-sm">Manage all support tickets</p>
-                            </div>
-                        </div>
-                        <button onClick={() => setIsAuthenticated(false)} className="liquid-glass px-4 py-2 rounded-xl text-sm text-gray-400 hover:text-white">
-                            <i data-lucide="log-out" className="w-4 h-4 inline mr-2"></i>
-                            Logout
-                        </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        {[
-                            { label: 'Total', value: stats.total, color: 'text-white', bg: 'from-gray-500/20 to-gray-600/20' },
-                            { label: 'Open', value: stats.open, color: 'text-green-400', bg: 'from-green-500/20 to-emerald-600/20' },
-                            { label: 'In Progress', value: stats.inProgress, color: 'text-blue-400', bg: 'from-blue-500/20 to-cyan-600/20' },
-                            { label: 'Resolved', value: stats.resolved, color: 'text-gray-400', bg: 'from-gray-500/20 to-slate-600/20' },
-                            { label: 'Urgent', value: stats.urgent, color: 'text-red-400', bg: 'from-red-500/20 to-orange-600/20' }
-                        ].map(stat => (
-                            <div key={stat.label} className="liquid-glass rounded-2xl p-4 text-center">
-                                <div className={`text-3xl font-display font-bold ${stat.color}`}>{stat.value}</div>
-                                <div className="text-xs text-gray-500 mt-1">{stat.label}</div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="flex gap-2 flex-wrap">
-                        {['all', 'open', 'in-progress', 'resolved', 'urgent'].map(f => (
-                            <button key={f}
-                                onClick={() => setFilter(f)}
-                                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${filter === f ? 'bg-green-500/30 text-green-400 border border-green-500/50' : 'liquid-glass text-gray-400 hover:text-white'}`}>
-                                {f.replace('-', ' ').toUpperCase()}
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="ticket-list space-y-3">
-                        {loading ? (
-                            <div className="liquid-glass rounded-2xl p-8 text-center text-gray-500">
-                                <i data-lucide="loader-2" className="w-8 h-8 animate-spin mx-auto mb-4"></i>
-                                Loading tickets...
-                            </div>
-                        ) : filteredTickets.length === 0 ? (
-                            <div className="liquid-glass rounded-2xl p-8 text-center text-gray-500">
-                                <i data-lucide="inbox" className="w-12 h-12 mx-auto mb-4 opacity-50"></i>
-                                <p>No tickets found</p>
-                            </div>
-                        ) : (
-                            filteredTickets.map(ticket => (
-                                <div key={ticket.id}
-                                    onClick={() => setSelectedTicket(ticket)}
-                                    className="ticket-card liquid-glass rounded-2xl p-4 cursor-pointer hover:bg-white/5">
-                                    <div className="flex items-center justify-between flex-wrap gap-3">
-                                        <div className="flex items-center gap-4 min-w-0">
-                                            <span className="font-mono text-green-400 text-sm flex-shrink-0">{ticket.id}</span>
-                                            <div className="min-w-0">
-                                                <h4 className="font-medium truncate">{ticket.subject}</h4>
-                                                <p className="text-sm text-gray-500 truncate">{ticket.name} • {ticket.category.replace('-', ' ')}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3 flex-shrink-0">
-                                            <span className={`px-3 py-1 rounded-full text-xs font-medium border ${ticket.priority === 'high' ? 'priority-high' : ticket.priority === 'medium' ? 'priority-medium' : 'priority-low'}`}>
-                                                {ticket.priority}
-                                            </span>
-                                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${ticket.status === 'open' ? 'status-open' : ticket.status === 'in-progress' ? 'status-in-progress' : ticket.status === 'resolved' ? 'status-resolved' : 'status-urgent'}`}>
-                                                {ticket.status.replace('-', ' ').toUpperCase()}
-                                            </span>
-                                            <i data-lucide="chevron-right" className="w-5 h-5 text-gray-500"></i>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-4 text-xs text-gray-500">
-                                        <span>{new Date(ticket.createdAt).toLocaleDateString()}</span>
-                                        <span>•</span>
-                                        <span>{ticket.responses?.length || 0} replies</span>
-                                        <span>•</span>
-                                        <span className="truncate">{ticket.email}</span>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
         // FAQ Section
         const FAQSection = () => {
             const [openIndex, setOpenIndex] = useState(null);
@@ -1063,10 +794,9 @@
         // Main App
         const App = () => {
             const [activeTab, setActiveTab] = useState('submit');
-            const [showAdmin, setShowAdmin] = useState(false);
-            
+
             useScrollReveal();
-            
+
             useEffect(() => {
                 initEmailJS();
                 lucide.createIcons();
@@ -1074,21 +804,8 @@
 
             useEffect(() => {
                 lucide.createIcons();
-            }, [activeTab, showAdmin]);
-            
-            if (showAdmin) {
-                return (
-                    <div className="relative min-h-screen">
-                        <Navigation />
-                        <main className="pt-32 pb-12 px-6">
-                            <div className="max-w-6xl mx-auto">
-                                <AdminPanel onBack={() => setShowAdmin(false)} />
-                            </div>
-                        </main>
-                    </div>
-                );
-            }
-            
+            }, [activeTab]);
+
             return (
                 <div className="relative min-h-screen">
                     <Navigation />
@@ -1121,11 +838,11 @@
                                     <i data-lucide="search" className="w-5 h-5"></i>
                                     Check Status
                                 </button>
-                                <button onClick={() => setShowAdmin(true)}
+                                <a href="admin.html"
                                     className="liquid-glass px-6 py-3 rounded-xl font-medium text-gray-400 hover:text-white flex items-center gap-2">
                                     <i data-lucide="shield" className="w-5 h-5"></i>
                                     Admin
-                                </button>
+                                </a>
                             </div>
                             
                             {/* Content */}
@@ -1217,7 +934,7 @@
                                 </p>
                                 <div className="flex items-center gap-4">
                                     <a href="index.html" className="text-gray-400 hover:text-white transition-colors">Home</a>
-                                    <a href="https://www.youtube.com/@RealRealTrueBeast" target="_blank" rel="noopener noreferrer"
+                                    <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
                                        className="liquid-glass p-3 rounded-xl hover:bg-white/10 transition-colors">
                                         <i data-lucide="youtube" className="w-5 h-5"></i>
                                     </a>
