@@ -16,7 +16,7 @@
     <script src="js/firebase-db.js?v=3"></script>
     <link rel="stylesheet" href="css/shared.css">
     <link rel="stylesheet" href="css/glass.css?v=4">
-    <link rel="stylesheet" href="css/index.css">
+    <link rel="stylesheet" href="css/index.css?v=2">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -516,14 +516,18 @@
                         const approved = reviews
                             .filter(r => r.status === 'approved')
                             .map(normaliseReview);
+                        console.log('[TrueBeast Reviews] Total fetched:', reviews.length, '| Approved:', approved.length);
                         if (approved.length > 0) {
                             setPool(approved);
                             setShown(approved.slice(0, Math.min(4, approved.length)));
                             return;
                         }
+                        // No approved reviews yet — use fallback placeholders
+                        console.warn('[TrueBeast Reviews] 0 approved reviews found. Using placeholders. Check Firestore rules allow unauthenticated list/get on the reviews collection.');
                         setPool(FALLBACK_REVIEWS);
                         setShown(FALLBACK_REVIEWS);
-                    }).catch(() => {
+                    }).catch(err => {
+                        console.error('[TrueBeast Reviews] Failed to load:', err);
                         setPool(FALLBACK_REVIEWS);
                         setShown(FALLBACK_REVIEWS);
                     });
@@ -606,7 +610,7 @@
                                 
                                 <div className="relative">
                                     {/* opacity transition handles smooth cycling — content swaps while invisible */}
-                                    <div className="grid grid-cols-2 gap-4"
+                                    <div className={`grid ${displayReviews.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} gap-4`}
                                          style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.45s ease' }}>
                                         {displayReviews.map((review, i) => (
                                             <div key={i} className={`liquid-glass rounded-2xl p-4 ${i % 2 === 0 ? 'float' : 'float-delayed'}`}

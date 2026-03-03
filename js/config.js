@@ -112,8 +112,9 @@ const SITE_CONFIG = {
     //              allow list, update, delete: if request.auth != null;
     //            }
     //            match /reviews/{reviewId} {
-    //              allow create: if true;
-    //              allow list, get, update, delete: if request.auth != null;
+    //              allow create:   if true;
+    //              allow get, list: if true;          // public — homepage reads approved reviews
+    //              allow update, delete: if request.auth != null;
     //            }
     //          }
     //        }
