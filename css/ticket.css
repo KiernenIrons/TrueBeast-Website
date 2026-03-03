@@ -1,0 +1,71 @@
+/* ============================================================
+   TrueBeast — ticket.html Page Styles
+   Green theme. Imports glass.css + shared.css via HTML.
+   ============================================================ */
+
+body { background: #050505; }
+
+/* Animated gradient background — green */
+.gradient-bg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: -2;
+    background:
+        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.10) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(57, 255, 20, 0.06)  0%, transparent 50%),
+        #050505;
+}
+
+/* Animated border glow — green */
+.glass-glow::before {
+    background: linear-gradient(135deg,
+        rgba(34, 197, 94, 0.6),
+        rgba(57, 255, 20, 0.4),
+        rgba(22, 163, 74, 0.5)
+    );
+}
+
+/* Text gradient — green */
+.text-gradient {
+    background: linear-gradient(135deg, #fff 0%, #4ade80 50%, #22c55e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Pulse glow — green */
+.pulse-glow { animation: pulseGlow 3s ease-in-out infinite; }
+
+@keyframes pulseGlow {
+    0%, 100% {
+        box-shadow: 0 0 20px rgba(34, 197, 94, 0.3),
+                    0 0 40px rgba(34, 197, 94, 0.1);
+    }
+    50% {
+        box-shadow: 0 0 30px rgba(34, 197, 94, 0.5),
+                    0 0 60px rgba(34, 197, 94, 0.2);
+    }
+}
+
+/* Button hover — green shadow */
+.btn-glass:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 6px; }
+::-webkit-scrollbar-track { background: #050505; }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #22c55e, #16a34a); border-radius: 3px; }
+
+/* Ticket status colours */
+.status-open        { background: rgba(34, 197, 94, 0.2);  color: #22c55e; }
+.status-in-progress { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+.status-resolved    { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+.status-urgent      { background: rgba(239, 68, 68, 0.2);  color: #ef4444; }
+
+/* Ticket priority badges */
+.priority-high   { background: rgba(239, 68, 68, 0.2);  color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+.priority-medium { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); }
+.priority-low    { background: rgba(34, 197, 94, 0.2);  color: #22c55e; border-color: rgba(34, 197, 94, 0.3); }

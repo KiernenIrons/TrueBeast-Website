@@ -1,0 +1,121 @@
+/* ============================================================
+   TrueBeast — index.html Page Styles
+   Green theme. Imports glass.css + shared.css via HTML.
+   ============================================================ */
+
+/* Animated gradient background — green theme */
+.gradient-bg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: -2;
+    background:
+        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.12) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(57, 255, 20, 0.08)  0%, transparent 50%),
+        radial-gradient(ellipse at 40% 60%, rgba(22, 163, 74, 0.10)  0%, transparent 40%),
+        #050505;
+}
+
+.gradient-bg::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(ellipse at 60% 30%, rgba(74, 222, 128, 0.06) 0%, transparent 40%);
+    animation: gradientShift 20s ease-in-out infinite;
+}
+
+@keyframes gradientShift {
+    0%,  100% { transform: translate(0, 0) scale(1); }
+    25%        { transform: translate(5%, -5%) scale(1.1); }
+    50%        { transform: translate(-5%, 5%) scale(0.95); }
+    75%        { transform: translate(3%, 3%) scale(1.05); }
+}
+
+/* Animated border glow — green */
+.glass-glow::before {
+    background: linear-gradient(135deg,
+        rgba(34, 197, 94, 0.6),
+        rgba(57, 255, 20, 0.4),
+        rgba(22, 163, 74, 0.5),
+        rgba(74, 222, 128, 0.4)
+    );
+}
+
+/* Pulse glow — green */
+.pulse-glow {
+    animation: pulseGlow 3s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+    0%, 100% {
+        box-shadow: 0 0 20px rgba(34, 197, 94, 0.3),
+                    0 0 40px rgba(34, 197, 94, 0.1);
+    }
+    50% {
+        box-shadow: 0 0 30px rgba(34, 197, 94, 0.5),
+                    0 0 60px rgba(34, 197, 94, 0.2);
+    }
+}
+
+/* Button hover — green shadow */
+.btn-glass:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px rgba(34, 197, 94, 0.3);
+}
+
+/* Text gradient — green */
+.text-gradient {
+    background: linear-gradient(135deg, #fff 0%, #4ade80 50%, #22c55e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.text-green-glow {
+    color: #22c55e;
+    text-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+}
+
+/* Floating decorative elements */
+.float         { animation: float 6s ease-in-out infinite; }
+.float-delayed { animation: float 6s ease-in-out infinite; animation-delay: -3s; }
+
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50%       { transform: translateY(-20px); }
+}
+
+/* Noise texture overlay */
+.noise {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: -1;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    pointer-events: none;
+}
+
+/* Video card */
+.video-card { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.video-card:hover { transform: translateY(-8px) scale(1.02); }
+
+/* Social icon */
+.social-icon { transition: all 0.3s ease; }
+.social-icon:hover {
+    transform: scale(1.1) rotate(5deg);
+    filter: drop-shadow(0 0 20px currentColor);
+}
+
+/* Cursor follow glow */
+.cursor-glow {
+    position: fixed;
+    width: 300px; height: 300px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(34, 197, 94, 0.12) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: -1;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.3s ease;
+}

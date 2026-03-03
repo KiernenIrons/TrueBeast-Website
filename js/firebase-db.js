@@ -203,7 +203,21 @@ const FirebaseDB = {
     onAuthStateChanged(callback) {
         _ensureApp();
         if (_isConfigured()) {
-            firebase.auth().onAuthStateChanged(callback);
+            // If Firebase Authentication service isn't enabled in the console,
+            // onAuthStateChanged may never fire. After 6 s assume "not signed in"
+            // so the page doesn't stay stuck on a blank/spinner screen.
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    console.warn('FirebaseDB: auth state timed out — is Firebase Authentication enabled in your Firebase console?');
+                    callback(null);
+                }
+            }, 6000);
+            firebase.auth().onAuthStateChanged(u => {
+                if (!settled) { settled = true; clearTimeout(timer); }
+                callback(u);
+            });
         } else {
             callback(null);
         }
