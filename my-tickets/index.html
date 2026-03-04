@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Tickets | TrueBeast Support</title>
+    <link rel="icon" href="../favicon.ico">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -50,9 +51,7 @@
                         <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
                             <div className="flex items-center justify-between">
                                 <a href="../" className="flex items-center gap-3 group">
-                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center pulse-glow">
-                                        <span className="font-display font-bold text-lg">TB</span>
-                                    </div>
+                                    <div class="w-10 h-10 rounded-xl overflow-hidden pulse-glow flex-shrink-0"><img src="../assets/logos/logo.png" alt="TrueBeast" class="w-full h-full object-contain" /></div>
                                     <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
                                 </a>
                                 <div className="flex items-center gap-4">
