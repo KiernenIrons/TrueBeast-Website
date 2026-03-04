@@ -32,7 +32,7 @@
         // Initialize EmailJS from config
         const initEmailJS = () => {
             const key = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs.publicKey : null;
-            if (key && key !== 'PASTE_YOUR_PUBLIC_KEY') emailjs.init({ publicKey: key });
+            if (key && key !== 'PASTE_YOUR_PUBLIC_KEY') emailjs.init(key);
         };
 
         const useScrollReveal = () => {
