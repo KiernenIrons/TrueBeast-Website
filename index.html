@@ -299,7 +299,7 @@
             return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
         };
 
-        const YT_CACHE_KEY = 'tb_yt_slots_v6';
+        const YT_CACHE_KEY = 'tb_yt_slots_v7';
         const YT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
         async function fetchYouTubeSlots() {
@@ -316,14 +316,19 @@
             const vbase = 'https://www.googleapis.com/youtube/v3/videos';
             const slots = { latest: null, short: null, stream: null, popular: null };
 
-            // Helper: returns a Set of video IDs that are/were livestreams
+            // Helper: returns a Set of video IDs that are/were livestreams (batches 50 at a time)
             async function getLiveIds(ids) {
                 if (!ids.length) return new Set();
-                try {
-                    const r = await fetch(`${vbase}?part=liveStreamingDetails&id=${ids.join(',')}&key=${k}`);
-                    const d = await r.json();
-                    return new Set((d.items || []).filter(v => v.liveStreamingDetails).map(v => v.id));
-                } catch { return new Set(); }
+                const result = new Set();
+                for (let i = 0; i < ids.length; i += 50) {
+                    try {
+                        const batch = ids.slice(i, i + 50);
+                        const r = await fetch(`${vbase}?part=liveStreamingDetails&id=${batch.join(',')}&key=${k}`);
+                        const d = await r.json();
+                        (d.items || []).filter(v => v.liveStreamingDetails).forEach(v => result.add(v.id));
+                    } catch {}
+                }
+                return result;
             }
 
             // Slot: Latest Stream — try currently live first, then most recent completed
@@ -365,23 +370,34 @@
                 if (pick) slots.latest = { id: pick.id.videoId, title: pick.snippet.title, category: 'Latest Video' };
             } catch (e) { console.warn('[TrueBeast YouTube] latest video fetch failed:', e.message); }
 
-            // Slot: Most Popular — fetch uploads playlist, get real view counts, sort numerically
-            // (search?order=viewCount is unreliable; playlistItems + statistics is accurate)
+            // Slot: Most Popular — scan ALL channel uploads, get real view counts, sort numerically
+            // Paginated so it covers the full upload history, not just the most recent 50
             try {
                 const uploadsId = ch.replace(/^UC/, 'UU');
-                const plR = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50&key=${k}`);
-                const plD = await plR.json();
-                if (plD.error) console.warn('[TrueBeast YouTube] popular slot:', plD.error.message);
-                const allItems = (plD.items || []).map(item => ({ id: item.snippet.resourceId.videoId, title: item.snippet.title }));
+                let allItems = [];
+                let pageToken = '';
+                do {
+                    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50&key=${k}${pageToken ? '&pageToken=' + pageToken : ''}`;
+                    const plR = await fetch(url);
+                    const plD = await plR.json();
+                    if (plD.error) { console.warn('[TrueBeast YouTube] popular slot:', plD.error.message); break; }
+                    allItems.push(...(plD.items || []).map(item => ({ id: item.snippet.resourceId.videoId, title: item.snippet.title })));
+                    pageToken = plD.nextPageToken || '';
+                } while (pageToken);
+
                 const exclude = new Set([slots.short?.id, slots.stream?.id, slots.latest?.id].filter(Boolean));
                 const candidates = allItems.filter(v => !exclude.has(v.id));
                 const liveIds = await getLiveIds(candidates.map(v => v.id));
                 const nonStreams = candidates.filter(v => !liveIds.has(v.id));
                 if (nonStreams.length) {
-                    const statsR = await fetch(`${vbase}?part=statistics&id=${nonStreams.map(v => v.id).join(',')}&key=${k}`);
-                    const statsD = await statsR.json();
+                    // Get statistics in batches of 50 (API limit per request)
                     const viewMap = {};
-                    (statsD.items || []).forEach(v => { viewMap[v.id] = parseInt(v.statistics?.viewCount || '0'); });
+                    for (let i = 0; i < nonStreams.length; i += 50) {
+                        const batch = nonStreams.slice(i, i + 50);
+                        const statsR = await fetch(`${vbase}?part=statistics&id=${batch.map(v => v.id).join(',')}&key=${k}`);
+                        const statsD = await statsR.json();
+                        (statsD.items || []).forEach(v => { viewMap[v.id] = parseInt(v.statistics?.viewCount || '0'); });
+                    }
                     nonStreams.sort((a, b) => (viewMap[b.id] || 0) - (viewMap[a.id] || 0));
                     const pick = nonStreams[0];
                     if (pick) slots.popular = { id: pick.id, title: pick.title, category: 'Most Viewed' };
@@ -397,12 +413,12 @@
         }
 
         // Single video card (used by ContentSection)
-        const VideoCard = ({ video, label, fallback }) => {
+        const VideoCard = ({ video, portrait, style }) => {
             if (!video) {
                 // Placeholder card
                 return (
-                    <div className="reveal video-card liquid-glass rounded-2xl overflow-hidden opacity-40">
-                        <div className="aspect-video bg-gray-900 flex items-center justify-center">
+                    <div className={`reveal video-card liquid-glass rounded-2xl overflow-hidden opacity-40${portrait ? ' flex flex-col' : ''}`} style={style}>
+                        <div className={`${portrait ? 'flex-1' : 'aspect-video'} bg-gray-900 flex items-center justify-center`}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
                         </div>
                         <div className="p-5">
@@ -419,8 +435,9 @@
                 : `https://www.youtube.com/watch?v=${video.id}`;
             return (
                 <a href={href} target="_blank" rel="noopener noreferrer"
-                   className="reveal video-card liquid-glass rounded-2xl overflow-hidden group cursor-pointer" style={{textDecoration:'none',color:'inherit'}}>
-                    <div className="aspect-video relative overflow-hidden bg-gray-900">
+                   className={`reveal video-card liquid-glass rounded-2xl overflow-hidden group cursor-pointer${portrait ? ' flex flex-col' : ''}`}
+                   style={{textDecoration:'none', color:'inherit', ...style}}>
+                    <div className={`${portrait ? 'flex-1' : 'aspect-video'} relative overflow-hidden bg-gray-900`}>
                         <img src={`https://img.youtube.com/vi/${video.id}/maxresdefault.jpg`}
                              alt={video.title}
                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -447,7 +464,7 @@
 
         // Content Section
         const ContentSection = () => {
-            const [slots, setSlots] = useState({ latest: null, short: null, stream: null });
+            const [slots, setSlots] = useState({ latest: null, short: null, stream: null, popular: null });
 
             useEffect(() => {
                 if (!YT_API_CONFIGURED()) {
@@ -472,11 +489,14 @@
                             </p>
                         </div>
 
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <VideoCard video={slots.latest} />
-                            <VideoCard video={slots.short} />
-                            <VideoCard video={slots.stream} />
-                            <VideoCard video={slots.popular} />
+                        <div className="grid gap-6" style={{
+                            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                            gridTemplateAreas: '"latest short" "stream short" "popular popular"'
+                        }}>
+                            <VideoCard video={slots.latest} style={{gridArea: 'latest'}} />
+                            <VideoCard video={slots.short}  portrait style={{gridArea: 'short'}} />
+                            <VideoCard video={slots.stream} style={{gridArea: 'stream'}} />
+                            <VideoCard video={slots.popular} style={{gridArea: 'popular'}} />
                         </div>
 
                         <div className="text-center mt-12 reveal">
