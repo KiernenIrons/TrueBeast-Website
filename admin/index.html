@@ -150,11 +150,10 @@
             <div id="d-review-stats" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
         </div>
 
-        <!-- Top-level tabs: Tickets / Reviews / Announcements -->
-        <div class="flex gap-2 mb-5 flex-wrap">
+        <!-- Top-level tabs: Tickets / Reviews -->
+        <div class="flex gap-2 mb-5">
             <button id="tab-tickets" onclick="setMainTab('tickets')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-active">Tickets</button>
             <button id="tab-reviews" onclick="setMainTab('reviews')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
-            <button id="tab-announcements" onclick="setMainTab('announcements')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Announcements</button>
         </div>
 
         <!-- Error banner -->
@@ -174,90 +173,7 @@
             <div id="r-list" class="list-scroll space-y-3"></div>
         </div>
 
-        <!-- Announcements panel -->
-        <div id="panel-announcements" style="display:none">
 
-            <!-- Pipedream webhook setup guide -->
-            <div class="liquid-glass rounded-2xl p-6 mb-5 border border-violet-500/20">
-                <div class="flex items-start gap-3 mb-4">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0 mt-0.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                    <div>
-                        <h3 class="font-display font-semibold text-base text-violet-400 mb-1">Auto-Post via Discohook + Pipedream</h3>
-                        <p class="text-gray-400 text-sm">Post one announcement in Discohook and it'll appear on your website AND Discord at the same time.</p>
-                    </div>
-                </div>
-                <div class="space-y-3 text-sm text-gray-400">
-                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">1.</span><span>Go to <strong class="text-white">pipedream.com</strong> → Sign up free → New Workflow</span></div>
-                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">2.</span><span>Choose <strong class="text-white">HTTP / Webhook</strong> as the trigger → Copy the webhook URL it gives you</span></div>
-                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">3.</span><span>Add a <strong class="text-white">Node.js Code</strong> step → paste the code below (fill in your Firebase project ID)</span></div>
-                    <div class="liquid-glass rounded-xl p-4 font-mono text-xs text-green-300 overflow-x-auto leading-relaxed" style="background:rgba(0,0,0,0.4)">
-import { initializeApp, getApps, cert } from 'firebase-admin/app';<br>
-import { getFirestore }                 from 'firebase-admin/firestore';<br>
-<br>
-export default defineComponent({<br>
-&nbsp;&nbsp;async run({ steps }) {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;if (!getApps().length) {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;initializeApp({ credential: cert({<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;projectId:   process.env.FB_PROJECT_ID,<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;clientEmail: process.env.FB_CLIENT_EMAIL,<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;privateKey:  process.env.FB_PRIVATE_KEY.replace(/\\n/g,'\n'),<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}) });<br>
-&nbsp;&nbsp;&nbsp;&nbsp;}<br>
-&nbsp;&nbsp;&nbsp;&nbsp;const body = steps.trigger.event.body;<br>
-&nbsp;&nbsp;&nbsp;&nbsp;const embed = body?.embeds?.[0] || {};<br>
-&nbsp;&nbsp;&nbsp;&nbsp;// Map Discord embed colour → type<br>
-&nbsp;&nbsp;&nbsp;&nbsp;const types = { 5763719:'game-night', 3447003:'movie-night',<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;10181046:'event', 16776960:'update' };<br>
-&nbsp;&nbsp;&nbsp;&nbsp;const doc = {<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;id:        'WH-' + Date.now().toString(36).toUpperCase(),<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;title:     embed.title       || body?.content || 'Announcement',<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;text:      embed.description || '',<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;type:      types[embed.color] || 'general',<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;createdAt: new Date().toISOString(),<br>
-&nbsp;&nbsp;&nbsp;&nbsp;};<br>
-&nbsp;&nbsp;&nbsp;&nbsp;await getFirestore().collection('announcements').doc(doc.id).set(doc);<br>
-&nbsp;&nbsp;&nbsp;&nbsp;return doc;<br>
-&nbsp;&nbsp;}<br>
-});
-                    </div>
-                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">4.</span><span>In Pipedream → Environment Variables, add: <code class="text-yellow-300">FB_PROJECT_ID</code>, <code class="text-yellow-300">FB_CLIENT_EMAIL</code>, <code class="text-yellow-300">FB_PRIVATE_KEY</code><br><span class="text-gray-500">(Get these from Firebase Console → Project Settings → Service accounts → Generate new private key)</span></span></div>
-                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">5.</span><span>Deploy the workflow → copy the webhook URL → in Discohook, add it as a second URL alongside your Discord webhook URL</span></div>
-                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">6.</span><span>Use embed colours to set the type: <span class="text-green-400">Green (5763719)</span> = Game Night · <span class="text-blue-400">Blue (3447003)</span> = Movie Night · <span class="text-yellow-400">Yellow (16776960)</span> = Update · <span class="text-purple-400">Purple (10181046)</span> = Event</span></div>
-                </div>
-            </div>
-
-            <!-- Manual post form (fallback) -->
-            <div class="liquid-glass rounded-2xl p-6 mb-6">
-                <h3 class="font-display font-semibold text-base mb-1">Manual Post</h3>
-                <p class="text-xs text-gray-500 mb-4">Post directly from here without going through Discord.</p>
-                <div class="space-y-3">
-                    <input id="a-title" type="text" placeholder="Title (e.g. Game Night Tonight!)"
-                        class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm" />
-                    <select id="a-type"
-                        class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white text-sm appearance-none"
-                        style="background-color:rgba(255,255,255,0.04)">
-                        <option value="general">General</option>
-                        <option value="game-night">Game Night</option>
-                        <option value="movie-night">Movie Night</option>
-                        <option value="update">Update</option>
-                        <option value="event">Event</option>
-                    </select>
-                    <textarea id="a-text" rows="3" placeholder="Announcement details…"
-                        class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none"></textarea>
-                    <div class="flex items-center justify-between gap-3">
-                        <p class="text-xs text-gray-500">Appears on homepage immediately.</p>
-                        <button onclick="postAnnouncement()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold whitespace-nowrap flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                            Post
-                        </button>
-                    </div>
-                    <p id="a-msg" style="display:none" class="text-green-400 text-xs"></p>
-                </div>
-            </div>
-
-            <!-- Existing announcements -->
-            <div id="a-list" class="space-y-3"></div>
-        </div>
 
     </div>
 </div>
@@ -308,9 +224,8 @@ export default defineComponent({<br>
 
     /* ── nav refresh ── */
     function refreshCurrent() {
-        if (mainTab === 'reviews')        loadReviews();
-        else if (mainTab === 'announcements') loadAnnouncements();
-        else                              loadTickets();
+        if (mainTab === 'reviews') loadReviews();
+        else                      loadTickets();
     }
 
     /* ── auth ── */
@@ -357,11 +272,10 @@ export default defineComponent({<br>
     /* ── main tab switch ── */
     function setMainTab(tab) {
         mainTab = tab;
-        ['tickets','reviews','announcements'].forEach(function(t) {
-            document.getElementById('tab-' + t).className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === t ? 'tab-active' : 'tab-inactive');
-            document.getElementById('panel-' + t).style.display = tab === t ? 'block' : 'none';
-        });
-        if (tab === 'announcements') loadAnnouncements();
+        document.getElementById('tab-tickets').className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === 'tickets' ? 'tab-active' : 'tab-inactive');
+        document.getElementById('tab-reviews').className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === 'reviews' ? 'tab-active' : 'tab-inactive');
+        document.getElementById('panel-tickets').style.display = tab === 'tickets' ? 'block' : 'none';
+        document.getElementById('panel-reviews').style.display  = tab === 'reviews'  ? 'block' : 'none';
     }
 
     /* ════════════════════════════════════════════════════════
@@ -690,103 +604,6 @@ export default defineComponent({<br>
         activeReview = null;
         setMainTab('reviews');
         show('dashboard');
-    }
-
-    /* ════════════════════════════════════════════════════════
-       ANNOUNCEMENTS
-    ════════════════════════════════════════════════════════ */
-    var allAnnouncements = [];
-
-    var TYPE_LABELS = {
-        'general':    { label: 'General',    color: 'text-gray-300',   bg: 'bg-gray-500/20' },
-        'game-night': { label: 'Game Night', color: 'text-green-400',  bg: 'bg-green-500/20' },
-        'movie-night':{ label: 'Movie Night',color: 'text-blue-400',   bg: 'bg-blue-500/20' },
-        'update':     { label: 'Update',     color: 'text-violet-400', bg: 'bg-violet-500/20' },
-        'event':      { label: 'Event',      color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
-    };
-
-    function loadAnnouncements() {
-        document.getElementById('a-list').innerHTML =
-            '<div class="liquid-glass rounded-2xl p-8 text-center">' +
-            '<div class="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full spin mx-auto mb-3"></div>' +
-            '<p class="text-gray-500 text-sm">Loading announcements…</p></div>';
-
-        FirebaseDB.getAllAnnouncements().then(function(items) {
-            allAnnouncements = items;
-            renderAnnouncements();
-        }).catch(function(ex) {
-            document.getElementById('a-list').innerHTML =
-                '<p class="text-red-400 text-sm">Failed to load: ' + esc(ex.message) + '</p>';
-        });
-    }
-
-    function renderAnnouncements() {
-        var el = document.getElementById('a-list');
-        if (allAnnouncements.length === 0) {
-            el.innerHTML = '<div class="liquid-glass rounded-2xl p-8 text-center text-gray-500 text-sm">No announcements yet. Post one above!</div>';
-            return;
-        }
-        el.innerHTML = allAnnouncements.map(function(a) {
-            var type = TYPE_LABELS[a.type] || TYPE_LABELS['general'];
-            return '<div class="liquid-glass rounded-2xl p-5 flex items-start gap-4">' +
-                '<div class="flex-1 min-w-0">' +
-                '<div class="flex items-center gap-2 mb-1">' +
-                '<span class="text-xs font-medium px-2 py-0.5 rounded-full ' + type.bg + ' ' + type.color + '">' + esc(type.label) + '</span>' +
-                '<span class="text-xs text-gray-600">' + esc(new Date(a.createdAt).toLocaleString()) + '</span>' +
-                '</div>' +
-                '<p class="font-semibold text-sm mb-1">' + esc(a.title) + '</p>' +
-                '<p class="text-gray-400 text-sm whitespace-pre-wrap">' + esc(a.text) + '</p>' +
-                '</div>' +
-                '<button onclick="deleteAnnouncementById(\'' + esc(a.id) + '\')" ' +
-                'class="flex-shrink-0 text-gray-600 hover:text-red-400 transition-colors p-1" title="Delete">' +
-                '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>' +
-                '</button>' +
-                '</div>';
-        }).join('');
-    }
-
-    function postAnnouncement() {
-        var title = (document.getElementById('a-title').value || '').trim();
-        var type  = document.getElementById('a-type').value;
-        var text  = (document.getElementById('a-text').value || '').trim();
-        var msg   = document.getElementById('a-msg');
-        if (!title || !text) {
-            msg.textContent = 'Please fill in both a title and the announcement text.';
-            msg.className = 'text-red-400 text-xs';
-            msg.style.display = 'block';
-            return;
-        }
-        var announcement = {
-            id:        'ANN-' + Date.now().toString(36).toUpperCase(),
-            title:     title,
-            type:      type,
-            text:      text,
-            createdAt: new Date().toISOString(),
-        };
-        msg.textContent = 'Posting…';
-        msg.className = 'text-gray-400 text-xs';
-        msg.style.display = 'block';
-        FirebaseDB.saveAnnouncement(announcement).then(function() {
-            document.getElementById('a-title').value = '';
-            document.getElementById('a-text').value = '';
-            msg.textContent = 'Posted! Refresh the homepage to see it.';
-            msg.className = 'text-green-400 text-xs';
-            allAnnouncements.unshift(announcement);
-            renderAnnouncements();
-        }).catch(function(ex) {
-            msg.textContent = 'Failed: ' + esc(ex.message);
-            msg.className = 'text-red-400 text-xs';
-        });
-    }
-
-    function deleteAnnouncementById(id) {
-        if (!confirm('Delete this announcement?')) return;
-        FirebaseDB.deleteAnnouncement(id).then(function() {
-            allAnnouncements = allAnnouncements.filter(function(a){ return a.id !== id; });
-            renderAnnouncements();
-        }).catch(function(ex) {
-            alert('Delete failed: ' + ex.message);
-        });
     }
 
     function renderReviewDetail() {

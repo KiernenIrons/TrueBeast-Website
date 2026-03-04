@@ -292,62 +292,125 @@
             return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
         };
 
-        async function fetchYouTubeVideos() {
-            const cfg = YT_CFG();
-            const maxResults = cfg.maxResults || 4;
-            const base = 'https://www.googleapis.com/youtube/v3/search';
+        const YT_CACHE_KEY = 'tb_yt_slots_v2';
+        const YT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-            // Try to find a live broadcast first
-            let liveVideo = null;
+        async function fetchYouTubeSlots() {
+            // Return cached data if fresh
             try {
-                const liveRes = await fetch(
-                    `${base}?part=snippet&channelId=${cfg.channelId}&eventType=live&type=video&maxResults=1&key=${cfg.apiKey}`
-                );
-                const liveData = await liveRes.json();
-                if (liveData.items && liveData.items.length > 0) {
-                    const item = liveData.items[0];
-                    liveVideo = {
-                        id:       item.id.videoId,
-                        title:    item.snippet.title,
-                        category: 'LIVE NOW',
-                        isLive:   true,
-                    };
+                const cached = JSON.parse(localStorage.getItem(YT_CACHE_KEY) || 'null');
+                if (cached && Date.now() - cached.ts < YT_CACHE_TTL) return cached.slots;
+            } catch {}
+
+            const cfg = YT_CFG();
+            const ch  = cfg.channelId;
+            const k   = cfg.apiKey;
+            const base = 'https://www.googleapis.com/youtube/v3/search';
+            const slots = { latest: null, short: null, stream: null };
+
+            // Slot: Latest Stream — try currently live first, then most recent completed
+            try {
+                let r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&eventType=live&maxResults=1&key=${k}`);
+                let d = await r.json();
+                if (!d.items?.length) {
+                    r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&eventType=completed&order=date&maxResults=1&key=${k}`);
+                    d = await r.json();
                 }
-            } catch { /* live check is optional */ }
+                if (d.error) console.warn('[TrueBeast YouTube] stream slot:', d.error.message);
+                if (d.items?.length) {
+                    const v = d.items[0];
+                    const isLive = v.snippet.liveBroadcastContent === 'live';
+                    slots.stream = { id: v.id.videoId, title: v.snippet.title, category: isLive ? 'LIVE NOW' : 'Latest Stream', isLive };
+                }
+            } catch (e) { console.warn('[TrueBeast YouTube] stream fetch failed:', e.message); }
 
-            // Fetch latest videos (one extra if we have a live video, to avoid repeats)
-            const needed = liveVideo ? maxResults - 1 : maxResults;
-            const res = await fetch(
-                `${base}?part=snippet&channelId=${cfg.channelId}&order=date&type=video&maxResults=${needed + 1}&key=${cfg.apiKey}`
-            );
-            if (!res.ok) throw new Error(`YouTube API ${res.status}`);
-            const data = await res.json();
-            if (data.error) throw new Error(data.error.message);
+            // Slot: Latest Short (videos under 4 min — catches most Shorts)
+            try {
+                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&videoDuration=short&order=date&maxResults=1&key=${k}`);
+                const d = await r.json();
+                if (d.error) console.warn('[TrueBeast YouTube] shorts slot:', d.error.message);
+                if (d.items?.length) {
+                    const v = d.items[0];
+                    slots.short = { id: v.id.videoId, title: v.snippet.title, category: 'Shorts' };
+                }
+            } catch (e) { console.warn('[TrueBeast YouTube] shorts fetch failed:', e.message); }
 
-            const regular = (data.items || [])
-                .filter(item => !liveVideo || item.id.videoId !== liveVideo.id)
-                .slice(0, needed)
-                .map(item => ({
-                    id:       item.id.videoId,
-                    title:    item.snippet.title,
-                    category: item.snippet.liveBroadcastContent === 'upcoming' ? 'Upcoming' : 'Latest',
-                }));
+            // Slot: Latest Video — first recent upload that isn't the short or stream
+            try {
+                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=date&maxResults=6&key=${k}`);
+                const d = await r.json();
+                if (d.error) console.warn('[TrueBeast YouTube] latest video slot:', d.error.message);
+                const exclude = new Set([slots.short?.id, slots.stream?.id].filter(Boolean));
+                const pick = (d.items || []).find(v => !exclude.has(v.id.videoId));
+                if (pick) slots.latest = { id: pick.id.videoId, title: pick.snippet.title, category: 'Latest Video' };
+            } catch (e) { console.warn('[TrueBeast YouTube] latest video fetch failed:', e.message); }
 
-            return liveVideo ? [liveVideo, ...regular] : regular;
+            // Cache result
+            try { localStorage.setItem(YT_CACHE_KEY, JSON.stringify({ ts: Date.now(), slots })); } catch {}
+            return slots;
         }
+
+        // Single video card (used by ContentSection)
+        const VideoCard = ({ video, label, fallback }) => {
+            if (!video) {
+                // Placeholder card
+                return (
+                    <div className="reveal video-card liquid-glass rounded-2xl overflow-hidden opacity-40">
+                        <div className="aspect-video bg-gray-900 flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        </div>
+                        <div className="p-5">
+                            <div className="h-4 bg-gray-800 rounded w-3/4 mb-3"></div>
+                            <div className="h-3 bg-gray-800 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                );
+            }
+            const isLive = video.isLive;
+            const isShort = video.category === 'Shorts';
+            const href = isShort
+                ? `https://www.youtube.com/shorts/${video.id}`
+                : `https://www.youtube.com/watch?v=${video.id}`;
+            return (
+                <a href={href} target="_blank" rel="noopener noreferrer"
+                   className="reveal video-card liquid-glass rounded-2xl overflow-hidden group cursor-pointer" style={{textDecoration:'none',color:'inherit'}}>
+                    <div className="aspect-video relative overflow-hidden bg-gray-900">
+                        <img src={`https://img.youtube.com/vi/${video.id}/maxresdefault.jpg`}
+                             alt={video.title}
+                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                            <div className="w-16 h-16 rounded-full liquid-glass-strong flex items-center justify-center">
+                                <i data-lucide="play" className="w-6 h-6 ml-1"></i>
+                            </div>
+                        </div>
+                        <div className={`absolute top-3 left-3 liquid-glass px-2 py-1 rounded-lg text-xs font-medium flex items-center gap-1 ${isLive ? 'text-red-400' : 'text-green-400'}`}>
+                            {isLive && <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse inline-block"></span>}
+                            {video.category}
+                        </div>
+                    </div>
+                    <div className="p-5">
+                        <h3 className="font-semibold text-lg mb-2 group-hover:text-green-400 transition-colors leading-snug line-clamp-2">{video.title}</h3>
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <i data-lucide="youtube" className="w-4 h-4 text-red-500"></i>
+                            <span>{isLive ? 'Watch Live' : isShort ? 'Watch Short' : 'Watch on YouTube'}</span>
+                        </div>
+                    </div>
+                </a>
+            );
+        };
 
         // Content Section
         const ContentSection = () => {
-            const staticVideos = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.videos) || [];
-            const [videos, setVideos] = useState(staticVideos);
-            const [apiActive, setApiActive] = useState(false);
+            const [slots, setSlots] = useState({ latest: null, short: null, stream: null });
 
             useEffect(() => {
-                if (!YT_API_CONFIGURED()) return;
-                setApiActive(true);
-                fetchYouTubeVideos()
-                    .then(vids => { if (vids.length > 0) setVideos(vids); })
-                    .catch(err => console.warn('[TrueBeast YouTube] API fetch failed, using static fallback:', err.message));
+                if (!YT_API_CONFIGURED()) {
+                    console.warn('[TrueBeast YouTube] API not configured — set youtube.channelId + youtube.apiKey in js/config.js');
+                    return;
+                }
+                fetchYouTubeSlots()
+                    .then(s => setSlots(s))
+                    .catch(err => console.warn('[TrueBeast YouTube] Slot fetch failed:', err.message));
             }, []);
 
             return (
@@ -364,32 +427,10 @@
                         </div>
 
                         <div className="grid md:grid-cols-2 gap-6">
-                            {videos.map((video, i) => (
-                                <a key={video.id || i} href={`https://www.youtube.com/watch?v=${video.id}`} target="_blank" rel="noopener noreferrer"
-                                   className="reveal video-card liquid-glass rounded-2xl overflow-hidden group cursor-pointer" style={{textDecoration: 'none', color: 'inherit'}}>
-                                    <div className="aspect-video relative overflow-hidden bg-gray-900">
-                                        <img src={video.customThumbnail || `https://img.youtube.com/vi/${video.id}/maxresdefault.jpg`}
-                                             alt={video.title}
-                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                                            <div className="w-16 h-16 rounded-full liquid-glass-strong flex items-center justify-center">
-                                                <i data-lucide="play" className="w-6 h-6 ml-1"></i>
-                                            </div>
-                                        </div>
-                                        <div className={`absolute top-3 left-3 liquid-glass px-2 py-1 rounded-lg text-xs font-medium ${video.isLive ? 'text-red-400 animate-pulse' : 'text-green-400'}`}>
-                                            {video.isLive && <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1"></span>}
-                                            {video.category}
-                                        </div>
-                                    </div>
-                                    <div className="p-5">
-                                        <h3 className="font-semibold text-lg mb-2 group-hover:text-green-400 transition-colors leading-snug">{video.title}</h3>
-                                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                                            <i data-lucide="youtube" className="w-4 h-4 text-red-500"></i>
-                                            <span>{video.isLive ? 'Watch Live on YouTube' : 'Watch on YouTube'}</span>
-                                        </div>
-                                    </div>
-                                </a>
-                            ))}
+                            <VideoCard video={slots.latest} />
+                            <VideoCard video={slots.short} />
+                            <VideoCard video={slots.stream} />
+                            <VideoCard video={null} />
                         </div>
 
                         <div className="text-center mt-12 reveal">
@@ -404,65 +445,6 @@
             );
         };
         
-        // ── Announcements Section ────────────────────────────────────────
-        const TYPE_STYLES = {
-            'general':     { label: 'General',     color: '#d1d5db', bg: 'rgba(107,114,128,0.2)' },
-            'game-night':  { label: 'Game Night',  color: '#4ade80', bg: 'rgba(34,197,94,0.15)' },
-            'movie-night': { label: 'Movie Night', color: '#60a5fa', bg: 'rgba(59,130,246,0.15)' },
-            'update':      { label: 'Update',      color: '#c084fc', bg: 'rgba(167,139,250,0.15)' },
-            'event':       { label: 'Event',       color: '#fbbf24', bg: 'rgba(245,158,11,0.15)' },
-        };
-
-        const AnnouncementsSection = () => {
-            const [announcements, setAnnouncements] = useState([]);
-
-            useEffect(() => {
-                FirebaseDB.getAllAnnouncements()
-                    .then(items => setAnnouncements(items.slice(0, 3)))
-                    .catch(() => {});
-            }, []);
-
-            if (announcements.length === 0) return null;
-
-            return (
-                <section id="announcements" className="py-16 px-6">
-                    <div className="max-w-6xl mx-auto">
-                        <div className="flex items-center justify-between mb-8 reveal">
-                            <div>
-                                <span className="text-yellow-400 font-medium text-sm tracking-wider uppercase mb-2 block">Community</span>
-                                <h2 className="font-display font-bold text-3xl md:text-4xl">Announcements</h2>
-                            </div>
-                            <a href="https://discord.gg/Nk8vekY" target="_blank" rel="noopener noreferrer"
-                               className="btn-glass liquid-glass px-4 py-2 rounded-xl text-sm font-medium text-gray-300 flex items-center gap-2 hidden md:flex">
-                                <i data-lucide="message-circle" className="w-4 h-4"></i>
-                                Discord
-                            </a>
-                        </div>
-                        <div className="grid md:grid-cols-3 gap-5">
-                            {announcements.map((ann, i) => {
-                                const style = TYPE_STYLES[ann.type] || TYPE_STYLES['general'];
-                                return (
-                                    <div key={ann.id || i} className="liquid-glass rounded-2xl p-5 reveal flex flex-col gap-3" style={{ transform: 'translateZ(0)' }}>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-xs font-medium px-2.5 py-1 rounded-full"
-                                                  style={{ color: style.color, background: style.bg }}>
-                                                {style.label}
-                                            </span>
-                                            <span className="text-xs text-gray-600">
-                                                {new Date(ann.createdAt).toLocaleDateString()}
-                                            </span>
-                                        </div>
-                                        <h3 className="font-display font-semibold text-lg leading-snug">{ann.title}</h3>
-                                        <p className="text-gray-400 text-sm whitespace-pre-wrap flex-1">{ann.text}</p>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </section>
-            );
-        };
-
         // ── Review Modal ─────────────────────────────────────────────────
         const ReviewModal = ({ onClose }) => {
             const [name,       setName]       = useState('');
@@ -854,7 +836,6 @@
                         <HeroSection />
                         <AboutSection />
                         <ContentSection />
-                        <AnnouncementsSection />
                         <CommunitySection />
                         <ConnectSection />
                     </main>
