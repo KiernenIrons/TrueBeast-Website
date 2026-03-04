@@ -69,6 +69,7 @@
                     ejsCfg.serviceId,
                     ejsCfg.ticketTemplateId || "YOUR_TEMPLATE_ID",
                     {
+                        email:           ticketData.email,   // matches {{email}} in template "To Email" field
                         to_email:        ticketData.email,
                         to_name:         ticketData.name,
                         ticket_id:       ticketData.id,
@@ -94,6 +95,7 @@
                     ejsCfg.serviceId,
                     ejsCfg.adminTemplateId || ejsCfg.ticketTemplateId || "YOUR_ADMIN_TEMPLATE_ID",
                     {
+                        email:       'kiernenyt@gmail.com',  // matches {{email}} in template "To Email" field
                         to_email:    'kiernenyt@gmail.com',
                         ticket_id:   ticketData.id,
                         user_name:   ticketData.name,
