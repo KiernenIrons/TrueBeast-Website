@@ -299,7 +299,7 @@
             return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
         };
 
-        const YT_CACHE_KEY = 'tb_yt_slots_v4';
+        const YT_CACHE_KEY = 'tb_yt_slots_v5';
         const YT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
         async function fetchYouTubeSlots() {
@@ -314,7 +314,7 @@
             const k   = cfg.apiKey;
             const base  = 'https://www.googleapis.com/youtube/v3/search';
             const vbase = 'https://www.googleapis.com/youtube/v3/videos';
-            const slots = { latest: null, short: null, stream: null };
+            const slots = { latest: null, short: null, stream: null, popular: null };
 
             // Helper: returns a Set of video IDs that are/were livestreams
             async function getLiveIds(ids) {
@@ -355,7 +355,7 @@
 
             // Slot: Latest Video — most recent upload that is NOT a stream or short
             try {
-                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=date&maxResults=10&key=${k}`);
+                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=date&maxResults=25&key=${k}`);
                 const d = await r.json();
                 if (d.error) console.warn('[TrueBeast YouTube] latest video slot:', d.error.message);
                 const exclude = new Set([slots.short?.id, slots.stream?.id].filter(Boolean));
@@ -364,6 +364,18 @@
                 const pick = candidates.find(v => !liveIds.has(v.id.videoId));
                 if (pick) slots.latest = { id: pick.id.videoId, title: pick.snippet.title, category: 'Latest Video' };
             } catch (e) { console.warn('[TrueBeast YouTube] latest video fetch failed:', e.message); }
+
+            // Slot: Most Popular — highest view-count video that is NOT a stream or short
+            try {
+                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=viewCount&maxResults=10&key=${k}`);
+                const d = await r.json();
+                if (d.error) console.warn('[TrueBeast YouTube] popular slot:', d.error.message);
+                const exclude = new Set([slots.short?.id, slots.stream?.id, slots.latest?.id].filter(Boolean));
+                const candidates = (d.items || []).filter(v => !exclude.has(v.id.videoId));
+                const liveIds = await getLiveIds(candidates.map(v => v.id.videoId));
+                const pick = candidates.find(v => !liveIds.has(v.id.videoId));
+                if (pick) slots.popular = { id: pick.id.videoId, title: pick.snippet.title, category: 'Most Viewed' };
+            } catch (e) { console.warn('[TrueBeast YouTube] popular fetch failed:', e.message); }
 
             // Cache result — only if at least one slot has data (avoid caching failures)
             if (Object.values(slots).some(Boolean)) {
@@ -453,7 +465,7 @@
                             <VideoCard video={slots.latest} />
                             <VideoCard video={slots.short} />
                             <VideoCard video={slots.stream} />
-                            <VideoCard video={null} />
+                            <VideoCard video={slots.popular} />
                         </div>
 
                         <div className="text-center mt-12 reveal">
