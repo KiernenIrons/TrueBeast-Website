@@ -108,12 +108,9 @@ const SITE_CONFIG = {
     // -----------------------------------------------------------------------
     emailjs: {
         publicKey:        'ILZQ2BAHfBck_4yY-',
-        serviceId:        'service_m74ipl2',
+        serviceId:        'service_cm1wzg8',
         ticketTemplateId:  'template_8jr2abr',
         adminTemplateId:   'template_9asbzsc',
-        // thankYouTemplateId — sent to reviewers when you click "Send Thank You" in admin.
-        // Create a template in EmailJS dashboard with variables: {{to_name}}, {{to_email}}, {{rating}}, {{review}}
-        thankYouTemplateId: 'YOUR_THANK_YOU_TEMPLATE_ID',
     },
 
     // -----------------------------------------------------------------------
