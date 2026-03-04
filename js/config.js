@@ -53,7 +53,7 @@ const SITE_CONFIG = {
     // -----------------------------------------------------------------------
     youtube: {
         channelId: 'UCB0IEt5tWnlxvXAv0LG2gMw',   // Your YouTube channel ID (UC...)
-        apiKey:    'PASTE_YOUR_YOUTUBE_API_KEY',    // From Google Cloud Console (step 4 above)
+        apiKey:    'AIzaSyAE4oyYJnxrehW2X5snT235n5DPJSvyVMg',    // From Google Cloud Console (step 4 above)
         maxResults: 4,                               // How many video cards to show (2 or 4)
     },
 

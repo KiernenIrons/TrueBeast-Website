@@ -176,9 +176,60 @@
 
         <!-- Announcements panel -->
         <div id="panel-announcements" style="display:none">
-            <!-- Post form -->
+
+            <!-- Pipedream webhook setup guide -->
+            <div class="liquid-glass rounded-2xl p-6 mb-5 border border-violet-500/20">
+                <div class="flex items-start gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-shrink-0 mt-0.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    <div>
+                        <h3 class="font-display font-semibold text-base text-violet-400 mb-1">Auto-Post via Discohook + Pipedream</h3>
+                        <p class="text-gray-400 text-sm">Post one announcement in Discohook and it'll appear on your website AND Discord at the same time.</p>
+                    </div>
+                </div>
+                <div class="space-y-3 text-sm text-gray-400">
+                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">1.</span><span>Go to <strong class="text-white">pipedream.com</strong> → Sign up free → New Workflow</span></div>
+                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">2.</span><span>Choose <strong class="text-white">HTTP / Webhook</strong> as the trigger → Copy the webhook URL it gives you</span></div>
+                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">3.</span><span>Add a <strong class="text-white">Node.js Code</strong> step → paste the code below (fill in your Firebase project ID)</span></div>
+                    <div class="liquid-glass rounded-xl p-4 font-mono text-xs text-green-300 overflow-x-auto leading-relaxed" style="background:rgba(0,0,0,0.4)">
+import { initializeApp, getApps, cert } from 'firebase-admin/app';<br>
+import { getFirestore }                 from 'firebase-admin/firestore';<br>
+<br>
+export default defineComponent({<br>
+&nbsp;&nbsp;async run({ steps }) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;if (!getApps().length) {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;initializeApp({ credential: cert({<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;projectId:   process.env.FB_PROJECT_ID,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;clientEmail: process.env.FB_CLIENT_EMAIL,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;privateKey:  process.env.FB_PRIVATE_KEY.replace(/\\n/g,'\n'),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}) });<br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;&nbsp;&nbsp;const body = steps.trigger.event.body;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;const embed = body?.embeds?.[0] || {};<br>
+&nbsp;&nbsp;&nbsp;&nbsp;// Map Discord embed colour → type<br>
+&nbsp;&nbsp;&nbsp;&nbsp;const types = { 5763719:'game-night', 3447003:'movie-night',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;10181046:'event', 16776960:'update' };<br>
+&nbsp;&nbsp;&nbsp;&nbsp;const doc = {<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;id:        'WH-' + Date.now().toString(36).toUpperCase(),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;title:     embed.title       || body?.content || 'Announcement',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;text:      embed.description || '',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;type:      types[embed.color] || 'general',<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;createdAt: new Date().toISOString(),<br>
+&nbsp;&nbsp;&nbsp;&nbsp;};<br>
+&nbsp;&nbsp;&nbsp;&nbsp;await getFirestore().collection('announcements').doc(doc.id).set(doc);<br>
+&nbsp;&nbsp;&nbsp;&nbsp;return doc;<br>
+&nbsp;&nbsp;}<br>
+});
+                    </div>
+                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">4.</span><span>In Pipedream → Environment Variables, add: <code class="text-yellow-300">FB_PROJECT_ID</code>, <code class="text-yellow-300">FB_CLIENT_EMAIL</code>, <code class="text-yellow-300">FB_PRIVATE_KEY</code><br><span class="text-gray-500">(Get these from Firebase Console → Project Settings → Service accounts → Generate new private key)</span></span></div>
+                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">5.</span><span>Deploy the workflow → copy the webhook URL → in Discohook, add it as a second URL alongside your Discord webhook URL</span></div>
+                    <div class="flex gap-3"><span class="text-violet-400 font-bold flex-shrink-0">6.</span><span>Use embed colours to set the type: <span class="text-green-400">Green (5763719)</span> = Game Night · <span class="text-blue-400">Blue (3447003)</span> = Movie Night · <span class="text-yellow-400">Yellow (16776960)</span> = Update · <span class="text-purple-400">Purple (10181046)</span> = Event</span></div>
+                </div>
+            </div>
+
+            <!-- Manual post form (fallback) -->
             <div class="liquid-glass rounded-2xl p-6 mb-6">
-                <h3 class="font-display font-semibold text-lg mb-4">Post New Announcement</h3>
+                <h3 class="font-display font-semibold text-base mb-1">Manual Post</h3>
+                <p class="text-xs text-gray-500 mb-4">Post directly from here without going through Discord.</p>
                 <div class="space-y-3">
                     <input id="a-title" type="text" placeholder="Title (e.g. Game Night Tonight!)"
                         class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm" />
@@ -194,7 +245,7 @@
                     <textarea id="a-text" rows="3" placeholder="Announcement details…"
                         class="w-full bg-transparent liquid-glass rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none"></textarea>
                     <div class="flex items-center justify-between gap-3">
-                        <p class="text-xs text-gray-500">Announcements appear on the homepage for everyone to see.</p>
+                        <p class="text-xs text-gray-500">Appears on homepage immediately.</p>
                         <button onclick="postAnnouncement()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold whitespace-nowrap flex items-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                             Post
@@ -203,6 +254,7 @@
                     <p id="a-msg" style="display:none" class="text-green-400 text-xs"></p>
                 </div>
             </div>
+
             <!-- Existing announcements -->
             <div id="a-list" class="space-y-3"></div>
         </div>
