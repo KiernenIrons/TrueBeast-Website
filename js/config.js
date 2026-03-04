@@ -15,6 +15,12 @@ const SITE_CONFIG = {
     siteUrl: 'https://truebeast.io',
 
     // -----------------------------------------------------------------------
+    // DONATION LINK — shown on Connect section, ticket success screen, etc.
+    // Set to null to hide all donation prompts.
+    // -----------------------------------------------------------------------
+    donationUrl: 'https://streamelements.com/realtruebeast-07c4f/tip',
+
+    // -----------------------------------------------------------------------
     // SOCIAL MEDIA LINKS
     // Set a URL string to show the icon. Set to null to hide it entirely.
     // -----------------------------------------------------------------------
