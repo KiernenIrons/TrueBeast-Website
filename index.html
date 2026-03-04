@@ -408,7 +408,6 @@
             if (Object.values(slots).some(Boolean)) {
                 try { localStorage.setItem(YT_CACHE_KEY, JSON.stringify({ ts: Date.now(), slots })); } catch {}
             }
-            console.log('[TrueBeast YouTube] Slots fetched:', slots);
             return slots;
         }
 
