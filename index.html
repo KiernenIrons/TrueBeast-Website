@@ -41,10 +41,17 @@
                         }
                     });
                 }, { threshold: 0.1 });
-                
-                document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-                
-                return () => observer.disconnect();
+
+                const observeNew = () => {
+                    document.querySelectorAll('.reveal:not(.active)').forEach(el => observer.observe(el));
+                };
+                observeNew();
+
+                // Re-observe when async content (e.g. YouTube cards) renders into the DOM
+                const mutation = new MutationObserver(observeNew);
+                mutation.observe(document.body, { childList: true, subtree: true });
+
+                return () => { observer.disconnect(); mutation.disconnect(); };
             }, []);
         };
         
@@ -292,7 +299,7 @@
             return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
         };
 
-        const YT_CACHE_KEY = 'tb_yt_slots_v3';
+        const YT_CACHE_KEY = 'tb_yt_slots_v4';
         const YT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
         async function fetchYouTubeSlots() {
@@ -305,8 +312,19 @@
             const cfg = YT_CFG();
             const ch  = cfg.channelId;
             const k   = cfg.apiKey;
-            const base = 'https://www.googleapis.com/youtube/v3/search';
+            const base  = 'https://www.googleapis.com/youtube/v3/search';
+            const vbase = 'https://www.googleapis.com/youtube/v3/videos';
             const slots = { latest: null, short: null, stream: null };
+
+            // Helper: returns a Set of video IDs that are/were livestreams
+            async function getLiveIds(ids) {
+                if (!ids.length) return new Set();
+                try {
+                    const r = await fetch(`${vbase}?part=liveStreamingDetails&id=${ids.join(',')}&key=${k}`);
+                    const d = await r.json();
+                    return new Set((d.items || []).filter(v => v.liveStreamingDetails).map(v => v.id));
+                } catch { return new Set(); }
+            }
 
             // Slot: Latest Stream — try currently live first, then most recent completed
             try {
@@ -324,24 +342,26 @@
                 }
             } catch (e) { console.warn('[TrueBeast YouTube] stream fetch failed:', e.message); }
 
-            // Slot: Latest Short (videos under 4 min — catches most Shorts)
+            // Slot: Latest Short — short-duration video that is NOT a stream archive
             try {
-                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&videoDuration=short&order=date&maxResults=1&key=${k}`);
+                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&videoDuration=short&order=date&maxResults=5&key=${k}`);
                 const d = await r.json();
                 if (d.error) console.warn('[TrueBeast YouTube] shorts slot:', d.error.message);
-                if (d.items?.length) {
-                    const v = d.items[0];
-                    slots.short = { id: v.id.videoId, title: v.snippet.title, category: 'Shorts' };
-                }
+                const candidates = (d.items || []).filter(v => v.id.videoId !== slots.stream?.id);
+                const liveIds = await getLiveIds(candidates.map(v => v.id.videoId));
+                const pick = candidates.find(v => !liveIds.has(v.id.videoId));
+                if (pick) slots.short = { id: pick.id.videoId, title: pick.snippet.title, category: 'Shorts' };
             } catch (e) { console.warn('[TrueBeast YouTube] shorts fetch failed:', e.message); }
 
-            // Slot: Latest Video — first recent upload that isn't the short or stream
+            // Slot: Latest Video — most recent upload that is NOT a stream or short
             try {
-                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=date&maxResults=6&key=${k}`);
+                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=date&maxResults=10&key=${k}`);
                 const d = await r.json();
                 if (d.error) console.warn('[TrueBeast YouTube] latest video slot:', d.error.message);
                 const exclude = new Set([slots.short?.id, slots.stream?.id].filter(Boolean));
-                const pick = (d.items || []).find(v => !exclude.has(v.id.videoId));
+                const candidates = (d.items || []).filter(v => !exclude.has(v.id.videoId));
+                const liveIds = await getLiveIds(candidates.map(v => v.id.videoId));
+                const pick = candidates.find(v => !liveIds.has(v.id.videoId));
                 if (pick) slots.latest = { id: pick.id.videoId, title: pick.snippet.title, category: 'Latest Video' };
             } catch (e) { console.warn('[TrueBeast YouTube] latest video fetch failed:', e.message); }
 
