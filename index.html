@@ -292,7 +292,7 @@
             return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
         };
 
-        const YT_CACHE_KEY = 'tb_yt_slots_v2';
+        const YT_CACHE_KEY = 'tb_yt_slots_v3';
         const YT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
         async function fetchYouTubeSlots() {
@@ -345,8 +345,11 @@
                 if (pick) slots.latest = { id: pick.id.videoId, title: pick.snippet.title, category: 'Latest Video' };
             } catch (e) { console.warn('[TrueBeast YouTube] latest video fetch failed:', e.message); }
 
-            // Cache result
-            try { localStorage.setItem(YT_CACHE_KEY, JSON.stringify({ ts: Date.now(), slots })); } catch {}
+            // Cache result — only if at least one slot has data (avoid caching failures)
+            if (Object.values(slots).some(Boolean)) {
+                try { localStorage.setItem(YT_CACHE_KEY, JSON.stringify({ ts: Date.now(), slots })); } catch {}
+            }
+            console.log('[TrueBeast YouTube] Slots fetched:', slots);
             return slots;
         }
 
