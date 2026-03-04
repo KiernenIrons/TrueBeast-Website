@@ -52,7 +52,7 @@ const SITE_CONFIG = {
     //   6. Copy the key and paste it below
     // -----------------------------------------------------------------------
     youtube: {
-        channelId: 'UCB0IEt5tWnlxvXAv0LG2gMw',   // Your YouTube channel ID (UC...)
+        channelId: 'UCPwd8BU-o5RvD0Osh6Z_4gQ',   // Your YouTube channel ID (UC...)
         apiKey:    'AIzaSyAYdxrqsX--VaejPEJIiXjg2bE4JoNoNgE',    // From Google Cloud Console (step 4 above)
         maxResults: 4,                               // How many video cards to show (2 or 4)
     },
