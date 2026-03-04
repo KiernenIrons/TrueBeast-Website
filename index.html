@@ -299,7 +299,7 @@
             return cfg.channelId && cfg.apiKey && cfg.apiKey !== 'PASTE_YOUR_YOUTUBE_API_KEY';
         };
 
-        const YT_CACHE_KEY = 'tb_yt_slots_v5';
+        const YT_CACHE_KEY = 'tb_yt_slots_v6';
         const YT_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
         async function fetchYouTubeSlots() {
@@ -365,16 +365,27 @@
                 if (pick) slots.latest = { id: pick.id.videoId, title: pick.snippet.title, category: 'Latest Video' };
             } catch (e) { console.warn('[TrueBeast YouTube] latest video fetch failed:', e.message); }
 
-            // Slot: Most Popular — highest view-count video that is NOT a stream or short
+            // Slot: Most Popular — fetch uploads playlist, get real view counts, sort numerically
+            // (search?order=viewCount is unreliable; playlistItems + statistics is accurate)
             try {
-                const r = await fetch(`${base}?part=snippet&channelId=${ch}&type=video&order=viewCount&maxResults=10&key=${k}`);
-                const d = await r.json();
-                if (d.error) console.warn('[TrueBeast YouTube] popular slot:', d.error.message);
+                const uploadsId = ch.replace(/^UC/, 'UU');
+                const plR = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50&key=${k}`);
+                const plD = await plR.json();
+                if (plD.error) console.warn('[TrueBeast YouTube] popular slot:', plD.error.message);
+                const allItems = (plD.items || []).map(item => ({ id: item.snippet.resourceId.videoId, title: item.snippet.title }));
                 const exclude = new Set([slots.short?.id, slots.stream?.id, slots.latest?.id].filter(Boolean));
-                const candidates = (d.items || []).filter(v => !exclude.has(v.id.videoId));
-                const liveIds = await getLiveIds(candidates.map(v => v.id.videoId));
-                const pick = candidates.find(v => !liveIds.has(v.id.videoId));
-                if (pick) slots.popular = { id: pick.id.videoId, title: pick.snippet.title, category: 'Most Viewed' };
+                const candidates = allItems.filter(v => !exclude.has(v.id));
+                const liveIds = await getLiveIds(candidates.map(v => v.id));
+                const nonStreams = candidates.filter(v => !liveIds.has(v.id));
+                if (nonStreams.length) {
+                    const statsR = await fetch(`${vbase}?part=statistics&id=${nonStreams.map(v => v.id).join(',')}&key=${k}`);
+                    const statsD = await statsR.json();
+                    const viewMap = {};
+                    (statsD.items || []).forEach(v => { viewMap[v.id] = parseInt(v.statistics?.viewCount || '0'); });
+                    nonStreams.sort((a, b) => (viewMap[b.id] || 0) - (viewMap[a.id] || 0));
+                    const pick = nonStreams[0];
+                    if (pick) slots.popular = { id: pick.id, title: pick.title, category: 'Most Viewed' };
+                }
             } catch (e) { console.warn('[TrueBeast YouTube] popular fetch failed:', e.message); }
 
             // Cache result — only if at least one slot has data (avoid caching failures)
