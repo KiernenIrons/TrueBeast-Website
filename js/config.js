@@ -115,26 +115,25 @@ const SITE_CONFIG = {
     ],
 
     // -----------------------------------------------------------------------
-    // BREVO — Ticket Emails & Reply Notifications
+    // EMAIL — Ticket Emails & Reply Notifications
     //
-    // Brevo (formerly Sendinblue) — free tier: 300 emails/day, no template limits.
-    // The API key is stored securely in Cloudflare — NOT in this file.
+    // Emails are sent directly from your Gmail via Google Apps Script.
+    // No third-party email service. No limits beyond Gmail's own (100/day free).
     //
-    // ONE-TIME SETUP — see cloudflare-worker/email-proxy.js for full steps.
+    // ONE-TIME SETUP — see cloudflare-worker/gmail-apps-script.js for full steps.
     // Short version:
-    //   1. Sign up free at https://app.brevo.com → verify kiernenyt@gmail.com as sender
-    //   2. Brevo → API Keys → Create key → copy it
-    //   3. Deploy cloudflare-worker/email-proxy.js to Cloudflare Workers
-    //   4. In the Worker settings add secret BREVO_API_KEY = (your key)
-    //   5. Paste your Worker URL below
+    //   1. Go to https://script.google.com → New project → paste gmail-apps-script.js
+    //   2. Set a script property: SECRET = (any long random string)
+    //   3. Deploy as a Web app (Execute as: Me, Access: Anyone) → copy URL
+    //   4. In your Cloudflare Worker settings add two secrets:
+    //        APPS_SCRIPT_URL    = (the Web app URL from step 3)
+    //        APPS_SCRIPT_SECRET = (the same random string from step 2)
+    //   5. Paste your Worker URL below (same Worker, already deployed)
     //
-    // Until workerUrl is set, all ticket emails are silently skipped.
-    //
-    // The Brevo API key is stored as a Cloudflare secret — never in this file.
-    // See cloudflare-worker/email-proxy.js for setup instructions.
+    // The workerUrl here is safe to commit — secrets live in Cloudflare only.
     // -----------------------------------------------------------------------
     brevo: {
-        workerUrl:   'https://truebeast-email.kiernens-account.workers.dev/',   // e.g. https://truebeast-email.xyz.workers.dev
+        workerUrl:   'https://truebeast-email.kiernens-account.workers.dev/',
         senderName:  'TrueBeast Support',
         senderEmail: 'kiernenyt@gmail.com',
         adminEmail:  'kiernenyt@gmail.com',

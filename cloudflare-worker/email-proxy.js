@@ -1,23 +1,15 @@
 /**
  * TrueBeast — Cloudflare Worker: Email Proxy
  * ==========================================
- * This Worker sits between your website and Brevo.
- * Your Brevo API key is stored as a Cloudflare secret — never in your source code.
+ * Routes email requests from the website to your Google Apps Script,
+ * which sends the email directly from your Gmail account.
+ * No third-party email service needed — uses Gmail directly.
  *
- * DEPLOYMENT STEPS (one-time, ~5 minutes):
+ * Secrets to configure in Cloudflare Worker → Settings → Variables:
+ *   APPS_SCRIPT_URL    — the Web app URL from your Apps Script deployment
+ *   APPS_SCRIPT_SECRET — the secret string you set in Apps Script properties
  *
- *  1. Go to https://dash.cloudflare.com → sign up free (no credit card needed)
- *  2. Left sidebar → Workers & Pages → Create application → Create Worker
- *  3. Name it "truebeast-email" → Deploy
- *  4. Click "Edit code" → select all → paste the contents of this file → Save and deploy
- *  5. Go to Settings → Variables → under "Environment Variables" click "Add variable"
- *     → Type: Secret  |  Variable name: BREVO_API_KEY  |  Value: (paste your Brevo key)
- *     → Click "Save and deploy"
- *  6. Copy your Worker URL — it looks like:
- *       https://truebeast-email.YOURSUBDOMAIN.workers.dev
- *  7. In js/config.js set:
- *       workerUrl: 'https://truebeast-email.YOURSUBDOMAIN.workers.dev'
- *  8. Push to GitHub — the Brevo key never touches your repository.
+ * See gmail-apps-script.js for full setup steps.
  */
 
 const ALLOWED_ORIGINS = [
@@ -44,11 +36,6 @@ export default {
             return new Response('Method not allowed', { status: 405, headers: corsHeaders });
         }
 
-        // Block requests from origins other than truebeast.io
-        if (!ALLOWED_ORIGINS.includes(origin)) {
-            return new Response('Forbidden', { status: 403, headers: corsHeaders });
-        }
-
         let body;
         try {
             body = await request.json();
@@ -56,19 +43,29 @@ export default {
             return new Response('Bad request — expected JSON body', { status: 400, headers: corsHeaders });
         }
 
-        // Forward to Brevo with the secret API key (never exposed to the browser)
-        const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        const appsScriptUrl    = env.APPS_SCRIPT_URL;
+        const appsScriptSecret = env.APPS_SCRIPT_SECRET;
+
+        if (!appsScriptUrl) {
+            return new Response(
+                JSON.stringify({ error: 'APPS_SCRIPT_URL not configured in Worker secrets' }),
+                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        // Forward to Google Apps Script (adds the shared secret server-side)
+        const payload = { ...body, secret: appsScriptSecret };
+
+        const scriptRes = await fetch(appsScriptUrl, {
             method: 'POST',
-            headers: {
-                'api-key': env.BREVO_API_KEY,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            redirect: 'follow', // Apps Script deployments redirect once
         });
 
-        const text = await brevoRes.text();
+        const text = await scriptRes.text();
         return new Response(text, {
-            status: brevoRes.status,
+            status: scriptRes.ok ? 200 : scriptRes.status,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
     },
