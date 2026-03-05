@@ -101,8 +101,7 @@ const SITE_CONFIG = {
     // category options: 'Gaming' | 'Streaming' | 'PC & Hardware' | 'Utilities' | 'Creative'
     // -----------------------------------------------------------------------
     tools: [
-        // Example — replace or add your own:
-        // { name: 'OBS Studio', description: 'Free, open-source streaming and recording software. The go-to for any streamer.', url: 'https://obsproject.com', category: 'Streaming', emoji: '🎥' },
+        { name: 'OBS Studio', description: 'Free, open-source streaming and recording software. The go-to for any streamer.', url: 'https://obsproject.com', category: 'Streaming', emoji: '🎥' },
     ],
 
     // -----------------------------------------------------------------------
@@ -112,25 +111,30 @@ const SITE_CONFIG = {
     // Leave winner as '' if status is 'open' or 'upcoming' — shows "Winner TBD"
     // -----------------------------------------------------------------------
     giveaways: [
-        // Example — replace with real entries:
-        // { item: 'Gaming Headset', winner: 'DiscordUser#1234', description: 'A brand new gaming headset giveaway for the community!', image: 'assets/images/winners/headset.jpg', date: '2026-03-01', status: 'ended' },
+        { item: 'Microphone - Blue Yeti Satin Red', winner: 'SoundLogic', description: 'A brand new Multi-Pattern USB Microphone with Blue VO!CE', image: 'assets/images/winners/BlueYeti.jpg', date: '2024-12-26', status: 'ended' },
     ],
 
     // -----------------------------------------------------------------------
     // BREVO — Ticket Emails & Reply Notifications
     //
     // Brevo (formerly Sendinblue) — free tier: 300 emails/day, no template limits.
+    // The API key is stored securely in Cloudflare — NOT in this file.
     //
-    // ONE-TIME SETUP (takes ~5 minutes):
-    //   1. Sign up free at https://app.brevo.com
-    //   2. In Brevo → Senders & Domains → "Add a sender"
-    //      → Add kiernenyt@gmail.com and click the verification email link
-    //   3. In Brevo → API Keys → "Create a new API key" → copy it below
+    // ONE-TIME SETUP — see cloudflare-worker/email-proxy.js for full steps.
+    // Short version:
+    //   1. Sign up free at https://app.brevo.com → verify kiernenyt@gmail.com as sender
+    //   2. Brevo → API Keys → Create key → copy it
+    //   3. Deploy cloudflare-worker/email-proxy.js to Cloudflare Workers
+    //   4. In the Worker settings add secret BREVO_API_KEY = (your key)
+    //   5. Paste your Worker URL below
     //
-    // Until apiKey is filled in, all ticket emails are silently skipped.
+    // Until workerUrl is set, all ticket emails are silently skipped.
+    //
+    // The Brevo API key is stored as a Cloudflare secret — never in this file.
+    // See cloudflare-worker/email-proxy.js for setup instructions.
     // -----------------------------------------------------------------------
     brevo: {
-        apiKey:      'PASTE_YOUR_BREVO_API_KEY',
+        workerUrl:   'PASTE_YOUR_CLOUDFLARE_WORKER_URL',   // e.g. https://truebeast-email.xyz.workers.dev
         senderName:  'TrueBeast Support',
         senderEmail: 'kiernenyt@gmail.com',
         adminEmail:  'kiernenyt@gmail.com',
