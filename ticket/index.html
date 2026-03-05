@@ -21,7 +21,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="../js/config.js?v=5"></script>
+    <script src="../js/config.js?v=6"></script>
     <script src="../js/firebase-db.js?v=4"></script>
     <link rel="stylesheet" href="../css/shared.css">
     <link rel="stylesheet" href="../css/glass.css">
@@ -37,6 +37,26 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        // ── Brevo email helper ───────────────────────────────────────────────
+        const sendEmail = async ({ to, toName, subject, html }) => {
+            const cfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.brevo : null;
+            if (!cfg?.apiKey || cfg.apiKey === 'PASTE_YOUR_BREVO_API_KEY') return;
+            try {
+                await fetch('https://api.brevo.com/v3/smtp/email', {
+                    method: 'POST',
+                    headers: { 'api-key': cfg.apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sender: { name: cfg.senderName, email: cfg.senderEmail },
+                        to: [{ email: to, name: toName || to }],
+                        subject,
+                        htmlContent: html,
+                    }),
+                });
+            } catch (err) {
+                console.warn('[TrueBeast Email] Brevo send failed:', err.message);
+            }
+        };
+
         // ── Navigation ──────────────────────────────────────────────────────
         const Navigation = ({ scrolled }) => (
             <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'py-3' : 'py-6'}`}>
@@ -48,6 +68,8 @@
                                 <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
                             </a>
                             <div className="flex items-center gap-3">
+                                <a href="../giveaways/" className="text-gray-300 hover:text-green-400 transition-colors text-sm">Giveaways</a>
+                                <a href="../tools/" className="text-gray-300 hover:text-green-400 transition-colors text-sm">Toolkit</a>
                                 <a href="../my-tickets/" className="text-gray-300 hover:text-green-400 transition-colors text-sm">My Tickets</a>
                                 <a href="../tech-support/" className="btn-glass liquid-glass px-4 py-2 rounded-xl text-sm font-medium text-gray-300 hover:text-white flex items-center gap-2">
                                     <i data-lucide="plus-circle" className="w-4 h-4"></i>
@@ -126,6 +148,14 @@
                     const updated = await FirebaseDB.updateTicket(ticket.id, { responses: newResponses });
                     setTicket(updated || { ...ticket, responses: newResponses, updatedAt: new Date().toISOString() });
                     setReplyText('');
+                    // Notify admin of the new user reply
+                    const siteUrl  = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
+                    const adminEmail = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.brevo?.adminEmail) || 'kiernenyt@gmail.com';
+                    sendEmail({
+                        to: adminEmail, toName: 'TrueBeast',
+                        subject: `[TrueBeast Support] User replied on ticket ${ticket.id}`,
+                        html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px"><h2 style="color:#22c55e;margin-top:0">New Reply on Ticket ${ticket.id}</h2><p><strong>${ticket.name}</strong> added a message to their ticket:</p><blockquote style="background:#1f2937;border-left:4px solid #22c55e;padding:12px 16px;border-radius:8px;margin:16px 0;font-size:14px">${replyText.trim()}</blockquote><p style="color:#9ca3af;font-size:13px">Subject: ${ticket.subject}</p><a href="${siteUrl}/admin/" style="display:inline-block;background:#818cf8;color:#000;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600">Open Admin Panel</a></div>`,
+                    }).catch(() => {});
                 } catch (err) {
                     console.error('Reply failed:', err);
                     setReplyErr('Failed to send reply. Please try again.');

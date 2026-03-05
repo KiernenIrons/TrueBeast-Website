@@ -96,27 +96,44 @@ const SITE_CONFIG = {
     ],
 
     // -----------------------------------------------------------------------
-    // EMAILJS — Tech Support Ticket Emails
-    //
-    // Sign up free at https://emailjs.com, then:
-    //   1. Create an Email Service (Gmail, Outlook, etc.)
-    //      → In EmailJS dashboard: "Email Services" in the left sidebar
-    //      → Click "Add New Service" → connect Gmail/Outlook
-    //      → The service card will show an ID like "service_xxxxxxx" — paste it below
-    //   2. Create Email Templates using the HTML files in email-templates/
-    //   3. Copy your Public Key, Service ID, and Template IDs below
-    //
-    // Template files:
-    //   email-templates/ticket-confirmation.html  → ticketTemplateId  (sent to user)
-    //   email-templates/admin-notification.html   → adminTemplateId   (sent to you)
-    //
-    // Until serviceId is filled in, ticket emails are silently skipped.
+    // TOOLS — My Toolkit page (truebeast.io/tools/)
+    // Add an entry for each tool/software you want to recommend.
+    // category options: 'Gaming' | 'Streaming' | 'PC & Hardware' | 'Utilities' | 'Creative'
     // -----------------------------------------------------------------------
-    emailjs: {
-        publicKey:        'ILZQ2BAHfBck_4yY-',
-        serviceId:        'service_cm1wzg8',
-        ticketTemplateId:  'template_8jr2abr',
-        adminTemplateId:   'template_9asbzsc',
+    tools: [
+        // Example — replace or add your own:
+        // { name: 'OBS Studio', description: 'Free, open-source streaming and recording software. The go-to for any streamer.', url: 'https://obsproject.com', category: 'Streaming', emoji: '🎥' },
+    ],
+
+    // -----------------------------------------------------------------------
+    // GIVEAWAYS — Giveaways page (truebeast.io/giveaways/)
+    // Add an entry for each giveaway. Images go in assets/images/winners/.
+    // status options: 'open' | 'upcoming' | 'ended'
+    // Leave winner as '' if status is 'open' or 'upcoming' — shows "Winner TBD"
+    // -----------------------------------------------------------------------
+    giveaways: [
+        // Example — replace with real entries:
+        // { item: 'Gaming Headset', winner: 'DiscordUser#1234', description: 'A brand new gaming headset giveaway for the community!', image: 'assets/images/winners/headset.jpg', date: '2026-03-01', status: 'ended' },
+    ],
+
+    // -----------------------------------------------------------------------
+    // BREVO — Ticket Emails & Reply Notifications
+    //
+    // Brevo (formerly Sendinblue) — free tier: 300 emails/day, no template limits.
+    //
+    // ONE-TIME SETUP (takes ~5 minutes):
+    //   1. Sign up free at https://app.brevo.com
+    //   2. In Brevo → Senders & Domains → "Add a sender"
+    //      → Add kiernenyt@gmail.com and click the verification email link
+    //   3. In Brevo → API Keys → "Create a new API key" → copy it below
+    //
+    // Until apiKey is filled in, all ticket emails are silently skipped.
+    // -----------------------------------------------------------------------
+    brevo: {
+        apiKey:      'PASTE_YOUR_BREVO_API_KEY',
+        senderName:  'TrueBeast Support',
+        senderEmail: 'kiernenyt@gmail.com',
+        adminEmail:  'kiernenyt@gmail.com',
     },
 
     // -----------------------------------------------------------------------

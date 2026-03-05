@@ -18,11 +18,10 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="../js/config.js?v=5"></script>
+    <script src="../js/config.js?v=6"></script>
     <script src="../js/firebase-db.js?v=4"></script>
     <link rel="stylesheet" href="../css/shared.css">
     <link rel="stylesheet" href="../css/glass.css">
@@ -70,10 +69,24 @@
                         dangerouslySetInnerHTML={{ __html: ICONS[name] || '' }} />;
         };
 
-        // Initialize EmailJS from config
-        const initEmailJS = () => {
-            const key = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs.publicKey : null;
-            if (key && key !== 'PASTE_YOUR_PUBLIC_KEY') emailjs.init(key);
+        // Brevo email helper
+        const sendEmail = async ({ to, toName, subject, html }) => {
+            const cfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.brevo : null;
+            if (!cfg?.apiKey || cfg.apiKey === 'PASTE_YOUR_BREVO_API_KEY') return;
+            try {
+                await fetch('https://api.brevo.com/v3/smtp/email', {
+                    method: 'POST',
+                    headers: { 'api-key': cfg.apiKey, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sender: { name: cfg.senderName, email: cfg.senderEmail },
+                        to: [{ email: to, name: toName || to }],
+                        subject,
+                        htmlContent: html,
+                    }),
+                });
+            } catch (err) {
+                console.warn('[TrueBeast Email] Brevo send failed:', err.message);
+            }
         };
 
         const useScrollReveal = () => {
@@ -92,71 +105,55 @@
             }, []);
         };
 
-        // Email sending function
+        // Ticket confirmation emails via Brevo
         const sendTicketConfirmation = async (ticketData) => {
-            const ejsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.emailjs : {};
-            if (!ejsCfg.serviceId || ejsCfg.serviceId === 'YOUR_SERVICE_ID') {
-                console.warn('[TrueBeast Email] EmailJS not configured — no email sent. Add serviceId to js/config.js');
-                return;
-            }
-            const siteUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
-            const viewTicketUrl = `${siteUrl}/ticket/?id=${ticketData.id}`;
-            const adminUrl      = `${siteUrl}/admin/`;
-            const discordLink   = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social && SITE_CONFIG.social.discord) || 'https://discord.gg/Nk8vekY';
+            const siteUrl     = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
+            const adminEmail  = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.brevo?.adminEmail) || 'kiernenyt@gmail.com';
+            const discordLink = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social?.discord) || 'https://discord.gg/Nk8vekY';
+            const viewUrl     = `${siteUrl}/ticket/?id=${ticketData.id}`;
+            const adminUrl    = `${siteUrl}/admin/`;
+            const cat         = ticketData.category.replace(/-/g, ' ');
 
-            console.log('[TrueBeast Email] Attempting send — serviceId:', ejsCfg.serviceId, '| ticketTemplate:', ejsCfg.ticketTemplateId, '| adminTemplate:', ejsCfg.adminTemplateId, '| publicKey:', ejsCfg.publicKey);
+            // Email to user
+            await sendEmail({
+                to: ticketData.email, toName: ticketData.name,
+                subject: `[TrueBeast Support] Ticket ${ticketData.id} received`,
+                html: `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px">
+  <h2 style="color:#22c55e;margin-top:0">Ticket Received ✓</h2>
+  <p>Hey ${ticketData.name}, your ticket has been submitted. TrueBeast will get back to you soon.</p>
+  <table style="width:100%;border-collapse:collapse;margin:20px 0">
+    <tr><td style="padding:8px 0;color:#9ca3af;width:130px">Ticket ID</td><td style="padding:8px 0;font-weight:600">${ticketData.id}</td></tr>
+    <tr><td style="padding:8px 0;color:#9ca3af">Subject</td><td style="padding:8px 0">${ticketData.subject}</td></tr>
+    <tr><td style="padding:8px 0;color:#9ca3af">Category</td><td style="padding:8px 0">${cat}</td></tr>
+    <tr><td style="padding:8px 0;color:#9ca3af">Priority</td><td style="padding:8px 0">${ticketData.priority}</td></tr>
+    ${ticketData.discord ? `<tr><td style="padding:8px 0;color:#9ca3af">Discord</td><td style="padding:8px 0">${ticketData.discord}</td></tr>` : ''}
+  </table>
+  <a href="${viewUrl}" style="display:inline-block;background:#22c55e;color:#000;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600;margin:8px 0">View Ticket</a>
+  <p style="margin-top:24px;color:#6b7280;font-size:13px">This is a free service. If you'd like to support TrueBeast: <a href="${(typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.donationUrl) || ''}" style="color:#22c55e">donate here</a>. Join the community: <a href="${discordLink}" style="color:#818cf8">Discord</a></p>
+</div>`,
+            });
 
-            // Confirmation email to the user
-            try {
-                await emailjs.send(
-                    ejsCfg.serviceId,
-                    ejsCfg.ticketTemplateId || "YOUR_TEMPLATE_ID",
-                    {
-                        email:           ticketData.email,   // matches {{email}} in template "To Email" field
-                        to_email:        ticketData.email,
-                        to_name:         ticketData.name,
-                        ticket_id:       ticketData.id,
-                        subject:         ticketData.subject,
-                        category:        ticketData.category.replace(/-/g, ' '),
-                        priority:        ticketData.priority,
-                        description:     ticketData.description,
-                        device_info:     ticketData.deviceInfo  || 'Not provided',
-                        discord:         ticketData.discord     || 'Not provided',
-                        view_ticket_url: viewTicketUrl,
-                        discord_link:    discordLink,
-                        created_at:      new Date().toLocaleString(),
-                    }
-                );
-                console.log('[TrueBeast Email] Confirmation sent to', ticketData.email);
-            } catch (err) {
-                console.error('[TrueBeast Email] User confirmation failed:', err.text || err.message || err);
-            }
-
-            // Admin notification to kiernenyt@gmail.com
-            try {
-                await emailjs.send(
-                    ejsCfg.serviceId,
-                    ejsCfg.adminTemplateId || ejsCfg.ticketTemplateId || "YOUR_ADMIN_TEMPLATE_ID",
-                    {
-                        email:       'kiernenyt@gmail.com',  // matches {{email}} in template "To Email" field
-                        to_email:    'kiernenyt@gmail.com',
-                        ticket_id:   ticketData.id,
-                        user_name:   ticketData.name,
-                        user_email:  ticketData.email,
-                        subject:     ticketData.subject,
-                        category:    ticketData.category.replace(/-/g, ' '),
-                        priority:    ticketData.priority,
-                        description: ticketData.description,
-                        device_info: ticketData.deviceInfo  || 'Not provided',
-                        discord:     ticketData.discord     || 'Not provided',
-                        created_at:  new Date().toLocaleString(),
-                        admin_url:   adminUrl,
-                    }
-                );
-                console.log('[TrueBeast Email] Admin notification sent');
-            } catch (err) {
-                console.error('[TrueBeast Email] Admin notification failed:', err.text || err.message || err);
-            }
+            // Notification to admin
+            await sendEmail({
+                to: adminEmail, toName: 'TrueBeast',
+                subject: `[TrueBeast Support] New ticket ${ticketData.id} — ${ticketData.subject}`,
+                html: `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px">
+  <h2 style="color:#818cf8;margin-top:0">New Support Ticket</h2>
+  <table style="width:100%;border-collapse:collapse;margin:16px 0">
+    <tr><td style="padding:6px 0;color:#9ca3af;width:130px">Ticket ID</td><td style="padding:6px 0;font-weight:600">${ticketData.id}</td></tr>
+    <tr><td style="padding:6px 0;color:#9ca3af">From</td><td style="padding:6px 0">${ticketData.name} &lt;${ticketData.email}&gt;</td></tr>
+    <tr><td style="padding:6px 0;color:#9ca3af">Subject</td><td style="padding:6px 0">${ticketData.subject}</td></tr>
+    <tr><td style="padding:6px 0;color:#9ca3af">Category</td><td style="padding:6px 0">${cat}</td></tr>
+    <tr><td style="padding:6px 0;color:#9ca3af">Priority</td><td style="padding:6px 0">${ticketData.priority}</td></tr>
+    ${ticketData.discord ? `<tr><td style="padding:6px 0;color:#9ca3af">Discord</td><td style="padding:6px 0">${ticketData.discord}</td></tr>` : ''}
+    ${ticketData.deviceInfo ? `<tr><td style="padding:6px 0;color:#9ca3af">Device Info</td><td style="padding:6px 0">${ticketData.deviceInfo}</td></tr>` : ''}
+  </table>
+  <p style="background:#1f2937;padding:12px;border-radius:8px;font-size:14px;white-space:pre-wrap">${ticketData.description}</p>
+  <a href="${adminUrl}" style="display:inline-block;background:#818cf8;color:#000;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600">Open Admin Panel</a>
+</div>`,
+            });
         };
 
         // Navigation
@@ -180,6 +177,8 @@
                                 </a>
                                 
                                 <div className="flex items-center gap-4">
+                                    <a href="../giveaways/" className="text-gray-300 hover:text-green-400 transition-colors text-sm">Giveaways</a>
+                                    <a href="../tools/" className="text-gray-300 hover:text-green-400 transition-colors text-sm">Toolkit</a>
                                     <a href="../" className="text-gray-300 hover:text-white transition-colors">Home</a>
                                     <a href="../my-tickets/" className="text-gray-300 hover:text-green-400 transition-colors flex items-center gap-1.5">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -692,9 +691,7 @@
 
             useScrollReveal();
 
-            useEffect(() => {
-                initEmailJS();
-            }, []);
+            useEffect(() => {}, []);
 
             return (
                 <div className="relative min-h-screen">
