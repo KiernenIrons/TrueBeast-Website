@@ -512,6 +512,8 @@
             );
         };
 
+        const SLOT_LABELS = { latest: 'Latest Video', short: 'Latest Short', stream: 'Latest Stream', popular: 'Most Viewed' };
+
         // Fill any null API slots with static fallback videos (so cards are never blank)
         function fillSlots(apiSlots) {
             const keys = ['latest', 'short', 'stream', 'popular'];
