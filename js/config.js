@@ -112,6 +112,7 @@ const SITE_CONFIG = {
     // -----------------------------------------------------------------------
     giveaways: [
         { item: 'Microphone - Blue Yeti Satin Red', winner: 'SoundLogic', description: 'A brand new Multi-Pattern USB Microphone with Blue VO!CE', image: 'assets/images/winners/BlueYeti.jpg', date: '2024-12-26', status: 'ended' },
+        { item: 'Ipad Mini - 6th Generation', winner: '', description: 'When we hit 100k subscribers, I will be giving away a brand new Ipad Mini 6th Generation', image: 'assets/images/winners/IpadMini.jpg', date: 'N/A', status: 'upcoming' },
     ],
 
     // -----------------------------------------------------------------------
@@ -132,7 +133,7 @@ const SITE_CONFIG = {
     //
     // The workerUrl here is safe to commit — secrets live in Cloudflare only.
     // -----------------------------------------------------------------------
-    brevo: {
+    email: {
         workerUrl:   'https://truebeast-email.kiernens-account.workers.dev/',
         senderName:  'TrueBeast Support',
         senderEmail: 'kiernenyt@gmail.com',
