@@ -37,27 +37,75 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const Navigation = ({ scrolled }) => (
-            <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'py-3' : 'py-6'}`}>
-                <div className="max-w-5xl mx-auto px-6">
-                    <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
-                        <div className="flex items-center justify-between">
-                            <a href="../" className="flex items-center gap-3 group">
-                                <div className="w-10 h-10 rounded-xl overflow-hidden pulse-glow flex-shrink-0">
-                                    <img src="../assets/logos/logo.png" alt="TrueBeast" className="w-full h-full object-contain" />
+        const Navigation = () => {
+            const [scrolled,   setScrolled]   = useState(false);
+            const [mobileOpen, setMobileOpen] = useState(false);
+            const discordUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social?.discord) || 'https://discord.gg/Nk8vekY';
+            useEffect(() => {
+                const h = () => setScrolled(window.scrollY > 50);
+                window.addEventListener('scroll', h, { passive: true });
+                return () => window.removeEventListener('scroll', h);
+            }, []);
+            const btn = "liquid-glass px-3 py-2 rounded-xl text-sm font-medium text-gray-200 hover:text-white hover:bg-white/10 transition-colors";
+            return (
+                <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'py-3' : 'py-6'}`}>
+                    <div className="max-w-7xl mx-auto px-6">
+                        <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
+                            <div className="flex items-center justify-between">
+                                <a href="../" className="flex items-center gap-3 group flex-shrink-0">
+                                    <div className="w-10 h-10 rounded-xl overflow-hidden pulse-glow flex-shrink-0"><img src="../assets/logos/logo.png" alt="TrueBeast" className="w-full h-full object-contain" /></div>
+                                    <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
+                                </a>
+                                <div className="hidden md:flex items-center gap-2">
+                                    <a href="../"            className={btn}>Home</a>
+                                    <a href="../giveaways/"  className={btn}>Giveaways</a>
+                                    <a href="../tools/"      className={`${btn} text-white bg-white/10`}>Toolkit</a>
+                                    <a href="../tech-support/" className={btn}>Tech Support</a>
+                                    <a href="../my-tickets/" className={btn}>My Tickets</a>
+                                    <a href={discordUrl} target="_blank" rel="noopener noreferrer" title="Discord"
+                                       className="liquid-glass p-2.5 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-white/10 transition-colors">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963a.074.074 0 0 0-.041-.104 13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028z"/></svg>
+                                    </a>
+                                    <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer"
+                                       className="bg-red-600 hover:bg-red-500 px-3 py-2 rounded-xl text-sm font-medium text-white transition-colors flex items-center gap-1.5">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.4 19.54C5.12 20 12 20 12 20s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.95-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/></svg>
+                                        Subscribe
+                                    </a>
                                 </div>
-                                <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
-                            </a>
-                            <div className="flex items-center gap-4">
-                                <a href="../giveaways/" className="text-gray-300 hover:text-green-400 transition-colors text-sm">Giveaways</a>
-                                <a href="../tech-support/" className="btn-glass liquid-glass px-4 py-2 rounded-xl text-sm">Tech Support</a>
-                                <a href="../" className="text-gray-400 hover:text-white text-sm transition-colors">Home</a>
+                                <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden liquid-glass p-2 rounded-xl">
+                                    {mobileOpen
+                                        ? <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                        : <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                                    }
+                                </button>
                             </div>
+                            {mobileOpen && (
+                                <div className="md:hidden mt-4 pt-4 border-t border-white/10">
+                                    <div className="flex flex-col gap-1">
+                                        <a href="../"            onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Home</a>
+                                        <a href="../giveaways/"  onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Giveaways</a>
+                                        <a href="../tools/"      onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-white bg-white/5 hover:bg-white/10 transition-colors font-medium">Toolkit</a>
+                                        <a href="../tech-support/" onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Tech Support</a>
+                                        <a href="../my-tickets/" onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">My Tickets</a>
+                                        <div className="h-px bg-white/10 my-2"></div>
+                                        <a href={discordUrl} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}
+                                           className="px-3 py-2.5 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-white/5 transition-colors font-medium flex items-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963a.074.074 0 0 0-.041-.104 13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028z"/></svg>
+                                            Discord
+                                        </a>
+                                        <a href="https://www.youtube.com/@RealTrueBeast" target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}
+                                           className="bg-red-600 hover:bg-red-500 px-3 py-2.5 rounded-xl font-medium text-white flex items-center justify-center gap-2">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.4 19.54C5.12 20 12 20 12 20s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.95-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/></svg>
+                                            Subscribe
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
-                </div>
-            </nav>
-        );
+                </nav>
+            );
+        };
 
         const CATEGORIES = ['All', 'Gaming', 'Streaming', 'PC & Hardware', 'Utilities', 'Creative'];
 
@@ -78,7 +126,7 @@
 
             return (
                 <div className="relative min-h-screen">
-                    <Navigation scrolled={scrolled} />
+                    <Navigation />
 
                     <main className="pt-32 pb-20 px-6">
                         <div className="max-w-5xl mx-auto">

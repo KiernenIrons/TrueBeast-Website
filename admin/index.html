@@ -229,17 +229,21 @@
     /* ── Brevo email helper ── */
     function sendEmail(to, toName, subject, html) {
         var cfg = (typeof SITE_CONFIG !== 'undefined') ? SITE_CONFIG.brevo : null;
-        if (!cfg || !cfg.workerUrl || cfg.workerUrl === 'PASTE_YOUR_CLOUDFLARE_WORKER_URL') return;
-        fetch(cfg.workerUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                sender: { name: cfg.senderName, email: cfg.senderEmail },
-                to: [{ email: to, name: toName || to }],
-                subject: subject,
-                htmlContent: html,
-            }),
-        }).catch(function(e) { console.warn('[TrueBeast Email] Brevo failed:', e.message); });
+        console.log('[Email] sendEmail called', { to: to, subject: subject, hasConfig: !!cfg, workerConfigured: !!(cfg && cfg.workerUrl && cfg.workerUrl !== 'PASTE_YOUR_CLOUDFLARE_WORKER_URL') });
+        if (!cfg || !cfg.workerUrl || cfg.workerUrl === 'PASTE_YOUR_CLOUDFLARE_WORKER_URL') {
+            console.warn('[Email] Skipped — workerUrl not set in js/config.js');
+            return;
+        }
+        var payload = { sender: { name: cfg.senderName, email: cfg.senderEmail }, to: [{ email: to, name: toName || to }], subject: subject, htmlContent: html };
+        console.log('[Email] Sending to worker...', { to: to, subject: subject, workerUrl: cfg.workerUrl });
+        fetch(cfg.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .then(function(res) {
+                return res.text().then(function(text) {
+                    if (res.ok) { console.log('[Email] Sent OK', { status: res.status, response: text }); }
+                    else { console.error('[Email] Worker returned error', { status: res.status, response: text }); }
+                });
+            })
+            .catch(function(e) { console.error('[Email] Request failed:', e); });
     }
 
     /* ── html escape ── */
