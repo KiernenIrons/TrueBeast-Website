@@ -134,7 +134,7 @@ const SITE_CONFIG = {
     // See cloudflare-worker/email-proxy.js for setup instructions.
     // -----------------------------------------------------------------------
     brevo: {
-        workerUrl:   'PASTE_YOUR_CLOUDFLARE_WORKER_URL',   // e.g. https://truebeast-email.xyz.workers.dev
+        workerUrl:   'https://truebeast-email.kiernens-account.workers.dev/',   // e.g. https://truebeast-email.xyz.workers.dev
         senderName:  'TrueBeast Support',
         senderEmail: 'kiernenyt@gmail.com',
         adminEmail:  'kiernenyt@gmail.com',
