@@ -111,6 +111,7 @@ const SITE_CONFIG = {
     // Leave winner as '' if status is 'open' or 'upcoming' — shows "Winner TBD"
     // -----------------------------------------------------------------------
     giveaways: [
+        { item: 'Wireless Gaming Keyboard - Dierya DK63', winner: 'nSamity', description: 'A White Mechanical Gaming Keyboard with RGB Lighting', image: 'assets/images/winners/Keyboard.jpg', date: '2025-04-14', status: 'ended' },
         { item: 'Microphone - Blue Yeti Satin Red', winner: 'SoundLogic', description: 'A brand new Multi-Pattern USB Microphone with Blue VO!CE', image: 'assets/images/winners/BlueYeti.jpg', date: '2024-12-26', status: 'ended' },
         { item: 'Ipad Mini - 6th Generation', winner: '', description: 'When we hit 100k subscribers, I will be giving away a brand new Ipad Mini 6th Generation', image: 'assets/images/winners/IpadMini.jpg', date: '', status: 'upcoming' },
     ],
