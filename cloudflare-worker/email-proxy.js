@@ -16,7 +16,8 @@
  * Discord routes (all require Origin: truebeast.io):
  *   GET  /discord/channels  — returns text channels for the configured guild
  *   GET  /discord/emojis    — returns custom emojis for the configured guild
- *   POST /discord/send      — sends a message to a channel  { channelId, payload }
+ *   GET  /discord/roles     — returns roles for the configured guild
+ *   POST /discord/send      — sends a message to a channel  { channelId, payload, reactions? }
  */
 
 const ALLOWED_ORIGINS = [
@@ -47,6 +48,17 @@ async function handleDiscordEmojis(env, corsHeaders) {
         return jsonResponse({ error: 'DISCORD_BOT_TOKEN or DISCORD_GUILD_ID not set in Worker secrets' }, 500, corsHeaders);
     }
     const res = await fetch(`https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/emojis`, {
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+    });
+    const data = await res.json();
+    return jsonResponse(data, res.status, corsHeaders);
+}
+
+async function handleDiscordRoles(env, corsHeaders) {
+    if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) {
+        return jsonResponse({ error: 'DISCORD_BOT_TOKEN or DISCORD_GUILD_ID not set in Worker secrets' }, 500, corsHeaders);
+    }
+    const res = await fetch(`https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/roles`, {
         headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
     });
     const data = await res.json();
@@ -108,6 +120,9 @@ export default {
         }
         if (path === '/discord/emojis' && request.method === 'GET') {
             return handleDiscordEmojis(env, corsHeaders);
+        }
+        if (path === '/discord/roles' && request.method === 'GET') {
+            return handleDiscordRoles(env, corsHeaders);
         }
         if (path === '/discord/send' && request.method === 'POST') {
             return handleDiscordSend(request, env, corsHeaders);

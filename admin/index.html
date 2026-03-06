@@ -259,6 +259,7 @@
                         <button onclick="dcDeleteWebhook()" class="dc-sm dc-sm-r">Remove</button>
                         <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
                         <button onclick="dcClearAll()" class="dc-sm dc-sm-r">Clear All</button>
+                        <button onclick="dcCopyPayload()" class="dc-sm dc-sm-b" title="Copy the JSON payload that will be sent to Discord">Copy JSON</button>
                         <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
                     </div>
                 </div>
@@ -956,16 +957,20 @@
             return Object.keys(em).filter(function(k) { return k !== 'color'; }).length ? em : null;
         }).filter(Boolean);
         if (embeds.length) p.embeds = embeds;
-        var rows = ds.components.filter(function(row) { return row.some(function(b) { return b.label && b.url; }); });
+        // A valid link button needs a URL plus either a label or an emoji (Discord requirement)
+        var btnValid = function(b) { return !!(b.url && b.url.trim() && (b.label || b.emoji)); };
+        var rows = ds.components.filter(function(row) { return row.some(btnValid); });
         if (rows.length) p.components = rows.map(function(row) {
-            return { type: 1, components: row.filter(function(b) { return b.label && b.url; }).map(function(b) {
-                var btn = { type: 2, style: 5, label: b.label, url: b.url };
+            return { type: 1, components: row.filter(btnValid).map(function(b) {
+                var btn = { type: 2, style: 5, url: b.url.trim() };
+                if (b.label) btn.label = b.label;
                 if (b.emoji && b.emoji.trim()) {
                     var emStr = b.emoji.trim();
                     if (/^\d+$/.test(emStr)) {
                         // Custom server emoji — Discord requires both id AND name
                         var foundBotEm = dcBotEmojis.find(function(x) { return x.id === emStr; });
                         btn.emoji = { id: emStr, name: foundBotEm ? foundBotEm.name : 'emoji' };
+                        if (foundBotEm && foundBotEm.animated) btn.emoji.animated = true;
                     } else {
                         btn.emoji = { name: emStr }; // Unicode emoji
                     }
@@ -974,6 +979,18 @@
             })};
         });
         return p;
+    }
+
+    /* ── Copy payload JSON for debugging ── */
+    function dcCopyPayload() {
+        var payload = dcBuildPayload();
+        var json = JSON.stringify(payload, null, 2);
+        navigator.clipboard.writeText(json).then(function() {
+            dcShowToast('Payload JSON copied to clipboard!', 'green');
+        }).catch(function() {
+            // Fallback: show in a prompt so they can copy manually
+            prompt('Copy the payload JSON below:', json);
+        });
     }
 
     /* ── Send ── */
@@ -1000,8 +1017,13 @@
             }
             if (res.ok) { dcShowToast((useBot ? 'Sent via bot! ✓' : 'Sent via webhook! ✓'), 'green'); }
             else {
-                var err = await res.json().catch(function() { return {}; });
-                dcShowToast('Discord error: ' + (err.message || res.status), 'red');
+                var errText = await res.text().catch(function() { return ''; });
+                var errJson; try { errJson = JSON.parse(errText); } catch(ex) { errJson = null; }
+                var errMsg = errJson
+                    ? (errJson.message || '') + (errJson.errors ? ' | ' + JSON.stringify(errJson.errors).slice(0, 200) : '')
+                    : errText.slice(0, 200);
+                console.error('[Discord send] HTTP ' + res.status, errJson || errText);
+                dcShowToast('Discord error ' + res.status + ': ' + (errMsg || 'unknown'), 'red');
             }
         } catch(e) { dcShowToast('Network error: ' + e.message, 'red'); }
         finally { btn.disabled = false; btn.textContent = 'Send →'; }
@@ -1139,6 +1161,7 @@
     /* ── Bot config (proxied via Cloudflare Worker) ── */
     var dcBotEmojis = [];
     var dcBotChannels = [];
+    var dcBotRoles = [];
 
     function dcWorkerUrl() {
         var base = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.email && SITE_CONFIG.email.workerUrl)
@@ -1178,9 +1201,10 @@
         if (!base) { dcShowToast('Worker URL not set in SITE_CONFIG.email.workerUrl', 'red'); return; }
         dcShowToast('Fetching from Discord via Worker…', 'green');
         try {
-            var [chRes, emRes] = await Promise.all([
+            var [chRes, emRes, roRes] = await Promise.all([
                 fetch(base + '/discord/channels'),
-                fetch(base + '/discord/emojis')
+                fetch(base + '/discord/emojis'),
+                fetch(base + '/discord/roles')
             ]);
             if (!chRes.ok) { var e1 = await chRes.json().catch(function(){return{};}); dcShowToast('Channel fetch error: ' + (e1.error || e1.message || chRes.status), 'red'); return; }
             if (!emRes.ok) { var e2 = await emRes.json().catch(function(){return{};}); dcShowToast('Emoji fetch error: ' + (e2.error || e2.message || emRes.status), 'red'); return; }
@@ -1189,10 +1213,12 @@
             dcBotChannels = allCh.filter(function(c) { return c.type === 0 || c.type === 5; }).sort(function(a, b) { return (a.position||0) - (b.position||0); });
             var emData = await emRes.json();
             dcBotEmojis = Array.isArray(emData) ? emData : [];
+            var roData = await roRes.json().catch(function() { return []; });
+            dcBotRoles = Array.isArray(roData) ? roData.filter(function(r) { return r.name !== '@everyone'; }) : [];
             dcPopulateChannelSelect(dcGetChannelId());
             dcUpdateBotBadge();
             dcRenderEditor();
-            dcShowToast('Fetched ' + dcBotChannels.length + ' channels + ' + dcBotEmojis.length + ' server emojis ✓', 'green');
+            dcShowToast('Fetched ' + dcBotChannels.length + ' channels + ' + dcBotEmojis.length + ' emojis + ' + dcBotRoles.length + ' roles ✓', 'green');
         } catch(e) { dcShowToast('Fetch error: ' + e.message, 'red'); }
     }
 
@@ -1496,14 +1522,23 @@
             .replace(/_([^_\n]+)_/g, '<em>$1</em>')
             .replace(/~~(.+?)~~/g, '<del>$1</del>')
             .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;font-size:87%;font-family:monospace">$1</code>')
-            .replace(/&lt;@&amp;(\d+)&gt;/g, '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@&amp;$1</span>')
+            .replace(/&lt;@&amp;(\d+)&gt;/g, function(_, id) {
+                var role = dcBotRoles.find(function(r) { return r.id === id; });
+                return '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@' + (role ? esc(role.name) : id) + '</span>';
+            })
             .replace(/&lt;@(\d+)&gt;/g, '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@$1</span>')
             .replace(/&lt;#(\d+)&gt;/g, function(_, id) {
                 var ch = dcBotChannels.find(function(c) { return c.id === id; });
                 return '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">#' + (ch ? esc(ch.name) : id) + '</span>';
             })
             .replace(/&lt;a?:(\w+):(\d+)&gt;/g, function(_, name, id) {
-                return '<img src="https://cdn.discordapp.com/emojis/' + id + '.gif?size=32" onerror="this.src=\'https://cdn.discordapp.com/emojis/' + id + '.png?size=32\'" style="width:20px;height:20px;vertical-align:middle;object-fit:contain">';
+                return '<img src="https://cdn.discordapp.com/emojis/' + id + '.gif?size=32" onerror="this.src=\'https://cdn.discordapp.com/emojis/' + id + '.png?size=32\'" style="width:20px;height:20px;vertical-align:middle;display:inline;object-fit:contain">';
+            })
+            .replace(/:([a-zA-Z0-9_]+):/g, function(match, name) {
+                var found = dcBotEmojis.find(function(e) { return e.name === name; });
+                if (!found) return match;
+                var ext = found.animated ? 'gif' : 'png';
+                return '<img src="https://cdn.discordapp.com/emojis/' + found.id + '.' + ext + '?size=32" style="width:20px;height:20px;vertical-align:middle;display:inline;object-fit:contain" title=":' + esc(found.name) + ':">';
             });
     }
     function dcMarkdown(text) {
