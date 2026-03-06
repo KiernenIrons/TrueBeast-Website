@@ -82,18 +82,22 @@ async function handleDiscordSend(request, env, corsHeaders) {
     });
     const data = await res.json();
 
-    // After successful send, add reactions if requested
+    // After successful send, add reactions if requested, collect errors
+    const reactionErrors = [];
     if (res.ok && data.id && Array.isArray(reactions) && reactions.length) {
         for (const emoji of reactions) {
-            // Discord expects: Unicode chars URL-encoded, custom emojis as "name:id" URL-encoded
-            await fetch(
-                `https://discord.com/api/v10/channels/${channelId}/messages/${data.id}/reactions/${encodeURIComponent(emoji)}/@me`,
-                { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+            const rRes = await fetch(
+                'https://discord.com/api/v10/channels/' + channelId + '/messages/' + data.id + '/reactions/' + encodeURIComponent(emoji) + '/@me',
+                { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } }
             );
+            if (\!rRes.ok) {
+                const rErr = await rRes.json().catch(() => ({}));
+                reactionErrors.push({ emoji, status: rRes.status, error: rErr.message || rRes.status });
+            }
         }
     }
-
-    return jsonResponse(data, res.status, corsHeaders);
+    const responseData = reactionErrors.length ? Object.assign({}, data, { _reactionErrors: reactionErrors }) : data;
+    return jsonResponse(responseData, res.status, corsHeaders);
 }
 
 export default {
