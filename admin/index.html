@@ -248,31 +248,13 @@
 
         <!-- Discord embed builder panel -->
         <div id="panel-discord" style="display:none">
-            <!-- Webhook bar -->
+            <!-- Action bar -->
             <div class="liquid-glass rounded-2xl p-4 mb-4">
-                <div class="flex flex-wrap gap-3 items-end">
-                    <div style="flex:1;min-width:220px">
-                        <label class="dc-label">Webhook URL</label>
-                        <input id="dc-wh-url" class="dc-input" type="url" placeholder="https://discord.com/api/webhooks/..." oninput="if(ds)ds.webhookUrl=this.value">
-                    </div>
-                    <div style="flex:0 0 auto">
-                        <label class="dc-label">Saved Webhooks</label>
-                        <select id="dc-wh-sel" class="dc-input" onchange="dcSelectWebhook(this.value)" style="min-width:150px">
-                            <option value="">Select saved…</option>
-                        </select>
-                    </div>
-                    <div style="flex:0 0 auto">
-                        <label class="dc-label">Save As Name</label>
-                        <input id="dc-wh-name" class="dc-input" placeholder="e.g. Stream Alerts" style="min-width:130px">
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <button onclick="dcAddWebhook()" class="dc-sm dc-sm-v">Save Hook</button>
-                        <button onclick="dcDeleteWebhook()" class="dc-sm dc-sm-r">Remove</button>
-                        <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
-                        <button onclick="dcClearAll()" class="dc-sm dc-sm-r">Clear All</button>
-                        <button onclick="dcCopyPayload()" class="dc-sm dc-sm-b" title="Copy the JSON payload that will be sent to Discord">Copy JSON</button>
-                        <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
-                    </div>
+                <div class="flex flex-wrap gap-2 items-center justify-end">
+                    <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
+                    <button onclick="dcClearAll()" class="dc-sm dc-sm-r">Clear All</button>
+                    <button onclick="dcCopyPayload()" class="dc-sm dc-sm-b" title="Copy the JSON payload that will be sent to Discord">Copy JSON</button>
+                    <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
                 </div>
             </div>
             <!-- Bot config -->
@@ -859,13 +841,12 @@
 
     function dcInit() {
         if (ds) return;
-        ds = { webhookUrl: '', profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
+        ds = { profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
     }
 
     function dcClearAll() {
-        if (!confirm('Clear everything? This will reset all content, embeds, and buttons. Your saved backups and webhooks will not be affected.')) return;
-        var savedUrl = ds.webhookUrl;
-        ds = { webhookUrl: savedUrl, profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
+        if (!confirm('Clear everything? This will reset all content, embeds, and buttons. Your saved backups will not be affected.')) return;
+        ds = { profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
         dcRenderEditor();
         dcRenderPreview();
         dcShowToast('Cleared!', 'green');
@@ -873,7 +854,6 @@
 
     function dcOpenTab() {
         dcInit();
-        dcRenderWebhookBar();
         dcUpdateBotBadge();
         if (!dcBotChannels.length) {
             dcBotFetch(); // auto-fetch on first open
@@ -894,50 +874,6 @@
         t.textContent = msg;
         clearTimeout(t._tmr);
         t._tmr = setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.style.display = 'none'; }, 300); }, 2800);
-    }
-
-    /* ── Webhook localStorage ── */
-    function dcGetHooks() { return JSON.parse(localStorage.getItem('tb_dc_hooks') || '[]'); }
-    function dcSaveHooks(arr) { localStorage.setItem('tb_dc_hooks', JSON.stringify(arr)); }
-
-    function dcRenderWebhookBar() {
-        var hooks = dcGetHooks();
-        var sel = document.getElementById('dc-wh-sel');
-        var urlEl = document.getElementById('dc-wh-url');
-        if (!sel || !urlEl) return;
-        sel.innerHTML = '<option value="">Select saved…</option>' +
-            hooks.map(function(h, i) { return '<option value="' + i + '">' + esc(h.name) + '</option>'; }).join('');
-        urlEl.value = ds.webhookUrl || '';
-    }
-
-    function dcSelectWebhook(idx) {
-        if (idx === '') { ds.webhookUrl = ''; document.getElementById('dc-wh-url').value = ''; return; }
-        var h = dcGetHooks()[parseInt(idx)];
-        if (h) { ds.webhookUrl = h.url; document.getElementById('dc-wh-url').value = h.url; }
-    }
-
-    function dcAddWebhook() {
-        var name = document.getElementById('dc-wh-name').value.trim();
-        var url  = document.getElementById('dc-wh-url').value.trim();
-        if (!name || !url) { alert('Enter both a name and a webhook URL.'); return; }
-        if (!url.startsWith('https://discord.com/api/webhooks/')) { alert('That doesn\'t look like a Discord webhook URL.'); return; }
-        var hooks = dcGetHooks();
-        hooks.push({ name: name, url: url });
-        dcSaveHooks(hooks);
-        ds.webhookUrl = url;
-        document.getElementById('dc-wh-name').value = '';
-        dcRenderWebhookBar();
-        dcShowToast('Webhook saved!', 'green');
-    }
-
-    function dcDeleteWebhook() {
-        var idx = document.getElementById('dc-wh-sel').value;
-        if (idx === '') { alert('Select a saved webhook first.'); return; }
-        if (!confirm('Remove this saved webhook?')) return;
-        var hooks = dcGetHooks();
-        hooks.splice(parseInt(idx), 1);
-        dcSaveHooks(hooks);
-        dcRenderWebhookBar();
     }
 
     /* ── Payload builder ── */
@@ -1007,67 +943,28 @@
     /* ── Send ── */
     async function dcSend() {
         var channelId = dcGetChannelId();
-        var hasWebhook = !!(ds.webhookUrl && ds.webhookUrl.trim());
-        var hasBot = !!(channelId && dcWorkerUrl());
-        if (!hasWebhook && !hasBot) { alert('Select a channel (after fetching via Discord Bot), or enter a webhook URL.'); return; }
+        if (!channelId || !dcWorkerUrl()) { alert('Select a channel first (use "Fetch Channels & Emojis" in the Discord Bot section).'); return; }
         var btn = document.getElementById('dc-send-btn');
         btn.disabled = true; btn.textContent = 'Sending…';
         try {
             var payload = dcBuildPayload();
-            var hasComponents = !!(payload.components && payload.components.length);
-            var hasReactions = !!(ds.reactions && ds.reactions.length);
-            console.log('[DEBUG] hasBot:', hasBot, '| hasWebhook:', hasWebhook, '| hasComponents:', hasComponents, '| hasReactions:', hasReactions);
-            console.log('[DEBUG] payload:', JSON.stringify(payload, null, 2));
             if (!payload.content && !payload.embeds && !payload.components) { alert('Nothing to send — add some content or an embed first.'); return; }
-
-            // Routing: Discord webhooks do not support components (buttons) — confirmed via debug.
-            // Use bot API when components or reactions are needed; webhook as fallback for plain messages.
-            var useBot = hasBot && (hasComponents || hasReactions || !hasWebhook);
-            console.log('[DEBUG] useBot:', useBot);
-
-            if (useBot) {
-                // Bot API: strip webhook-only fields, send via worker
-                var botPayload = Object.assign({}, payload);
-                delete botPayload.username;
-                delete botPayload.avatar_url;
-                console.log('[DEBUG] Sending via bot API to channel:', channelId, '| reactions:', ds.reactions);
-                var res = await fetch(dcWorkerUrl() + '/discord/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ channelId: channelId, payload: botPayload, reactions: ds.reactions || [] })
-                });
-                console.log('[DEBUG] Bot API response status:', res.status);
-                var respData = await res.json().catch(function() { return {}; });
-                console.log('[DEBUG] Bot API full response:', JSON.stringify(respData, null, 2));
-                if (!res.ok) {
-                    var errMsg = respData.message || JSON.stringify(respData).slice(0, 200);
-                    dcShowToast('Discord error ' + res.status + ': ' + errMsg, 'red');
-                } else if (respData._reactionErrors && respData._reactionErrors.length) {
-                    var rErrMsg = respData._reactionErrors.map(function(e) { return e.emoji + ' (' + e.status + ')'; }).join(', ');
-                    console.error('[DEBUG] Reaction errors:', respData._reactionErrors);
-                    dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg + ' — see console for details', 'red');
-                } else {
-                    var compCount = (respData.components || []).length;
-                    console.log('[DEBUG] Success — components in Discord response:', compCount);
-                    dcShowToast('Sent via bot! ✓' + (respData._debug ? ' (components sent: ' + respData._debug.payloadComponentsCount + ')' : ''), 'green');
-                }
-            } else if (hasWebhook) {
-                // Webhook fallback — plain messages only (no components, no reactions)
-                console.log('[DEBUG] Sending via webhook (no components/reactions)');
-                var res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                });
-                console.log('[DEBUG] Webhook response status:', res.status);
-                var wData = await res.json().catch(function() { return {}; });
-                console.log('[DEBUG] Webhook response:', JSON.stringify(wData, null, 2));
-                if (!res.ok) {
-                    var errMsg = wData.message || JSON.stringify(wData).slice(0, 200);
-                    dcShowToast('Discord error ' + res.status + ': ' + errMsg, 'red');
-                } else {
-                    dcShowToast('Sent via webhook! ✓', 'green');
-                }
+            // Strip webhook-only fields (bot API doesn't support them)
+            delete payload.username;
+            delete payload.avatar_url;
+            var res = await fetch(dcWorkerUrl() + '/discord/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channelId: channelId, payload: payload, reactions: ds.reactions || [] })
+            });
+            var respData = await res.json().catch(function() { return {}; });
+            if (!res.ok) {
+                dcShowToast('Discord error ' + res.status + ': ' + (respData.message || JSON.stringify(respData).slice(0, 200)), 'red');
+            } else if (respData._reactionErrors && respData._reactionErrors.length) {
+                var rErrMsg = respData._reactionErrors.map(function(e) { return e.emoji + ' (' + e.status + ')'; }).join(', ');
+                dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg, 'red');
             } else {
-                alert('Select a channel to send buttons or reactions. Webhook-only mode does not support components.');
+                dcShowToast('Sent! ✓', 'green');
             }
         } catch(e) { dcShowToast('Network error: ' + e.message, 'red'); }
         finally { btn.disabled = false; btn.textContent = 'Send →'; }
@@ -1081,7 +978,7 @@
             var stateSnap = JSON.parse(JSON.stringify(ds));
             stateSnap.components_json = JSON.stringify(stateSnap.components);
             delete stateSnap.components;
-            await FirebaseDB.saveWebhookBackup({ name: name.trim(), webhookUrl: ds.webhookUrl, state: stateSnap });
+            await FirebaseDB.saveWebhookBackup({ name: name.trim(), state: stateSnap });
             dcLoadBackupList();
             dcShowToast('Backup saved!', 'green');
         } catch(e) { dcShowToast('Save failed: ' + e.message, 'red'); }
@@ -1127,7 +1024,6 @@
         // Ensure all embeds have _id (in case saved before _id was added)
         ds.embeds.forEach(function(e) { if (!e._id) e._id = Math.random().toString(36).slice(2); });
         if (!ds.reactions) ds.reactions = [];
-        dcRenderWebhookBar();
         dcRenderEditor();
         dcRenderPreview();
         dcShowToast('Loaded: ' + b.name, 'green');
