@@ -248,30 +248,15 @@
 
         <!-- Discord embed builder panel -->
         <div id="panel-discord" style="display:none">
-            <!-- Action bar -->
-            <div class="liquid-glass rounded-2xl p-4 mb-4">
-                <div class="flex flex-wrap gap-2 items-center justify-end">
-                    <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
-                    <button onclick="dcClearAll()" class="dc-sm dc-sm-r">Clear All</button>
-                    <button onclick="dcCopyPayload()" class="dc-sm dc-sm-b" title="Copy the JSON payload that will be sent to Discord">Copy JSON</button>
-                    <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
-                </div>
-            </div>
             <!-- Bot config -->
             <div class="liquid-glass rounded-2xl p-4 mb-4">
-                <div class="flex items-center justify-between" style="cursor:pointer" onclick="var b=document.getElementById('dc-bot-body');b.style.display=b.style.display==='none'?'block':'none'">
-                    <div class="flex items-center gap-3">
-                        <span class="dc-label" style="margin:0">Discord Bot</span>
-                        <span id="dc-bot-badge" style="font-size:11px;background:rgba(100,100,100,.3);color:#9ca3af;border-radius:4px;padding:1px 7px">Loading…</span>
-                    </div>
-                    <span style="color:#6b7280;font-size:12px">▼ Channel &amp; Emojis</span>
+                <div class="flex items-center gap-3 mb-3">
+                    <span class="dc-label" style="margin:0">Discord Bot</span>
+                    <span id="dc-bot-badge" style="font-size:11px;background:rgba(100,100,100,.3);color:#9ca3af;border-radius:4px;padding:1px 7px">Loading…</span>
                 </div>
-                <div id="dc-bot-body" style="display:none;margin-top:12px">
-                    <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Bot token and Server ID live as <strong style="color:#9ca3af">Cloudflare Worker secrets</strong> — never in the browser. Add <code style="background:rgba(0,0,0,.25);padding:1px 4px;border-radius:3px">DISCORD_BOT_TOKEN</code> and <code style="background:rgba(0,0,0,.25);padding:1px 4px;border-radius:3px">DISCORD_GUILD_ID</code> in the Cloudflare dashboard (Workers → your worker → Settings → Variables → Add secret), then redeploy.</p>
-                    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-                        <div style="flex:1;min-width:180px"><label class="dc-label">Post to Channel</label><select id="dc-bot-channel" class="dc-input" onchange="dcSaveChannelChoice(this.value)"><option value="">— click Fetch first —</option></select></div>
-                        <button type="button" onclick="dcBotFetch()" class="dc-sm dc-sm-b">Fetch Channels &amp; Emojis</button>
-                    </div>
+                <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+                    <div style="flex:1;min-width:180px"><label class="dc-label">Post to Channel</label><select id="dc-bot-channel" class="dc-input" onchange="dcSaveChannelChoice(this.value)"><option value="">— click Fetch first —</option></select></div>
+                    <button type="button" onclick="dcBotFetch()" class="dc-sm dc-sm-b">Fetch Channels &amp; Emojis</button>
                 </div>
             </div>
             <!-- Editor + Preview -->
@@ -281,7 +266,11 @@
                     <div class="liquid-glass rounded-2xl p-4 mt-4">
                         <div class="flex items-center justify-between mb-3">
                             <span class="dc-label" style="margin:0">Saved Backups</span>
-                            <button onclick="dcLoadBackupList()" class="dc-sm dc-sm-v">Refresh</button>
+                            <div class="flex gap-2">
+                                <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
+                                <button onclick="dcCopyPayload()" class="dc-sm dc-sm-b" title="Copy the JSON payload that will be sent to Discord">Copy JSON</button>
+                                <button onclick="dcLoadBackupList()" class="dc-sm dc-sm-v">Refresh</button>
+                            </div>
                         </div>
                         <div id="dc-backup-list"><p style="color:#6b7280;font-size:13px;text-align:center;padding:12px 0">Loading…</p></div>
                     </div>
@@ -290,6 +279,10 @@
                     <div class="dc-preview">
                         <div class="dc-preview-lbl">Live Preview</div>
                         <div id="dc-preview-content"><p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p></div>
+                    </div>
+                    <div class="flex gap-2 mt-3 justify-end">
+                        <button onclick="dcClearAll()" class="dc-sm dc-sm-r">Clear All</button>
+                        <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
                     </div>
                 </div>
             </div>
