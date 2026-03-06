@@ -18,7 +18,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="../js/config.js?v=6"></script>
-    <script src="../js/firebase-db.js?v=4"></script>
+    <script src="../js/firebase-db.js?v=5"></script>
     <link rel="stylesheet" href="../css/shared.css">
     <link rel="stylesheet" href="../css/glass.css?v=4">
     <link rel="stylesheet" href="../css/admin.css?v=3">
@@ -54,6 +54,50 @@
         .send-btn { background: rgba(124,58,237,0.3); color: #c4b5fd; border: 1px solid rgba(124,58,237,0.4); transition: background 0.2s; }
         .send-btn:hover { background: rgba(124,58,237,0.5); }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        /* ── Discord Embed Builder ───────────────────── */
+        .dc-input { width:100%; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px; color:#e5e7eb; font-size:13px; transition:border-color .2s; box-sizing:border-box; font-family:inherit; }
+        .dc-input:focus { border-color:rgba(124,58,237,.5); box-shadow:0 0 0 2px rgba(124,58,237,.15); }
+        .dc-label { display:block; font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
+        .dc-section { border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); border-radius:12px; margin-bottom:10px; overflow:hidden; }
+        .dc-section-head { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; font-size:13px; font-weight:600; color:#c4b5fd; }
+        .dc-section-body { padding:12px 14px 14px; border-top:1px solid rgba(255,255,255,.06); }
+        .dc-g2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+        .dc-g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:8px; }
+        .dc-mb { margin-bottom:8px; }
+        .dc-sm { padding:5px 10px; border-radius:7px; font-size:11px; font-weight:600; border:none; cursor:pointer; transition:background .2s; }
+        .dc-sm-v { background:rgba(124,58,237,.25); color:#c4b5fd; }
+        .dc-sm-v:hover { background:rgba(124,58,237,.45); }
+        .dc-sm-r { background:rgba(239,68,68,.15); color:#f87171; }
+        .dc-sm-r:hover { background:rgba(239,68,68,.3); }
+        .dc-sm-b { background:rgba(59,130,246,.2); color:#93c5fd; }
+        .dc-sm-b:hover { background:rgba(59,130,246,.35); }
+        .dc-field-row { background:rgba(0,0,0,.2); border-radius:8px; padding:10px; margin-bottom:8px; border:1px solid rgba(255,255,255,.06); }
+        .dc-sub { font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; margin:10px 0 6px; }
+        /* Preview */
+        .dc-preview { background:#313338; border-radius:12px; padding:16px; position:sticky; top:7.5rem; max-height:calc(100vh - 9rem); overflow-y:auto; }
+        .dc-preview-lbl { font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; margin-bottom:10px; }
+        .dc-msg { color:#dbdee1; font-size:14px; line-height:1.6; white-space:pre-wrap; word-break:break-word; margin-bottom:6px; }
+        .dc-emb { background:#2b2d31; border-radius:4px; overflow:hidden; margin-bottom:6px; max-width:520px; }
+        .dc-emb-bar { display:flex; }
+        .dc-emb-side { width:4px; flex-shrink:0; }
+        .dc-emb-body { padding:10px 14px 10px 10px; flex:1; min-width:0; }
+        .dc-emb-bi { display:flex; gap:10px; }
+        .dc-emb-main { flex:1; min-width:0; }
+        .dc-emb-author { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+        .dc-emb-author img { width:22px; height:22px; border-radius:50%; }
+        .dc-emb-author span { color:#dbdee1; font-size:13px; font-weight:600; }
+        .dc-emb-title { color:#fff; font-size:15px; font-weight:700; margin-bottom:6px; line-height:1.3; }
+        .dc-emb-title a { color:#00aff4; text-decoration:none; }
+        .dc-emb-desc { color:#dbdee1; font-size:14px; line-height:1.5; white-space:pre-wrap; word-break:break-word; margin-bottom:8px; }
+        .dc-emb-fn { color:#dbdee1; font-size:13px; font-weight:700; margin-bottom:2px; }
+        .dc-emb-fv { color:#b5bac1; font-size:13px; line-height:1.4; }
+        .dc-emb-img { width:100%; border-radius:4px; margin-top:8px; max-height:280px; object-fit:contain; }
+        .dc-emb-thumb { width:80px; height:80px; border-radius:4px; object-fit:cover; flex-shrink:0; }
+        .dc-emb-footer { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+        .dc-emb-footer img { width:18px; height:18px; border-radius:50%; }
+        .dc-emb-footer span { color:#87898c; font-size:12px; }
+        .dc-disc-btn { display:inline-flex; align-items:center; gap:4px; background:#5865f2; color:#fff; border-radius:3px; padding:5px 14px; font-size:13px; font-weight:500; cursor:pointer; text-decoration:none; margin:2px; }
+        .dc-btn-row { margin-bottom:4px; }
     </style>
 </head>
 <body>
@@ -163,6 +207,7 @@
         <div class="flex gap-2 mb-5">
             <button id="tab-tickets" onclick="setMainTab('tickets')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-active">Tickets</button>
             <button id="tab-reviews" onclick="setMainTab('reviews')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
+            <button id="tab-discord" onclick="setMainTab('discord')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Discord</button>
         </div>
 
         <!-- Error banner -->
@@ -182,7 +227,51 @@
             <div id="r-list" class="list-scroll space-y-3"></div>
         </div>
 
-
+        <!-- Discord embed builder panel -->
+        <div id="panel-discord" style="display:none">
+            <!-- Webhook bar -->
+            <div class="liquid-glass rounded-2xl p-4 mb-4">
+                <div class="flex flex-wrap gap-3 items-end">
+                    <div style="flex:1;min-width:220px">
+                        <label class="dc-label">Webhook URL</label>
+                        <input id="dc-wh-url" class="dc-input" type="url" placeholder="https://discord.com/api/webhooks/..." oninput="if(ds)ds.webhookUrl=this.value">
+                    </div>
+                    <div style="flex:0 0 auto">
+                        <label class="dc-label">Saved Webhooks</label>
+                        <select id="dc-wh-sel" class="dc-input" onchange="dcSelectWebhook(this.value)" style="min-width:150px">
+                            <option value="">Select saved…</option>
+                        </select>
+                    </div>
+                    <div style="flex:0 0 auto">
+                        <label class="dc-label">Save As Name</label>
+                        <input id="dc-wh-name" class="dc-input" placeholder="e.g. Stream Alerts" style="min-width:130px">
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="dcAddWebhook()" class="dc-sm dc-sm-v">Save Hook</button>
+                        <button onclick="dcDeleteWebhook()" class="dc-sm dc-sm-r">Remove</button>
+                        <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
+                        <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Editor + Preview -->
+            <div style="display:flex;gap:16px;align-items:flex-start">
+                <div style="flex:0 0 56%;min-width:0" id="dc-editor"></div>
+                <div style="flex:1;min-width:0">
+                    <div class="dc-preview">
+                        <div class="dc-preview-lbl">Live Preview</div>
+                        <div id="dc-preview-content"><p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p></div>
+                    </div>
+                    <div class="liquid-glass rounded-2xl p-4 mt-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="dc-label" style="margin:0">Saved Backups</span>
+                            <button onclick="dcLoadBackupList()" class="dc-sm dc-sm-v">Refresh</button>
+                        </div>
+                        <div id="dc-backup-list"><p style="color:#6b7280;font-size:13px;text-align:center;padding:12px 0">Loading…</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
     </div>
 </div>
@@ -254,6 +343,7 @@
     /* ── nav refresh ── */
     function refreshCurrent() {
         if (mainTab === 'reviews') loadReviews();
+        else if (mainTab === 'discord') dcLoadBackupList();
         else                      loadTickets();
     }
 
@@ -301,10 +391,14 @@
     /* ── main tab switch ── */
     function setMainTab(tab) {
         mainTab = tab;
-        document.getElementById('tab-tickets').className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === 'tickets' ? 'tab-active' : 'tab-inactive');
-        document.getElementById('tab-reviews').className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === 'reviews' ? 'tab-active' : 'tab-inactive');
+        ['tickets','reviews','discord'].forEach(function(t) {
+            var btn = document.getElementById('tab-' + t);
+            if (btn) btn.className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === t ? 'tab-active' : 'tab-inactive');
+        });
         document.getElementById('panel-tickets').style.display = tab === 'tickets' ? 'block' : 'none';
-        document.getElementById('panel-reviews').style.display  = tab === 'reviews'  ? 'block' : 'none';
+        document.getElementById('panel-reviews').style.display = tab === 'reviews' ? 'block' : 'none';
+        document.getElementById('panel-discord').style.display = tab === 'discord' ? 'block' : 'none';
+        if (tab === 'discord') dcOpenTab();
     }
 
     /* ════════════════════════════════════════════════════════
@@ -702,6 +796,479 @@
             renderReviewStats();
             renderReviewList();
         }).catch(function(ex) { alert('Delete failed: ' + ex.message); });
+    }
+
+    /* ════════════════════════════════════════════════════════
+       DISCORD EMBED BUILDER
+    ════════════════════════════════════════════════════════ */
+
+    var ds = null; // Discord composer state (initialized on tab open)
+    var dcBackups = [];
+
+    function dcNewEmbed() {
+        return {
+            _id: Math.random().toString(36).slice(2),
+            _open: true,
+            author: { name: '', icon_url: '', url: '' },
+            title: '', url: '', color: '#5865f2',
+            description: '', fields: [],
+            image: '', thumbnail: '',
+            footer: { text: '', icon_url: '', timestamp: false },
+        };
+    }
+
+    function dcInit() {
+        if (ds) return;
+        ds = { webhookUrl: '', profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [] };
+    }
+
+    function dcOpenTab() {
+        dcInit();
+        dcRenderWebhookBar();
+        dcRenderEditor();
+        dcRenderPreview();
+        dcLoadBackupList();
+    }
+
+    /* ── Toast ── */
+    function dcShowToast(msg, color) {
+        var t = document.getElementById('dc-toast-el');
+        if (!t) { t = document.createElement('div'); t.id = 'dc-toast-el'; document.body.appendChild(t); }
+        t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;color:#fff;z-index:9999;transition:opacity .3s;background:' +
+            (color === 'green' ? 'rgba(34,197,94,.95)' : 'rgba(239,68,68,.95)') + ';display:block;opacity:1';
+        t.textContent = msg;
+        clearTimeout(t._tmr);
+        t._tmr = setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.style.display = 'none'; }, 300); }, 2800);
+    }
+
+    /* ── Webhook localStorage ── */
+    function dcGetHooks() { return JSON.parse(localStorage.getItem('tb_dc_hooks') || '[]'); }
+    function dcSaveHooks(arr) { localStorage.setItem('tb_dc_hooks', JSON.stringify(arr)); }
+
+    function dcRenderWebhookBar() {
+        var hooks = dcGetHooks();
+        var sel = document.getElementById('dc-wh-sel');
+        var urlEl = document.getElementById('dc-wh-url');
+        if (!sel || !urlEl) return;
+        sel.innerHTML = '<option value="">Select saved…</option>' +
+            hooks.map(function(h, i) { return '<option value="' + i + '">' + esc(h.name) + '</option>'; }).join('');
+        urlEl.value = ds.webhookUrl || '';
+    }
+
+    function dcSelectWebhook(idx) {
+        if (idx === '') { ds.webhookUrl = ''; document.getElementById('dc-wh-url').value = ''; return; }
+        var h = dcGetHooks()[parseInt(idx)];
+        if (h) { ds.webhookUrl = h.url; document.getElementById('dc-wh-url').value = h.url; }
+    }
+
+    function dcAddWebhook() {
+        var name = document.getElementById('dc-wh-name').value.trim();
+        var url  = document.getElementById('dc-wh-url').value.trim();
+        if (!name || !url) { alert('Enter both a name and a webhook URL.'); return; }
+        if (!url.startsWith('https://discord.com/api/webhooks/')) { alert('That doesn\'t look like a Discord webhook URL.'); return; }
+        var hooks = dcGetHooks();
+        hooks.push({ name: name, url: url });
+        dcSaveHooks(hooks);
+        ds.webhookUrl = url;
+        document.getElementById('dc-wh-name').value = '';
+        dcRenderWebhookBar();
+        dcShowToast('Webhook saved!', 'green');
+    }
+
+    function dcDeleteWebhook() {
+        var idx = document.getElementById('dc-wh-sel').value;
+        if (idx === '') { alert('Select a saved webhook first.'); return; }
+        if (!confirm('Remove this saved webhook?')) return;
+        var hooks = dcGetHooks();
+        hooks.splice(parseInt(idx), 1);
+        dcSaveHooks(hooks);
+        dcRenderWebhookBar();
+    }
+
+    /* ── Payload builder ── */
+    function dcBuildPayload() {
+        var p = {};
+        if (ds.content.trim()) p.content = ds.content.trim();
+        if (ds.profile.username.trim()) p.username = ds.profile.username.trim();
+        if (ds.profile.avatar_url.trim()) p.avatar_url = ds.profile.avatar_url.trim();
+        var embeds = ds.embeds.map(function(e) {
+            var em = {};
+            if (e.color) em.color = parseInt(e.color.replace('#', ''), 16);
+            if (e.author.name.trim()) {
+                em.author = { name: e.author.name.trim() };
+                if (e.author.icon_url.trim()) em.author.icon_url = e.author.icon_url.trim();
+                if (e.author.url.trim())      em.author.url      = e.author.url.trim();
+            }
+            if (e.title.trim()) { em.title = e.title.trim(); if (e.url.trim()) em.url = e.url.trim(); }
+            if (e.description.trim()) em.description = e.description.trim();
+            var fields = e.fields.filter(function(f) { return f.name || f.value; });
+            if (fields.length) em.fields = fields.map(function(f) { return { name: f.name, value: f.value, inline: !!f.inline }; });
+            if (e.image.trim())     em.image     = { url: e.image.trim() };
+            if (e.thumbnail.trim()) em.thumbnail = { url: e.thumbnail.trim() };
+            if (e.footer.text.trim()) {
+                em.footer = { text: e.footer.text.trim() };
+                if (e.footer.icon_url.trim()) em.footer.icon_url = e.footer.icon_url.trim();
+                if (e.footer.timestamp) em.timestamp = new Date().toISOString();
+            }
+            return Object.keys(em).filter(function(k) { return k !== 'color'; }).length ? em : null;
+        }).filter(Boolean);
+        if (embeds.length) p.embeds = embeds;
+        var rows = ds.components.filter(function(row) { return row.some(function(b) { return b.label && b.url; }); });
+        if (rows.length) p.components = rows.map(function(row) {
+            return { type: 1, components: row.filter(function(b) { return b.label && b.url; }).map(function(b) {
+                return { type: 2, style: 5, label: b.label, url: b.url };
+            })};
+        });
+        return p;
+    }
+
+    /* ── Send ── */
+    async function dcSend() {
+        if (!ds.webhookUrl.trim()) { alert('Enter a webhook URL first.'); return; }
+        var btn = document.getElementById('dc-send-btn');
+        btn.disabled = true; btn.textContent = 'Sending…';
+        try {
+            var payload = dcBuildPayload();
+            if (!payload.content && !payload.embeds && !payload.components) { alert('Nothing to send — add some content or an embed first.'); return; }
+            var res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            });
+            if (res.ok) { dcShowToast('Message sent! ✓', 'green'); }
+            else {
+                var err = await res.json().catch(function() { return {}; });
+                dcShowToast('Discord error: ' + (err.message || res.status), 'red');
+            }
+        } catch(e) { dcShowToast('Network error: ' + e.message, 'red'); }
+        finally { btn.disabled = false; btn.textContent = 'Send →'; }
+    }
+
+    /* ── Backups ── */
+    async function dcSaveBackup() {
+        var name = prompt('Name this backup:');
+        if (!name || !name.trim()) return;
+        try {
+            await FirebaseDB.saveWebhookBackup({ name: name.trim(), webhookUrl: ds.webhookUrl, state: JSON.parse(JSON.stringify(ds)) });
+            dcLoadBackupList();
+            dcShowToast('Backup saved!', 'green');
+        } catch(e) { dcShowToast('Save failed: ' + e.message, 'red'); }
+    }
+
+    async function dcLoadBackupList() {
+        try {
+            dcBackups = await FirebaseDB.getAllWebhookBackups();
+            dcRenderBackupList();
+        } catch(e) {
+            var el = document.getElementById('dc-backup-list');
+            if (el) el.innerHTML = '<p style="color:#6b7280;font-size:13px;text-align:center;padding:12px 0">Could not load backups</p>';
+        }
+    }
+
+    function dcRenderBackupList() {
+        var el = document.getElementById('dc-backup-list');
+        if (!el) return;
+        if (!dcBackups.length) { el.innerHTML = '<p style="color:#6b7280;font-size:13px;text-align:center;padding:12px 0">No saved backups yet</p>'; return; }
+        el.innerHTML = dcBackups.map(function(b, i) {
+            var d = b.createdAt ? new Date(b.createdAt).toLocaleDateString() : '';
+            return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)">' +
+                '<div><div style="font-size:13px;color:#e5e7eb">' + esc(b.name) + '</div>' +
+                '<div style="font-size:11px;color:#6b7280">' + esc(d) + '</div></div>' +
+                '<div style="display:flex;gap:6px">' +
+                '<button onclick="dcLoadBackup(' + i + ')" class="dc-sm dc-sm-v">Load</button>' +
+                '<button onclick="dcDeleteBackup(\'' + esc(b.id) + '\')" class="dc-sm dc-sm-r">Del</button>' +
+                '</div></div>';
+        }).join('');
+    }
+
+    function dcLoadBackup(idx) {
+        var b = dcBackups[idx];
+        if (!b || !b.state) { alert('This backup has no state data.'); return; }
+        ds = b.state;
+        // Ensure all embeds have _id (in case saved before _id was added)
+        ds.embeds.forEach(function(e) { if (!e._id) e._id = Math.random().toString(36).slice(2); });
+        dcRenderWebhookBar();
+        dcRenderEditor();
+        dcRenderPreview();
+        dcShowToast('Loaded: ' + b.name, 'green');
+    }
+
+    async function dcDeleteBackup(id) {
+        if (!confirm('Delete this backup permanently?')) return;
+        try {
+            await FirebaseDB.deleteWebhookBackup(id);
+            dcBackups = dcBackups.filter(function(b) { return b.id !== id; });
+            dcRenderBackupList();
+        } catch(e) { dcShowToast('Delete failed: ' + e.message, 'red'); }
+    }
+
+    /* ── State updaters (no editor re-render) ── */
+    function dcSetEmbed(id, key, val) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (e) e[key] = val;
+        dcRenderPreview();
+    }
+    function dcSetEmbedSub(id, sub, key, val) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (e) e[sub][key] = val;
+        dcRenderPreview();
+    }
+    function dcSetField(id, fi, key, val) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (e && e.fields[fi]) { e.fields[fi][key] = val; dcRenderPreview(); }
+    }
+    function dcSetComp(ri, bi, key, val) {
+        if (ds.components[ri] && ds.components[ri][bi]) { ds.components[ri][bi][key] = val; dcRenderPreview(); }
+    }
+
+    /* ── Structural changes (editor re-render) ── */
+    function dcAddEmbed() {
+        if (ds.embeds.length >= 10) { alert('Maximum 10 embeds.'); return; }
+        ds.embeds.push(dcNewEmbed());
+        dcRenderEditor(); dcRenderPreview();
+    }
+    function dcRemoveEmbed(id) {
+        if (ds.embeds.length <= 1) { alert('At least one embed is required.'); return; }
+        ds.embeds = ds.embeds.filter(function(e) { return e._id !== id; });
+        dcRenderEditor(); dcRenderPreview();
+    }
+    function dcToggleEmbed(id) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (e) { e._open = !e._open; dcRenderEditor(); }
+    }
+    function dcAddField(id) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (e) { e.fields.push({ name: '', value: '', inline: false }); dcRenderEditor(); dcRenderPreview(); }
+    }
+    function dcRemoveField(id, fi) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (e) { e.fields.splice(fi, 1); dcRenderEditor(); dcRenderPreview(); }
+    }
+    function dcAddRow() {
+        if (ds.components.length >= 5) { alert('Maximum 5 rows.'); return; }
+        ds.components.push([]);
+        dcRenderEditor(); dcRenderPreview();
+    }
+    function dcAddButton(ri) {
+        if (!ds.components[ri]) return;
+        if (ds.components[ri].length >= 5) { alert('Maximum 5 buttons per row.'); return; }
+        ds.components[ri].push({ label: 'Button', url: '' });
+        dcRenderEditor(); dcRenderPreview();
+    }
+    function dcRemoveButton(ri, bi) {
+        if (!ds.components[ri]) return;
+        ds.components[ri].splice(bi, 1);
+        if (!ds.components[ri].length) ds.components.splice(ri, 1);
+        dcRenderEditor(); dcRenderPreview();
+    }
+
+    /* ── Render editor ── */
+    function dcRenderEditor() {
+        var h = '';
+
+        // Profile
+        h += '<div class="dc-section"><div class="dc-section-head"><span>Profile Override</span></div>' +
+            '<div class="dc-section-body"><div class="dc-g2">' +
+            '<div><label class="dc-label">Username</label>' +
+            '<input class="dc-input" placeholder="Webhook name override" value="' + esc(ds.profile.username) + '" oninput="ds.profile.username=this.value;dcRenderPreview()"></div>' +
+            '<div><label class="dc-label">Avatar URL</label>' +
+            '<input class="dc-input" type="url" placeholder="https://..." value="' + esc(ds.profile.avatar_url) + '" oninput="ds.profile.avatar_url=this.value;dcRenderPreview()"></div>' +
+            '</div></div></div>';
+
+        // Content
+        h += '<div class="dc-section"><div class="dc-section-head"><span>Message Content</span></div>' +
+            '<div class="dc-section-body">' +
+            '<textarea class="dc-input" rows="3" placeholder="Message text (supports @mentions like &lt;@&amp;ROLE_ID&gt;)" oninput="ds.content=this.value;dcRenderPreview()" style="resize:vertical">' + esc(ds.content) + '</textarea>' +
+            '</div></div>';
+
+        // Embeds
+        ds.embeds.forEach(function(e, ei) { h += dcRenderEmbed(e, ei); });
+
+        h += '<button onclick="dcAddEmbed()" style="width:100%;padding:10px;border-radius:10px;font-size:13px;font-weight:600;margin-bottom:10px;background:rgba(124,58,237,.12);color:#c4b5fd;border:1px dashed rgba(124,58,237,.35);cursor:pointer">+ Add Embed</button>';
+
+        // Components
+        h += '<div class="dc-section"><div class="dc-section-head"><span>Link Buttons</span></div><div class="dc-section-body">';
+        if (!ds.components.length) h += '<p style="color:#6b7280;font-size:13px;margin-bottom:8px">No button rows yet.</p>';
+        ds.components.forEach(function(row, ri) {
+            h += '<div style="margin-bottom:12px"><div class="dc-sub" style="margin-top:0">Row ' + (ri+1) + '</div>';
+            row.forEach(function(btn, bi) {
+                h += '<div class="dc-field-row dc-g2" style="margin-bottom:6px">' +
+                    '<div><label class="dc-label">Label</label>' +
+                    '<input class="dc-input" placeholder="Button label" value="' + esc(btn.label) + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'label\',this.value)"></div>' +
+                    '<div><label class="dc-label">URL</label>' +
+                    '<input class="dc-input" type="url" placeholder="https://..." value="' + esc(btn.url) + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'url\',this.value)"></div>' +
+                    '<div style="grid-column:span 2;display:flex;justify-content:flex-end;margin-top:2px">' +
+                    '<button onclick="dcRemoveButton(' + ri + ',' + bi + ')" class="dc-sm dc-sm-r">Remove button</button></div>' +
+                    '</div>';
+            });
+            if (row.length < 5) h += '<button onclick="dcAddButton(' + ri + ')" class="dc-sm dc-sm-v">+ Add Button</button>';
+            h += '</div>';
+        });
+        if (ds.components.length < 5) h += '<button onclick="dcAddRow()" class="dc-sm dc-sm-v" style="margin-top:4px">+ Add Button Row</button>';
+        h += '</div></div>';
+
+        document.getElementById('dc-editor').innerHTML = h;
+    }
+
+    function dcRenderEmbed(e, ei) {
+        var open = e._open !== false;
+        var label = 'Embed ' + (ei+1) + (e.title ? ' — ' + e.title.substring(0, 28) : '');
+        var h = '<div class="dc-section"><div class="dc-section-head">' +
+            '<span>' + esc(label) + '</span>' +
+            '<div style="display:flex;gap:6px">' +
+            '<button onclick="dcToggleEmbed(\'' + e._id + '\')" class="dc-sm" style="background:rgba(255,255,255,.06);color:#9ca3af">' + (open ? 'Collapse' : 'Expand') + '</button>' +
+            (ds.embeds.length > 1 ? '<button onclick="dcRemoveEmbed(\'' + e._id + '\')" class="dc-sm dc-sm-r">Remove</button>' : '') +
+            '</div></div>';
+
+        if (!open) return h + '</div>';
+
+        h += '<div class="dc-section-body">' +
+            // Color + Title
+            '<div style="display:grid;grid-template-columns:52px 1fr;gap:8px;margin-bottom:8px">' +
+            '<div><label class="dc-label">Color</label>' +
+            '<input type="color" class="dc-input" value="' + esc(e.color) + '" oninput="dcSetEmbed(\'' + e._id + '\',\'color\',this.value)" style="padding:2px 4px;height:36px;cursor:pointer"></div>' +
+            '<div><label class="dc-label">Title</label>' +
+            '<input class="dc-input" placeholder="Embed title" value="' + esc(e.title) + '" oninput="dcSetEmbed(\'' + e._id + '\',\'title\',this.value)"></div></div>' +
+            // Title URL
+            '<div class="dc-mb"><label class="dc-label">Title URL</label>' +
+            '<input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.url) + '" oninput="dcSetEmbed(\'' + e._id + '\',\'url\',this.value)"></div>' +
+            // Author
+            '<div class="dc-sub">Author</div><div class="dc-g3">' +
+            '<div><label class="dc-label">Name</label><input class="dc-input" placeholder="Author name" value="' + esc(e.author.name) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'author\',\'name\',this.value)"></div>' +
+            '<div><label class="dc-label">Icon URL</label><input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.author.icon_url) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'author\',\'icon_url\',this.value)"></div>' +
+            '<div><label class="dc-label">Link URL</label><input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.author.url) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'author\',\'url\',this.value)"></div>' +
+            '</div>' +
+            // Description
+            '<div class="dc-mb"><label class="dc-label">Description</label>' +
+            '<textarea class="dc-input" rows="3" placeholder="Embed description (markdown supported)" oninput="dcSetEmbed(\'' + e._id + '\',\'description\',this.value)" style="resize:vertical">' + esc(e.description) + '</textarea></div>' +
+            // Fields
+            '<div class="dc-sub">Fields</div>';
+
+        e.fields.forEach(function(f, fi) {
+            h += '<div class="dc-field-row">' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+                '<label class="dc-label" style="margin:0">Field ' + (fi+1) + '</label>' +
+                '<div style="display:flex;align-items:center;gap:8px">' +
+                '<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#9ca3af;cursor:pointer">' +
+                '<input type="checkbox"' + (f.inline ? ' checked' : '') + ' onchange="dcSetField(\'' + e._id + '\',' + fi + ',\'inline\',this.checked)"> Inline</label>' +
+                '<button onclick="dcRemoveField(\'' + e._id + '\',' + fi + ')" class="dc-sm dc-sm-r">✕</button>' +
+                '</div></div>' +
+                '<div class="dc-mb"><label class="dc-label">Name</label>' +
+                '<input class="dc-input" placeholder="Field name" value="' + esc(f.name) + '" oninput="dcSetField(\'' + e._id + '\',' + fi + ',\'name\',this.value)"></div>' +
+                '<div><label class="dc-label">Value</label>' +
+                '<textarea class="dc-input" rows="2" placeholder="Field value" oninput="dcSetField(\'' + e._id + '\',' + fi + ',\'value\',this.value)" style="resize:vertical">' + esc(f.value) + '</textarea></div>' +
+                '</div>';
+        });
+
+        h += '<button onclick="dcAddField(\'' + e._id + '\')" class="dc-sm dc-sm-v" style="margin-bottom:10px">+ Add Field</button>' +
+            // Images
+            '<div class="dc-sub">Images</div>' +
+            '<div class="dc-g2">' +
+            '<div><label class="dc-label">Large Image URL</label><input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.image) + '" oninput="dcSetEmbed(\'' + e._id + '\',\'image\',this.value)"></div>' +
+            '<div><label class="dc-label">Thumbnail URL</label><input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.thumbnail) + '" oninput="dcSetEmbed(\'' + e._id + '\',\'thumbnail\',this.value)"></div>' +
+            '</div>' +
+            // Footer
+            '<div class="dc-sub">Footer</div>' +
+            '<div class="dc-g2">' +
+            '<div><label class="dc-label">Footer Text</label><input class="dc-input" placeholder="Footer text" value="' + esc(e.footer.text) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'text\',this.value)"></div>' +
+            '<div><label class="dc-label">Footer Icon URL</label><input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.footer.icon_url) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'icon_url\',this.value)"></div>' +
+            '</div>' +
+            '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#9ca3af;cursor:pointer">' +
+            '<input type="checkbox"' + (e.footer.timestamp ? ' checked' : '') + ' onchange="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'timestamp\',this.checked)"> Include timestamp</label>' +
+            '</div>';
+
+        return h + '</div>';
+    }
+
+    /* ── Render preview ── */
+    function dcRenderPreview() {
+        var h = '';
+
+        if (ds.profile.username) {
+            h += '<div style="font-size:12px;font-weight:700;color:#dbdee1;margin-bottom:4px">' + esc(ds.profile.username) + ' <span style="font-size:10px;background:#5865f2;color:#fff;border-radius:3px;padding:1px 5px;font-weight:600">APP</span></div>';
+        }
+
+        if (ds.content.trim()) {
+            h += '<div class="dc-msg">' + esc(ds.content) + '</div>';
+        }
+
+        ds.embeds.forEach(function(e) {
+            var hasContent = e.title || e.description || e.author.name || e.fields.length || e.image || e.footer.text;
+            if (!hasContent) return;
+            var color = e.color || '#5865f2';
+            var hasThumbnail = e.thumbnail.trim();
+
+            h += '<div class="dc-emb"><div class="dc-emb-bar"><div class="dc-emb-side" style="background:' + esc(color) + '"></div>' +
+                '<div class="dc-emb-body"><div class="dc-emb-bi"><div class="dc-emb-main">';
+
+            if (e.author.name) {
+                h += '<div class="dc-emb-author">';
+                if (e.author.icon_url) h += '<img src="' + esc(e.author.icon_url) + '" onerror="this.style.display=\'none\'">';
+                h += '<span>' + esc(e.author.name) + '</span></div>';
+            }
+            if (e.title) {
+                h += '<div class="dc-emb-title">';
+                if (e.url) h += '<a href="' + esc(e.url) + '" target="_blank">' + esc(e.title) + '</a>';
+                else h += esc(e.title);
+                h += '</div>';
+            }
+            if (e.description) h += '<div class="dc-emb-desc">' + esc(e.description) + '</div>';
+
+            if (e.fields.length) {
+                h += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">';
+                var fi = 0;
+                while (fi < e.fields.length) {
+                    if (e.fields[fi].inline) {
+                        var j = fi;
+                        while (j < e.fields.length && e.fields[j].inline) j++;
+                        var cols = Math.min(j - fi, 3);
+                        h += '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px">';
+                        for (var k = fi; k < j; k++) {
+                            h += '<div><div class="dc-emb-fn">' + esc(e.fields[k].name) + '</div>' +
+                                '<div class="dc-emb-fv">' + esc(e.fields[k].value) + '</div></div>';
+                        }
+                        h += '</div>';
+                        fi = j;
+                    } else {
+                        h += '<div><div class="dc-emb-fn">' + esc(e.fields[fi].name) + '</div>' +
+                            '<div class="dc-emb-fv">' + esc(e.fields[fi].value) + '</div></div>';
+                        fi++;
+                    }
+                }
+                h += '</div>';
+            }
+
+            if (e.image.trim()) h += '<img class="dc-emb-img" src="' + esc(e.image) + '" onerror="this.style.display=\'none\'">';
+
+            if (e.footer.text || e.footer.timestamp) {
+                h += '<div class="dc-emb-footer">';
+                if (e.footer.icon_url) h += '<img src="' + esc(e.footer.icon_url) + '" onerror="this.style.display=\'none\'">';
+                if (e.footer.text) h += '<span>' + esc(e.footer.text) + '</span>';
+                if (e.footer.text && e.footer.timestamp) h += '<span>•</span>';
+                if (e.footer.timestamp) h += '<span>' + new Date().toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'}) + '</span>';
+                h += '</div>';
+            }
+
+            h += '</div>'; // dc-emb-main
+            if (hasThumbnail) h += '<div><img class="dc-emb-thumb" src="' + esc(e.thumbnail) + '" onerror="this.style.display=\'none\'"></div>';
+            h += '</div></div></div></div>'; // bi, body, bar, emb
+        });
+
+        var hasButtons = ds.components.some(function(row) { return row.some(function(b) { return b.label; }); });
+        if (hasButtons) {
+            ds.components.forEach(function(row) {
+                var btns = row.filter(function(b) { return b.label; });
+                if (!btns.length) return;
+                h += '<div class="dc-btn-row">';
+                btns.forEach(function(b) {
+                    h += '<a class="dc-disc-btn" href="' + esc(b.url || '#') + '" target="_blank">' +
+                        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 0-2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
+                        esc(b.label) + '</a>';
+                });
+                h += '</div>';
+            });
+        }
+
+        if (!h) h = '<p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p>';
+        document.getElementById('dc-preview-content').innerHTML = h;
     }
 
 </script>

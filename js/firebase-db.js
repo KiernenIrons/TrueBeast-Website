@@ -278,6 +278,56 @@ const FirebaseDB = {
     },
 
     // -----------------------------------------------------------------------
+    // Webhook Backups  (Discord embed builder — admin only)
+    //
+    // Firestore rule to add in Firebase Console → Firestore → Rules:
+    //   match /webhookBackups/{docId} {
+    //     allow read, write: if request.auth != null;
+    //   }
+    // -----------------------------------------------------------------------
+
+    async saveWebhookBackup(backup) {
+        _ensureApp();
+        if (!_isConfigured()) throw new Error('Firebase not configured');
+        const id  = 'wb-' + Date.now();
+        const doc = { ...backup, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        await _withTimeout(
+            firebase.firestore().collection('webhookBackups').doc(id).set(doc),
+            8000
+        );
+        return doc;
+    },
+
+    async getAllWebhookBackups() {
+        _ensureApp();
+        if (!_isConfigured()) return [];
+        const snap = await _withTimeout(
+            firebase.firestore().collection('webhookBackups').orderBy('createdAt', 'desc').get(),
+            8000
+        );
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+
+    async updateWebhookBackup(id, updates) {
+        _ensureApp();
+        if (!_isConfigured()) return;
+        const payload = { ...updates, updatedAt: new Date().toISOString() };
+        await _withTimeout(
+            firebase.firestore().collection('webhookBackups').doc(id).update(payload),
+            8000
+        );
+    },
+
+    async deleteWebhookBackup(id) {
+        _ensureApp();
+        if (!_isConfigured()) return;
+        await _withTimeout(
+            firebase.firestore().collection('webhookBackups').doc(id).delete(),
+            8000
+        );
+    },
+
+    // -----------------------------------------------------------------------
     // Admin Authentication
     // -----------------------------------------------------------------------
 
