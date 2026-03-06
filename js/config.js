@@ -104,7 +104,7 @@ const SITE_CONFIG = {
         { name: 'OBS Studio', description: 'Free, open-source streaming and recording software. The go-to for any streamer.', url: 'https://obsproject.com', category: 'Streaming', emoji: '🎥' },
         { name: 'REVO Uninstaller', description: 'Free, basic tool for uninstalling software and removing any left-over files on your Windows PC.', url: 'https://www.revouninstaller.com/revo-uninstaller-free-download/', category: 'Utilities', emoji: '🗑️' },
         { name: 'WinDirStat', description: 'Free tool for finding what folders are taking up the most space on your Windows PC.', url: 'https://windirstat.net/download.html', category: 'Utilities', emoji: '📂' },
-        { name: 'Youtube Video Downloader', description: 'Free, browser-based tool for downloading videos from YouTube.', url: 'https://youtube-dl.org', category: 'Utilities', emoji: '💾' },
+        { name: 'Youtube Video Downloader', description: 'Free, browser-based tool for downloading videos from YouTube.', url: 'https://cnvmp3.com/v53', category: 'Utilities', emoji: '💾' },
     ],
 
     // -----------------------------------------------------------------------
