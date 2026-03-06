@@ -102,6 +102,7 @@ const SITE_CONFIG = {
     // -----------------------------------------------------------------------
     tools: [
         { name: 'OBS Studio', description: 'Free, open-source streaming and recording software. The go-to for any streamer.', url: 'https://obsproject.com', category: 'Streaming', emoji: '🎥' },
+        { name: 'REVO Uninstaller', description: 'Free, basic tool for uninstalling software and removing any left-over files.', url: 'https://www.revouninstaller.com/revo-uninstaller-free-download/', category: 'Utilities', emoji: '🗑️' },
     ],
 
     // -----------------------------------------------------------------------
