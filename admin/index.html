@@ -1018,9 +1018,15 @@
             if (!payload.content && !payload.embeds && !payload.components) { alert('Nothing to send — add some content or an embed first.'); return; }
 
             if (hasWebhook) {
-                // Webhook → message + buttons work reliably; bot handles reactions separately
+                // Discord webhook API strips components if username/avatar_url overrides are present.
+                // Strip them so components (buttons) work; the webhook uses its own default identity.
+                var whPayload = Object.assign({}, payload);
+                if (whPayload.components && whPayload.components.length) {
+                    delete whPayload.username;
+                    delete whPayload.avatar_url;
+                }
                 var res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(whPayload)
                 });
                 console.log('[Discord Send] webhook response status:', res.status);
                 if (!res.ok) {
@@ -1040,22 +1046,30 @@
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ channelId: wData.channel_id, messageId: wData.id, reactions: reactions })
                     });
-                    var rData = await rRes.json().catch(function() { return {}; });
-                    if (rData.errors && rData.errors.length) {
-                        var rErrMsg = rData.errors.map(function(e) { return e.emoji + ' (' + e.error + ')'; }).join(', ');
-                        dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg + ' — check bot ADD_REACTIONS permission', 'red');
+                    if (!rRes.ok) {
+                        dcShowToast('Sent ✓ but reactions failed (HTTP ' + rRes.status + ') — redeploy Cloudflare Worker', 'red');
                     } else {
-                        dcShowToast('Sent! ✓', 'green');
+                        var rData = await rRes.json().catch(function() { return {}; });
+                        if (rData.errors && rData.errors.length) {
+                            var rErrMsg = rData.errors.map(function(e) { return e.emoji + ' (' + e.error + ')'; }).join(', ');
+                            dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg + ' — check bot ADD_REACTIONS permission', 'red');
+                        } else {
+                            dcShowToast('Sent! ✓', 'green');
+                        }
                     }
                 } else {
                     dcShowToast('Sent! ✓', 'green');
                 }
             } else {
                 // Bot-only mode (no webhook URL configured)
+                // username/avatar_url are webhook-only fields — strip them from bot API payloads
+                var botPayload = Object.assign({}, payload);
+                delete botPayload.username;
+                delete botPayload.avatar_url;
                 var res = await fetch(dcWorkerUrl() + '/discord/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ channelId: channelId, payload: payload, reactions: ds.reactions || [] })
+                    body: JSON.stringify({ channelId: channelId, payload: botPayload, reactions: ds.reactions || [] })
                 });
                 console.log('[Discord Send] bot response status:', res.status);
                 if (res.ok) {
