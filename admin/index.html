@@ -98,6 +98,14 @@
         .dc-emb-footer span { color:#87898c; font-size:12px; }
         .dc-disc-btn { display:inline-flex; align-items:center; gap:4px; background:#5865f2; color:#fff; border-radius:3px; padding:5px 14px; font-size:13px; font-weight:500; cursor:pointer; text-decoration:none; margin:2px; }
         .dc-btn-row { margin-bottom:4px; }
+        /* Emoji picker */
+        .dc-emoji-wrap { position:relative; display:inline-block; }
+        .dc-emoji-picker { position:absolute; z-index:200; background:#1e1f22; border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:10px; width:260px; box-shadow:0 8px 24px rgba(0,0,0,.5); top:calc(100% + 4px); left:0; }
+        .dc-emoji-picker-cat { font-size:10px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; margin:6px 0 4px; }
+        .dc-emoji-picker-grid { display:flex; flex-wrap:wrap; gap:2px; }
+        .dc-emoji-picker-grid span { font-size:20px; cursor:pointer; padding:3px; border-radius:4px; line-height:1; }
+        .dc-emoji-picker-grid span:hover { background:rgba(255,255,255,.1); }
+        .dc-emoji-custom-row { margin-top:8px; border-top:1px solid rgba(255,255,255,.08); padding-top:8px; }
     </style>
 </head>
 <body>
@@ -250,6 +258,7 @@
                         <button onclick="dcAddWebhook()" class="dc-sm dc-sm-v">Save Hook</button>
                         <button onclick="dcDeleteWebhook()" class="dc-sm dc-sm-r">Remove</button>
                         <button onclick="dcSaveBackup()" class="dc-sm dc-sm-b">Save Backup</button>
+                        <button onclick="dcClearAll()" class="dc-sm dc-sm-r">Clear All</button>
                         <button id="dc-send-btn" onclick="dcSend()" class="send-btn px-5 py-2 rounded-xl text-sm font-semibold">Send →</button>
                     </div>
                 </div>
@@ -824,6 +833,15 @@
         ds = { webhookUrl: '', profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [] };
     }
 
+    function dcClearAll() {
+        if (!confirm('Clear everything? This will reset all content, embeds, and buttons. Your saved backups and webhooks will not be affected.')) return;
+        var savedUrl = ds.webhookUrl;
+        ds = { webhookUrl: savedUrl, profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [] };
+        dcRenderEditor();
+        dcRenderPreview();
+        dcShowToast('Cleared!', 'green');
+    }
+
     function dcOpenTab() {
         dcInit();
         dcRenderWebhookBar();
@@ -920,9 +938,12 @@
             return { type: 1, components: row.filter(function(b) { return b.label && b.url; }).map(function(b) {
                 var btn = { type: 2, style: 5, label: b.label, url: b.url };
                 if (b.emoji && b.emoji.trim()) {
-                    var em2 = b.emoji.trim().match(/^(.+):(\d+)$/);
-                    if (em2) btn.emoji = { name: em2[1], id: em2[2] };
-                    else btn.emoji = { name: b.emoji.trim() };
+                    var emStr = b.emoji.trim();
+                    if (/^\d+$/.test(emStr)) {
+                        btn.emoji = { id: emStr }; // custom emoji by ID only
+                    } else {
+                        btn.emoji = { name: emStr }; // Unicode emoji
+                    }
                 }
                 return btn;
             })};
@@ -1078,6 +1099,58 @@
         dcRenderEditor(); dcRenderPreview();
     }
 
+    /* ── Emoji picker ── */
+    var DC_EMOJI_CATS = [
+        { label: 'Smileys', emojis: ['😀','😂','😍','🥰','😎','🤔','😅','🤣','😊','😭','😤','🤯','🥳','😴','🤩','😇','🫡','🫠','😈','💀'] },
+        { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🤝','🙏','🫶','💪','✌️','🤞','👀','🫵','🔥','✅','❌','⭐','💯','❤️','💜','🎉'] },
+        { label: 'Gaming', emojis: ['🎮','🕹️','🏆','🎯','🎲','⚔️','🛡️','🗡️','🏅','🥇','💎','🔑','🗝️','👑','🚀','💥','⚡','🌟','🔮','🎭'] },
+        { label: 'Objects', emojis: ['📢','📣','🔔','🔕','💬','📝','📌','🔗','🔒','🔓','📊','📈','💡','🔧','⚙️','🎵','🎶','📸','🎬','🖥️'] },
+    ];
+
+    function dcToggleEmojiPicker(ri, bi) {
+        var pickerId = 'dc-ep-' + ri + '-' + bi;
+        var existing = document.getElementById(pickerId);
+        // Close all other pickers
+        document.querySelectorAll('[id^="dc-ep-"]').forEach(function(el) { if (el.id !== pickerId) el.remove(); });
+        if (existing) { existing.remove(); return; }
+        var wrap = document.getElementById('dc-ew-' + ri + '-' + bi);
+        if (!wrap) return;
+        var picker = document.createElement('div');
+        picker.id = pickerId;
+        picker.className = 'dc-emoji-picker';
+        var html = '';
+        DC_EMOJI_CATS.forEach(function(cat) {
+            html += '<div class="dc-emoji-picker-cat">' + cat.label + '</div><div class="dc-emoji-picker-grid">';
+            cat.emojis.forEach(function(em) {
+                html += '<span onclick="dcPickEmoji(' + ri + ',' + bi + ',\'' + em + '\')" title="' + em + '">' + em + '</span>';
+            });
+            html += '</div>';
+        });
+        html += '<div class="dc-emoji-custom-row">' +
+            '<div class="dc-emoji-picker-cat">Custom emoji (paste ID)</div>' +
+            '<input id="dc-ep-custom-' + ri + '-' + bi + '" class="dc-input" placeholder="e.g. 1234567890" style="font-size:12px;padding:5px 8px" oninput="dcSetComp(' + ri + ',' + bi + ',\'emoji\',this.value)">' +
+            '</div>';
+        picker.innerHTML = html;
+        wrap.appendChild(picker);
+        // Close on outside click
+        setTimeout(function() {
+            document.addEventListener('click', function closePicker(ev) {
+                if (!picker.contains(ev.target) && !wrap.contains(ev.target)) {
+                    picker.remove();
+                    document.removeEventListener('click', closePicker);
+                }
+            });
+        }, 0);
+    }
+
+    function dcPickEmoji(ri, bi, em) {
+        dcSetComp(ri, bi, 'emoji', em);
+        var pickerId = 'dc-ep-' + ri + '-' + bi;
+        var picker = document.getElementById(pickerId);
+        if (picker) picker.remove();
+        dcRenderEditor();
+    }
+
     /* ── Render editor ── */
     function dcRenderEditor() {
         var h = '';
@@ -1104,7 +1177,7 @@
 
         // Components
         h += '<div class="dc-section"><div class="dc-section-head"><span>Link Buttons</span></div><div class="dc-section-body">';
-        h += '<p style="color:#6b7280;font-size:12px;margin-bottom:10px">Discord webhook link buttons have a fixed blue-grey color — this cannot be customized. For emoji: paste a Unicode emoji (e.g. 🎮) or use <code style="background:rgba(0,0,0,.25);padding:1px 4px;border-radius:3px">name:ID</code> for a custom server emoji.</p>';
+        h += '<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#fca5a5"><strong>⚠ Discord limitation:</strong> Regular channel webhooks do not support buttons/components — they will be ignored by Discord. To use buttons, you would need an application (bot) webhook. Button color is also fixed blue-grey and cannot be customized.</div>';
         if (!ds.components.length) h += '<p style="color:#6b7280;font-size:13px;margin-bottom:8px">No button rows yet.</p>';
         ds.components.forEach(function(row, ri) {
             h += '<div style="margin-bottom:12px"><div class="dc-sub" style="margin-top:0">Row ' + (ri+1) + '</div>';
@@ -1112,13 +1185,16 @@
                 h += '<div style="background:rgba(255,255,255,.04);border-radius:8px;padding:8px;margin-bottom:8px">' +
                     '<div style="display:grid;grid-template-columns:100px 1fr 1fr;gap:8px;margin-bottom:6px">' +
                     '<div><label class="dc-label">Emoji</label>' +
-                    '<input class="dc-input" placeholder="🎮 or name:ID" value="' + esc(btn.emoji||'') + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'emoji\',this.value)"></div>' +
+                    '<div id="dc-ew-' + ri + '-' + bi + '" class="dc-emoji-wrap">' +
+                    '<button type="button" onclick="dcToggleEmojiPicker(' + ri + ',' + bi + ')" class="dc-input" style="cursor:pointer;text-align:left;min-width:54px;padding:6px 8px;font-size:18px;background:rgba(255,255,255,.06)">' + (btn.emoji ? esc(btn.emoji) : '＋') + '</button>' +
+                    '</div></div>' +
                     '<div><label class="dc-label">Label</label>' +
                     '<input class="dc-input" placeholder="Button label" value="' + esc(btn.label) + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'label\',this.value)"></div>' +
                     '<div><label class="dc-label">URL</label>' +
                     '<input class="dc-input" type="url" placeholder="https://..." value="' + esc(btn.url) + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'url\',this.value)"></div>' +
                     '</div>' +
-                    '<div style="display:flex;justify-content:flex-end">' +
+                    '<div style="display:flex;justify-content:flex-end;gap:6px">' +
+                    (btn.emoji ? '<button onclick="dcSetComp(' + ri + ',' + bi + ',\'emoji\',\'\');dcRenderEditor()" class="dc-sm dc-sm-r">Remove emoji</button>' : '') +
                     '<button onclick="dcRemoveButton(' + ri + ',' + bi + ')" class="dc-sm dc-sm-r">Remove button</button></div>' +
                     '</div>';
             });
@@ -1247,8 +1323,13 @@
                 html += '<div style="font-size:1.1em;font-weight:700;color:#dbdee1;margin:3px 0">' + dcInlineMarkdown(esc(line.slice(2))) + '</div>';
             } else if (/^> /.test(line)) {
                 html += '<div style="border-left:3px solid #4e5058;padding-left:8px;margin:2px 0;color:#adb3b9">' + dcInlineMarkdown(esc(line.slice(2))) + '</div>';
+            } else if (/^-# /.test(line)) {
+                html += '<div style="font-size:11px;color:#87898c;margin:1px 0">' + dcInlineMarkdown(esc(line.slice(3))) + '</div>';
             } else if (/^[-*] /.test(line)) {
                 html += '<div style="margin:1px 0 1px 12px">• ' + dcInlineMarkdown(esc(line.slice(2))) + '</div>';
+            } else if (/^\d+\. /.test(line)) {
+                var numMatch = line.match(/^(\d+)\. (.*)/);
+                html += '<div style="margin:1px 0 1px 12px">' + esc(numMatch[1]) + '. ' + dcInlineMarkdown(esc(numMatch[2])) + '</div>';
             } else if (line === '') {
                 html += '<div style="height:0.5em"></div>';
             } else {
@@ -1334,7 +1415,7 @@
                 if (e.footer.text && e.footer.timestamp) h += '<span>•</span>';
                 if (e.footer.timestamp) {
                     var tsDate = new Date(e.footer.timestamp);
-                    h += '<span>' + tsDate.toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'}) + ' ' + tsDate.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'}) + '</span>';
+                    h += '<span>' + tsDate.getDate() + ' ' + tsDate.toLocaleDateString('en-US', {month:'long'}) + ' ' + tsDate.getFullYear() + ' ' + tsDate.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'}) + '</span>';
                 }
                 h += '</div>';
             }
@@ -1353,11 +1434,11 @@
                 btns.forEach(function(b) {
                     var emojiHtml = '';
                     if (b.emoji && b.emoji.trim()) {
-                        var em3 = b.emoji.trim().match(/^.+:(\d+)$/);
-                        if (em3) {
-                            emojiHtml = '<img src="https://cdn.discordapp.com/emojis/' + em3[1] + '.png" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;object-fit:contain" onerror="this.style.display=\'none\'">';
+                        var emStr3 = b.emoji.trim();
+                        if (/^\d+$/.test(emStr3)) {
+                            emojiHtml = '<img src="https://cdn.discordapp.com/emojis/' + emStr3 + '.png" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;object-fit:contain" onerror="this.style.display=\'none\'">';
                         } else {
-                            emojiHtml = '<span style="margin-right:4px">' + esc(b.emoji.trim()) + '</span>';
+                            emojiHtml = '<span style="margin-right:4px">' + esc(emStr3) + '</span>';
                         }
                     }
                     h += '<a class="dc-disc-btn" href="' + esc(b.url || '#') + '" target="_blank">' +
