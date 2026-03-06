@@ -84,20 +84,17 @@ async function handleDiscordReact(request, env, corsHeaders) {
     try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders); }
     const { channelId, messageId, reactions } = body;
     if (!channelId || !messageId || !Array.isArray(reactions)) {
-        return jsonResponse({ error: 'channelId, messageId, and reactions required' }, 400, corsHeaders);
+        return jsonResponse({ error: 'channelId, messageId, and reactions required', received: { channelId, messageId, reactionsType: typeof reactions } }, 400, corsHeaders);
     }
-    const errors = [];
+    const results = [];
     for (const emoji of reactions) {
-        const r = await fetch(
-            `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
-            { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
-        );
-        if (!r.ok) {
-            const e = await r.json().catch(() => ({}));
-            errors.push({ emoji, status: r.status, error: e.message || r.status });
-        }
+        const url = `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`;
+        const r = await fetch(url, { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
+        const body204 = r.status === 204 ? null : await r.json().catch(() => null);
+        results.push({ emoji, encodedEmoji: encodeURIComponent(emoji), status: r.status, ok: r.ok, discordResponse: body204 });
     }
-    return jsonResponse({ ok: true, errors }, 200, corsHeaders);
+    const errors = results.filter(r => !r.ok);
+    return jsonResponse({ ok: true, results, errors }, 200, corsHeaders);
 }
 
 async function handleDiscordSend(request, env, corsHeaders) {
@@ -117,21 +114,21 @@ async function handleDiscordSend(request, env, corsHeaders) {
     });
     const data = await res.json();
 
-    // After successful send, add reactions if requested, collect errors
-    const reactionErrors = [];
+    // After successful send, add reactions if requested, collect results
+    const reactionResults = [];
     if (res.ok && data.id && Array.isArray(reactions) && reactions.length) {
         for (const emoji of reactions) {
-            const rRes = await fetch(
-                'https://discord.com/api/v10/channels/' + channelId + '/messages/' + data.id + '/reactions/' + encodeURIComponent(emoji) + '/@me',
-                { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } }
-            );
-            if (!rRes.ok) {
-                const rErr = await rRes.json().catch(() => ({}));
-                reactionErrors.push({ emoji, status: rRes.status, error: rErr.message || rRes.status });
-            }
+            const url = 'https://discord.com/api/v10/channels/' + channelId + '/messages/' + data.id + '/reactions/' + encodeURIComponent(emoji) + '/@me';
+            const rRes = await fetch(url, { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } });
+            const rBody = rRes.status === 204 ? null : await rRes.json().catch(() => null);
+            reactionResults.push({ emoji, encodedEmoji: encodeURIComponent(emoji), status: rRes.status, ok: rRes.ok, discordResponse: rBody });
         }
     }
-    const responseData = reactionErrors.length ? Object.assign({}, data, { _reactionErrors: reactionErrors }) : data;
+    const reactionErrors = reactionResults.filter(r => !r.ok);
+    const responseData = Object.assign({}, data, {
+        _debug: { payloadComponentsCount: (payload.components || []).length, reactionsAttempted: reactions ? reactions.length : 0, reactionResults },
+        _reactionErrors: reactionErrors.length ? reactionErrors : undefined,
+    });
     return jsonResponse(responseData, res.status, corsHeaders);
 }
 

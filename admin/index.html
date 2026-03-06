@@ -1038,26 +1038,36 @@
                     return;
                 }
                 var wData = await res.json().catch(function() { return {}; });
-                console.log('[Discord Send] webhook response:', JSON.stringify(wData, null, 2));
+                console.log('[DEBUG] Webhook send response:', JSON.stringify(wData, null, 2));
+                console.log('[DEBUG] message id:', wData.id, '| channel_id:', wData.channel_id, '| components in response:', JSON.stringify(wData.components));
                 // Add reactions via bot if configured
                 var reactions = ds.reactions || [];
                 if (wData.id && wData.channel_id && reactions.length && hasBot) {
+                    var reactBody = { channelId: wData.channel_id, messageId: wData.id, reactions: reactions };
+                    console.log('[DEBUG] Calling /discord/react with:', JSON.stringify(reactBody));
                     var rRes = await fetch(dcWorkerUrl() + '/discord/react', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ channelId: wData.channel_id, messageId: wData.id, reactions: reactions })
+                        body: JSON.stringify(reactBody)
                     });
+                    console.log('[DEBUG] /discord/react HTTP status:', rRes.status);
                     if (!rRes.ok) {
-                        dcShowToast('Sent ✓ but reactions failed (HTTP ' + rRes.status + ') — redeploy Cloudflare Worker', 'red');
+                        var rErrText = await rRes.text().catch(function() { return ''; });
+                        console.error('[DEBUG] /discord/react non-OK response:', rErrText);
+                        dcShowToast('Sent ✓ but reactions failed (HTTP ' + rRes.status + ') — redeploy Cloudflare Worker. See console.', 'red');
                     } else {
                         var rData = await rRes.json().catch(function() { return {}; });
+                        console.log('[DEBUG] /discord/react full response:', JSON.stringify(rData, null, 2));
                         if (rData.errors && rData.errors.length) {
-                            var rErrMsg = rData.errors.map(function(e) { return e.emoji + ' (' + e.error + ')'; }).join(', ');
-                            dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg + ' — check bot ADD_REACTIONS permission', 'red');
+                            var rErrMsg = rData.errors.map(function(e) { return e.emoji + ' (' + e.status + ': ' + e.discordResponse?.message + ')'; }).join(', ');
+                            console.error('[DEBUG] Reaction errors:', rData.errors);
+                            dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg, 'red');
                         } else {
+                            console.log('[DEBUG] All reactions succeeded:', rData.results);
                             dcShowToast('Sent! ✓', 'green');
                         }
                     }
                 } else {
+                    console.log('[DEBUG] Skipping reactions — wData.id:', wData.id, '| channel_id:', wData.channel_id, '| reactions.length:', reactions.length, '| hasBot:', hasBot);
                     dcShowToast('Sent! ✓', 'green');
                 }
             } else {
