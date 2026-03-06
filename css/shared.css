@@ -162,3 +162,79 @@ body {
     background: rgba(34, 197, 94, 0.3);
     color: #fff;
 }
+
+/* ── Light Mode ──────────────────────────────────────────────────────
+   Applied via html.light class set by js/theme.js before first paint.
+   Dark mode = default (no class needed).
+   ──────────────────────────────────────────────────────────────────── */
+
+html.light {
+    /* Glass surface variables */
+    --glass-bg:        rgba(255, 255, 255, 0.60);
+    --glass-border:    rgba(0, 0, 0, 0.10);
+    --glass-highlight: rgba(255, 255, 255, 0.95);
+}
+
+html.light body {
+    background: #f0f4f0;
+    color: #0e1a0e;
+}
+
+html.light ::selection {
+    background: rgba(34, 197, 94, 0.25);
+    color: #0e1a0e;
+}
+
+/* Gradient background — overrides page-specific dark gradients */
+html.light .gradient-bg {
+    background:
+        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.12) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(22, 163, 74, 0.08)  0%, transparent 50%),
+        #edf5ed !important;
+}
+
+html.light .liquid-glass-strong {
+    background: rgba(255, 255, 255, 0.75) !important;
+    border-color: rgba(0, 0, 0, 0.10) !important;
+}
+
+/* Noise texture — barely visible on light backgrounds */
+html.light .noise { opacity: 0.015; }
+
+/* Scrollbar */
+html.light ::-webkit-scrollbar-track { background: #edf5ed; }
+
+/* Text gradient — starts from dark green instead of white */
+html.light .text-gradient {
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 60%, #4ade80 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ── Tailwind text overrides ── */
+html.light .text-white    { color: #0e1a0e !important; }
+html.light .text-gray-200 { color: #2a3a2a !important; }
+html.light .text-gray-300 { color: #374837 !important; }
+html.light .text-gray-400 { color: #4a5e4a !important; }
+html.light .text-gray-500 { color: #5a6e5a !important; }
+html.light .text-gray-600 { color: #6a7e6a !important; }
+html.light .text-gray-700 { color: #7a8e7a !important; }
+
+/* ── Tailwind background overrides ── */
+html.light .bg-white\/5   { background: rgba(0, 0, 0, 0.04) !important; }
+html.light .bg-white\/10  { background: rgba(0, 0, 0, 0.06) !important; }
+
+/* ── Tailwind border overrides ── */
+html.light .border-white\/5  { border-color: rgba(0, 0, 0, 0.06) !important; }
+html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.10) !important; }
+html.light .border-white\/15 { border-color: rgba(0, 0, 0, 0.12) !important; }
+
+/* ── Hover state overrides ── */
+html.light .hover\:bg-white\/5:hover  { background: rgba(0, 0, 0, 0.04) !important; }
+html.light .hover\:bg-white\/10:hover { background: rgba(0, 0, 0, 0.06) !important; }
+html.light .hover\:text-white:hover   { color: #000 !important; }
+
+/* ── index.html nav dropdown ── */
+html.light .bg-\[\#111118\] { background: #ffffff !important; }
+
