@@ -1013,6 +1013,7 @@
         btn.disabled = true; btn.textContent = 'Sending…';
         try {
             var payload = dcBuildPayload();
+            console.log('[Discord Send] payload:', JSON.stringify(payload, null, 2), '| reactions:', ds.reactions);
             if (!payload.content && !payload.embeds) { alert('Nothing to send — add some content or an embed first.'); return; }
             var res;
             if (useBot) {
@@ -1181,6 +1182,7 @@
     var dcBotEmojis = [];
     var dcBotChannels = [];
     var dcBotRoles = [];
+    var dcBotMembers = {}; // userId → display name
 
     function dcWorkerUrl() {
         var base = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.email && SITE_CONFIG.email.workerUrl)
@@ -1220,10 +1222,11 @@
         if (!base) { dcShowToast('Worker URL not set in SITE_CONFIG.email.workerUrl', 'red'); return; }
         dcShowToast('Fetching from Discord via Worker…', 'green');
         try {
-            var [chRes, emRes, roRes] = await Promise.all([
+            var [chRes, emRes, roRes, mbRes] = await Promise.all([
                 fetch(base + '/discord/channels'),
                 fetch(base + '/discord/emojis'),
-                fetch(base + '/discord/roles')
+                fetch(base + '/discord/roles'),
+                fetch(base + '/discord/members')
             ]);
             if (!chRes.ok) { var e1 = await chRes.json().catch(function(){return{};}); dcShowToast('Channel fetch error: ' + (e1.error || e1.message || chRes.status), 'red'); return; }
             if (!emRes.ok) { var e2 = await emRes.json().catch(function(){return{};}); dcShowToast('Emoji fetch error: ' + (e2.error || e2.message || emRes.status), 'red'); return; }
@@ -1234,10 +1237,17 @@
             dcBotEmojis = Array.isArray(emData) ? emData : [];
             var roData = await roRes.json().catch(function() { return []; });
             dcBotRoles = Array.isArray(roData) ? roData.filter(function(r) { return r.name !== '@everyone'; }) : [];
+            var mbData = await mbRes.json().catch(function() { return []; });
+            dcBotMembers = {};
+            if (Array.isArray(mbData)) {
+                mbData.forEach(function(m) {
+                    if (m.user) dcBotMembers[m.user.id] = m.nick || m.user.global_name || m.user.username;
+                });
+            }
             dcPopulateChannelSelect(dcGetChannelId());
             dcUpdateBotBadge();
             dcRenderEditor();
-            dcShowToast('Fetched ' + dcBotChannels.length + ' channels + ' + dcBotEmojis.length + ' emojis + ' + dcBotRoles.length + ' roles ✓', 'green');
+            dcShowToast('Fetched ' + dcBotChannels.length + ' ch + ' + dcBotEmojis.length + ' emojis + ' + dcBotRoles.length + ' roles + ' + Object.keys(dcBotMembers).length + ' members ✓', 'green');
         } catch(e) { dcShowToast('Fetch error: ' + e.message, 'red'); }
     }
 
@@ -1545,7 +1555,10 @@
                 var role = dcBotRoles.find(function(r) { return r.id === id; });
                 return '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@' + (role ? esc(role.name) : id) + '</span>';
             })
-            .replace(/&lt;@(\d+)&gt;/g, '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@unknown-user</span>')
+            .replace(/&lt;@(\d+)&gt;/g, function(_, id) {
+                var name = dcBotMembers[id] || 'unknown-user';
+                return '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@' + esc(name) + '</span>';
+            })
             .replace(/&lt;#(\d+)&gt;/g, function(_, id) {
                 var ch = dcBotChannels.find(function(c) { return c.id === id; });
                 return '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">#' + (ch ? esc(ch.name) : id) + '</span>';

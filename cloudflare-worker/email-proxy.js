@@ -65,6 +65,17 @@ async function handleDiscordRoles(env, corsHeaders) {
     return jsonResponse(data, res.status, corsHeaders);
 }
 
+async function handleDiscordMembers(env, corsHeaders) {
+    if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) {
+        return jsonResponse({ error: 'DISCORD_BOT_TOKEN or DISCORD_GUILD_ID not set in Worker secrets' }, 500, corsHeaders);
+    }
+    const res = await fetch(`https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/members?limit=1000`, {
+        headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+    });
+    const data = await res.json();
+    return jsonResponse(data, res.status, corsHeaders);
+}
+
 async function handleDiscordSend(request, env, corsHeaders) {
     if (!env.DISCORD_BOT_TOKEN) {
         return jsonResponse({ error: 'DISCORD_BOT_TOKEN not set in Worker secrets' }, 500, corsHeaders);
@@ -127,6 +138,9 @@ export default {
         }
         if (path === '/discord/roles' && request.method === 'GET') {
             return handleDiscordRoles(env, corsHeaders);
+        }
+        if (path === '/discord/members' && request.method === 'GET') {
+            return handleDiscordMembers(env, corsHeaders);
         }
         if (path === '/discord/send' && request.method === 'POST') {
             return handleDiscordSend(request, env, corsHeaders);
