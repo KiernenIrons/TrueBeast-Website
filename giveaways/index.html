@@ -192,7 +192,13 @@
 
             const STATUS_ORDER = { upcoming: 0, open: 1, ended: 2 };
             const allGiveaways = ((typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.giveaways) || [])
-                .slice().sort((a, b) => (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3));
+                .slice().sort((a, b) => {
+                    const statusDiff = (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3);
+                    if (statusDiff !== 0) return statusDiff;
+                    const dateA = a.date ? new Date(a.date + 'T00:00:00').getTime() : 0;
+                    const dateB = b.date ? new Date(b.date + 'T00:00:00').getTime() : 0;
+                    return dateB - dateA; // newest first within each category
+                });
             const filtered = activeTab === 'all' ? allGiveaways : allGiveaways.filter(g => g.status === activeTab);
 
             // Only show filter buttons for statuses that actually exist

@@ -194,9 +194,6 @@
                 </button>
             </div>
         </form>
-        <p class="text-center text-xs text-gray-600 mt-6">
-            Manage admin accounts in Firebase Console → Authentication → Users.
-        </p>
     </div>
 </div>
 
@@ -834,12 +831,12 @@
 
     function dcInit() {
         if (ds) return;
-        ds = { profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
+        ds = { content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
     }
 
     function dcClearAll() {
         if (!confirm('Clear everything? This will reset all content, embeds, and buttons. Your saved backups will not be affected.')) return;
-        ds = { profile: { username: '', avatar_url: '' }, content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
+        ds = { content: '', embeds: [dcNewEmbed()], components: [], reactions: [] };
         dcRenderEditor();
         dcRenderPreview();
         dcShowToast('Cleared!', 'green');
@@ -873,8 +870,6 @@
     function dcBuildPayload() {
         var p = {};
         if (ds.content.trim()) p.content = ds.content.trim();
-        if (ds.profile.username.trim()) p.username = ds.profile.username.trim();
-        if (ds.profile.avatar_url.trim()) p.avatar_url = ds.profile.avatar_url.trim();
         var embeds = ds.embeds.map(function(e) {
             var em = {};
             if (e.color) em.color = parseInt(e.color.replace('#', ''), 16);
@@ -942,9 +937,6 @@
         try {
             var payload = dcBuildPayload();
             if (!payload.content && !payload.embeds && !payload.components) { alert('Nothing to send — add some content or an embed first.'); return; }
-            // Strip webhook-only fields (bot API doesn't support them)
-            delete payload.username;
-            delete payload.avatar_url;
             var res = await fetch(dcWorkerUrl() + '/discord/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1243,15 +1235,6 @@
     /* ── Render editor ── */
     function dcRenderEditor() {
         var h = '';
-
-        // Profile
-        h += '<div class="dc-section"><div class="dc-section-head"><span>Profile Override</span></div>' +
-            '<div class="dc-section-body"><div class="dc-g2">' +
-            '<div><label class="dc-label">Username</label>' +
-            '<input class="dc-input" placeholder="Webhook name override" value="' + esc(ds.profile.username) + '" oninput="ds.profile.username=this.value;dcRenderPreview()"></div>' +
-            '<div><label class="dc-label">Avatar URL</label>' +
-            '<input class="dc-input" type="url" placeholder="https://..." value="' + esc(ds.profile.avatar_url) + '" oninput="ds.profile.avatar_url=this.value;dcRenderPreview()"></div>' +
-            '</div></div></div>';
 
         // Content
         h += '<div class="dc-section"><div class="dc-section-head"><span>Message Content</span></div>' +
@@ -1695,19 +1678,6 @@
     /* ── Render preview ── */
     function dcRenderPreview() {
         var h = '';
-
-        if (ds.profile.username || ds.profile.avatar_url) {
-            h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
-            if (ds.profile.avatar_url) {
-                h += '<img src="' + esc(ds.profile.avatar_url) + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display=\'none\'">';
-            } else {
-                h += '<div style="width:40px;height:40px;border-radius:50%;background:#5865f2;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:18px;flex-shrink:0">' + esc((ds.profile.username || 'W')[0].toUpperCase()) + '</div>';
-            }
-            if (ds.profile.username) {
-                h += '<div style="font-size:15px;font-weight:600;color:#dbdee1">' + esc(ds.profile.username) + ' <span style="font-size:10px;background:#5865f2;color:#fff;border-radius:3px;padding:1px 5px;font-weight:600">APP</span></div>';
-            }
-            h += '</div>';
-        }
 
         if (ds.content.trim()) {
             h += '<div class="dc-msg" style="margin-bottom:4px">' + dcMarkdown(ds.content) + '</div>';
