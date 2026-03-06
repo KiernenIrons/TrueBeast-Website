@@ -113,6 +113,7 @@ const SITE_CONFIG = {
     giveaways: [
         { item: 'Wireless Gaming Keyboard - Dierya DK63', winner: 'nSamity', description: 'A White Mechanical Gaming Keyboard with RGB Lighting', image: 'assets/images/winners/Keyboard.jpg', date: '2025-04-14', status: 'ended' },
         { item: 'Microphone - Blue Yeti Satin Red', winner: 'SoundLogic', description: 'A brand new Multi-Pattern USB Microphone with Blue VO!CE', image: 'assets/images/winners/BlueYeti.jpg', date: '2024-12-26', status: 'ended' },
+        { item: 'Ultimate Game Pass - 3 Months', winner: 'The Technical difficulties', description: 'A 3 month Xbox Ultimate Game Pass', image: 'assets/images/winners/Xbox3month.jpg', date: '2021-11-07', status: 'ended' },
         { item: 'Steam Game - Battlefield 5', winner: 'Nerding Freak', description: 'A first person shooter game developed by DICE', image: 'assets/images/winners/BattleField5.jpg', date: '2021-08-20', status: 'ended' },
         { item: 'Ipad Mini - 6th Generation', winner: '', description: 'When we hit 100k subscribers, I will be giving away a brand new Ipad Mini 6th Generation', image: 'assets/images/winners/IpadMini.jpg', date: '', status: 'upcoming' },
     ],
