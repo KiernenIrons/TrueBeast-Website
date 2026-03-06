@@ -256,18 +256,20 @@
             </div>
             <!-- Editor + Preview -->
             <div style="display:flex;gap:16px;align-items:flex-start">
-                <div style="flex:0 0 56%;min-width:0" id="dc-editor"></div>
-                <div style="flex:1;min-width:0">
-                    <div class="dc-preview">
-                        <div class="dc-preview-lbl">Live Preview</div>
-                        <div id="dc-preview-content"><p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p></div>
-                    </div>
+                <div style="flex:0 0 56%;min-width:0">
+                    <div id="dc-editor"></div>
                     <div class="liquid-glass rounded-2xl p-4 mt-4">
                         <div class="flex items-center justify-between mb-3">
                             <span class="dc-label" style="margin:0">Saved Backups</span>
                             <button onclick="dcLoadBackupList()" class="dc-sm dc-sm-v">Refresh</button>
                         </div>
                         <div id="dc-backup-list"><p style="color:#6b7280;font-size:13px;text-align:center;padding:12px 0">Loading…</p></div>
+                    </div>
+                </div>
+                <div style="flex:1;min-width:0;position:sticky;top:90px">
+                    <div class="dc-preview">
+                        <div class="dc-preview-lbl">Live Preview</div>
+                        <div id="dc-preview-content"><p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p></div>
                     </div>
                 </div>
             </div>
@@ -908,7 +910,7 @@
             if (e.footer.text.trim()) {
                 em.footer = { text: e.footer.text.trim() };
                 if (e.footer.icon_url.trim()) em.footer.icon_url = e.footer.icon_url.trim();
-                if (e.footer.timestamp) em.timestamp = new Date().toISOString();
+                if (e.footer.timestamp) em.timestamp = new Date(e.footer.timestamp).toISOString();
             }
             return Object.keys(em).filter(function(k) { return k !== 'color'; }).length ? em : null;
         }).filter(Boolean);
@@ -916,7 +918,13 @@
         var rows = ds.components.filter(function(row) { return row.some(function(b) { return b.label && b.url; }); });
         if (rows.length) p.components = rows.map(function(row) {
             return { type: 1, components: row.filter(function(b) { return b.label && b.url; }).map(function(b) {
-                return { type: 2, style: 5, label: b.label, url: b.url };
+                var btn = { type: 2, style: 5, label: b.label, url: b.url };
+                if (b.emoji && b.emoji.trim()) {
+                    var em2 = b.emoji.trim().match(/^(.+):(\d+)$/);
+                    if (em2) btn.emoji = { name: em2[1], id: em2[2] };
+                    else btn.emoji = { name: b.emoji.trim() };
+                }
+                return btn;
             })};
         });
         return p;
@@ -947,7 +955,10 @@
         var name = prompt('Name this backup:');
         if (!name || !name.trim()) return;
         try {
-            await FirebaseDB.saveWebhookBackup({ name: name.trim(), webhookUrl: ds.webhookUrl, state: JSON.parse(JSON.stringify(ds)) });
+            var stateSnap = JSON.parse(JSON.stringify(ds));
+            stateSnap.components_json = JSON.stringify(stateSnap.components);
+            delete stateSnap.components;
+            await FirebaseDB.saveWebhookBackup({ name: name.trim(), webhookUrl: ds.webhookUrl, state: stateSnap });
             dcLoadBackupList();
             dcShowToast('Backup saved!', 'green');
         } catch(e) { dcShowToast('Save failed: ' + e.message, 'red'); }
@@ -983,6 +994,13 @@
         var b = dcBackups[idx];
         if (!b || !b.state) { alert('This backup has no state data.'); return; }
         ds = b.state;
+        // Restore components from JSON string (Firestore doesn't support nested arrays)
+        if (typeof ds.components_json === 'string') {
+            ds.components = JSON.parse(ds.components_json);
+            delete ds.components_json;
+        } else if (!ds.components) {
+            ds.components = [];
+        }
         // Ensure all embeds have _id (in case saved before _id was added)
         ds.embeds.forEach(function(e) { if (!e._id) e._id = Math.random().toString(36).slice(2); });
         dcRenderWebhookBar();
@@ -1050,7 +1068,7 @@
     function dcAddButton(ri) {
         if (!ds.components[ri]) return;
         if (ds.components[ri].length >= 5) { alert('Maximum 5 buttons per row.'); return; }
-        ds.components[ri].push({ label: 'Button', url: '' });
+        ds.components[ri].push({ label: 'Button', url: '', emoji: '' });
         dcRenderEditor(); dcRenderPreview();
     }
     function dcRemoveButton(ri, bi) {
@@ -1086,16 +1104,21 @@
 
         // Components
         h += '<div class="dc-section"><div class="dc-section-head"><span>Link Buttons</span></div><div class="dc-section-body">';
+        h += '<p style="color:#6b7280;font-size:12px;margin-bottom:10px">Discord webhook link buttons have a fixed blue-grey color — this cannot be customized. For emoji: paste a Unicode emoji (e.g. 🎮) or use <code style="background:rgba(0,0,0,.25);padding:1px 4px;border-radius:3px">name:ID</code> for a custom server emoji.</p>';
         if (!ds.components.length) h += '<p style="color:#6b7280;font-size:13px;margin-bottom:8px">No button rows yet.</p>';
         ds.components.forEach(function(row, ri) {
             h += '<div style="margin-bottom:12px"><div class="dc-sub" style="margin-top:0">Row ' + (ri+1) + '</div>';
             row.forEach(function(btn, bi) {
-                h += '<div class="dc-field-row dc-g2" style="margin-bottom:6px">' +
+                h += '<div style="background:rgba(255,255,255,.04);border-radius:8px;padding:8px;margin-bottom:8px">' +
+                    '<div style="display:grid;grid-template-columns:100px 1fr 1fr;gap:8px;margin-bottom:6px">' +
+                    '<div><label class="dc-label">Emoji</label>' +
+                    '<input class="dc-input" placeholder="🎮 or name:ID" value="' + esc(btn.emoji||'') + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'emoji\',this.value)"></div>' +
                     '<div><label class="dc-label">Label</label>' +
                     '<input class="dc-input" placeholder="Button label" value="' + esc(btn.label) + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'label\',this.value)"></div>' +
                     '<div><label class="dc-label">URL</label>' +
                     '<input class="dc-input" type="url" placeholder="https://..." value="' + esc(btn.url) + '" oninput="dcSetComp(' + ri + ',' + bi + ',\'url\',this.value)"></div>' +
-                    '<div style="grid-column:span 2;display:flex;justify-content:flex-end;margin-top:2px">' +
+                    '</div>' +
+                    '<div style="display:flex;justify-content:flex-end">' +
                     '<button onclick="dcRemoveButton(' + ri + ',' + bi + ')" class="dc-sm dc-sm-r">Remove button</button></div>' +
                     '</div>';
             });
@@ -1171,23 +1194,89 @@
             '<div><label class="dc-label">Footer Text</label><input class="dc-input" placeholder="Footer text" value="' + esc(e.footer.text) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'text\',this.value)"></div>' +
             '<div><label class="dc-label">Footer Icon URL</label><input class="dc-input" type="url" placeholder="https://..." value="' + esc(e.footer.icon_url) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'icon_url\',this.value)"></div>' +
             '</div>' +
+            '<div style="display:flex;align-items:center;gap:12px;margin-top:6px;flex-wrap:wrap">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#9ca3af;cursor:pointer">' +
-            '<input type="checkbox"' + (e.footer.timestamp ? ' checked' : '') + ' onchange="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'timestamp\',this.checked)"> Include timestamp</label>' +
+            '<input type="checkbox"' + (e.footer.timestamp ? ' checked' : '') + ' onchange="dcToggleTimestamp(\'' + e._id + '\',this.checked)"> Include timestamp</label>' +
+            (e.footer.timestamp ? '<div style="display:flex;align-items:center;gap:6px"><label class="dc-label" style="margin:0;white-space:nowrap">Date &amp; Time</label><input type="datetime-local" class="dc-input" value="' + esc(e.footer.timestamp) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'timestamp\',this.value);dcRenderPreview()" style="width:auto"></div>' : '') +
+            '</div>' +
             '</div>';
 
         return h + '</div>';
+    }
+
+    /* ── Timestamp toggle ── */
+    function dcToggleTimestamp(id, checked) {
+        var e = ds.embeds.find(function(e) { return e._id === id; });
+        if (!e) return;
+        if (checked) {
+            var now = new Date(); now.setSeconds(0, 0);
+            e.footer.timestamp = now.toISOString().slice(0, 16);
+        } else {
+            e.footer.timestamp = false;
+        }
+        dcRenderEditor();
+        dcRenderPreview();
+    }
+
+    /* ── Discord markdown helpers ── */
+    function dcInlineMarkdown(s) {
+        // s is already HTML-escaped
+        return s
+            .replace(/\|\|(.+?)\|\|/g, '<span style="background:#2e2e2e;color:#2e2e2e;border-radius:3px;padding:0 2px" title="Spoiler">$1</span>')
+            .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/__(.+?)__/g, '<u>$1</u>')
+            .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+            .replace(/_([^_\n]+)_/g, '<em>$1</em>')
+            .replace(/~~(.+?)~~/g, '<del>$1</del>')
+            .replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;font-size:87%;font-family:monospace">$1</code>')
+            .replace(/&lt;@&amp;(\d+)&gt;/g, '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@&amp;$1</span>')
+            .replace(/&lt;@(\d+)&gt;/g, '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">@$1</span>')
+            .replace(/&lt;#(\d+)&gt;/g, '<span style="background:rgba(88,101,242,.3);color:#c9cdfb;border-radius:3px;padding:0 3px">#$1</span>');
+    }
+    function dcMarkdown(text) {
+        if (!text) return '';
+        var lines = text.split('\n');
+        var html = '';
+        lines.forEach(function(line) {
+            if (/^### /.test(line)) {
+                html += '<div style="font-size:.9em;font-weight:700;color:#dbdee1;margin:2px 0">' + dcInlineMarkdown(esc(line.slice(4))) + '</div>';
+            } else if (/^## /.test(line)) {
+                html += '<div style="font-size:1em;font-weight:700;color:#dbdee1;margin:2px 0">' + dcInlineMarkdown(esc(line.slice(3))) + '</div>';
+            } else if (/^# /.test(line)) {
+                html += '<div style="font-size:1.1em;font-weight:700;color:#dbdee1;margin:3px 0">' + dcInlineMarkdown(esc(line.slice(2))) + '</div>';
+            } else if (/^> /.test(line)) {
+                html += '<div style="border-left:3px solid #4e5058;padding-left:8px;margin:2px 0;color:#adb3b9">' + dcInlineMarkdown(esc(line.slice(2))) + '</div>';
+            } else if (/^[-*] /.test(line)) {
+                html += '<div style="margin:1px 0 1px 12px">• ' + dcInlineMarkdown(esc(line.slice(2))) + '</div>';
+            } else if (line === '') {
+                html += '<div style="height:0.5em"></div>';
+            } else {
+                html += '<div style="min-height:1.2em">' + dcInlineMarkdown(esc(line)) + '</div>';
+            }
+        });
+        return html;
     }
 
     /* ── Render preview ── */
     function dcRenderPreview() {
         var h = '';
 
-        if (ds.profile.username) {
-            h += '<div style="font-size:12px;font-weight:700;color:#dbdee1;margin-bottom:4px">' + esc(ds.profile.username) + ' <span style="font-size:10px;background:#5865f2;color:#fff;border-radius:3px;padding:1px 5px;font-weight:600">APP</span></div>';
+        if (ds.profile.username || ds.profile.avatar_url) {
+            h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">';
+            if (ds.profile.avatar_url) {
+                h += '<img src="' + esc(ds.profile.avatar_url) + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display=\'none\'">';
+            } else {
+                h += '<div style="width:40px;height:40px;border-radius:50%;background:#5865f2;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:18px;flex-shrink:0">' + esc((ds.profile.username || 'W')[0].toUpperCase()) + '</div>';
+            }
+            if (ds.profile.username) {
+                h += '<div style="font-size:15px;font-weight:600;color:#dbdee1">' + esc(ds.profile.username) + ' <span style="font-size:10px;background:#5865f2;color:#fff;border-radius:3px;padding:1px 5px;font-weight:600">APP</span></div>';
+            }
+            h += '</div>';
         }
 
         if (ds.content.trim()) {
-            h += '<div class="dc-msg">' + esc(ds.content) + '</div>';
+            h += '<div class="dc-msg" style="margin-bottom:4px">' + dcMarkdown(ds.content) + '</div>';
         }
 
         ds.embeds.forEach(function(e) {
@@ -1210,7 +1299,7 @@
                 else h += esc(e.title);
                 h += '</div>';
             }
-            if (e.description) h += '<div class="dc-emb-desc">' + esc(e.description) + '</div>';
+            if (e.description) h += '<div class="dc-emb-desc">' + dcMarkdown(e.description) + '</div>';
 
             if (e.fields.length) {
                 h += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">';
@@ -1223,13 +1312,13 @@
                         h += '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px">';
                         for (var k = fi; k < j; k++) {
                             h += '<div><div class="dc-emb-fn">' + esc(e.fields[k].name) + '</div>' +
-                                '<div class="dc-emb-fv">' + esc(e.fields[k].value) + '</div></div>';
+                                '<div class="dc-emb-fv">' + dcMarkdown(e.fields[k].value) + '</div></div>';
                         }
                         h += '</div>';
                         fi = j;
                     } else {
                         h += '<div><div class="dc-emb-fn">' + esc(e.fields[fi].name) + '</div>' +
-                            '<div class="dc-emb-fv">' + esc(e.fields[fi].value) + '</div></div>';
+                            '<div class="dc-emb-fv">' + dcMarkdown(e.fields[fi].value) + '</div></div>';
                         fi++;
                     }
                 }
@@ -1243,7 +1332,10 @@
                 if (e.footer.icon_url) h += '<img src="' + esc(e.footer.icon_url) + '" onerror="this.style.display=\'none\'">';
                 if (e.footer.text) h += '<span>' + esc(e.footer.text) + '</span>';
                 if (e.footer.text && e.footer.timestamp) h += '<span>•</span>';
-                if (e.footer.timestamp) h += '<span>' + new Date().toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'}) + '</span>';
+                if (e.footer.timestamp) {
+                    var tsDate = new Date(e.footer.timestamp);
+                    h += '<span>' + tsDate.toLocaleDateString('en-US', {month:'long',day:'numeric',year:'numeric'}) + ' ' + tsDate.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'}) + '</span>';
+                }
                 h += '</div>';
             }
 
@@ -1259,7 +1351,17 @@
                 if (!btns.length) return;
                 h += '<div class="dc-btn-row">';
                 btns.forEach(function(b) {
+                    var emojiHtml = '';
+                    if (b.emoji && b.emoji.trim()) {
+                        var em3 = b.emoji.trim().match(/^.+:(\d+)$/);
+                        if (em3) {
+                            emojiHtml = '<img src="https://cdn.discordapp.com/emojis/' + em3[1] + '.png" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;object-fit:contain" onerror="this.style.display=\'none\'">';
+                        } else {
+                            emojiHtml = '<span style="margin-right:4px">' + esc(b.emoji.trim()) + '</span>';
+                        }
+                    }
                     h += '<a class="dc-disc-btn" href="' + esc(b.url || '#') + '" target="_blank">' +
+                        emojiHtml +
                         '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 0-2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
                         esc(b.label) + '</a>';
                 });
