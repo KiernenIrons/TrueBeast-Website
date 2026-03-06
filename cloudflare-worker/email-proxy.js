@@ -59,7 +59,7 @@ async function handleDiscordSend(request, env, corsHeaders) {
     }
     let body;
     try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders); }
-    const { channelId, payload } = body;
+    const { channelId, payload, reactions } = body;
     if (!channelId || !payload) {
         return jsonResponse({ error: 'Request must include channelId and payload' }, 400, corsHeaders);
     }
@@ -69,6 +69,18 @@ async function handleDiscordSend(request, env, corsHeaders) {
         body: JSON.stringify(payload),
     });
     const data = await res.json();
+
+    // After successful send, add reactions if requested
+    if (res.ok && data.id && Array.isArray(reactions) && reactions.length) {
+        for (const emoji of reactions) {
+            // Discord expects: Unicode chars URL-encoded, custom emojis as "name:id" URL-encoded
+            await fetch(
+                `https://discord.com/api/v10/channels/${channelId}/messages/${data.id}/reactions/${encodeURIComponent(emoji)}/@me`,
+                { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+            );
+        }
+    }
+
     return jsonResponse(data, res.status, corsHeaders);
 }
 
