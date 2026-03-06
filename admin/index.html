@@ -263,6 +263,29 @@
                     </div>
                 </div>
             </div>
+            <!-- Bot config -->
+            <div class="liquid-glass rounded-2xl p-4 mb-4">
+                <div class="flex items-center justify-between" style="cursor:pointer" onclick="var b=document.getElementById('dc-bot-body');b.style.display=b.style.display==='none'?'block':'none'">
+                    <div class="flex items-center gap-3">
+                        <span class="dc-label" style="margin:0">Discord Bot</span>
+                        <span id="dc-bot-badge" style="font-size:11px;background:rgba(100,100,100,.3);color:#9ca3af;border-radius:4px;padding:1px 7px">Not configured</span>
+                    </div>
+                    <span style="color:#6b7280;font-size:12px">▼ Configure</span>
+                </div>
+                <div id="dc-bot-body" style="display:none;margin-top:12px">
+                    <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Stored in your browser only — never saved to Firebase or the repo. Enables buttons and server emoji. Get your <strong style="color:#9ca3af">Bot Token</strong> from Discord Dev Portal → Applications → [app] → Bot → Reset Token. Get your <strong style="color:#9ca3af">Server ID</strong> by enabling Developer Mode in Discord (Settings → Advanced), then right-clicking your server → Copy Server ID.</p>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                        <div><label class="dc-label">Bot Token</label><input id="dc-bot-token" class="dc-input" type="password" placeholder="Paste token here" autocomplete="off"></div>
+                        <div><label class="dc-label">Server ID</label><input id="dc-bot-guild" class="dc-input" placeholder="e.g. 123456789012345678"></div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+                        <div style="flex:1;min-width:180px"><label class="dc-label">Post to Channel</label><select id="dc-bot-channel" class="dc-input"><option value="">— fetch channels first —</option></select></div>
+                        <button type="button" onclick="dcSaveBotConfig()" class="dc-sm dc-sm-v">Save Config</button>
+                        <button type="button" onclick="dcBotFetch()" class="dc-sm dc-sm-b">Fetch Channels &amp; Emojis</button>
+                        <button type="button" onclick="dcClearBotConfig()" class="dc-sm dc-sm-r">Clear Bot</button>
+                    </div>
+                </div>
+            </div>
             <!-- Editor + Preview -->
             <div style="display:flex;gap:16px;align-items:flex-start">
                 <div style="flex:0 0 56%;min-width:0">
@@ -845,6 +868,14 @@
     function dcOpenTab() {
         dcInit();
         dcRenderWebhookBar();
+        dcFillBotInputs();
+        dcUpdateBotBadge();
+        var cfg = dcGetBot();
+        if (cfg.token && cfg.guildId && !dcBotChannels.length) {
+            dcBotFetch();
+        } else if (dcBotChannels.length) {
+            dcPopulateChannelSelect(cfg.channelId || '');
+        }
         dcRenderEditor();
         dcRenderPreview();
         dcLoadBackupList();
@@ -953,16 +984,27 @@
 
     /* ── Send ── */
     async function dcSend() {
-        if (!ds.webhookUrl.trim()) { alert('Enter a webhook URL first.'); return; }
+        var cfg = dcGetBot();
+        var useBot = !!(cfg.token && cfg.channelId);
+        if (!useBot && !ds.webhookUrl.trim()) { alert('Enter a webhook URL, or configure a Bot with a channel selected.'); return; }
         var btn = document.getElementById('dc-send-btn');
         btn.disabled = true; btn.textContent = 'Sending…';
         try {
             var payload = dcBuildPayload();
-            if (!payload.content && !payload.embeds && !payload.components) { alert('Nothing to send — add some content or an embed first.'); return; }
-            var res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-            });
-            if (res.ok) { dcShowToast('Message sent! ✓', 'green'); }
+            if (!payload.content && !payload.embeds) { alert('Nothing to send — add some content or an embed first.'); return; }
+            var res;
+            if (useBot) {
+                res = await fetch('https://discord.com/api/v10/channels/' + cfg.channelId + '/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bot ' + cfg.token },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                });
+            }
+            if (res.ok) { dcShowToast((useBot ? 'Sent via bot! ✓' : 'Sent via webhook! ✓'), 'green'); }
             else {
                 var err = await res.json().catch(function() { return {}; });
                 dcShowToast('Discord error: ' + (err.message || res.status), 'red');
@@ -1099,6 +1141,84 @@
         dcRenderEditor(); dcRenderPreview();
     }
 
+    /* ── Bot config ── */
+    var dcBotEmojis = [];
+    var dcBotChannels = [];
+
+    function dcGetBot() { return JSON.parse(localStorage.getItem('tb_dc_bot') || '{}'); }
+
+    function dcSaveBotConfig() {
+        var token = document.getElementById('dc-bot-token').value.trim();
+        var guild = document.getElementById('dc-bot-guild').value.trim();
+        if (!token || !guild) { alert('Enter both Bot Token and Server ID.'); return; }
+        var channelId = document.getElementById('dc-bot-channel').value;
+        localStorage.setItem('tb_dc_bot', JSON.stringify({ token: token, guildId: guild, channelId: channelId }));
+        dcUpdateBotBadge();
+        dcShowToast('Bot config saved!', 'green');
+    }
+
+    function dcClearBotConfig() {
+        if (!confirm('Remove bot config? Buttons will stop working and server emojis will be unavailable.')) return;
+        localStorage.removeItem('tb_dc_bot');
+        dcBotEmojis = []; dcBotChannels = [];
+        dcUpdateBotBadge();
+        document.getElementById('dc-bot-token').value = '';
+        document.getElementById('dc-bot-guild').value = '';
+        document.getElementById('dc-bot-channel').innerHTML = '<option value="">— fetch channels first —</option>';
+        dcRenderEditor();
+    }
+
+    function dcUpdateBotBadge() {
+        var cfg = dcGetBot();
+        var badge = document.getElementById('dc-bot-badge');
+        if (!badge) return;
+        if (cfg.token && cfg.guildId) {
+            badge.style.background = 'rgba(34,197,94,.2)'; badge.style.color = '#86efac';
+            badge.textContent = '✓ Configured' + (cfg.channelId ? ' · Channel set' : ' · No channel');
+        } else {
+            badge.style.background = 'rgba(100,100,100,.3)'; badge.style.color = '#9ca3af';
+            badge.textContent = 'Not configured';
+        }
+    }
+
+    function dcFillBotInputs() {
+        var cfg = dcGetBot();
+        var te = document.getElementById('dc-bot-token'); var ge = document.getElementById('dc-bot-guild');
+        if (te && cfg.token) te.value = cfg.token;
+        if (ge && cfg.guildId) ge.value = cfg.guildId;
+    }
+
+    function dcPopulateChannelSelect(selectedId) {
+        var sel = document.getElementById('dc-bot-channel'); if (!sel) return;
+        sel.innerHTML = '<option value="">Select a channel…</option>' +
+            dcBotChannels.map(function(c) {
+                return '<option value="' + esc(c.id) + '"' + (c.id === selectedId ? ' selected' : '') + '>#' + esc(c.name) + '</option>';
+            }).join('');
+    }
+
+    async function dcBotFetch() {
+        var cfg = dcGetBot();
+        var token = (document.getElementById('dc-bot-token').value.trim()) || cfg.token;
+        var guild = (document.getElementById('dc-bot-guild').value.trim()) || cfg.guildId;
+        if (!token || !guild) { alert('Enter and save Bot Token and Server ID first.'); return; }
+        dcShowToast('Fetching from Discord…', 'green');
+        try {
+            var headers = { 'Authorization': 'Bot ' + token };
+            var [chRes, emRes] = await Promise.all([
+                fetch('https://discord.com/api/v10/guilds/' + guild + '/channels', { headers: headers }),
+                fetch('https://discord.com/api/v10/guilds/' + guild + '/emojis', { headers: headers })
+            ]);
+            if (!chRes.ok) { var e1 = await chRes.json().catch(function(){return{};}); dcShowToast('Channel fetch error: ' + (e1.message || chRes.status), 'red'); return; }
+            if (!emRes.ok) { var e2 = await emRes.json().catch(function(){return{};}); dcShowToast('Emoji fetch error: ' + (e2.message || emRes.status), 'red'); return; }
+            var allCh = await chRes.json();
+            dcBotChannels = allCh.filter(function(c) { return c.type === 0; }).sort(function(a, b) { return (a.position||0) - (b.position||0); });
+            dcBotEmojis = await emRes.json();
+            dcPopulateChannelSelect(cfg.channelId || '');
+            dcRenderEditor(); // refresh picker section
+            dcShowToast('Fetched ' + dcBotChannels.length + ' channels + ' + dcBotEmojis.length + ' server emojis ✓', 'green');
+        } catch(e) { dcShowToast('Fetch error: ' + e.message + ' (check bot permissions)', 'red'); }
+    }
+
     /* ── Emoji picker ── */
     var DC_EMOJI_CATS = [
         { label: 'Smileys', emojis: ['😀','😂','😍','🥰','😎','🤔','😅','🤣','😊','😭','😤','🤯','🥳','😴','🤩','😇','🫡','🫠','😈','💀'] },
@@ -1110,7 +1230,6 @@
     function dcToggleEmojiPicker(ri, bi) {
         var pickerId = 'dc-ep-' + ri + '-' + bi;
         var existing = document.getElementById(pickerId);
-        // Close all other pickers
         document.querySelectorAll('[id^="dc-ep-"]').forEach(function(el) { if (el.id !== pickerId) el.remove(); });
         if (existing) { existing.remove(); return; }
         var wrap = document.getElementById('dc-ew-' + ri + '-' + bi);
@@ -1119,6 +1238,18 @@
         picker.id = pickerId;
         picker.className = 'dc-emoji-picker';
         var html = '';
+        // Server emojis section (shown when bot is configured)
+        if (dcBotEmojis.length) {
+            html += '<div class="dc-emoji-picker-cat">Server Emojis</div><div class="dc-emoji-picker-grid" style="gap:4px">';
+            dcBotEmojis.forEach(function(em) {
+                var ext = em.animated ? 'gif' : 'png';
+                html += '<img src="https://cdn.discordapp.com/emojis/' + em.id + '.' + ext + '?size=32" ' +
+                    'title=":' + esc(em.name) + ':" style="width:28px;height:28px;cursor:pointer;border-radius:4px;object-fit:contain" ' +
+                    'onclick="dcPickEmoji(' + ri + ',' + bi + ',\'' + esc(em.id) + '\')" onerror="this.style.display=\'none\'">';
+            });
+            html += '</div>';
+        }
+        // Standard emoji categories
         DC_EMOJI_CATS.forEach(function(cat) {
             html += '<div class="dc-emoji-picker-cat">' + cat.label + '</div><div class="dc-emoji-picker-grid">';
             cat.emojis.forEach(function(em) {
@@ -1126,12 +1257,14 @@
             });
             html += '</div>';
         });
-        html += '<div class="dc-emoji-custom-row">' +
-            '<div class="dc-emoji-picker-cat">Custom emoji (paste ID)</div>' +
-            '<input id="dc-ep-custom-' + ri + '-' + bi + '" class="dc-input" placeholder="e.g. 1234567890" style="font-size:12px;padding:5px 8px" oninput="dcSetComp(' + ri + ',' + bi + ',\'emoji\',this.value)">' +
-            '</div>';
         picker.innerHTML = html;
         wrap.appendChild(picker);
+        // Flip upward or leftward if it overflows the viewport
+        requestAnimationFrame(function() {
+            var rect = picker.getBoundingClientRect();
+            if (rect.bottom > window.innerHeight - 10) { picker.style.top = 'auto'; picker.style.bottom = 'calc(100% + 4px)'; }
+            if (rect.right > window.innerWidth - 10) { picker.style.left = 'auto'; picker.style.right = '0'; }
+        });
         // Close on outside click
         setTimeout(function() {
             document.addEventListener('click', function closePicker(ev) {
@@ -1177,7 +1310,7 @@
 
         // Components
         h += '<div class="dc-section"><div class="dc-section-head"><span>Link Buttons</span></div><div class="dc-section-body">';
-        h += '<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;color:#fca5a5"><strong>⚠ Discord limitation:</strong> Regular channel webhooks do not support buttons/components — they will be ignored by Discord. To use buttons, you would need an application (bot) webhook. Button color is also fixed blue-grey and cannot be customized.</div>';
+        h += '<p style="color:#6b7280;font-size:12px;margin-bottom:10px">Buttons require the Discord Bot to be configured above. Button color is fixed blue-grey (Discord API limitation).</p>';
         if (!ds.components.length) h += '<p style="color:#6b7280;font-size:13px;margin-bottom:8px">No button rows yet.</p>';
         ds.components.forEach(function(row, ri) {
             h += '<div style="margin-bottom:12px"><div class="dc-sub" style="margin-top:0">Row ' + (ri+1) + '</div>';
@@ -1273,14 +1406,43 @@
             '<div style="display:flex;align-items:center;gap:12px;margin-top:6px;flex-wrap:wrap">' +
             '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#9ca3af;cursor:pointer">' +
             '<input type="checkbox"' + (e.footer.timestamp ? ' checked' : '') + ' onchange="dcToggleTimestamp(\'' + e._id + '\',this.checked)"> Include timestamp</label>' +
-            (e.footer.timestamp ? '<div style="display:flex;align-items:center;gap:6px"><label class="dc-label" style="margin:0;white-space:nowrap">Date &amp; Time</label><input type="datetime-local" class="dc-input" value="' + esc(e.footer.timestamp) + '" oninput="dcSetEmbedSub(\'' + e._id + '\',\'footer\',\'timestamp\',this.value);dcRenderPreview()" style="width:auto"></div>' : '') +
+            (e.footer.timestamp ? (function() {
+                var tsD = new Date(e.footer.timestamp);
+                var inp = function(id, val, min, max, ph, w) {
+                    return '<input id="' + id + '" type="number" min="' + min + '" max="' + max + '" value="' + val + '" placeholder="' + ph + '" oninput="dcUpdateTimestamp(\'' + e._id + '\')" class="dc-input" style="width:' + w + ';padding:5px 6px;text-align:center">';
+                };
+                return '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">' +
+                    inp('dc-ts-d-' + e._id, tsD.getDate(), 1, 31, 'DD', '52px') + '<span style="color:#6b7280">/</span>' +
+                    inp('dc-ts-mo-' + e._id, tsD.getMonth()+1, 1, 12, 'MM', '52px') + '<span style="color:#6b7280">/</span>' +
+                    inp('dc-ts-y-' + e._id, tsD.getFullYear(), 2020, 2099, 'YYYY', '68px') +
+                    '<span style="color:#6b7280;margin:0 4px">at</span>' +
+                    inp('dc-ts-h-' + e._id, tsD.getHours(), 0, 23, 'HH', '52px') + '<span style="color:#6b7280">:</span>' +
+                    inp('dc-ts-mi-' + e._id, tsD.getMinutes(), 0, 59, 'MM', '52px') +
+                    '</div>';
+            })() : '') +
             '</div>' +
             '</div>';
 
         return h + '</div>';
     }
 
-    /* ── Timestamp toggle ── */
+    /* ── Timestamp helpers ── */
+    function dcUpdateTimestamp(embedId) {
+        var d  = Math.min(31, Math.max(1, parseInt(document.getElementById('dc-ts-d-'  + embedId)?.value) || 1));
+        var mo = Math.min(12, Math.max(1, parseInt(document.getElementById('dc-ts-mo-' + embedId)?.value) || 1));
+        var y  = parseInt(document.getElementById('dc-ts-y-'  + embedId)?.value) || new Date().getFullYear();
+        var h  = Math.min(23, Math.max(0, parseInt(document.getElementById('dc-ts-h-'  + embedId)?.value) || 0));
+        var mi = Math.min(59, Math.max(0, parseInt(document.getElementById('dc-ts-mi-' + embedId)?.value) || 0));
+        var date = new Date(y, mo - 1, d, h, mi);
+        var iso = date.getFullYear() + '-' +
+            String(date.getMonth() + 1).padStart(2, '0') + '-' +
+            String(date.getDate()).padStart(2, '0') + 'T' +
+            String(date.getHours()).padStart(2, '0') + ':' +
+            String(date.getMinutes()).padStart(2, '0');
+        var e = ds.embeds.find(function(e) { return e._id === embedId; });
+        if (e) { e.footer.timestamp = iso; dcRenderPreview(); }
+    }
+
     function dcToggleTimestamp(id, checked) {
         var e = ds.embeds.find(function(e) { return e._id === id; });
         if (!e) return;
