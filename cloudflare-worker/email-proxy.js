@@ -90,7 +90,7 @@ async function handleDiscordSend(request, env, corsHeaders) {
                 'https://discord.com/api/v10/channels/' + channelId + '/messages/' + data.id + '/reactions/' + encodeURIComponent(emoji) + '/@me',
                 { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } }
             );
-            if (\!rRes.ok) {
+            if (!rRes.ok) {
                 const rErr = await rRes.json().catch(() => ({}));
                 reactionErrors.push({ emoji, status: rRes.status, error: rErr.message || rRes.status });
             }
