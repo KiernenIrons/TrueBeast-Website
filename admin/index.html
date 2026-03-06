@@ -1596,11 +1596,11 @@
         var mentId = pickerId + '-m';
         var emId   = pickerId + '-e';
         var html = '<div class="dc-rp-tabs">' +
-            '<button class="dc-rp-tab active" onclick="dcRichTabSwitch(this,'' + mentId + '','' + emId + '')">Mentions</button>' +
-            '<button class="dc-rp-tab" onclick="dcRichTabSwitch(this,'' + emId + '','' + mentId + '')">Emojis</button>' +
+            '<button class="dc-rp-tab active" onclick="dcRichTabSwitch(this,\'' + mentId + '\',\'' + emId + '\')">Mentions</button>' +
+            '<button class="dc-rp-tab" onclick="dcRichTabSwitch(this,\'' + emId + '\',\'' + mentId + '\')">Emojis</button>' +
             '</div>';
         html += '<div id="' + mentId + '" class="dc-rp-body">';
-        html += '<input class="dc-rp-search" type="text" placeholder="Search channels &amp; roles..." oninput="dcRichFilter(this,'' + mentId + '')"> ';
+        html += '<input class="dc-rp-search" type="text" placeholder="Search channels &amp; roles..." oninput="dcRichFilter(this,\'' + mentId + '\')"> ';
         if (dcBotChannels.length) {
             html += '<div class="dc-emoji-picker-cat">Channels</div>';
             dcBotChannels.forEach(function(ch) {
@@ -1620,12 +1620,12 @@
                     '<span style="color:' + rc + ';font-size:12px;font-weight:700">@</span><span>' + esc(role.name) + '</span></div>';
             });
         }
-        if (\!dcBotChannels.length && \!dcBotRoles.length) {
+        if (!dcBotChannels.length && !dcBotRoles.length) {
             html += '<p style="color:#6b7280;font-size:12px;text-align:center;padding:16px 8px">Click “Fetch Channels &amp; Emojis” above first</p>';
         }
         html += '</div>';
         html += '<div id="' + emId + '" class="dc-rp-body" style="display:none">';
-        html += '<input class="dc-rp-search" type="text" placeholder="Search emojis..." oninput="dcRichFilter(this,'' + emId + '')"> ';
+        html += '<input class="dc-rp-search" type="text" placeholder="Search emojis..." oninput="dcRichFilter(this,\'' + emId + '\')"> ';
         if (dcBotEmojis.length) {
             html += '<div class="dc-emoji-picker-cat">Server Emojis</div><div class="dc-emoji-picker-grid" style="gap:4px">';
             dcBotEmojis.forEach(function(em) {
@@ -1634,14 +1634,14 @@
                 html += '<img src="https://cdn.discordapp.com/emojis/' + em.id + '.' + ext + '?size=32" ' +
                     'title=":' + esc(em.name) + ':" style="width:28px;height:28px;cursor:pointer;border-radius:4px;object-fit:contain" ' +
                     'data-em="' + esc(emStr) + '" data-target="' + esc(targetId) + '" ' +
-                    'onclick="dcPickTextEmoji(this.dataset.target,this.dataset.em)" onerror="this.style.display='none'">';
+                    'onclick="dcPickTextEmoji(this.dataset.target,this.dataset.em)" onerror="this.style.display=\'none\'">';
             });
             html += '</div>';
         }
         DC_EMOJI_CATS.forEach(function(cat) {
             html += '<div class="dc-emoji-picker-cat">' + cat.label + '</div><div class="dc-emoji-picker-grid">';
             cat.emojis.forEach(function(em) {
-                html += '<span onclick="dcPickTextEmoji('' + esc(targetId) + '','' + em + '')" title="' + em + '">' + em + '</span>';
+                html += '<span onclick="dcPickTextEmoji(\'' + esc(targetId) + '\',\'' + em + '\')" title="' + em + '">' + em + '</span>';
             });
             html += '</div>';
         });
@@ -1657,7 +1657,7 @@
         });
         setTimeout(function() {
             document.addEventListener('click', function closeRich(ev) {
-                if (\!picker.contains(ev.target) && \!triggerEl.contains(ev.target)) {
+                if (!picker.contains(ev.target) && !triggerEl.contains(ev.target)) {
                     picker.remove(); document.removeEventListener('click', closeRich);
                 }
             });
@@ -1673,12 +1673,12 @@
 
     function dcRichFilter(input, bodyId) {
         var q = input.value.toLowerCase().trim();
-        var body = document.getElementById(bodyId); if (\!body) return;
+        var body = document.getElementById(bodyId); if (!body) return;
         body.querySelectorAll('.dc-rp-item').forEach(function(item) {
-            item.style.display = (\!q || (item.dataset.search || '').includes(q)) ? '' : 'none';
+            item.style.display = (!q || (item.dataset.search || '').includes(q)) ? '' : 'none';
         });
         body.querySelectorAll('.dc-emoji-picker-grid img, .dc-emoji-picker-grid span').forEach(function(el) {
-            el.style.display = (\!q || (el.title || el.textContent || '').toLowerCase().includes(q)) ? '' : 'none';
+            el.style.display = (!q || (el.title || el.textContent || '').toLowerCase().includes(q)) ? '' : 'none';
         });
     }
 
@@ -1686,7 +1686,7 @@
 
     function dcPickTextEmoji(targetId, em) {
         var el = document.getElementById(targetId);
-        if (\!el) return;
+        if (!el) return;
         var start = el.selectionStart, end2 = el.selectionEnd;
         el.value = el.value.slice(0, start) + em + el.value.slice(end2);
         el.selectionStart = el.selectionEnd = start + em.length;
