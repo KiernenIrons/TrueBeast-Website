@@ -76,6 +76,30 @@ async function handleDiscordMembers(env, corsHeaders) {
     return jsonResponse(data, res.status, corsHeaders);
 }
 
+async function handleDiscordReact(request, env, corsHeaders) {
+    if (!env.DISCORD_BOT_TOKEN) {
+        return jsonResponse({ error: 'DISCORD_BOT_TOKEN not set in Worker secrets' }, 500, corsHeaders);
+    }
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders); }
+    const { channelId, messageId, reactions } = body;
+    if (!channelId || !messageId || !Array.isArray(reactions)) {
+        return jsonResponse({ error: 'channelId, messageId, and reactions required' }, 400, corsHeaders);
+    }
+    const errors = [];
+    for (const emoji of reactions) {
+        const r = await fetch(
+            `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+            { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } }
+        );
+        if (!r.ok) {
+            const e = await r.json().catch(() => ({}));
+            errors.push({ emoji, status: r.status, error: e.message || r.status });
+        }
+    }
+    return jsonResponse({ ok: true, errors }, 200, corsHeaders);
+}
+
 async function handleDiscordSend(request, env, corsHeaders) {
     if (!env.DISCORD_BOT_TOKEN) {
         return jsonResponse({ error: 'DISCORD_BOT_TOKEN not set in Worker secrets' }, 500, corsHeaders);
@@ -141,6 +165,9 @@ export default {
         }
         if (path === '/discord/members' && request.method === 'GET') {
             return handleDiscordMembers(env, corsHeaders);
+        }
+        if (path === '/discord/react' && request.method === 'POST') {
+            return handleDiscordReact(request, env, corsHeaders);
         }
         if (path === '/discord/send' && request.method === 'POST') {
             return handleDiscordSend(request, env, corsHeaders);

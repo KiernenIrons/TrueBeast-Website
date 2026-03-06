@@ -1007,43 +1007,73 @@
     /* ── Send ── */
     async function dcSend() {
         var channelId = dcGetChannelId();
-        var useBot = !!(channelId && dcWorkerUrl());
-        if (!useBot && !ds.webhookUrl.trim()) { alert('Select a channel (after fetching via Discord Bot), or enter a webhook URL.'); return; }
+        var hasWebhook = !!(ds.webhookUrl && ds.webhookUrl.trim());
+        var hasBot = !!(channelId && dcWorkerUrl());
+        if (!hasWebhook && !hasBot) { alert('Select a channel (after fetching via Discord Bot), or enter a webhook URL.'); return; }
         var btn = document.getElementById('dc-send-btn');
         btn.disabled = true; btn.textContent = 'Sending…';
         try {
             var payload = dcBuildPayload();
             console.log('[Discord Send] payload:', JSON.stringify(payload, null, 2), '| reactions:', ds.reactions);
-            if (!payload.content && !payload.embeds) { alert('Nothing to send — add some content or an embed first.'); return; }
-            var res;
-            if (useBot) {
-                res = await fetch(dcWorkerUrl() + '/discord/send', {
+            if (!payload.content && !payload.embeds && !payload.components) { alert('Nothing to send — add some content or an embed first.'); return; }
+
+            if (hasWebhook) {
+                // Webhook → message + buttons work reliably; bot handles reactions separately
+                var res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                });
+                console.log('[Discord Send] webhook response status:', res.status);
+                if (!res.ok) {
+                    var errText = await res.text().catch(function() { return ''; });
+                    var errJson; try { errJson = JSON.parse(errText); } catch(ex) { errJson = null; }
+                    var errMsg = errJson ? (errJson.message || '') + (errJson.errors ? ' | ' + JSON.stringify(errJson.errors).slice(0, 200) : '') : errText.slice(0, 200);
+                    console.error('[Discord Send] webhook error', errJson || errText);
+                    dcShowToast('Discord error ' + res.status + ': ' + (errMsg || 'unknown'), 'red');
+                    return;
+                }
+                var wData = await res.json().catch(function() { return {}; });
+                console.log('[Discord Send] webhook response:', JSON.stringify(wData, null, 2));
+                // Add reactions via bot if configured
+                var reactions = ds.reactions || [];
+                if (wData.id && wData.channel_id && reactions.length && hasBot) {
+                    var rRes = await fetch(dcWorkerUrl() + '/discord/react', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ channelId: wData.channel_id, messageId: wData.id, reactions: reactions })
+                    });
+                    var rData = await rRes.json().catch(function() { return {}; });
+                    if (rData.errors && rData.errors.length) {
+                        var rErrMsg = rData.errors.map(function(e) { return e.emoji + ' (' + e.error + ')'; }).join(', ');
+                        dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg + ' — check bot ADD_REACTIONS permission', 'red');
+                    } else {
+                        dcShowToast('Sent! ✓', 'green');
+                    }
+                } else {
+                    dcShowToast('Sent! ✓', 'green');
+                }
+            } else {
+                // Bot-only mode (no webhook URL configured)
+                var res = await fetch(dcWorkerUrl() + '/discord/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ channelId: channelId, payload: payload, reactions: ds.reactions || [] })
                 });
-            } else {
-                res = await fetch(ds.webhookUrl.trim() + '?wait=true', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                });
-            }
-            if (res.ok) {
-                var respData = await res.json().catch(function() { return {}; });
-                if (respData._reactionErrors && respData._reactionErrors.length) {
-                    var rErrMsg = respData._reactionErrors.map(function(e) { return e.emoji + ' (' + e.error + ')'; }).join(', ');
-                    dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg + ' — check bot has ADD_REACTIONS permission', 'red');
+                console.log('[Discord Send] bot response status:', res.status);
+                if (res.ok) {
+                    var respData = await res.json().catch(function() { return {}; });
+                    console.log('[Discord Send] bot response:', JSON.stringify(respData, null, 2));
+                    if (respData._reactionErrors && respData._reactionErrors.length) {
+                        var rErrMsg = respData._reactionErrors.map(function(e) { return e.emoji + ' (' + e.error + ')'; }).join(', ');
+                        dcShowToast('Sent via bot ✓ but reactions failed: ' + rErrMsg, 'red');
+                    } else {
+                        dcShowToast('Sent via bot! ✓', 'green');
+                    }
                 } else {
-                    dcShowToast((useBot ? 'Sent via bot! ✓' : 'Sent via webhook! ✓'), 'green');
+                    var errText = await res.text().catch(function() { return ''; });
+                    var errJson; try { errJson = JSON.parse(errText); } catch(ex) { errJson = null; }
+                    var errMsg = errJson ? (errJson.message || '') + (errJson.errors ? ' | ' + JSON.stringify(errJson.errors).slice(0, 200) : '') : errText.slice(0, 200);
+                    console.error('[Discord Send] bot error', errJson || errText);
+                    dcShowToast('Discord error ' + res.status + ': ' + (errMsg || 'unknown'), 'red');
                 }
-            }
-            else {
-                var errText = await res.text().catch(function() { return ''; });
-                var errJson; try { errJson = JSON.parse(errText); } catch(ex) { errJson = null; }
-                var errMsg = errJson
-                    ? (errJson.message || '') + (errJson.errors ? ' | ' + JSON.stringify(errJson.errors).slice(0, 200) : '')
-                    : errText.slice(0, 200);
-                console.error('[Discord send] HTTP ' + res.status, errJson || errText);
-                dcShowToast('Discord error ' + res.status + ': ' + (errMsg || 'unknown'), 'red');
             }
         } catch(e) { dcShowToast('Network error: ' + e.message, 'red'); }
         finally { btn.disabled = false; btn.textContent = 'Send →'; }
