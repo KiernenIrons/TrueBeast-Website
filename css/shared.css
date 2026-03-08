@@ -188,9 +188,10 @@ html.light ::selection {
 /* Gradient background — overrides page-specific dark gradients */
 html.light .gradient-bg {
     background:
-        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.12) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 80%, rgba(22, 163, 74, 0.08)  0%, transparent 50%),
-        #edf5ed !important;
+        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.22) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(22, 163, 74, 0.16) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(74, 222, 128, 0.10) 0%, transparent 60%),
+        #e8f5e8 !important;
 }
 
 html.light .liquid-glass-strong {

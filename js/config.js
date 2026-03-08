@@ -8,6 +8,41 @@
 const SITE_CONFIG = {
 
     // -----------------------------------------------------------------------
+    // DOT GRID — Animated background on the home page.
+    // true  = enabled (canvas + GSAP animation runs)
+    // false = completely disabled (no canvas, no animation, zero CPU/GPU cost)
+    // -----------------------------------------------------------------------
+    dotGrid: false,
+
+    // -----------------------------------------------------------------------
+    // AURORA — WebGL animated aurora effect on the home page.
+    // enabled:    true / false  — false = zero GPU/CPU cost, no WebGL context
+    // colorStops: [left, mid, right] — 3 hex colours for the horizontal gradient
+    // amplitude:  wave height  — 0.5 subtle → 1.5 dramatic
+    // blend:      edge softness — 0.3 sharp  → 0.8 diffuse
+    // speed:      animation speed multiplier
+    // -----------------------------------------------------------------------
+    aurora: {
+        enabled:    false,
+        colorStops: ['#7cff67', '#000000', '#00ff1e'],
+        amplitude:  0.4,
+        blend:      0.5,
+        speed:      0.3,
+    },
+
+    // -----------------------------------------------------------------------
+    // PROFILE CARD — "Story Behind TrueBeast" section on the home page.
+    // enabled:      true = show card, false = show original photo
+    // shineOpacity: holographic rainbow shimmer  — 0.0 = off, 1.0 = max
+    // glareOpacity: white radial glare overlay   — 0.0 = off, 1.0 = max
+    // -----------------------------------------------------------------------
+    profileCard: {
+        enabled:      false,
+        shineOpacity: 0.5,
+        glareOpacity: 0.0,
+    },
+
+    // -----------------------------------------------------------------------
     // SITE URL
     // Your live website URL. Used to build "View Ticket" links in emails.
     // For GitHub Pages it's usually: https://USERNAME.github.io/REPO-NAME

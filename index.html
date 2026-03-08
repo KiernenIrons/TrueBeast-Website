@@ -14,6 +14,7 @@
     <title>TrueBeast | Kiernen Irons</title>
     <link rel="icon" href="favicon.ico">
     <script src="js/theme.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -26,19 +27,22 @@
     <link rel="stylesheet" href="css/shared.css">
     <link rel="stylesheet" href="css/glass.css?v=4">
     <link rel="stylesheet" href="css/index.css?v=2">
+    <link rel="stylesheet" href="css/profile-card.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="gradient-bg"></div>
+    <canvas id="aurora-canvas" style="position:fixed;top:0;left:0;z-index:-1;pointer-events:none;display:none;"></canvas>
     <div class="noise"></div>
+    <canvas id="dot-grid-canvas" style="position:fixed;top:0;left:0;z-index:-1;pointer-events:none;"></canvas>
     <div class="cursor-glow" id="cursorGlow"></div>
     
     <div id="root"></div>
     
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useCallback, useMemo } = React;
         
         // Custom hook for scroll reveal
         const useScrollReveal = () => {
@@ -304,33 +308,241 @@
             );
         };
         
+        // ── ProfileCard ──────────────────────────────────────────────────────
+        const PC_DEFAULT_GRADIENT = 'linear-gradient(145deg,#60496e8c 0%,#71C4FF44 100%)';
+        const PC_ANIM = { INITIAL_DURATION: 1200, INITIAL_X_OFFSET: 70, INITIAL_Y_OFFSET: 60,
+                          DEVICE_BETA_OFFSET: 20, ENTER_TRANSITION_MS: 180 };
+        const pcClamp = (v, mn = 0, mx = 100) => Math.min(Math.max(v, mn), mx);
+        const pcRound = (v, p = 3) => parseFloat(v.toFixed(p));
+        const pcAdjust = (v, fMin, fMax, tMin, tMax) =>
+            pcRound(tMin + ((tMax - tMin) * (v - fMin)) / (fMax - fMin));
+
+        const ProfileCard = React.memo(({
+            avatarUrl = '', iconUrl, grainUrl, innerGradient,
+            behindGlowEnabled = true, behindGlowColor, behindGlowSize,
+            shineOpacity, glareOpacity,
+            className = '', enableTilt = true, enableMobileTilt = false,
+            mobileTiltSensitivity = 5, miniAvatarUrl,
+            name = '', title = '', handle = '', status = 'Online',
+            contactText = 'Contact', showUserInfo = true, onContactClick
+        }) => {
+            const wrapRef  = useRef(null);
+            const shellRef = useRef(null);
+            const enterTimerRef = useRef(null);
+            const leaveRafRef   = useRef(null);
+
+            const tiltEngine = useMemo(() => {
+                if (!enableTilt) return null;
+                let rafId = null, running = false, lastTs = 0;
+                let currentX = 0, currentY = 0, targetX = 0, targetY = 0;
+                const DEFAULT_TAU = 0.14, INITIAL_TAU = 0.6;
+                let initialUntil = 0;
+
+                const setVarsFromXY = (x, y) => {
+                    const shell = shellRef.current, wrap = wrapRef.current;
+                    if (!shell || !wrap) return;
+                    const w = shell.clientWidth || 1, h = shell.clientHeight || 1;
+                    const px = pcClamp((100 / w) * x), py = pcClamp((100 / h) * y);
+                    const cx = px - 50, cy = py - 50;
+                    const vars = {
+                        '--pointer-x': `${px}%`, '--pointer-y': `${py}%`,
+                        '--background-x': `${pcAdjust(px, 0, 100, 35, 65)}%`,
+                        '--background-y': `${pcAdjust(py, 0, 100, 35, 65)}%`,
+                        '--pointer-from-center': `${pcClamp(Math.hypot(py - 50, px - 50) / 50, 0, 1)}`,
+                        '--pointer-from-top': `${py / 100}`, '--pointer-from-left': `${px / 100}`,
+                        '--rotate-x': `${pcRound(-(cx / 5))}deg`, '--rotate-y': `${pcRound(cy / 4)}deg`
+                    };
+                    for (const [k, v] of Object.entries(vars)) wrap.style.setProperty(k, v);
+                };
+
+                const step = (ts) => {
+                    if (!running) return;
+                    if (lastTs === 0) lastTs = ts;
+                    const dt = (ts - lastTs) / 1000; lastTs = ts;
+                    const tau = ts < initialUntil ? INITIAL_TAU : DEFAULT_TAU;
+                    const k = 1 - Math.exp(-dt / tau);
+                    currentX += (targetX - currentX) * k;
+                    currentY += (targetY - currentY) * k;
+                    setVarsFromXY(currentX, currentY);
+                    const stillFar = Math.abs(targetX - currentX) > 0.05 || Math.abs(targetY - currentY) > 0.05;
+                    if (stillFar || document.hasFocus()) { rafId = requestAnimationFrame(step); }
+                    else { running = false; lastTs = 0; if (rafId) { cancelAnimationFrame(rafId); rafId = null; } }
+                };
+                const start = () => { if (running) return; running = true; lastTs = 0; rafId = requestAnimationFrame(step); };
+
+                return {
+                    setImmediate(x, y) { currentX = x; currentY = y; setVarsFromXY(x, y); },
+                    setTarget(x, y)    { targetX = x; targetY = y; start(); },
+                    toCenter()         { const s = shellRef.current; if (s) this.setTarget(s.clientWidth / 2, s.clientHeight / 2); },
+                    beginInitial(ms)   { initialUntil = performance.now() + ms; start(); },
+                    getCurrent()       { return { x: currentX, y: currentY, tx: targetX, ty: targetY }; },
+                    cancel()           { if (rafId) cancelAnimationFrame(rafId); rafId = null; running = false; lastTs = 0; }
+                };
+            }, [enableTilt]);
+
+            const getOffsets = (evt, el) => { const r = el.getBoundingClientRect(); return { x: evt.clientX - r.left, y: evt.clientY - r.top }; };
+
+            const handlePointerMove  = useCallback((e) => { const s = shellRef.current; if (s && tiltEngine) { const {x,y} = getOffsets(e,s); tiltEngine.setTarget(x,y); } }, [tiltEngine]);
+            const handlePointerEnter = useCallback((e) => {
+                const s = shellRef.current; if (!s || !tiltEngine) return;
+                s.classList.add('active', 'entering');
+                if (enterTimerRef.current) window.clearTimeout(enterTimerRef.current);
+                enterTimerRef.current = window.setTimeout(() => s.classList.remove('entering'), PC_ANIM.ENTER_TRANSITION_MS);
+                const {x,y} = getOffsets(e, s); tiltEngine.setTarget(x,y);
+            }, [tiltEngine]);
+            const handlePointerLeave = useCallback(() => {
+                const s = shellRef.current; if (!s || !tiltEngine) return;
+                tiltEngine.toCenter();
+                const check = () => {
+                    const {x,y,tx,ty} = tiltEngine.getCurrent();
+                    if (Math.hypot(tx-x, ty-y) < 0.6) { s.classList.remove('active'); leaveRafRef.current = null; }
+                    else leaveRafRef.current = requestAnimationFrame(check);
+                };
+                if (leaveRafRef.current) cancelAnimationFrame(leaveRafRef.current);
+                leaveRafRef.current = requestAnimationFrame(check);
+            }, [tiltEngine]);
+            const handleDeviceOrientation = useCallback((e) => {
+                const s = shellRef.current; if (!s || !tiltEngine) return;
+                const {beta, gamma} = e; if (beta == null || gamma == null) return;
+                const x = pcClamp(s.clientWidth/2  + gamma * mobileTiltSensitivity, 0, s.clientWidth);
+                const y = pcClamp(s.clientHeight/2 + (beta - PC_ANIM.DEVICE_BETA_OFFSET) * mobileTiltSensitivity, 0, s.clientHeight);
+                tiltEngine.setTarget(x, y);
+            }, [tiltEngine, mobileTiltSensitivity]);
+
+            useEffect(() => {
+                if (!enableTilt || !tiltEngine) return;
+                const s = shellRef.current; if (!s) return;
+                s.addEventListener('pointerenter', handlePointerEnter);
+                s.addEventListener('pointermove',  handlePointerMove);
+                s.addEventListener('pointerleave', handlePointerLeave);
+                const handleClick = () => {
+                    if (!enableMobileTilt || location.protocol !== 'https:') return;
+                    const M = window.DeviceMotionEvent;
+                    if (M && typeof M.requestPermission === 'function') {
+                        M.requestPermission().then(st => { if (st === 'granted') window.addEventListener('deviceorientation', handleDeviceOrientation); }).catch(console.error);
+                    } else window.addEventListener('deviceorientation', handleDeviceOrientation);
+                };
+                s.addEventListener('click', handleClick);
+                tiltEngine.setImmediate((s.clientWidth || 0) - PC_ANIM.INITIAL_X_OFFSET, PC_ANIM.INITIAL_Y_OFFSET);
+                tiltEngine.toCenter();
+                tiltEngine.beginInitial(PC_ANIM.INITIAL_DURATION);
+                return () => {
+                    s.removeEventListener('pointerenter', handlePointerEnter);
+                    s.removeEventListener('pointermove',  handlePointerMove);
+                    s.removeEventListener('pointerleave', handlePointerLeave);
+                    s.removeEventListener('click', handleClick);
+                    window.removeEventListener('deviceorientation', handleDeviceOrientation);
+                    if (enterTimerRef.current) window.clearTimeout(enterTimerRef.current);
+                    if (leaveRafRef.current)   cancelAnimationFrame(leaveRafRef.current);
+                    tiltEngine.cancel();
+                    s.classList.remove('entering');
+                };
+            }, [enableTilt, enableMobileTilt, tiltEngine, handlePointerMove, handlePointerEnter, handlePointerLeave, handleDeviceOrientation]);
+
+            const cardStyle = useMemo(() => ({
+                '--icon':             iconUrl    ? `url(${iconUrl})`    : 'none',
+                '--grain':            grainUrl   ? `url(${grainUrl})`   : 'none',
+                '--inner-gradient':   innerGradient ?? PC_DEFAULT_GRADIENT,
+                '--behind-glow-color': behindGlowColor ?? 'rgba(34,197,94,0.5)',
+                '--behind-glow-size':  behindGlowSize  ?? '50%',
+                '--pc-shine-opacity':  shineOpacity ?? 0.4,
+                '--pc-glare-opacity':  glareOpacity ?? 0.5,
+            }), [iconUrl, grainUrl, innerGradient, behindGlowColor, behindGlowSize, shineOpacity, glareOpacity]);
+
+            const handleContactClick = useCallback(() => { onContactClick && onContactClick(); }, [onContactClick]);
+
+            return (
+                <div ref={wrapRef} className={`pc-card-wrapper ${className}`.trim()} style={cardStyle}>
+                    {behindGlowEnabled && <div className="pc-behind" />}
+                    <div ref={shellRef} className="pc-card-shell">
+                        <section className="pc-card">
+                            <div className="pc-inside">
+                                <div className="pc-shine" />
+                                <div className="pc-glare" />
+                                <div className="pc-content pc-avatar-content">
+                                    <img className="avatar" src={avatarUrl} alt={`${name || 'User'} avatar`} loading="lazy"
+                                         onError={e => { e.target.style.display = 'none'; }} />
+                                    {showUserInfo && (
+                                        <div className="pc-user-info">
+                                            <div className="pc-user-details">
+                                                <div className="pc-mini-avatar">
+                                                    <img src={miniAvatarUrl || avatarUrl} alt="mini avatar" loading="lazy"
+                                                         onError={e => { e.target.style.opacity = '0.5'; e.target.src = avatarUrl; }} />
+                                                </div>
+                                                <div className="pc-user-text">
+                                                    <div className="pc-handle">@{handle}</div>
+                                                    <div className="pc-status">{status}</div>
+                                                </div>
+                                            </div>
+                                            <button className="pc-contact-btn" onClick={handleContactClick}
+                                                    style={{ pointerEvents: 'auto' }} type="button">
+                                                {contactText}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="pc-content">
+                                    <div className="pc-details">
+                                        <h3>{name}</h3>
+                                        <p>{title}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            );
+        });
+
         // About Section
         const AboutSection = () => {
             return (
                 <section id="about" className="py-24 px-6">
                     <div className="max-w-6xl mx-auto">
                         <div className="grid lg:grid-cols-2 gap-12 items-center">
-                            <div className="reveal">
-                                <div className="relative">
-                                    <div className="liquid-glass-strong glass-glow rounded-3xl p-2">
-                                        <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-green-900/50 to-emerald-900/50 relative">
-                                            <img src="assets/images/about-photo.jpg"
-                                                 alt="TrueBeast"
-                                                 className="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity duration-500" />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-                                            <div className="absolute bottom-6 left-6 right-6">
-                                                <div className="liquid-glass rounded-xl px-4 py-3 inline-flex items-center gap-3">
-                                                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
-                                                    <span className="text-sm font-medium">Live & Gaming</span>
+                            {(typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.profileCard?.enabled)
+                                ? <div className="reveal flex justify-center">
+                                    <ProfileCard
+                                        avatarUrl="assets/images/about-photo.jpg"
+                                        name="TrueBeast"
+                                        title="Content Creator"
+                                        handle="RealTrueBeast"
+                                        status="Online"
+                                        contactText="Discord"
+                                        showUserInfo={true}
+                                        enableTilt={true}
+                                        behindGlowEnabled={true}
+                                        behindGlowColor="rgba(34, 197, 94, 0.5)"
+                                        innerGradient="linear-gradient(145deg, #0a22168c 0%, #22c55e33 100%)"
+                                        shineOpacity={SITE_CONFIG.profileCard.shineOpacity ?? 0.3}
+                                        glareOpacity={SITE_CONFIG.profileCard.glareOpacity ?? 0.4}
+                                        onContactClick={() => {
+                                            const url = (SITE_CONFIG.social && SITE_CONFIG.social.discord) || 'https://discord.gg/Nk8vekY';
+                                            window.open(url, '_blank');
+                                        }}
+                                    />
+                                  </div>
+                                : <div className="reveal">
+                                    <div className="relative">
+                                        <div className="liquid-glass-strong glass-glow rounded-3xl p-2">
+                                            <div className="aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-green-900/50 to-emerald-900/50 relative">
+                                                <img src="assets/images/about-photo.jpg"
+                                                     alt="TrueBeast"
+                                                     className="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity duration-500" />
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+                                                <div className="absolute bottom-6 left-6 right-6">
+                                                    <div className="liquid-glass rounded-xl px-4 py-3 inline-flex items-center gap-3">
+                                                        <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+                                                        <span className="text-sm font-medium">Live & Gaming</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
+                                        <div className="absolute -top-6 -right-6 w-24 h-24 liquid-glass rounded-2xl float opacity-60"></div>
+                                        <div className="absolute -bottom-6 -left-6 w-16 h-16 liquid-glass rounded-full float-delayed opacity-60"></div>
                                     </div>
-                                    {/* Decorative elements */}
-                                    <div className="absolute -top-6 -right-6 w-24 h-24 liquid-glass rounded-2xl float opacity-60"></div>
-                                    <div className="absolute -bottom-6 -left-6 w-16 h-16 liquid-glass rounded-full float-delayed opacity-60"></div>
-                                </div>
-                            </div>
+                                  </div>
+                            }
                             
                             <div className="reveal">
                                 <span className="text-green-400 font-medium text-sm tracking-wider uppercase mb-4 block">Who I Am</span>
@@ -1025,6 +1237,352 @@
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+    </script>
+
+    <script>
+    /* ── Dot-grid background — adapted from ReactBits DotGrid (home page only) ── */
+    if (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.dotGrid) {
+        document.getElementById('dot-grid-canvas').style.display = '';
+    }
+    if (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.dotGrid) (function () {
+        var DOT_SIZE       = 6;
+        var GAP            = 16;
+        var PROXIMITY      = 150;
+        var SPEED_TRIGGER  = 80;
+        var SHOCK_RADIUS   = 250;
+        var SHOCK_STRENGTH = 50;
+        var RETURN_DUR     = 1.5;
+
+        var canvas = document.getElementById('dot-grid-canvas');
+        var ctx    = canvas.getContext('2d');
+        var dots   = [];
+        var canvasW = 0, canvasH = 0;
+
+        var circlePath = new Path2D();
+        circlePath.arc(0, 0, DOT_SIZE / 2, 0, Math.PI * 2);
+
+        var pointer = { x: -9999, y: -9999, vx: 0, vy: 0, speed: 0,
+                        lastTime: 0, lastX: 0, lastY: 0 };
+
+        function isLight() { return document.documentElement.classList.contains('light'); }
+
+        function hexToRgb(hex) {
+            var m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+            return m ? { r: parseInt(m[1],16), g: parseInt(m[2],16), b: parseInt(m[3],16) }
+                     : { r: 0, g: 0, b: 0 };
+        }
+
+        function getColors() {
+            return isLight()
+                ? { base: '#8fcc8f', active: '#15803d' }   // light: muted → dark green
+                : { base: '#1e3320', active: '#22c55e' };  // dark:  near-black → bright green
+        }
+
+        function buildGrid() {
+            var dpr = window.devicePixelRatio || 1;
+            canvasW = window.innerWidth;
+            canvasH = window.innerHeight;
+            canvas.width  = canvasW * dpr;
+            canvas.height = canvasH * dpr;
+            canvas.style.width  = canvasW + 'px';
+            canvas.style.height = canvasH + 'px';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+            var cell   = DOT_SIZE + GAP;
+            var cols   = Math.floor((canvasW + GAP) / cell);
+            var rows   = Math.floor((canvasH + GAP) / cell);
+            var gridW  = cell * cols - GAP;
+            var gridH  = cell * rows - GAP;
+            var startX = (canvasW - gridW) / 2 + DOT_SIZE / 2;
+            var startY = (canvasH - gridH) / 2 + DOT_SIZE / 2;
+
+            dots.forEach(function (d) { gsap.killTweensOf(d); });
+            dots = [];
+            for (var r = 0; r < rows; r++) {
+                for (var c = 0; c < cols; c++) {
+                    dots.push({ cx: startX + c * cell, cy: startY + r * cell,
+                                 xOffset: 0, yOffset: 0, _inertiaApplied: false });
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvasW, canvasH);
+
+            var colors   = getColors();
+            var baseRgb  = hexToRgb(colors.base);
+            var actRgb   = hexToRgb(colors.active);
+            var proxSq   = PROXIMITY * PROXIMITY;
+            var px = pointer.x, py = pointer.y;
+
+            for (var i = 0; i < dots.length; i++) {
+                var d  = dots[i];
+                var ox = d.cx + d.xOffset;
+                var oy = d.cy + d.yOffset;
+                var dx = d.cx - px,  dy = d.cy - py;
+                var dsq = dx * dx + dy * dy;
+
+                var fill;
+                if (dsq <= proxSq) {
+                    var dist = Math.sqrt(dsq);
+                    var t = 1 - dist / PROXIMITY;
+                    fill = 'rgb(' +
+                        Math.round(baseRgb.r + (actRgb.r - baseRgb.r) * t) + ',' +
+                        Math.round(baseRgb.g + (actRgb.g - baseRgb.g) * t) + ',' +
+                        Math.round(baseRgb.b + (actRgb.b - baseRgb.b) * t) + ')';
+                } else {
+                    fill = colors.base;
+                }
+
+                ctx.save();
+                ctx.translate(ox, oy);
+                ctx.fillStyle = fill;
+                ctx.fill(circlePath);
+                ctx.restore();
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        var lastMove = 0;
+        function onMove(e) {
+            var now = performance.now();
+            if (now - lastMove < 16) return;
+            lastMove = now;
+
+            var pr = pointer;
+            var dt = pr.lastTime ? now - pr.lastTime : 16;
+            var dx = e.clientX - pr.lastX,  dy = e.clientY - pr.lastY;
+            var vx = dx / dt * 1000,         vy = dy / dt * 1000;
+            var speed = Math.hypot(vx, vy);
+            if (speed > 5000) { vx *= 5000/speed; vy *= 5000/speed; speed = 5000; }
+
+            pr.lastTime = now; pr.lastX = e.clientX; pr.lastY = e.clientY;
+            pr.vx = vx; pr.vy = vy; pr.speed = speed;
+            pr.x = e.clientX; pr.y = e.clientY;
+
+            if (speed > SPEED_TRIGGER) {
+                for (var i = 0; i < dots.length; i++) {
+                    var dot = dots[i];
+                    if (dot._inertiaApplied) continue;
+                    var dist = Math.hypot(dot.cx - pr.x, dot.cy - pr.y);
+                    if (dist < PROXIMITY) {
+                        dot._inertiaApplied = true;
+                        gsap.killTweensOf(dot);
+                        var pushX = (dot.cx - pr.x) * 0.4 + vx * 0.003;
+                        var pushY = (dot.cy - pr.y) * 0.4 + vy * 0.003;
+                        var pd = Math.hypot(pushX, pushY);
+                        if (pd > 40) { pushX *= 40/pd; pushY *= 40/pd; }
+                        (function (d, px2, py2) {
+                            gsap.to(d, { xOffset: px2, yOffset: py2, duration: 0.07, ease: 'none', overwrite: true,
+                                onComplete: function () {
+                                    gsap.to(d, { xOffset: 0, yOffset: 0, duration: RETURN_DUR,
+                                        ease: 'elastic.out(1,0.75)', overwrite: true,
+                                        onComplete: function () { d._inertiaApplied = false; } });
+                                }
+                            });
+                        })(dot, pushX, pushY);
+                    }
+                }
+            }
+        }
+
+        function onClick(e) {
+            var cx = e.clientX, cy = e.clientY;
+            for (var i = 0; i < dots.length; i++) {
+                var dot = dots[i];
+                var dist = Math.hypot(dot.cx - cx, dot.cy - cy);
+                if (dist < SHOCK_RADIUS && !dot._inertiaApplied) {
+                    dot._inertiaApplied = true;
+                    gsap.killTweensOf(dot);
+                    var falloff = Math.max(0, 1 - dist / SHOCK_RADIUS);
+                    var d2 = dist || 1;
+                    var pushX = (dot.cx - cx) / d2 * SHOCK_STRENGTH * falloff;
+                    var pushY = (dot.cy - cy) / d2 * SHOCK_STRENGTH * falloff;
+                    (function (d, px2, py2) {
+                        gsap.to(d, { xOffset: px2, yOffset: py2, duration: 0.08, ease: 'none', overwrite: true,
+                            onComplete: function () {
+                                gsap.to(d, { xOffset: 0, yOffset: 0, duration: RETURN_DUR,
+                                    ease: 'elastic.out(1,0.75)', overwrite: true,
+                                    onComplete: function () { d._inertiaApplied = false; } });
+                            }
+                        });
+                    })(dot, pushX, pushY);
+                }
+            }
+        }
+
+        window.addEventListener('mousemove', onMove, { passive: true });
+        window.addEventListener('click', onClick);
+        window.addEventListener('resize', buildGrid);
+
+        buildGrid();
+        draw();
+    })();
+    </script>
+
+    <script>
+    /* ── Aurora background — adapted from ReactBits Aurora (home page only) ── */
+    (function () {
+        var cfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG.aurora : null;
+        if (!cfg || !cfg.enabled) return;
+
+        var colorStops = cfg.colorStops || ['#4ade80', '#22c55e', '#0a0a0f'];
+        var amplitude  = cfg.amplitude  !== undefined ? cfg.amplitude : 1.0;
+        var blend      = cfg.blend      !== undefined ? cfg.blend     : 0.5;
+        var speed      = cfg.speed      !== undefined ? cfg.speed     : 0.3;
+
+        var canvas = document.getElementById('aurora-canvas');
+        canvas.style.display = '';
+
+        var gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: true });
+        if (!gl) { canvas.style.display = 'none'; return; }
+
+        gl.clearColor(0, 0, 0, 0);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+        var VERT = '#version 300 es\nin vec2 position;\nvoid main(){\n  gl_Position=vec4(position,0.0,1.0);\n}';
+
+        var FRAG = `#version 300 es
+precision highp float;
+
+uniform float uTime;
+uniform float uAmplitude;
+uniform vec3 uColorStops[3];
+uniform vec2 uResolution;
+uniform float uBlend;
+
+out vec4 fragColor;
+
+vec3 permute(vec3 x){return mod(((x*34.0)+1.0)*x,289.0);}
+
+float snoise(vec2 v){
+  const vec4 C=vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);
+  vec2 i=floor(v+dot(v,C.yy));
+  vec2 x0=v-i+dot(i,C.xx);
+  vec2 i1=(x0.x>x0.y)?vec2(1.0,0.0):vec2(0.0,1.0);
+  vec4 x12=x0.xyxy+C.xxzz;
+  x12.xy-=i1;
+  i=mod(i,289.0);
+  vec3 p=permute(permute(i.y+vec3(0.0,i1.y,1.0))+i.x+vec3(0.0,i1.x,1.0));
+  vec3 m=max(0.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.0);
+  m=m*m;m=m*m;
+  vec3 x=2.0*fract(p*C.www)-1.0;
+  vec3 h=abs(x)-0.5;
+  vec3 ox=floor(x+0.5);
+  vec3 a0=x-ox;
+  m*=1.79284291400159-0.85373472095314*(a0*a0+h*h);
+  vec3 g;
+  g.x=a0.x*x0.x+h.x*x0.y;
+  g.yz=a0.yz*x12.xz+h.yz*x12.yw;
+  return 130.0*dot(m,g);
+}
+
+struct ColorStop{vec3 color;float position;};
+
+#define COLOR_RAMP(colors,factor,finalColor) {\
+  int index=0;\
+  for(int i=0;i<2;i++){\
+    ColorStop cc=colors[i];\
+    bool inBetween=cc.position<=factor;\
+    index=int(mix(float(index),float(i),float(inBetween)));\
+  }\
+  ColorStop cc=colors[index];\
+  ColorStop nc=colors[index+1];\
+  float range=nc.position-cc.position;\
+  float lf=(factor-cc.position)/range;\
+  finalColor=mix(cc.color,nc.color,lf);\
+}
+
+void main(){
+  vec2 uv=gl_FragCoord.xy/uResolution;
+  ColorStop colors[3];
+  colors[0]=ColorStop(uColorStops[0],0.0);
+  colors[1]=ColorStop(uColorStops[1],0.5);
+  colors[2]=ColorStop(uColorStops[2],1.0);
+  vec3 rampColor;
+  COLOR_RAMP(colors,uv.x,rampColor);
+  float height=snoise(vec2(uv.x*2.0+uTime*0.1,uTime*0.25))*0.5*uAmplitude;
+  height=exp(height);
+  height=(uv.y*2.0-height+0.2);
+  float intensity=0.6*height;
+  float midPoint=0.20;
+  float auroraAlpha=smoothstep(midPoint-uBlend*0.5,midPoint+uBlend*0.5,intensity);
+  vec3 auroraColor=intensity*rampColor;
+  fragColor=vec4(auroraColor*auroraAlpha,auroraAlpha);
+}`;
+
+        function compile(type, src) {
+            var s = gl.createShader(type);
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                console.error('Aurora shader error:', gl.getShaderInfoLog(s));
+                gl.deleteShader(s); return null;
+            }
+            return s;
+        }
+
+        var vert = compile(gl.VERTEX_SHADER, VERT);
+        var frag = compile(gl.FRAGMENT_SHADER, FRAG);
+        if (!vert || !frag) { canvas.style.display = 'none'; return; }
+
+        var prog = gl.createProgram();
+        gl.attachShader(prog, vert);
+        gl.attachShader(prog, frag);
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+            console.error('Aurora link error:', gl.getProgramInfoLog(prog));
+            canvas.style.display = 'none'; return;
+        }
+        gl.useProgram(prog);
+
+        // Full-screen triangle (covers the whole clip space with 3 vertices)
+        var buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+        var posLoc = gl.getAttribLocation(prog, 'position');
+        gl.enableVertexAttribArray(posLoc);
+        gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+        var uTime       = gl.getUniformLocation(prog, 'uTime');
+        var uAmpl       = gl.getUniformLocation(prog, 'uAmplitude');
+        var uColorStops = gl.getUniformLocation(prog, 'uColorStops[0]');
+        var uResolution = gl.getUniformLocation(prog, 'uResolution');
+        var uBlendLoc   = gl.getUniformLocation(prog, 'uBlend');
+
+        function hexToRgb(hex) {
+            var m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+            return m ? [parseInt(m[1],16)/255, parseInt(m[2],16)/255, parseInt(m[3],16)/255] : [0,0,0];
+        }
+
+        var c0 = hexToRgb(colorStops[0] || '#4ade80');
+        var c1 = hexToRgb(colorStops[1] || '#22c55e');
+        var c2 = hexToRgb(colorStops[2] || '#0a0a0f');
+        gl.uniform3fv(uColorStops, c0.concat(c1).concat(c2));
+        gl.uniform1f(uAmpl, amplitude);
+        gl.uniform1f(uBlendLoc, blend);
+
+        function resize() {
+            var w = window.innerWidth, h = window.innerHeight;
+            canvas.width = w; canvas.height = h;
+            canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+            gl.viewport(0, 0, w, h);
+            gl.uniform2f(uResolution, w, h);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        var animId;
+        function render(t) {
+            animId = requestAnimationFrame(render);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.uniform1f(uTime, t * 0.001 * speed);
+            gl.drawArrays(gl.TRIANGLES, 0, 3);
+        }
+        animId = requestAnimationFrame(render);
+    })();
     </script>
 </body>
 </html>
