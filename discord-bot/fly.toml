@@ -1,23 +1,18 @@
 # fly.io config for TrueBeast Radio Bot
-# Deploy with: fly deploy (from the discord-bot/ directory)
+# Deploy with: flyctl deploy (from the discord-bot/ directory)
 
-app = "truebeast-radio-bot"
-primary_region = "ord"
+app = 'truebeast-radio-bot'
+primary_region = 'ord'
 
 [build]
 
 [env]
-  NODE_ENV = "production"
+  NODE_ENV = 'production'
 
-# No HTTP service — this is a headless Discord bot
-# Secrets are set via: fly secrets set KEY=value
-# Required secrets:
-#   fly secrets set DISCORD_BOT_TOKEN=...
-#   fly secrets set DISCORD_GUILD_ID=...
-#   fly secrets set VOICE_CHANNEL_ID=...
-#   fly secrets set STREAM_URL=...   (optional)
+# No HTTP service — this is a headless Discord bot.
+# fly.io won't health-check it, it just runs continuously.
 
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '256mb'
+  cpu_kind = 'shared'
   cpus = 1
