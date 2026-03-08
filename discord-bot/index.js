@@ -110,14 +110,35 @@ function startRadio(channel) {
     player = createAudioPlayer();
     connection.subscribe(player);
 
+    // Log every connection state transition so Railway logs show exactly what's happening.
+    connection.on('stateChange', (oldState, newState) => {
+        console.log(`[Radio] Connection state: ${oldState.status} → ${newState.status}`);
+    });
+
+    // Log every player state transition.
+    player.on('stateChange', (oldState, newState) => {
+        console.log(`[Radio] Player state: ${oldState.status} → ${newState.status}`);
+    });
+
     // Start streaming as soon as the UDP handshake completes.
     connection.on(VoiceConnectionStatus.Ready, () => {
-        console.log('[Radio] ✅ Voice connection ready.');
+        console.log('[Radio] ✅ Voice connection ready — starting stream.');
+        clearTimeout(readyFallback);
         if (!streamStarted) {
             streamStarted = true;
             playStream();
         }
     });
+
+    // Fallback: if Ready never fires within 45s (Railway UDP quirk), try playing anyway.
+    // Some Railway deployments have audio working even though the state machine stalls.
+    const readyFallback = setTimeout(() => {
+        if (!streamStarted && player) {
+            console.log('[Radio] ⚠️  Ready event never fired — attempting fallback playback...');
+            streamStarted = true;
+            playStream();
+        }
+    }, 45_000);
 
     // Stream ended → restart
     player.on(AudioPlayerStatus.Idle, () => {
