@@ -80,7 +80,7 @@
                 return;
             }
             try {
-                const payload = { sender: { name: cfg.senderName, email: cfg.senderEmail }, to: [{ email: to, name: toName || to }], subject, htmlContent: html };
+                const payload = { to, subject, html, senderName: cfg.senderName, senderEmail: cfg.senderEmail };
                 console.log('[Email] Sending to worker...', { to, subject, workerUrl: cfg.workerUrl });
                 const res = await fetch(cfg.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 const text = await res.text();

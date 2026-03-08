@@ -225,6 +225,9 @@ const SITE_CONFIG = {
     //              allow create:        if true;                    // public write (events in)
     //              allow list, get:     if request.auth != null;    // admin read only
     //            }
+    //            match /webhookBackups/{docId} {
+    //              allow read, write:   if request.auth != null;    // admin only
+    //            }
     //          }
     //        }
     //

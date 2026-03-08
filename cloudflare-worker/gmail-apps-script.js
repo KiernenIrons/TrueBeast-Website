@@ -53,8 +53,8 @@ function doPost(e) {
         MailApp.sendEmail({
             to:       data.to,
             subject:  data.subject,
-            htmlBody: data.html,
-            name:     data.senderName || 'TrueBeast Support',
+            htmlBody: data.html || data.htmlContent || '',
+            name:     data.senderName || (data.sender && data.sender.name) || 'TrueBeast Support',
         });
 
         return ContentService
