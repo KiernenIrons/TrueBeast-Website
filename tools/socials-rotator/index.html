@@ -17,6 +17,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script src="../../js/config.js?v=6"></script>
+    <script src="../../js/analytics.js"></script>
     <link rel="stylesheet" href="../../css/shared.css">
     <link rel="stylesheet" href="../../css/glass.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -619,6 +620,9 @@
                 const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
                 const base = window.location.href.replace(/\/[^/]*$/, '');
                 setGenUrl(`${base}/rotator.html?c=${encoded}`);
+                if (window.TBAnalytics) {
+                    window.TBAnalytics.track('link_gen', { tool: 'rotator', count: validPlatforms.length });
+                }
             };
 
             const copyUrl = () => {

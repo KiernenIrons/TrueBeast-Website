@@ -26,6 +26,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         .screen { display: none; }
         .status-open        { background: rgba(34,197,94,0.2);  color: #22c55e; }
@@ -108,6 +109,14 @@
         .dc-emoji-picker-grid span:hover { background:rgba(255,255,255,.1); }
         .dc-emoji-custom-row { margin-top:8px; border-top:1px solid rgba(255,255,255,.08); padding-top:8px; }
         /* Rich mention/emoji picker */
+        /* ── Analytics Tab ────────────────────────────── */
+        .ap-active   { background: rgba(147,51,234,0.2); color: #c084fc; border: 1px solid rgba(147,51,234,0.4); }
+        .ap-inactive { background: rgba(255,255,255,0.04); color: #9ca3af; border: 1px solid rgba(255,255,255,0.06); }
+        .ap-stat-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 16px; }
+        .ap-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .ap-row:last-child { border-bottom: none; }
+        .ap-chart-box { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 20px; }
+        .ap-section-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; margin-bottom: 12px; }
         .dc-rich-picker { position:fixed; z-index:9999; background:#1e1f22; border:1px solid rgba(255,255,255,.12); border-radius:10px; overflow:hidden; width:320px; max-height:420px; box-shadow:0 8px 24px rgba(0,0,0,.7); display:flex; flex-direction:column; }
         .dc-rp-tabs { display:flex; border-bottom:1px solid rgba(255,255,255,.08); background:#111214; flex-shrink:0; }
         .dc-rp-tab { flex:1; padding:8px 4px; font-size:12px; font-weight:600; color:#6b7280; border:none; background:none; cursor:pointer; transition:color .15s; }
@@ -240,9 +249,10 @@
 
         <!-- Top-level tabs: Tickets / Reviews -->
         <div class="flex gap-2 mb-5">
-            <button id="tab-tickets" onclick="setMainTab('tickets')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-active">Tickets</button>
-            <button id="tab-reviews" onclick="setMainTab('reviews')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
-            <button id="tab-discord" onclick="setMainTab('discord')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Discord</button>
+            <button id="tab-tickets"   onclick="setMainTab('tickets')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-active">Tickets</button>
+            <button id="tab-reviews"   onclick="setMainTab('reviews')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
+            <button id="tab-discord"   onclick="setMainTab('discord')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Discord</button>
+            <button id="tab-analytics" onclick="setMainTab('analytics')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Analytics</button>
         </div>
 
         <!-- Error banner -->
@@ -303,6 +313,63 @@
                 </div>
             </div>
         </div>
+
+        <!-- ── Analytics panel ──────────────────────────────────── -->
+        <div id="panel-analytics" style="display:none">
+
+            <!-- Period selector -->
+            <div class="flex items-center gap-2 mb-6 flex-wrap">
+                <span class="text-sm text-gray-400 font-medium mr-1">Period:</span>
+                <button onclick="setAnalyticsPeriod(1)"  id="ap-1"  class="ap-btn px-3 py-1.5 rounded-full text-xs font-semibold ap-inactive">Today</button>
+                <button onclick="setAnalyticsPeriod(7)"  id="ap-7"  class="ap-btn px-3 py-1.5 rounded-full text-xs font-semibold ap-inactive">7 Days</button>
+                <button onclick="setAnalyticsPeriod(30)" id="ap-30" class="ap-btn px-3 py-1.5 rounded-full text-xs font-semibold ap-active">30 Days</button>
+                <button onclick="setAnalyticsPeriod(0)"  id="ap-0"  class="ap-btn px-3 py-1.5 rounded-full text-xs font-semibold ap-inactive">All Time</button>
+                <span id="ap-loading" class="ml-2 text-xs text-gray-500" style="display:none">Loading…</span>
+                <button onclick="loadAnalytics(true)" class="ml-auto text-xs text-gray-500 hover:text-gray-300 transition-colors">↻ Refresh</button>
+            </div>
+
+            <!-- Stat cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" id="ap-stats">
+                <div class="ap-stat-card"><div class="text-2xl mb-1">📊</div><div class="text-xl font-bold">—</div><div class="text-xs text-gray-500 mt-0.5">Loading…</div></div>
+            </div>
+
+            <!-- Charts row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="ap-chart-box">
+                    <div class="ap-section-label">Daily Page Views</div>
+                    <div style="height:180px"><canvas id="chart-daily"></canvas></div>
+                </div>
+                <div class="ap-chart-box">
+                    <div class="ap-section-label">Views by Page</div>
+                    <div style="height:180px"><canvas id="chart-pages"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Clicks + Tool usage -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="ap-chart-box">
+                    <div class="ap-section-label">Social / Link Clicks</div>
+                    <div id="ap-clicks"><p class="text-gray-600 text-sm">Loading…</p></div>
+                </div>
+                <div class="ap-chart-box">
+                    <div class="ap-section-label">Tool Usage</div>
+                    <div id="ap-tools"><p class="text-gray-600 text-sm">Loading…</p></div>
+                </div>
+            </div>
+
+            <!-- Discord Announcements -->
+            <div class="ap-chart-box mb-6">
+                <div class="ap-section-label">Discord Announcements (by Admin)</div>
+                <div id="ap-announcements"><p class="text-gray-600 text-sm">Loading…</p></div>
+            </div>
+
+            <!-- Recent events feed -->
+            <div class="ap-chart-box">
+                <div class="ap-section-label">Recent Events</div>
+                <div id="ap-recent"><p class="text-gray-600 text-sm">Loading…</p></div>
+            </div>
+
+        </div><!-- /panel-analytics -->
 
     </div>
 </div>
@@ -422,14 +489,16 @@
     /* ── main tab switch ── */
     function setMainTab(tab) {
         mainTab = tab;
-        ['tickets','reviews','discord'].forEach(function(t) {
+        ['tickets','reviews','discord','analytics'].forEach(function(t) {
             var btn = document.getElementById('tab-' + t);
             if (btn) btn.className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === t ? 'tab-active' : 'tab-inactive');
         });
-        document.getElementById('panel-tickets').style.display = tab === 'tickets' ? 'block' : 'none';
-        document.getElementById('panel-reviews').style.display = tab === 'reviews' ? 'block' : 'none';
-        document.getElementById('panel-discord').style.display = tab === 'discord' ? 'block' : 'none';
-        if (tab === 'discord') dcOpenTab();
+        document.getElementById('panel-tickets').style.display   = tab === 'tickets'   ? 'block' : 'none';
+        document.getElementById('panel-reviews').style.display   = tab === 'reviews'   ? 'block' : 'none';
+        document.getElementById('panel-discord').style.display   = tab === 'discord'   ? 'block' : 'none';
+        document.getElementById('panel-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
+        if (tab === 'discord')   dcOpenTab();
+        if (tab === 'analytics') loadAnalytics(false);
     }
 
     /* ════════════════════════════════════════════════════════
@@ -969,9 +1038,270 @@
                 dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg, 'red');
             } else {
                 dcShowToast('Sent! ✓', 'green');
+                /* ── Track announcement ── */
+                try {
+                    var _user = firebase.auth().currentUser;
+                    var _chanName = (function() {
+                        var sel = document.getElementById('dc-channel-select');
+                        return sel ? (sel.options[sel.selectedIndex] || {}).text || channelId : channelId;
+                    })();
+                    var _preview = (payload.content || (payload.embeds && payload.embeds[0] && payload.embeds[0].description) || '').slice(0, 80);
+                    FirebaseDB.db.collection('analytics').add({
+                        type: 'announcement_sent',
+                        page: '/admin/',
+                        sessionId: 'admin',
+                        ts: new Date().toISOString(),
+                        admin:   _user ? _user.email : 'unknown',
+                        channel: _chanName,
+                        preview: _preview,
+                    }).catch(function(){});
+                    /* Invalidate cached analytics so next load is fresh */
+                    _analyticsLoaded = false;
+                } catch(_e) {}
             }
         } catch(e) { dcShowToast('Network error: ' + e.message, 'red'); }
         finally { btn.disabled = false; btn.textContent = 'Send →'; }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       ANALYTICS
+    ════════════════════════════════════════════════════════ */
+    var _analyticsEvents = [];
+    var _analyticsPeriod = 30;
+    var _analyticsLoaded = false;
+    var _chartDaily = null;
+    var _chartPages = null;
+
+    function loadAnalytics(force) {
+        if (_analyticsLoaded && !force) { _renderAnalytics(); return; }
+        var loading = document.getElementById('ap-loading');
+        if (loading) loading.style.display = 'inline';
+        FirebaseDB.db.collection('analytics')
+            .orderBy('ts', 'desc')
+            .limit(10000)
+            .get()
+            .then(function (snap) {
+                _analyticsEvents = snap.docs.map(function (d) { return d.data(); });
+                _analyticsLoaded = true;
+                if (loading) loading.style.display = 'none';
+                _renderAnalytics();
+            })
+            .catch(function (err) {
+                if (loading) loading.style.display = 'none';
+                var el = document.getElementById('ap-stats');
+                if (el) el.innerHTML = '<p class="text-red-400 text-sm col-span-4">Failed to load analytics: ' + err.message + '</p>';
+            });
+    }
+
+    function setAnalyticsPeriod(days) {
+        _analyticsPeriod = days;
+        document.querySelectorAll('.ap-btn').forEach(function (b) {
+            b.className = b.className.replace(/\bap-active\b|\bap-inactive\b/g, '').trim()
+                + ' ' + (b.id === 'ap-' + days ? 'ap-active' : 'ap-inactive');
+        });
+        _renderAnalytics();
+    }
+
+    function _apFilter(events) {
+        if (!_analyticsPeriod) return events;
+        var cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - _analyticsPeriod);
+        var cutStr = cutoff.toISOString();
+        return events.filter(function (e) { return (e.ts || '') >= cutStr; });
+    }
+
+    function _renderAnalytics() {
+        var events = _apFilter(_analyticsEvents);
+
+        /* ── Stat cards ── */
+        var sessions   = new Set(events.map(function (e) { return e.sessionId; })).size;
+        var pageViews  = events.filter(function (e) { return e.type === 'page_view'; }).length;
+        var timePieces = events.filter(function (e) { return e.type === 'time_on_page' && e.seconds; });
+        var avgTime    = timePieces.length
+            ? Math.round(timePieces.reduce(function (s, e) { return s + e.seconds; }, 0) / timePieces.length)
+            : 0;
+        var pageCounts = {};
+        events.filter(function (e) { return e.type === 'page_view'; }).forEach(function (e) {
+            pageCounts[e.page] = (pageCounts[e.page] || 0) + 1;
+        });
+        var topPage = Object.entries(pageCounts).sort(function (a, b) { return b[1] - a[1]; })[0];
+        var topPageLabel = topPage
+            ? (topPage[0].replace(/\/$/, '').split('/').filter(Boolean).pop() || 'Home') + ' (' + topPage[1] + ')'
+            : '—';
+        var linkGens = events.filter(function (e) { return e.type === 'link_gen'; }).length;
+
+        var statData = [
+            { icon: '👥', val: sessions,      label: 'Unique Sessions'  },
+            { icon: '👁️', val: pageViews,     label: 'Page Views'       },
+            { icon: '⏱️', val: avgTime + 's', label: 'Avg Time on Page' },
+            { icon: '🏆', val: topPageLabel,  label: 'Top Page'         },
+            { icon: '🔗', val: linkGens,      label: 'URLs Generated'   },
+            { icon: '📢', val: events.filter(function(e){return e.type==='announcement_sent';}).length, label: 'Announcements Sent' },
+            { icon: '💬', val: events.filter(function(e){return e.type==='click'&&e.label==='discord_link';}).length, label: 'Discord Clicks' },
+            { icon: '▶️', val: events.filter(function(e){return e.type==='click'&&e.label==='youtube_link';}).length, label: 'YouTube Clicks' },
+        ];
+        document.getElementById('ap-stats').innerHTML =
+            '<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 col-span-4">' +
+            statData.map(function (s) {
+                return '<div class="ap-stat-card">' +
+                    '<div class="text-xl mb-1">' + s.icon + '</div>' +
+                    '<div class="text-xl font-bold font-display text-white">' + s.val + '</div>' +
+                    '<div class="text-xs text-gray-500 mt-0.5">' + s.label + '</div>' +
+                    '</div>';
+            }).join('') + '</div>';
+
+        /* ── Daily chart ── */
+        var chartDays = Math.min(_analyticsPeriod || 30, 60);
+        var dayLabels = [], dayCounts = [];
+        for (var i = chartDays - 1; i >= 0; i--) {
+            var d = new Date();
+            d.setDate(d.getDate() - i);
+            dayLabels.push((d.getMonth() + 1) + '/' + d.getDate());
+            var dayStr = d.toISOString().slice(0, 10);
+            dayCounts.push(events.filter(function (e) {
+                return e.type === 'page_view' && (e.ts || '').startsWith(dayStr);
+            }).length);
+        }
+        var ctxD = document.getElementById('chart-daily');
+        if (ctxD) {
+            if (_chartDaily) _chartDaily.destroy();
+            _chartDaily = new Chart(ctxD, {
+                type: 'line',
+                data: {
+                    labels: dayLabels,
+                    datasets: [{ label: 'Page Views', data: dayCounts, borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.1)', fill: true, tension: 0.4, pointRadius: 2 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 10 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                        y: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        /* ── Pages bar chart ── */
+        var pageEntries = Object.entries(pageCounts).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 8);
+        var pageLabels  = pageEntries.map(function (e) {
+            var parts = e[0].replace(/\/$/, '').split('/').filter(Boolean);
+            return parts.length ? parts.join(' › ') : 'Home';
+        });
+        var ctxP = document.getElementById('chart-pages');
+        if (ctxP) {
+            if (_chartPages) _chartPages.destroy();
+            _chartPages = new Chart(ctxP, {
+                type: 'bar',
+                data: {
+                    labels: pageLabels,
+                    datasets: [{ label: 'Views', data: pageEntries.map(function (e) { return e[1]; }), backgroundColor: 'rgba(168,85,247,0.6)', borderColor: '#a855f7', borderWidth: 1, borderRadius: 6 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#6b7280', font: { size: 10 }, maxRotation: 30 }, grid: { display: false } },
+                        y: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        /* ── Social / Link clicks ── */
+        var clicks = events.filter(function (e) { return e.type === 'click'; });
+        var labelCounts = {};
+        clicks.forEach(function (e) { if (e.label) labelCounts[e.label] = (labelCounts[e.label] || 0) + 1; });
+        var SOCIAL_ROWS = [
+            { key: 'discord_link',   icon: '💬', label: 'Discord',   note: 'website clicks (not actual joins)' },
+            { key: 'youtube_link',   icon: '▶️', label: 'YouTube',   note: 'website clicks (not actual subs)' },
+            { key: 'twitch_link',    icon: '🟣', label: 'Twitch',    note: '' },
+            { key: 'twitter_link',   icon: '🐦', label: 'X/Twitter', note: '' },
+            { key: 'instagram_link', icon: '📸', label: 'Instagram', note: '' },
+            { key: 'tiktok_link',    icon: '🎵', label: 'TikTok',    note: '' },
+        ];
+        var clickHtml = SOCIAL_ROWS.map(function (r) {
+            var n = labelCounts[r.key] || 0;
+            delete labelCounts[r.key];
+            return '<div class="ap-row"><div class="flex items-center gap-2">' +
+                '<span>' + r.icon + '</span><div>' +
+                '<div class="text-sm font-medium">' + r.label + '</div>' +
+                (r.note ? '<div class="text-xs text-gray-600">' + r.note + '</div>' : '') +
+                '</div></div><span class="text-purple-400 font-bold">' + n + '</span></div>';
+        }).join('');
+        var other = Object.entries(labelCounts).sort(function (a,b){return b[1]-a[1];}).slice(0, 5);
+        if (other.length) {
+            clickHtml += '<div class="text-xs text-gray-600 mt-3 mb-1 uppercase tracking-wide">Other</div>' +
+                other.map(function(e){return '<div class="ap-row"><span class="text-sm text-gray-400">'+e[0]+'</span><span class="text-purple-400 font-bold">'+e[1]+'</span></div>';}).join('');
+        }
+        document.getElementById('ap-clicks').innerHTML = clickHtml || '<p class="text-gray-600 text-sm">No click data yet.</p>';
+
+        /* ── Tool usage ── */
+        var rotatorGens   = events.filter(function(e){return e.type==='link_gen'&&e.tool==='rotator';}).length;
+        var multichatGens = events.filter(function(e){return e.type==='link_gen'&&e.tool==='multichat';}).length;
+        var giveawayClicks = events.filter(function(e){return e.type==='click'&&e.label==='giveaway_enter';}).length;
+        var toolClickCounts = {};
+        events.filter(function(e){return e.type==='click'&&e.label&&e.label.startsWith('tool_');}).forEach(function(e){
+            var n=e.label.replace('tool_',''); toolClickCounts[n]=(toolClickCounts[n]||0)+1;
+        });
+        var toolHtml =
+            '<div class="ap-row"><div class="flex items-center gap-2"><span>🔄</span><span class="text-sm font-medium">Rotator URLs Generated</span></div><span class="text-purple-400 font-bold">'+rotatorGens+'</span></div>' +
+            '<div class="ap-row"><div class="flex items-center gap-2"><span>💬</span><span class="text-sm font-medium">Multichat URLs Generated</span></div><span class="text-purple-400 font-bold">'+multichatGens+'</span></div>' +
+            '<div class="ap-row"><div class="flex items-center gap-2"><span>🎁</span><span class="text-sm font-medium">Giveaway Page Clicks</span></div><span class="text-purple-400 font-bold">'+giveawayClicks+'</span></div>';
+        if (Object.keys(toolClickCounts).length) {
+            toolHtml += '<div class="text-xs text-gray-600 mt-3 mb-1 uppercase tracking-wide">Recommended Tool Clicks</div>' +
+                Object.entries(toolClickCounts).sort(function(a,b){return b[1]-a[1];}).map(function(e){
+                    return '<div class="ap-row"><span class="text-sm text-gray-400">'+e[0]+'</span><span class="text-purple-400 font-bold">'+e[1]+'</span></div>';
+                }).join('');
+        }
+        document.getElementById('ap-tools').innerHTML = toolHtml;
+
+        /* ── Announcements ── */
+        var announcements = events.filter(function(e){return e.type==='announcement_sent';})
+            .sort(function(a,b){return (b.ts||'').localeCompare(a.ts||'');});
+        var byAdmin = {};
+        announcements.forEach(function(e){ var a=e.admin||'Unknown'; byAdmin[a]=(byAdmin[a]||0)+1; });
+        var aHtml = '';
+        if (Object.keys(byAdmin).length) {
+            aHtml += '<div class="flex gap-3 flex-wrap mb-4">' +
+                Object.entries(byAdmin).map(function(e){
+                    return '<div class="ap-stat-card text-center px-4 py-2"><div class="text-lg font-bold text-purple-400">'+e[1]+'</div><div class="text-xs text-gray-500">'+e[0]+'</div></div>';
+                }).join('') + '</div>';
+        }
+        if (!announcements.length) {
+            aHtml = '<p class="text-gray-600 text-sm">No announcements tracked yet — they appear here after being sent via the Discord tab.</p>';
+        } else {
+            aHtml += '<div class="space-y-2 max-h-60 overflow-y-auto">' +
+                announcements.slice(0,25).map(function(e){
+                    var d = new Date(e.ts);
+                    return '<div class="ap-row flex-col items-start gap-0.5">' +
+                        '<div class="text-sm text-gray-300">' + (e.preview || 'Announcement sent') + '</div>' +
+                        '<div class="text-xs text-gray-600">' + (e.admin||'?') + ' · #' + (e.channel||'?') + ' · ' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString() + '</div>' +
+                        '</div>';
+                }).join('') + '</div>';
+        }
+        document.getElementById('ap-announcements').innerHTML = aHtml;
+
+        /* ── Recent events feed ── */
+        var TYPE_ICONS = { page_view:'👁️', time_on_page:'⏱️', click:'🖱️', link_gen:'🔗', announcement_sent:'📢', giveaway_enter:'🎁' };
+        var recentHtml = '<div class="space-y-1 max-h-72 overflow-y-auto">' +
+            events.slice(0, 50).map(function(e){
+                var d = new Date(e.ts);
+                var detail =
+                    e.type === 'page_view'          ? e.page :
+                    e.type === 'time_on_page'        ? e.seconds + 's on ' + e.page :
+                    e.type === 'click'               ? 'Clicked: ' + (e.label||'?') + ' on ' + e.page :
+                    e.type === 'link_gen'            ? 'Generated ' + (e.tool||'?') + ' link (' + (e.count||1) + ' platforms)' :
+                    e.type === 'announcement_sent'   ? 'Announcement by ' + (e.admin||'?') + ' → #' + (e.channel||'?') :
+                    e.type === 'giveaway_enter'      ? 'Giveaway entry' :
+                    JSON.stringify(e).slice(0, 80);
+                return '<div class="flex items-center gap-2 text-xs py-1 border-b border-white/5">' +
+                    '<span class="flex-shrink-0">' + (TYPE_ICONS[e.type]||'•') + '</span>' +
+                    '<span class="text-gray-400 flex-1 truncate">' + detail + '</span>' +
+                    '<span class="text-gray-600 flex-shrink-0">' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString() + '</span>' +
+                    '</div>';
+            }).join('') + '</div>';
+        document.getElementById('ap-recent').innerHTML = recentHtml || '<p class="text-gray-600 text-sm">No events yet.</p>';
     }
 
     /* ── Backups ── */

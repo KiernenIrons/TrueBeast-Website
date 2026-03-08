@@ -221,6 +221,10 @@ const SITE_CONFIG = {
     //              allow read:          if true;    // public — homepage reads announcements
     //              allow write:         if request.auth != null;
     //            }
+    //            match /analytics/{eventId} {
+    //              allow create:        if true;                    // public write (events in)
+    //              allow list, get:     if request.auth != null;    // admin read only
+    //            }
     //          }
     //        }
     //
