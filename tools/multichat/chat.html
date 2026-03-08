@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Chat</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --font: 'Outfit', sans-serif;
+            --size: 14px;
+            --msg-bg: rgba(0,0,0,0.5);
+        }
+
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+
+        /* ── DOCK mode ── */
+        body.dock {
+            background: #0e0e10;
+            color: #efeff1;
+            font-family: var(--font);
+            font-size: var(--size);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .dock-header {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #1f1f23;
+            border-bottom: 1px solid #2e2e35;
+            flex-shrink: 0;
+            gap: 8px;
+        }
+        body.dock .dock-header { display: flex; }
+
+        .dock-title { font-weight: 700; font-size: 13px; white-space: nowrap; }
+
+        .status-bar { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+
+        .status-chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 7px; border-radius: 20px;
+            font-size: 11px; font-weight: 600; transition: all 0.2s;
+        }
+        .status-chip .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+        .status-chip.connecting { color: #facc15; background: rgba(234,179,8,0.12); }
+        .status-chip.connected  { color: #4ade80; background: rgba(34,197,94,0.12); }
+        .status-chip.error      { color: #f87171; background: rgba(239,68,68,0.12); }
+
+        .chat-scroll {
+            flex: 1; overflow-y: auto; overflow-x: hidden;
+            padding: 5px 3px; display: flex; flex-direction: column; gap: 1px;
+            scrollbar-width: thin; scrollbar-color: #3a3a4a transparent;
+        }
+        .chat-scroll::-webkit-scrollbar { width: 4px; }
+        .chat-scroll::-webkit-scrollbar-thumb { background: #3a3a4a; border-radius: 2px; }
+
+        /* ── OVERLAY mode ── */
+        body.overlay {
+            background: transparent;
+            font-family: var(--font);
+            font-size: var(--size);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 8px;
+        }
+        body.overlay .chat-scroll {
+            display: flex; flex-direction: column; gap: 3px; overflow: hidden;
+        }
+
+        /* ── Message ── */
+        .message {
+            display: flex; align-items: baseline; flex-wrap: wrap;
+            gap: 2px 4px; padding: 3px 7px; border-radius: 5px;
+            line-height: 1.45; word-break: break-word;
+            animation: msgIn 0.2s ease forwards;
+        }
+        body.dock .message:hover { background: rgba(255,255,255,0.05); }
+        body.overlay .message { background: var(--msg-bg); backdrop-filter: blur(3px); color: #fff; }
+
+        .msg-icon  { flex-shrink: 0; display: inline-flex; align-items: center; }
+        .msg-name  { font-weight: 700; flex-shrink: 0; }
+        .msg-colon { flex-shrink: 0; opacity: 0.3; }
+        .msg-text  { flex: 1; min-width: 0; }
+        .msg-time  { font-size: 0.7em; opacity: 0.35; flex-shrink: 0; margin-left: auto; padding-left: 6px; }
+
+        body.overlay .msg-colon { color: rgba(255,255,255,0.3); }
+
+        @keyframes msgIn  { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes msgOut { from { opacity: 1; transform: scale(1);        } to { opacity: 0; transform: scale(0.95);   } }
+        .msg-removing { animation: msgOut 0.35s ease forwards; }
+
+        .empty-state {
+            padding: 20px; text-align: center;
+            color: rgba(255,255,255,0.25); font-size: 12px;
+        }
+        body.overlay .empty-state { display: none; }
+    </style>
+</head>
+<body>
+    <div class="dock-header">
+        <span class="dock-title">Multi-Chat</span>
+        <div class="status-bar" id="status-bar"></div>
+    </div>
+    <div class="chat-scroll" id="chat-list">
+        <div class="empty-state" id="empty-state">Waiting for messages…</div>
+    </div>
+
+    <script>
+        /* ── Parse config from URL ── */
+        let cfg;
+        try {
+            cfg = JSON.parse(decodeURIComponent(escape(atob(new URLSearchParams(location.search).get('c')))));
+        } catch {
+            cfg = { mode: 'overlay', twitch: null, kick: null, yt: null, ytkey: null,
+                    font: 'Outfit', size: 14, maxmsgs: 30, msgTimeout: 0, timestamps: false, msgBg: 50 };
+        }
+
+        /* ── Apply styles ── */
+        document.body.className = cfg.mode === 'dock' ? 'dock' : 'overlay';
+        const root = document.documentElement;
+        root.style.setProperty('--font', `'${cfg.font || 'Outfit'}', sans-serif`);
+        root.style.setProperty('--size', (cfg.size || 14) + 'px');
+        if (cfg.mode !== 'dock') {
+            const alpha = Math.min(Math.max((cfg.msgBg ?? 50), 0), 90) / 100;
+            root.style.setProperty('--msg-bg', `rgba(0,0,0,${alpha})`);
+        }
+
+        /* ── Load font ── */
+        const fl = document.createElement('link');
+        fl.rel = 'stylesheet';
+        fl.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(cfg.font || 'Outfit')}:wght@400;600;700&display=swap`;
+        document.head.appendChild(fl);
+
+        const listEl   = document.getElementById('chat-list');
+        const statusEl = document.getElementById('status-bar');
+        let emptyEl    = document.getElementById('empty-state');
+        const MAX      = Math.max(5, cfg.maxmsgs || 30);
+
+        /* ── Platform SVGs (inline, small) ── */
+        const ICONS = {
+            twitch:  `<svg width="11" height="11" viewBox="0 0 24 24" fill="#9147ff"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/></svg>`,
+            kick:    `<svg width="11" height="11" viewBox="0 0 24 24" fill="#53fc18"><path d="M4 2h3.5v7.5L14.5 2H19l-7.5 8.5L19.5 22H15l-7.5-9V22H4V2z"/></svg>`,
+            youtube: `<svg width="11" height="11" viewBox="0 0 24 24" fill="#FF0000"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>`,
+        };
+        const COLORS = { twitch: '#9147ff', kick: '#53fc18', youtube: '#FF0000' };
+
+        function esc(s) {
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        /* ── Add a message to the DOM ── */
+        function addMessage(platform, username, text, userColor) {
+            if (emptyEl) { emptyEl.remove(); emptyEl = null; }
+            const el = document.createElement('div');
+            el.className = 'message';
+            const nameColor = userColor || COLORS[platform] || '#aaa';
+            const timeHtml  = cfg.timestamps
+                ? `<span class="msg-time">${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>`
+                : '';
+            el.innerHTML =
+                `<span class="msg-icon">${ICONS[platform] || ''}</span>` +
+                `<span class="msg-name" style="color:${esc(nameColor)}">${esc(username)}</span>` +
+                `<span class="msg-colon">:</span>` +
+                `<span class="msg-text">${esc(text)}</span>` +
+                timeHtml;
+            listEl.appendChild(el);
+            if (cfg.mode === 'dock') listEl.scrollTop = listEl.scrollHeight;
+            while (listEl.children.length > MAX) listEl.removeChild(listEl.firstChild);
+            if (cfg.msgTimeout > 0) {
+                setTimeout(() => {
+                    el.classList.add('msg-removing');
+                    setTimeout(() => el.remove(), 380);
+                }, cfg.msgTimeout * 1000);
+            }
+        }
+
+        /* ── Status chips ── */
+        const chips = {};
+        function setStatus(id, state, label) {
+            if (!chips[id]) {
+                chips[id] = document.createElement('div');
+                chips[id].innerHTML = `<div class="dot"></div><span></span>`;
+                statusEl.appendChild(chips[id]);
+            }
+            chips[id].className = 'status-chip ' + state;
+            chips[id].querySelector('span').textContent = label;
+        }
+
+        /* ─────────────────── TWITCH – anonymous IRC ─────────────────── */
+        function connectTwitch(channel) {
+            setStatus('twitch', 'connecting', 'Twitch');
+            const ws = new WebSocket('wss://irc.twitch.tv');
+            ws.onopen = () => {
+                ws.send('CAP REQ :twitch.tv/tags');
+                ws.send('PASS SCHMOOPIIE');
+                ws.send('NICK justinfan' + (Math.random() * 89999 + 10000 | 0));
+                ws.send('JOIN #' + channel.toLowerCase().trim());
+            };
+            ws.onmessage = ({ data }) => {
+                data.split('\r\n').filter(Boolean).forEach(line => {
+                    if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
+                    if (!line.includes('PRIVMSG')) return;
+                    const p = parseTwitchLine(line);
+                    if (p) { setStatus('twitch', 'connected', 'Twitch'); addMessage('twitch', p.name, p.text, p.color); }
+                });
+            };
+            ws.onclose = () => { setStatus('twitch', 'error', 'Twitch'); setTimeout(() => connectTwitch(channel), 5000); };
+        }
+
+        function parseTwitchLine(line) {
+            const tags = {};
+            let rest = line;
+            if (rest.startsWith('@')) {
+                const sp = rest.indexOf(' ');
+                rest.substring(1, sp).split(';').forEach(t => {
+                    const eq = t.indexOf('=');
+                    if (eq >= 0) tags[t.slice(0, eq)] = t.slice(eq + 1);
+                });
+                rest = rest.substring(sp + 1);
+            }
+            const m = rest.match(/^:\S+!\S+@\S+ PRIVMSG #\S+ :(.+)$/);
+            if (!m) return null;
+            return {
+                name:  tags['display-name'] || rest.split('!')[0].slice(1),
+                color: tags['color'] || '',
+                text:  m[1],
+            };
+        }
+
+        /* ────────────────── KICK – Pusher WebSocket ─────────────────── */
+        async function connectKick(channel) {
+            setStatus('kick', 'connecting', 'Kick');
+            try {
+                const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(channel.toLowerCase().trim())}`);
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                const d = await r.json();
+                const chatroomId = d?.chatroom?.id;
+                if (!chatroomId) throw new Error('No chatroom ID');
+                kickPusher(chatroomId, channel);
+            } catch (e) {
+                setStatus('kick', 'error', 'Kick (blocked)');
+                console.warn('Kick connect failed:', e.message);
+            }
+        }
+
+        function kickPusher(chatroomId, channel) {
+            const ws = new WebSocket('wss://ws-us2.pusher.com/app/32cbd69e4b950bf97679?protocol=7&client=js&version=7.6.0&flash=false');
+            ws.onopen = () => ws.send(JSON.stringify({
+                event: 'pusher:subscribe',
+                data:  { auth: '', channel: `chatrooms.${chatroomId}.v2` },
+            }));
+            ws.onmessage = ({ data }) => {
+                try {
+                    const msg = JSON.parse(data);
+                    if (msg.event === 'pusher:connection_established') setStatus('kick', 'connected', 'Kick');
+                    if (msg.event === 'App\\Events\\ChatMessageEvent') {
+                        const d = JSON.parse(msg.data);
+                        addMessage('kick', d.sender?.username || 'user', d.content || '', '#53fc18');
+                    }
+                } catch {}
+            };
+            ws.onclose = () => { setStatus('kick', 'error', 'Kick'); setTimeout(() => kickPusher(chatroomId, channel), 5000); };
+        }
+
+        /* ──────────────── YOUTUBE – Data API v3 polling ─────────────── */
+        async function connectYouTube(channelId, apiKey) {
+            setStatus('yt', 'connecting', 'YouTube');
+            try {
+                const sr = await fetch(
+                    `https://www.googleapis.com/youtube/v3/search?part=id&channelId=${encodeURIComponent(channelId)}&eventType=live&type=video&maxResults=1&key=${encodeURIComponent(apiKey)}`
+                );
+                const sd = await sr.json();
+                if (sd.error) throw new Error(sd.error.message);
+                const videoId = sd.items?.[0]?.id?.videoId;
+                if (!videoId) { setStatus('yt', 'error', 'YouTube (not live)'); return; }
+
+                const vr = await fetch(
+                    `https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(apiKey)}`
+                );
+                const vd = await vr.json();
+                const chatId = vd.items?.[0]?.liveStreamingDetails?.activeLiveChatId;
+                if (!chatId) { setStatus('yt', 'error', 'YouTube (no chat)'); return; }
+
+                setStatus('yt', 'connected', 'YouTube');
+                pollYouTube(chatId, apiKey, '');
+            } catch (e) {
+                setStatus('yt', 'error', 'YouTube (error)');
+                console.warn('YouTube error:', e.message);
+            }
+        }
+
+        const ytSeen = new Set();
+        async function pollYouTube(chatId, key, nextToken) {
+            try {
+                const url =
+                    `https://www.googleapis.com/youtube/v3/liveChatMessages?liveChatId=${encodeURIComponent(chatId)}&part=snippet,authorDetails&key=${encodeURIComponent(key)}` +
+                    (nextToken ? `&pageToken=${encodeURIComponent(nextToken)}` : '');
+                const r = await fetch(url);
+                const d = await r.json();
+                if (d.error) throw new Error(d.error.message);
+                d.items?.forEach(item => {
+                    if (ytSeen.has(item.id)) return;
+                    ytSeen.add(item.id);
+                    addMessage('youtube', item.authorDetails.displayName, item.snippet.displayMessage || '', '#FF0000');
+                });
+                setTimeout(() => pollYouTube(chatId, key, d.nextPageToken || nextToken), d.pollingIntervalMillis || 5000);
+            } catch {
+                setTimeout(() => pollYouTube(chatId, key, nextToken), 15000);
+            }
+        }
+
+        /* ── Start ── */
+        if (cfg.twitch)         connectTwitch(cfg.twitch);
+        if (cfg.kick)           connectKick(cfg.kick);
+        if (cfg.yt && cfg.ytkey) connectYouTube(cfg.yt, cfg.ytkey);
+    </script>
+</body>
+</html>
