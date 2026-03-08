@@ -494,15 +494,15 @@
         document.getElementById('nav-refresh').style.display  = authed ? 'block' : 'none';
     }
 
-    /* ── Brevo email helper ── */
+    /* ── Email helper (Gmail via Cloudflare Worker) ── */
     function sendEmail(to, toName, subject, html) {
-        var cfg = (typeof SITE_CONFIG !== 'undefined') ? SITE_CONFIG.brevo : null;
+        var cfg = (typeof SITE_CONFIG !== 'undefined') ? SITE_CONFIG.email : null;
         console.log('[Email] sendEmail called', { to: to, subject: subject, hasConfig: !!cfg, workerConfigured: !!(cfg && cfg.workerUrl && cfg.workerUrl !== 'PASTE_YOUR_CLOUDFLARE_WORKER_URL') });
         if (!cfg || !cfg.workerUrl || cfg.workerUrl === 'PASTE_YOUR_CLOUDFLARE_WORKER_URL') {
             console.warn('[Email] Skipped — workerUrl not set in js/config.js');
             return;
         }
-        var payload = { sender: { name: cfg.senderName, email: cfg.senderEmail }, to: [{ email: to, name: toName || to }], subject: subject, htmlContent: html };
+        var payload = { to: to, subject: subject, html: html, senderName: cfg.senderName, senderEmail: cfg.senderEmail };
         console.log('[Email] Sending to worker...', { to: to, subject: subject, workerUrl: cfg.workerUrl });
         fetch(cfg.workerUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
             .then(function(res) {
@@ -519,6 +519,27 @@
         return String(s == null ? '' : s)
             .replace(/&/g,'&amp;').replace(/</g,'&lt;')
             .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    /* ── Build conversation context HTML (last N messages) ── */
+    function buildThreadHtml(ticket, lastN) {
+        var allMsgs = [{ from: 'user', name: ticket.name, text: ticket.description, ts: ticket.createdAt }]
+            .concat((ticket.responses || []).map(function(r) {
+                return { from: r.from, name: r.from === 'support' ? 'TrueBeast Support' : ticket.name, text: r.text, ts: r.timestamp };
+            }));
+        var msgs = lastN ? allMsgs.slice(-lastN) : allMsgs;
+        if (!msgs.length) return '';
+        var html = '<div style="margin:20px 0;border-top:1px solid #374151;padding-top:16px">';
+        html += '<p style="color:#6b7280;font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px">Conversation context</p>';
+        msgs.forEach(function(m) {
+            var isSupport = m.from === 'support';
+            html += '<div style="background:' + (isSupport ? '#1e1b4b' : '#1f2937') + ';border-left:3px solid ' + (isSupport ? '#818cf8' : '#22c55e') + ';padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:8px">';
+            html += '<div style="font-size:11px;color:#6b7280;margin-bottom:4px">' + esc(m.name) + ' &bull; ' + new Date(m.ts).toLocaleString() + '</div>';
+            html += '<div style="font-size:13px;color:#d1d5db;white-space:pre-wrap">' + esc(m.text) + '</div>';
+            html += '</div>';
+        });
+        html += '</div>';
+        return html;
     }
 
     /* ── nav refresh ── */
@@ -782,6 +803,51 @@
                 if (idx !== -1) allTickets[idx] = activeTicket;
             }
             renderDetail();
+
+            // Send closure emails when ticket is resolved
+            if (newStatus === 'resolved') {
+                var siteUrl    = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || 'https://truebeast.io';
+                var adminEmail = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.email && SITE_CONFIG.email.adminEmail) || 'kiernenyt@gmail.com';
+                var viewUrl    = siteUrl + '/ticket/?id=' + activeTicket.id;
+                var reviewUrl  = siteUrl + '/tech-support/';
+                var threadHtml = buildThreadHtml(activeTicket, 5);
+
+                // Email to user
+                sendEmail(
+                    activeTicket.email, activeTicket.name,
+                    '[TrueBeast Support] Ticket ' + activeTicket.id + ' has been resolved ✓',
+                    '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px">' +
+                    '<h2 style="color:#22c55e;margin-top:0">Your ticket has been resolved ✓</h2>' +
+                    '<p>Hey ' + esc(activeTicket.name) + ', great news — your support ticket has been marked as <strong style="color:#22c55e">resolved</strong>.</p>' +
+                    '<table style="width:100%;border-collapse:collapse;margin:16px 0">' +
+                    '<tr><td style="padding:6px 0;color:#9ca3af;width:130px">Ticket ID</td><td style="padding:6px 0;font-weight:600">' + activeTicket.id + '</td></tr>' +
+                    '<tr><td style="padding:6px 0;color:#9ca3af">Subject</td><td style="padding:6px 0">' + esc(activeTicket.subject) + '</td></tr>' +
+                    '</table>' +
+                    threadHtml +
+                    '<p style="margin-top:20px">If your issue is fully sorted, I\'d really appreciate a quick review — it helps others in the community know what to expect!</p>' +
+                    '<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap">' +
+                    '<a href="' + viewUrl + '" style="display:inline-block;background:#1f2937;color:#e5e7eb;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:600">View Ticket</a>' +
+                    '<a href="' + reviewUrl + '" style="display:inline-block;background:#22c55e;color:#000;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:600">Leave a Review</a>' +
+                    '</div>' +
+                    '<p style="margin-top:20px;color:#6b7280;font-size:13px">If the issue wasn\'t fully resolved you can still reply to the ticket or open a new one. Thank you for letting me help! 🎮</p>' +
+                    '</div>'
+                );
+
+                // Email to admin
+                sendEmail(
+                    adminEmail, 'TrueBeast',
+                    '[TrueBeast Support] Ticket ' + activeTicket.id + ' marked resolved',
+                    '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px">' +
+                    '<h2 style="color:#818cf8;margin-top:0">Ticket Resolved</h2>' +
+                    '<p>You marked ticket <strong>' + activeTicket.id + '</strong> as resolved.</p>' +
+                    '<table style="width:100%;border-collapse:collapse;margin:16px 0">' +
+                    '<tr><td style="padding:6px 0;color:#9ca3af;width:130px">From</td><td style="padding:6px 0">' + esc(activeTicket.name) + ' &lt;' + esc(activeTicket.email) + '&gt;</td></tr>' +
+                    '<tr><td style="padding:6px 0;color:#9ca3af">Subject</td><td style="padding:6px 0">' + esc(activeTicket.subject) + '</td></tr>' +
+                    '<tr><td style="padding:6px 0;color:#9ca3af">Total messages</td><td style="padding:6px 0">' + (1 + (activeTicket.responses || []).length) + '</td></tr>' +
+                    '</table>' +
+                    '</div>'
+                );
+            }
         }).catch(function(ex) { alert('Status update failed: ' + ex.message); });
     }
 
@@ -817,13 +883,24 @@
                     var idx = allTickets.findIndex(function(t){ return t.id === activeTicket.id; });
                     if (idx !== -1) allTickets[idx] = activeTicket;
                 }
-                // Notify the user that TrueBeast replied
-                var siteUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || 'https://truebeast.io';
-                var viewUrl = siteUrl + '/ticket/?id=' + activeTicket.id;
+                // Notify the user that TrueBeast replied (with conversation context)
+                var siteUrl    = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || 'https://truebeast.io';
+                var viewUrl    = siteUrl + '/ticket/?id=' + activeTicket.id;
+                // Build context from the ticket BEFORE the new reply (activeTicket still has old responses at this point)
+                var threadHtml = buildThreadHtml({ name: activeTicket.name, description: activeTicket.description, createdAt: activeTicket.createdAt, responses: (activeTicket.responses || []).slice(0, -1) }, 4);
                 sendEmail(
                     activeTicket.email, activeTicket.name,
-                    '[TrueBeast Support] Update on ticket ' + activeTicket.id,
-                    '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px"><h2 style="color:#22c55e;margin-top:0">TrueBeast replied to your ticket</h2><p>Hey ' + esc(activeTicket.name) + ', TrueBeast has added a response to your ticket.</p><blockquote style="background:#1f2937;border-left:4px solid #818cf8;padding:12px 16px;border-radius:8px;margin:16px 0;font-size:14px">' + esc(text) + '</blockquote><p style="color:#9ca3af;font-size:13px">Ticket: ' + activeTicket.id + ' — ' + esc(activeTicket.subject) + '</p><a href="' + viewUrl + '" style="display:inline-block;background:#22c55e;color:#000;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600">View Ticket</a></div>'
+                    '[TrueBeast Support] New reply on ticket ' + activeTicket.id,
+                    '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px">' +
+                    '<h2 style="color:#22c55e;margin-top:0">TrueBeast replied to your ticket</h2>' +
+                    '<p>Hey ' + esc(activeTicket.name) + ', a new response has been added to your ticket <strong>' + activeTicket.id + '</strong>.</p>' +
+                    '<div style="background:#1e1b4b;border-left:4px solid #818cf8;padding:14px 16px;border-radius:0 8px 8px 0;margin:20px 0">' +
+                    '<div style="font-size:11px;color:#818cf8;margin-bottom:6px;font-weight:600">TrueBeast Support</div>' +
+                    '<div style="font-size:14px;white-space:pre-wrap;color:#e5e7eb">' + esc(text) + '</div>' +
+                    '</div>' +
+                    threadHtml +
+                    '<a href="' + viewUrl + '" style="display:inline-block;background:#22c55e;color:#000;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600;margin-top:8px">View &amp; Reply to Ticket</a>' +
+                    '</div>'
                 );
                 renderDetail();
             })
