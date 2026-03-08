@@ -61,6 +61,7 @@ let player       = null;
 let connection   = null;
 let restartTimer = null;
 let restartDelay = 5_000;   // starts at 5s, doubles on repeated failures (max 60s)
+let streamStarted = false;  // guard: only start stream once per connection
 
 // ── Stream ────────────────────────────────────────────────────────────────────
 
@@ -88,8 +89,9 @@ function scheduleRestart(delayOverride) {
 
 // ── Voice ─────────────────────────────────────────────────────────────────────
 
-async function startRadio(channel) {
+function startRadio(channel) {
     console.log(`[Radio] Joining #${channel.name} in "${channel.guild.name}"...`);
+    streamStarted = false;
 
     connection = joinVoiceChannel({
         channelId:      channel.id,
@@ -99,21 +101,19 @@ async function startRadio(channel) {
         selfMute:       false,
     });
 
-    // Wait for the connection to actually be ready before starting audio.
-    // Without this, playStream() fires before the voice WebSocket handshake
-    // completes, and Discord silently drops the audio.
-    try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
-        console.log('[Radio] ✅ Voice connection ready.');
-    } catch (err) {
-        console.error('[Radio] Voice connection timed out:', err.message);
-        connection.destroy();
-        connection = null;
-        throw err;
-    }
-
     player = createAudioPlayer();
     connection.subscribe(player);
+
+    // Start streaming as soon as the voice UDP handshake completes.
+    // Using an event rather than await entersState() so a slow Railway
+    // network handshake doesn't kill the process.
+    connection.on(VoiceConnectionStatus.Ready, () => {
+        console.log('[Radio] ✅ Voice connection ready.');
+        if (!streamStarted) {
+            streamStarted = true;
+            playStream();
+        }
+    });
 
     // Stream ended naturally (server hiccup, brief network blip) → restart
     player.on(AudioPlayerStatus.Idle, () => {
@@ -145,7 +145,7 @@ async function startRadio(channel) {
             setTimeout(async () => {
                 try {
                     const ch = await client.channels.fetch(CHANNEL_ID);
-                    await startRadio(ch);
+                    startRadio(ch);
                 } catch (e) {
                     console.error('[Radio] Channel fetch failed:', e.message);
                     scheduleRestart(30_000);
@@ -157,13 +157,12 @@ async function startRadio(channel) {
     connection.on('error', (err) => {
         console.error('[Radio] Connection error:', err.message);
     });
-
-    playStream();
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-client.once('ready', async () => {
+// 'clientReady' is the non-deprecated name in discord.js v14+
+client.once('clientReady', async () => {
     console.log(`[Radio] ✅ Logged in as ${client.user.tag}`);
     console.log(`[Radio] Targeting channel ID: ${CHANNEL_ID}`);
     try {
@@ -174,7 +173,7 @@ client.once('ready', async () => {
         if (!channel.isVoiceBased()) {
             throw new Error(`Channel ${CHANNEL_ID} ("${channel.name}") is not a voice channel.`);
         }
-        await startRadio(channel);
+        startRadio(channel);
     } catch (err) {
         console.error('[Radio] Startup error:', err.message);
         process.exit(1);
