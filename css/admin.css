@@ -79,3 +79,32 @@ input:focus, textarea:focus, select:focus {
 
 /* Ticket list scroll area */
 .ticket-list { max-height: calc(100vh - 340px); overflow-y: auto; }
+
+/* ── Light Mode ──────────────────────────────────────────────── */
+html.light body { background: #f0f4f0; }
+
+html.light .gradient-bg {
+    background:
+        radial-gradient(ellipse at 20% 20%, rgba(124,58,237,0.10) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 80%, rgba(34,197,94,0.10) 0%, transparent 50%),
+        #eef0f8;
+}
+
+/* Login form inputs */
+html.light #screen-login input[type="email"],
+html.light #screen-login input[type="password"] {
+    background: rgba(255,255,255,0.85) !important;
+    color: #111827 !important;
+    border: 1px solid rgba(0,0,0,0.15);
+}
+html.light #screen-login input::placeholder { color: #9ca3af !important; }
+html.light #screen-login label { color: #374151 !important; }
+html.light #screen-login p.text-gray-400 { color: #4b5563 !important; }
+html.light #screen-login h2 { color: #111827 !important; }
+
+/* Reply textarea */
+html.light #reply-text {
+    background: rgba(255,255,255,0.85) !important;
+    color: #111827 !important;
+}
+html.light #reply-text::placeholder { color: #9ca3af !important; }

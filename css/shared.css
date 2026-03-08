@@ -239,3 +239,20 @@ html.light .hover\:text-white:hover   { color: #000 !important; }
 /* ── index.html nav dropdown ── */
 html.light .bg-\[\#111118\] { background: #ffffff !important; }
 
+/* ── Input / textarea / select contrast in light mode ── */
+html.light input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+html.light textarea,
+html.light select {
+    background: rgba(255, 255, 255, 0.85) !important;
+    color: #111827 !important;
+    border-color: rgba(0, 0, 0, 0.15) !important;
+}
+html.light input::placeholder,
+html.light textarea::placeholder {
+    color: #9ca3af !important;
+}
+html.light select option {
+    background: #ffffff;
+    color: #111827;
+}
+

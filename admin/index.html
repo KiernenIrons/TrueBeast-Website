@@ -54,10 +54,17 @@
         .filter-active { background: rgba(34,197,94,0.2); color: #22c55e; border: 1px solid rgba(34,197,94,0.4); }
         .filter-inactive { background: rgba(255,255,255,0.04); color: #9ca3af; border: 1px solid rgba(255,255,255,0.06); }
         .send-btn { background: rgba(124,58,237,0.3); color: #c4b5fd; border: 1px solid rgba(124,58,237,0.4); transition: background 0.2s; }
+        html.light .send-btn { background: rgba(124,58,237,0.18); color: #5b21b6; border-color: rgba(109,40,217,0.5); }
+        html.light .send-btn:hover { background: rgba(124,58,237,0.32); }
+        html.light .dc-input { background: rgba(255,255,255,0.85); border-color: rgba(0,0,0,0.18); color: #111827; }
+        html.light .dc-label { color: #374151; }
+        html.light .dc-section { border-color: rgba(0,0,0,0.1); background: rgba(0,0,0,0.03); }
+        html.light .dc-section-head { color: #5b21b6; }
+        html.light .dc-sub { color: #374151; }
         .send-btn:hover { background: rgba(124,58,237,0.5); }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         /* ── Discord Embed Builder ───────────────────── */
-        .dc-input { width:100%; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:8px 12px; color:#e5e7eb; font-size:13px; transition:border-color .2s; box-sizing:border-box; font-family:inherit; }
+        .dc-input { width:100%; background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.18); border-radius:8px; padding:8px 12px; color:#f3f4f6; font-size:13px; transition:border-color .2s; box-sizing:border-box; font-family:inherit; }
         .dc-input:focus { border-color:rgba(124,58,237,.5); box-shadow:0 0 0 2px rgba(124,58,237,.15); }
         .dc-label { display:block; font-size:11px; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
         .dc-section { border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); border-radius:12px; margin-bottom:10px; overflow:hidden; }
@@ -199,7 +206,7 @@
                 </svg>
             </div>
             <h2 class="font-display font-bold text-2xl">Admin Access</h2>
-            <p class="text-gray-400 text-sm mt-1">Sign in with your Firebase admin account</p>
+            <p class="text-gray-400 text-sm mt-1">Sign in with your TrueBeast admin account</p>
         </div>
         <form onsubmit="doLogin(event)" class="space-y-4">
             <div>
@@ -251,7 +258,7 @@
         <div class="flex gap-2 mb-5">
             <button id="tab-tickets"   onclick="setMainTab('tickets')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-active">Tickets</button>
             <button id="tab-reviews"   onclick="setMainTab('reviews')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
-            <button id="tab-discord"   onclick="setMainTab('discord')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Discord</button>
+            <button id="tab-discord"   onclick="setMainTab('discord')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Announcements</button>
             <button id="tab-analytics" onclick="setMainTab('analytics')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Analytics</button>
             <button id="tab-admin"     onclick="setMainTab('admin')"     class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive" style="display:none">Admin</button>
         </div>
@@ -731,7 +738,7 @@
 
         var replyForm = t.status !== 'resolved'
             ? '<form onsubmit="sendReply(event)" class="flex gap-3 mt-2">' +
-                '<textarea id="reply-text" placeholder="Type your reply…" class="flex-1 liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 h-20 resize-none text-sm"></textarea>' +
+                '<textarea id="reply-text" placeholder="Type your reply…" class="flex-1 liquid-glass bg-transparent px-4 py-3 rounded-xl text-white placeholder-gray-500 h-20 resize-y text-sm" style="min-height:5rem;max-height:18rem"></textarea>' +
                 '<button type="submit" id="reply-btn" class="send-btn px-5 py-3 rounded-xl font-semibold self-end flex items-center gap-2 whitespace-nowrap">' +
                   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
                   'Send' +
