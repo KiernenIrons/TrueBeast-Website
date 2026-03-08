@@ -925,7 +925,20 @@
 
             useScrollReveal();
 
-            useEffect(() => {}, []);
+            // Scroll to hash anchor after React renders (e.g. #leave-review from email links)
+            useEffect(() => {
+                const hash = window.location.hash;
+                if (!hash) return;
+                const tryScroll = (attempts) => {
+                    const el = document.querySelector(hash);
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } else if (attempts > 0) {
+                        setTimeout(() => tryScroll(attempts - 1), 150);
+                    }
+                };
+                setTimeout(() => tryScroll(10), 100);
+            }, []);
 
             return (
                 <div className="relative min-h-screen">
