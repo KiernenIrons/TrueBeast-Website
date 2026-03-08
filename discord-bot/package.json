@@ -1,0 +1,20 @@
+{
+    "name": "truebeast-radio-bot",
+    "version": "1.0.0",
+    "description": "24/7 lofi radio bot for TrueBeast Discord server",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "dependencies": {
+        "@discordjs/opus":  "^0.10.0",
+        "@discordjs/voice": "^0.17.0",
+        "discord.js":       "^14.15.3",
+        "dotenv":           "^16.4.5",
+        "ffmpeg-static":    "^5.2.0",
+        "sodium-native":    "^4.1.1"
+    }
+}

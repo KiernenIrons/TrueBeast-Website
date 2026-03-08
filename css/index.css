@@ -23,13 +23,13 @@
     width: 100%; height: 100%;
     background: radial-gradient(ellipse at 60% 30%, rgba(74, 222, 128, 0.06) 0%, transparent 40%);
     animation: gradientShift 20s ease-in-out infinite;
+    will-change: transform;
 }
 
 @keyframes gradientShift {
-    0%,  100% { transform: translate(0, 0) scale(1); }
-    25%        { transform: translate(5%, -5%) scale(1.1); }
-    50%        { transform: translate(-5%, 5%) scale(0.95); }
-    75%        { transform: translate(3%, 3%) scale(1.05); }
+    0%,  100% { transform: translate(0, 0); }
+    33%        { transform: translate(5%, -5%); }
+    66%        { transform: translate(-5%, 5%); }
 }
 
 /* Animated border glow — green */
@@ -42,20 +42,15 @@
     );
 }
 
-/* Pulse glow — green */
+/* Pulse glow — green (opacity-based: compositor-only, no CPU repaint) */
 .pulse-glow {
     animation: pulseGlow 3s ease-in-out infinite;
+    will-change: opacity;
 }
 
 @keyframes pulseGlow {
-    0%, 100% {
-        box-shadow: 0 0 20px rgba(34, 197, 94, 0.3),
-                    0 0 40px rgba(34, 197, 94, 0.1);
-    }
-    50% {
-        box-shadow: 0 0 30px rgba(34, 197, 94, 0.5),
-                    0 0 60px rgba(34, 197, 94, 0.2);
-    }
+    0%, 100% { opacity: 0.8; }
+    50%       { opacity: 1; }
 }
 
 /* Button hover — green shadow */
@@ -78,12 +73,12 @@
 }
 
 /* Floating decorative elements */
-.float         { animation: float 6s ease-in-out infinite; }
-.float-delayed { animation: float 6s ease-in-out infinite; animation-delay: -3s; }
+.float         { animation: float 6s ease-in-out infinite; will-change: transform; }
+.float-delayed { animation: float 6s ease-in-out infinite; animation-delay: -3s; will-change: transform; }
 
 @keyframes float {
-    0%, 100% { transform: translateZ(0) translateY(0px); }
-    50%       { transform: translateZ(0) translateY(-20px); }
+    0%, 100% { transform: translateY(0px); }
+    50%       { transform: translateY(-20px); }
 }
 
 /* Noise texture overlay */
@@ -97,6 +92,15 @@
     pointer-events: none;
 }
 
+/* Off-screen homepage sections — skip layout+paint until near viewport */
+section#about,
+section#content,
+section#community,
+section#connect {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 700px;
+}
+
 /* Video card */
 .video-card { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 .video-card:hover { transform: translateY(-8px) scale(1.02); }
@@ -108,14 +112,15 @@
     filter: drop-shadow(0 0 20px currentColor);
 }
 
-/* Cursor follow glow */
+/* Cursor follow glow — positioned via transform only (no left/top reflow) */
 .cursor-glow {
     position: fixed;
+    left: 0; top: 0;
     width: 300px; height: 300px;
     border-radius: 50%;
     background: radial-gradient(circle, rgba(34, 197, 94, 0.12) 0%, transparent 70%);
     pointer-events: none;
     z-index: -1;
-    transform: translate(-50%, -50%);
+    will-change: transform;
     transition: opacity 0.3s ease;
 }

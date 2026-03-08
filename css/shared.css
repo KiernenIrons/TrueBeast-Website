@@ -60,11 +60,12 @@ body {
                 radial-gradient(ellipse at 80% 20%, rgba(57, 255, 20, 0.03) 0%, transparent 50%),
                 radial-gradient(ellipse at 50% 80%, rgba(22, 163, 74, 0.04) 0%, transparent 50%);
     animation: gradientShift 15s ease infinite alternate;
+    will-change: transform;
 }
 
 @keyframes gradientShift {
-    0%   { transform: translate(0, 0) rotate(0deg); }
-    100% { transform: translate(2%, 3%) rotate(2deg); }
+    0%   { transform: translate(0, 0); }
+    100% { transform: translate(2%, 3%); }
 }
 
 /* Glass Card Component
@@ -256,3 +257,66 @@ html.light select option {
     color: #111827;
 }
 
+/* ── Reduced Motion ──────────────────────────────────────────────────
+   Respects the OS "reduce motion" preference. Disables all continuous
+   animations — improves performance for users who opt in.
+   ──────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    .reveal {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ── Performance Mode (html.perf-mode) ───────────────────────────────
+   Auto-applied by js/theme.js when sustained FPS drops below 28.
+   Removes the most expensive rendering operations: backdrop-filter blur
+   (by far the heaviest CPU cost without hardware acceleration) and all
+   continuous animations. Glass cards fall back to a solid semi-transparent
+   background so they still look good without the blur.
+   ──────────────────────────────────────────────────────────────────── */
+html.perf-mode .liquid-glass,
+html.perf-mode .liquid-glass-strong {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(12, 12, 18, 0.92) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+html.light.perf-mode .liquid-glass,
+html.light.perf-mode .liquid-glass-strong {
+    background: rgba(255, 255, 255, 0.92) !important;
+}
+
+html.perf-mode .glass-card {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(12, 12, 18, 0.92) !important;
+}
+
+html.perf-mode *,
+html.perf-mode *::before,
+html.perf-mode *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+}
+
+html.perf-mode .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+}
+
+html.perf-mode .cursor-glow {
+    display: none !important;
+}
+
+/* ── Content Visibility ───────────────────────────────────────────────
+   Homepage sections are handled in index.css (by their specific IDs).
+   Other pages apply content-visibility via inline section classes.
+   ──────────────────────────────────────────────────────────────────── */

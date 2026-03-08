@@ -14,23 +14,25 @@
     <title>Tech Support | TrueBeast</title>
     <link rel="icon" href="../favicon.ico">
     <script src="../js/theme.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-    <script src="../js/config.js?v=6"></script>
-    <script src="../js/analytics.js"></script>
-    <script src="../js/firebase-db.js?v=4"></script>
-    <link rel="stylesheet" href="../css/shared.css">
-    <link rel="stylesheet" href="../css/glass.css">
-    <link rel="stylesheet" href="../css/tech-support.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="preconnect" href="https://www.gstatic.com">
+    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+    <link rel="stylesheet" href="../css/shared.css">
+    <link rel="stylesheet" href="../css/glass.css?v=5">
+    <link rel="stylesheet" href="../css/tech-support.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script defer src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script defer src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script defer src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script defer src="../js/config.js?v=6"></script>
+    <script defer src="../js/analytics.js"></script>
+    <script defer src="../js/firebase-db.js?v=4"></script>
 </head>
 <body>
     <div class="gradient-bg"></div>
@@ -925,21 +927,6 @@
 
             useScrollReveal();
 
-            // Scroll to hash anchor after React renders (e.g. #leave-review from email links)
-            useEffect(() => {
-                const hash = window.location.hash;
-                if (!hash) return;
-                const tryScroll = (attempts) => {
-                    const el = document.querySelector(hash);
-                    if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    } else if (attempts > 0) {
-                        setTimeout(() => tryScroll(attempts - 1), 150);
-                    }
-                };
-                setTimeout(() => tryScroll(10), 100);
-            }, []);
-
             return (
                 <div className="relative min-h-screen">
                     <Navigation />
@@ -1089,6 +1076,22 @@
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+
+        // After React paints, scroll to hash anchor (e.g. #leave-review from email links)
+        if (window.location.hash) {
+            var _hash = window.location.hash;
+            // Use window load + two rAF frames to guarantee React has painted
+            window.addEventListener('load', function() {
+                requestAnimationFrame(function() {
+                    requestAnimationFrame(function() {
+                        var el = document.querySelector(_hash);
+                        if (el) {
+                            window.scrollTo(0, el.offsetTop - 90);
+                        }
+                    });
+                });
+            });
+        }
     </script>
 </body>
 </html>

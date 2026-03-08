@@ -49,12 +49,14 @@
         linear-gradient(#fff, #fff);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: borderRotate 8s linear infinite;
+    /* opacity pulse instead of filter:hue-rotate — compositor-only, zero CPU paint cost */
+    animation: borderGlow 3s ease-in-out infinite;
+    will-change: opacity;
 }
 
-@keyframes borderRotate {
-    0%   { filter: hue-rotate(0deg); }
-    100% { filter: hue-rotate(360deg); }
+@keyframes borderGlow {
+    0%, 100% { opacity: 0.6; }
+    50%       { opacity: 1; }
 }
 
 /* Button hover lift */
@@ -66,7 +68,9 @@
 .reveal {
     opacity: 0;
     transform: translateY(30px);
-    transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: opacity, transform;
 }
 
 .reveal.active {
