@@ -1074,23 +1074,31 @@
 
     function loadAnalytics(force) {
         if (_analyticsLoaded && !force) { _renderAnalytics(); return; }
+        /* Render empty state immediately so period buttons work while loading */
+        _renderAnalytics();
         var loading = document.getElementById('ap-loading');
         if (loading) loading.style.display = 'inline';
-        FirebaseDB.db.collection('analytics')
-            .orderBy('ts', 'desc')
-            .limit(10000)
-            .get()
-            .then(function (snap) {
-                _analyticsEvents = snap.docs.map(function (d) { return d.data(); });
-                _analyticsLoaded = true;
-                if (loading) loading.style.display = 'none';
-                _renderAnalytics();
-            })
-            .catch(function (err) {
-                if (loading) loading.style.display = 'none';
-                var el = document.getElementById('ap-stats');
-                if (el) el.innerHTML = '<p class="text-red-400 text-sm col-span-4">Failed to load analytics: ' + err.message + '</p>';
-            });
+        try {
+            firebase.firestore().collection('analytics')
+                .orderBy('ts', 'desc')
+                .limit(10000)
+                .get()
+                .then(function (snap) {
+                    _analyticsEvents = snap.docs.map(function (d) { return d.data(); });
+                    _analyticsLoaded = true;
+                    if (loading) loading.style.display = 'none';
+                    _renderAnalytics();
+                })
+                .catch(function (err) {
+                    if (loading) loading.style.display = 'none';
+                    var el = document.getElementById('ap-stats');
+                    if (el) el.innerHTML = '<p class="text-red-400 text-sm col-span-4">Analytics load failed: ' + err.message + '. Check Firestore rules include the analytics collection.</p>';
+                });
+        } catch (err) {
+            if (loading) loading.style.display = 'none';
+            var el = document.getElementById('ap-stats');
+            if (el) el.innerHTML = '<p class="text-red-400 text-sm col-span-4">Analytics load failed: ' + err.message + '. Check Firestore rules include the analytics collection.</p>';
+        }
     }
 
     function setAnalyticsPeriod(days) {

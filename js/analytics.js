@@ -49,7 +49,11 @@
 
     /* ── Write one event to Firestore ── */
     function writeEvent(db, evt) {
-        db.collection('analytics').add(evt).catch(function () {});
+        db.collection('analytics').add(evt).catch(function (err) {
+            if (err && err.code === 'permission-denied') {
+                console.warn('[TBAnalytics] Firestore permission denied — add the analytics collection rule to Firebase Console → Firestore → Rules. See js/config.js comments for the rule to paste.');
+            }
+        });
     }
 
     /* ── Public tracking function ── */
