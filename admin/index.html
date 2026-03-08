@@ -827,7 +827,7 @@
                 var siteUrl    = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || 'https://truebeast.io';
                 var adminEmail = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.email && SITE_CONFIG.email.adminEmail) || 'kiernenyt@gmail.com';
                 var viewUrl    = siteUrl + '/ticket/?id=' + activeTicket.id;
-                var reviewUrl  = siteUrl + '/tech-support/';
+                var reviewUrl  = siteUrl + '/tech-support/#leave-review';
                 var threadHtml = buildThreadHtml(activeTicket, 5);
 
                 // Email to user
