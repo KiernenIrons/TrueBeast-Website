@@ -171,6 +171,14 @@
             const [replyText, setReplyText] = useState('');
             const [replying,  setReplying]  = useState(false);
             const [replyErr,  setReplyErr]  = useState('');
+            const bottomRef = React.useRef(null);
+
+            // Scroll to the latest message whenever ticket data changes
+            useEffect(() => {
+                if (bottomRef.current) {
+                    bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }, [ticket]);
 
             const statusClass = {
                 'open': 'status-open', 'in-progress': 'status-in-progress',
@@ -310,6 +318,9 @@ ${threadHtml}
                             </div>
                         ))}
                     </div>
+
+                    {/* Scroll anchor — keeps the latest message in view */}
+                    <div ref={bottomRef} />
 
                     {/* Reply form or resolved notice */}
                     {ticket.status === 'resolved' ? (

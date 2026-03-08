@@ -526,15 +526,24 @@
                 e.preventDefault();
                 if (!replyText.trim()) return;
                 setReplying(true);
+                const replyMsg   = replyText.trim();
+                const adminEmail = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.email?.adminEmail) || 'kiernenyt@gmail.com';
+                const siteUrl    = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || window.location.origin;
                 try {
                     const newResponses = [...(ticket.responses || []), {
-                        text: replyText.trim(),
+                        text: replyMsg,
                         from: 'user',
                         timestamp: new Date().toISOString()
                     }];
                     const updated = await FirebaseDB.updateTicket(ticket.id, { responses: newResponses });
                     setTicket(updated || { ...ticket, responses: newResponses });
                     setReplyText('');
+                    // Notify admin of the new reply
+                    sendEmail({
+                        to: adminEmail, toName: 'TrueBeast',
+                        subject: `[TrueBeast Support] User replied on ticket ${ticket.id}`,
+                        html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px"><h2 style="color:#22c55e;margin-top:0">New Reply on Ticket ${ticket.id}</h2><p><strong>${ticket.name}</strong> replied to their ticket:</p><div style="background:#1f2937;border-left:4px solid #22c55e;padding:14px 16px;border-radius:0 8px 8px 0;margin:20px 0"><div style="font-size:11px;color:#22c55e;margin-bottom:6px;font-weight:600">${ticket.name}</div><div style="font-size:14px;white-space:pre-wrap">${replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div><p style="color:#9ca3af;font-size:13px">Subject: ${ticket.subject}</p><a href="${siteUrl}/admin/" style="display:inline-block;background:#818cf8;color:#000;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600">Open Admin Panel</a></div>`,
+                    }).catch(() => {});
                 } catch (err) {
                     console.error('Reply failed:', err);
                 } finally {

@@ -544,7 +544,20 @@
 
     /* ── nav refresh ── */
     function refreshCurrent() {
-        if (mainTab === 'reviews')   loadReviews();
+        // If viewing a ticket detail, re-fetch that ticket and re-render it
+        var detailScreen = document.getElementById('screen-detail');
+        if (detailScreen && detailScreen.style.display !== 'none' && activeTicket) {
+            FirebaseDB.getTicket(activeTicket.id).then(function(fresh) {
+                if (fresh) {
+                    activeTicket = fresh;
+                    var idx = allTickets.findIndex(function(t){ return t.id === fresh.id; });
+                    if (idx !== -1) allTickets[idx] = fresh;
+                }
+                renderDetail();
+            }).catch(function(ex) { console.error('Refresh ticket failed:', ex); });
+            return;
+        }
+        if (mainTab === 'reviews')        loadReviews();
         else if (mainTab === 'discord')   dcLoadBackupList();
         else if (mainTab === 'analytics') loadAnalytics(true);
         else if (mainTab === 'admin')     loadAdminList();
@@ -768,7 +781,7 @@
             : '<p class="text-gray-500 text-sm text-center py-4">This ticket is resolved.</p>';
 
         document.getElementById('detail-wrap').innerHTML =
-            '<div class="animate-fade-in">' +
+            '<div class="animate-fade-in" id="detail-inner">' +
               '<div class="flex items-center justify-between flex-wrap gap-3 mb-6">' +
                 '<button onclick="backToDash()" class="text-gray-400 hover:text-white transition-colors text-sm flex items-center gap-2">← Back to List</button>' +
                 '<div class="flex gap-2 flex-wrap">' + statusBtns +
@@ -792,6 +805,11 @@
                 replyForm +
               '</div>' +
             '</div>';
+        // Scroll thread to the bottom so the most recent message is visible
+        setTimeout(function() {
+            var thread = document.querySelector('.thread');
+            if (thread) thread.scrollTop = thread.scrollHeight;
+        }, 0);
     }
 
     function changeStatus(newStatus) {
@@ -873,6 +891,16 @@
         btn.innerHTML   = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>&nbsp;Sending…';
         errDiv.style.display = 'none';
 
+        // Capture everything needed for the email BEFORE the async Firestore call
+        // so we always have valid data regardless of what happens to activeTicket later.
+        var emailTo      = activeTicket.email;
+        var emailName    = activeTicket.name;
+        var emailId      = activeTicket.id;
+        var emailSubject = activeTicket.subject;
+        var siteUrl      = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || 'https://truebeast.io';
+        var viewUrl      = siteUrl + '/ticket/?id=' + emailId;
+        var threadHtml   = buildThreadHtml(activeTicket, 4); // context = last 4 msgs before new reply
+
         var newResponses = (activeTicket.responses || []).concat([{
             text: text, from: 'support', timestamp: new Date().toISOString()
         }]);
@@ -883,17 +911,13 @@
                     var idx = allTickets.findIndex(function(t){ return t.id === activeTicket.id; });
                     if (idx !== -1) allTickets[idx] = activeTicket;
                 }
-                // Notify the user that TrueBeast replied (with conversation context)
-                var siteUrl    = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.siteUrl) || 'https://truebeast.io';
-                var viewUrl    = siteUrl + '/ticket/?id=' + activeTicket.id;
-                // Build context from the ticket BEFORE the new reply (activeTicket still has old responses at this point)
-                var threadHtml = buildThreadHtml({ name: activeTicket.name, description: activeTicket.description, createdAt: activeTicket.createdAt, responses: (activeTicket.responses || []).slice(0, -1) }, 4);
+                // Send notification email to user
                 sendEmail(
-                    activeTicket.email, activeTicket.name,
-                    '[TrueBeast Support] New reply on ticket ' + activeTicket.id,
+                    emailTo, emailName,
+                    '[TrueBeast Support] New reply on ticket ' + emailId,
                     '<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0f;color:#e5e7eb;padding:32px;border-radius:16px">' +
                     '<h2 style="color:#22c55e;margin-top:0">TrueBeast replied to your ticket</h2>' +
-                    '<p>Hey ' + esc(activeTicket.name) + ', a new response has been added to your ticket <strong>' + activeTicket.id + '</strong>.</p>' +
+                    '<p>Hey ' + esc(emailName) + ', a new response has been added to your ticket <strong>' + emailId + '</strong>.</p>' +
                     '<div style="background:#1e1b4b;border-left:4px solid #818cf8;padding:14px 16px;border-radius:0 8px 8px 0;margin:20px 0">' +
                     '<div style="font-size:11px;color:#818cf8;margin-bottom:6px;font-weight:600">TrueBeast Support</div>' +
                     '<div style="font-size:14px;white-space:pre-wrap;color:#e5e7eb">' + esc(text) + '</div>' +
