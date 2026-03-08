@@ -228,6 +228,9 @@ const SITE_CONFIG = {
     //            match /webhookBackups/{docId} {
     //              allow read, write:   if request.auth != null;    // admin only
     //            }
+    //            match /adminRoles/{email} {
+    //              allow read, write:   if request.auth != null;    // admin only
+    //            }
     //          }
     //        }
     //

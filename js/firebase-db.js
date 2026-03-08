@@ -328,6 +328,53 @@ const FirebaseDB = {
     },
 
     // -----------------------------------------------------------------------
+    // Admin Roles  (RBAC)
+    // -----------------------------------------------------------------------
+
+    async getAdminRole(email) {
+        _ensureApp();
+        if (!_isConfigured()) return null;
+        try {
+            const snap = await _withTimeout(
+                firebase.firestore().collection('adminRoles').doc(email).get(),
+                8000
+            );
+            return snap.exists ? snap.data() : null;
+        } catch (err) {
+            console.warn('FirebaseDB.getAdminRole error:', err.message);
+            return null;
+        }
+    },
+
+    async getAllAdminRoles() {
+        _ensureApp();
+        if (!_isConfigured()) return [];
+        const snap = await _withTimeout(
+            firebase.firestore().collection('adminRoles').orderBy('createdAt', 'asc').get(),
+            8000
+        );
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+
+    async setAdminRole(email, data) {
+        _ensureApp();
+        if (!_isConfigured()) throw new Error('Firebase not configured');
+        await _withTimeout(
+            firebase.firestore().collection('adminRoles').doc(email).set(data, { merge: true }),
+            8000
+        );
+    },
+
+    async deleteAdminRole(email) {
+        _ensureApp();
+        if (!_isConfigured()) throw new Error('Firebase not configured');
+        await _withTimeout(
+            firebase.firestore().collection('adminRoles').doc(email).delete(),
+            8000
+        );
+    },
+
+    // -----------------------------------------------------------------------
     // Admin Authentication
     // -----------------------------------------------------------------------
 

@@ -253,6 +253,7 @@
             <button id="tab-reviews"   onclick="setMainTab('reviews')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
             <button id="tab-discord"   onclick="setMainTab('discord')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Discord</button>
             <button id="tab-analytics" onclick="setMainTab('analytics')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Analytics</button>
+            <button id="tab-admin"     onclick="setMainTab('admin')"     class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive" style="display:none">Admin</button>
         </div>
 
         <!-- Error banner -->
@@ -371,6 +372,52 @@
 
         </div><!-- /panel-analytics -->
 
+        <!-- ── Admin Management panel ─────────────────────────────── -->
+        <div id="panel-admin" style="display:none">
+            <div class="flex items-center justify-between mb-5">
+                <h2 class="font-display font-bold text-xl">Admin <span class="text-gradient">Management</span></h2>
+                <button onclick="adminOpenAddModal()" class="send-btn px-4 py-2 rounded-xl text-sm font-semibold">+ Add Admin</button>
+            </div>
+            <div id="admin-list" class="space-y-3"></div>
+            <p class="text-xs text-gray-500 mt-5">Removing an admin only removes their Firestore permissions. Their Firebase Auth account must be deleted manually in the Firebase Console if needed.</p>
+        </div><!-- /panel-admin -->
+
+    </div>
+</div>
+
+<!-- ── Admin Add/Edit Modal ──────────────────────────────────────── -->
+<div id="admin-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.75);align-items:center;justify-content:center">
+    <div class="liquid-glass-strong rounded-3xl p-7 w-full max-w-md mx-4">
+        <h3 id="admin-modal-title" class="font-display font-bold text-lg mb-5">Add Admin</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Email</label>
+                <input id="am-email" type="email" class="w-full liquid-glass bg-transparent px-4 py-2.5 rounded-xl text-white placeholder-gray-500 text-sm" placeholder="admin@example.com">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Display Name</label>
+                <input id="am-name" type="text" class="w-full liquid-glass bg-transparent px-4 py-2.5 rounded-xl text-white placeholder-gray-500 text-sm" placeholder="e.g. Mod Team">
+            </div>
+            <div id="am-password-row">
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Password <span class="text-gray-600 font-normal">(min. 6 chars)</span></label>
+                <input id="am-pass" type="password" class="w-full liquid-glass bg-transparent px-4 py-2.5 rounded-xl text-white placeholder-gray-500 text-sm" placeholder="••••••••">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Permissions</label>
+                <div class="liquid-glass rounded-xl p-4 space-y-2.5">
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer select-none"><input type="checkbox" id="am-p-tickets"          class="w-4 h-4 rounded accent-blue-500"> <span>Tickets <span class="text-gray-500 text-xs">— view &amp; manage support tickets</span></span></label>
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer select-none"><input type="checkbox" id="am-p-reviews"          class="w-4 h-4 rounded accent-green-500"> <span>Reviews <span class="text-gray-500 text-xs">— approve &amp; reject reviews</span></span></label>
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer select-none"><input type="checkbox" id="am-p-discord"          class="w-4 h-4 rounded accent-indigo-500"> <span>Discord <span class="text-gray-500 text-xs">— send announcements</span></span></label>
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer select-none"><input type="checkbox" id="am-p-analytics"        class="w-4 h-4 rounded accent-yellow-500"> <span>Analytics <span class="text-gray-500 text-xs">— view site analytics</span></span></label>
+                    <label class="flex items-center gap-3 text-sm text-gray-300 cursor-pointer select-none"><input type="checkbox" id="am-p-adminManagement"  class="w-4 h-4 rounded accent-violet-500"> <span>Admin Management <span class="text-gray-500 text-xs">— create &amp; manage other admins</span></span></label>
+                </div>
+            </div>
+            <div id="am-err" style="display:none" class="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5"></div>
+        </div>
+        <div class="flex gap-3 mt-6">
+            <button onclick="adminCloseModal()" class="flex-1 liquid-glass px-4 py-2.5 rounded-xl text-gray-300 text-sm font-medium hover:bg-white/10 transition-colors">Cancel</button>
+            <button id="am-submit" onclick="adminSubmitModal()" class="flex-1 send-btn px-4 py-2.5 rounded-xl text-sm font-semibold">Save</button>
+        </div>
     </div>
 </div>
 
@@ -390,6 +437,8 @@
 
     /* ── state ── */
     let currentUser    = null;
+    let currentPerms   = null;   // null = full access; object = restricted
+    let allAdminRoles  = [];
     let allTickets     = [];
     let allReviews     = [];
     let activeFilter   = 'all';
@@ -397,6 +446,33 @@
     let activeTicket   = null;
     let activeReview   = null;
     let mainTab        = 'tickets';
+
+    /* ── permission helpers ── */
+    function isSuperAdmin(email) {
+        return typeof SITE_CONFIG !== 'undefined' &&
+               SITE_CONFIG.email &&
+               email === SITE_CONFIG.email.adminEmail;
+    }
+    function hasPermission(key) {
+        if (currentPerms === null) return true;
+        return !!(currentPerms[key]);
+    }
+    function applyPermissions(user) {
+        document.getElementById('d-user').textContent =
+            'Signed in as ' + user.email + (isSuperAdmin(user.email) ? '  ★' : '');
+        var tabMap = { tickets: 'tickets', reviews: 'reviews', discord: 'discord', analytics: 'analytics', admin: 'adminManagement' };
+        Object.keys(tabMap).forEach(function(t) {
+            var el = document.getElementById('tab-' + t);
+            if (el) el.style.display = hasPermission(tabMap[t]) ? '' : 'none';
+        });
+        // If current tab is now forbidden, switch to first accessible tab
+        var permKey = mainTab === 'admin' ? 'adminManagement' : mainTab;
+        if (!hasPermission(permKey)) {
+            var fallback = ['tickets','reviews','discord','analytics','admin']
+                .find(function(t) { return hasPermission(t === 'admin' ? 'adminManagement' : t); });
+            if (fallback) setMainTab(fallback);
+        }
+    }
 
     /* ── screens ── */
     const SCREENS = ['loading','login','dashboard','detail','review-detail'];
@@ -440,20 +516,33 @@
 
     /* ── nav refresh ── */
     function refreshCurrent() {
-        if (mainTab === 'reviews') loadReviews();
-        else if (mainTab === 'discord') dcLoadBackupList();
-        else                      loadTickets();
+        if (mainTab === 'reviews')   loadReviews();
+        else if (mainTab === 'discord')   dcLoadBackupList();
+        else if (mainTab === 'analytics') loadAnalytics(true);
+        else if (mainTab === 'admin')     loadAdminList();
+        else                              loadTickets();
     }
 
     /* ── auth ── */
-    FirebaseDB.onAuthStateChanged(function(user) {
+    FirebaseDB.onAuthStateChanged(async function(user) {
         currentUser = user;
         if (user) {
-            document.getElementById('d-user').textContent = 'Signed in as ' + user.email;
+            if (isSuperAdmin(user.email)) {
+                currentPerms = null; // full access
+            } else {
+                try {
+                    var role = await FirebaseDB.getAdminRole(user.email);
+                    currentPerms = (role && role.permissions) ? role.permissions : null;
+                } catch (e) {
+                    currentPerms = null; // fail open
+                }
+            }
             show('dashboard');
-            loadTickets();
-            loadReviews();
+            applyPermissions(user);
+            if (hasPermission('tickets'))  loadTickets();
+            if (hasPermission('reviews'))  loadReviews();
         } else {
+            currentPerms = null;
             show('login');
         }
     });
@@ -483,13 +572,15 @@
     }
 
     function doSignOut() {
+        currentPerms  = null;
+        allAdminRoles = [];
         FirebaseDB.adminSignOut().finally(function() { show('login'); });
     }
 
     /* ── main tab switch ── */
     function setMainTab(tab) {
         mainTab = tab;
-        ['tickets','reviews','discord','analytics'].forEach(function(t) {
+        ['tickets','reviews','discord','analytics','admin'].forEach(function(t) {
             var btn = document.getElementById('tab-' + t);
             if (btn) btn.className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === t ? 'tab-active' : 'tab-inactive');
         });
@@ -497,8 +588,10 @@
         document.getElementById('panel-reviews').style.display   = tab === 'reviews'   ? 'block' : 'none';
         document.getElementById('panel-discord').style.display   = tab === 'discord'   ? 'block' : 'none';
         document.getElementById('panel-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
+        document.getElementById('panel-admin').style.display     = tab === 'admin'     ? 'block' : 'none';
         if (tab === 'discord')   dcOpenTab();
         if (tab === 'analytics') loadAnalytics(false);
+        if (tab === 'admin')     loadAdminList();
     }
 
     /* ════════════════════════════════════════════════════════
@@ -2132,6 +2225,165 @@
 
         if (!h) h = '<p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p>';
         document.getElementById('dc-preview-content').innerHTML = h;
+    }
+
+    /* ════════════════════════════════════════════════════════
+       ADMIN MANAGEMENT
+    ════════════════════════════════════════════════════════ */
+
+    var _adminModalMode = 'add';
+    var _adminEditEmail = null;
+    var PERM_KEYS   = ['tickets','reviews','discord','analytics','adminManagement'];
+    var PERM_LABELS = { tickets:'Tickets', reviews:'Reviews', discord:'Discord', analytics:'Analytics', adminManagement:'Admin Mgmt' };
+    var PERM_COLORS = { tickets:'#3b82f6', reviews:'#22c55e', discord:'#818cf8', analytics:'#eab308', adminManagement:'#a855f7' };
+
+    function loadAdminList() {
+        var el = document.getElementById('admin-list');
+        if (!el) return;
+        el.innerHTML = '<div class="liquid-glass rounded-2xl p-8 text-center"><div class="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full spin mx-auto mb-3"></div><p class="text-gray-500 text-sm">Loading…</p></div>';
+        FirebaseDB.getAllAdminRoles().then(function(roles) {
+            allAdminRoles = roles;
+            renderAdminList();
+        }).catch(function(err) {
+            el.innerHTML = '<p class="text-red-400 text-sm p-4">Failed to load: ' + esc(err.message) + '</p>';
+        });
+    }
+
+    function renderAdminList() {
+        var el = document.getElementById('admin-list');
+        if (!el) return;
+        if (!allAdminRoles.length) {
+            el.innerHTML = '<div class="liquid-glass rounded-2xl p-8 text-center text-gray-500 text-sm">No sub-admins configured yet. You (super admin) always have full access.</div>';
+            return;
+        }
+        el.innerHTML = allAdminRoles.map(function(r) {
+            var sa = isSuperAdmin(r.email);
+            var perms = r.permissions || {};
+            var badges = PERM_KEYS.filter(function(k) { return perms[k]; }).map(function(k) {
+                return '<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:' + PERM_COLORS[k] + '">' + PERM_LABELS[k] + '</span>';
+            }).join(' ');
+            var saChip = sa ? '<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(168,85,247,0.15);border:1px solid rgba(168,85,247,0.3);color:#d8b4fe">★ Super Admin</span>' : '';
+            return '<div class="liquid-glass rounded-2xl p-4 flex items-center justify-between gap-4">' +
+                '<div class="min-w-0">' +
+                    '<div class="font-semibold text-sm flex items-center gap-2 flex-wrap">' + esc(r.displayName || r.email) + ' ' + saChip + '</div>' +
+                    '<div class="text-xs text-gray-500 mt-0.5 truncate">' + esc(r.email) + '</div>' +
+                    '<div class="flex flex-wrap gap-1 mt-2">' + (badges || '<span class="text-xs text-gray-600">No permissions</span>') + '</div>' +
+                '</div>' +
+                '<div class="flex gap-2 flex-shrink-0">' +
+                    '<button onclick="adminOpenEditModal(\'' + esc(r.email) + '\')" class="dc-sm dc-sm-b">Edit</button>' +
+                    (sa ? '' : '<button onclick="adminRemove(\'' + esc(r.email) + '\')" class="dc-sm dc-sm-r">Remove</button>') +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    function adminOpenAddModal() {
+        _adminModalMode = 'add';
+        _adminEditEmail = null;
+        document.getElementById('admin-modal-title').textContent = 'Add Admin';
+        document.getElementById('am-email').value    = '';
+        document.getElementById('am-email').disabled = false;
+        document.getElementById('am-name').value     = '';
+        document.getElementById('am-pass').value     = '';
+        document.getElementById('am-password-row').style.display = '';
+        PERM_KEYS.forEach(function(k) { document.getElementById('am-p-' + k).checked = false; });
+        document.getElementById('am-err').style.display = 'none';
+        document.getElementById('admin-modal').style.display = 'flex';
+    }
+
+    function adminOpenEditModal(email) {
+        var role = allAdminRoles.find(function(r) { return r.email === email; });
+        if (!role) return;
+        _adminModalMode = 'edit';
+        _adminEditEmail = email;
+        document.getElementById('admin-modal-title').textContent = 'Edit Admin';
+        document.getElementById('am-email').value    = email;
+        document.getElementById('am-email').disabled = true;
+        document.getElementById('am-name').value     = role.displayName || '';
+        document.getElementById('am-password-row').style.display = 'none';
+        var perms = role.permissions || {};
+        PERM_KEYS.forEach(function(k) { document.getElementById('am-p-' + k).checked = !!perms[k]; });
+        document.getElementById('am-err').style.display = 'none';
+        document.getElementById('admin-modal').style.display = 'flex';
+    }
+
+    function adminCloseModal() {
+        document.getElementById('admin-modal').style.display = 'none';
+    }
+
+    async function adminSubmitModal() {
+        var btn   = document.getElementById('am-submit');
+        var errEl = document.getElementById('am-err');
+        errEl.style.display = 'none';
+
+        var email = document.getElementById('am-email').value.trim();
+        var name  = document.getElementById('am-name').value.trim();
+        var pass  = document.getElementById('am-pass').value;
+
+        if (!email) { errEl.textContent = 'Email is required.'; errEl.style.display = 'block'; return; }
+        if (!name)  { errEl.textContent = 'Display name is required.'; errEl.style.display = 'block'; return; }
+        if (_adminModalMode === 'add' && pass.length < 6) {
+            errEl.textContent = 'Password must be at least 6 characters.';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        var permissions = {};
+        PERM_KEYS.forEach(function(k) { permissions[k] = !!document.getElementById('am-p-' + k).checked; });
+
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+
+        try {
+            if (_adminModalMode === 'add') {
+                // Use a secondary Firebase app instance so the current admin session is preserved
+                var secondary;
+                try   { secondary = firebase.app('tb-secondary'); }
+                catch (e) { secondary = firebase.initializeApp(SITE_CONFIG.firebase, 'tb-secondary'); }
+                await secondary.auth().createUserWithEmailAndPassword(email, pass);
+                await secondary.auth().signOut();
+            }
+
+            var roleData = {
+                email:       email,
+                displayName: name,
+                permissions: permissions,
+                active:      true,
+            };
+            if (_adminModalMode === 'add') {
+                roleData.createdAt = new Date().toISOString();
+                roleData.createdBy = currentUser ? currentUser.email : '';
+            } else {
+                roleData.updatedAt = new Date().toISOString();
+                roleData.updatedBy = currentUser ? currentUser.email : '';
+            }
+
+            await FirebaseDB.setAdminRole(email, roleData);
+            adminCloseModal();
+            loadAdminList();
+        } catch (err) {
+            var msg = err.message || 'An error occurred.';
+            if (err.code === 'auth/email-already-in-use')
+                msg = 'A Firebase Auth account with that email already exists. You can edit their permissions without a password — just close and use Edit instead.';
+            if (err.code === 'auth/invalid-email')  msg = 'Invalid email address.';
+            if (err.code === 'auth/weak-password')  msg = 'Password is too weak (min. 6 characters).';
+            errEl.textContent = msg;
+            errEl.style.display = 'block';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Save';
+        }
+    }
+
+    async function adminRemove(email) {
+        if (!confirm('Remove admin permissions for ' + email + '?\n\nThis removes their role from Firestore. Their Firebase Auth account still exists — delete it in Firebase Console if needed.')) return;
+        try {
+            await FirebaseDB.deleteAdminRole(email);
+            allAdminRoles = allAdminRoles.filter(function(r) { return r.email !== email; });
+            renderAdminList();
+        } catch (err) {
+            alert('Failed to remove admin: ' + err.message);
+        }
     }
 
 </script>
