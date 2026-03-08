@@ -32,9 +32,8 @@
             flex-shrink: 0;
         }
 
-        #platform-logo svg {
-            display: block;
-        }
+        #platform-logo svg { display: block; }
+        #platform-logo img { display: block; object-fit: contain; }
 
         #platform-username {
             font-weight: 600;
@@ -43,20 +42,24 @@
         }
 
         /* ── Transition animations ── */
-        @keyframes fadeOut    { from { opacity: 1; }                              to { opacity: 0; } }
-        @keyframes fadeIn     { from { opacity: 0; }                              to { opacity: 1; } }
+        @keyframes fadeOut      { from { opacity: 1; }                               to { opacity: 0; } }
+        @keyframes fadeIn       { from { opacity: 0; }                               to { opacity: 1; } }
 
-        @keyframes slideOut   { from { transform: translateX(0);    opacity: 1; } to { transform: translateX(-50px); opacity: 0; } }
-        @keyframes slideIn    { from { transform: translateX(50px);  opacity: 0; } to { transform: translateX(0);    opacity: 1; } }
+        @keyframes slideOut     { from { transform: translateX(0);     opacity: 1; } to { transform: translateX(-50px);  opacity: 0; } }
+        @keyframes slideIn      { from { transform: translateX(50px);  opacity: 0; } to { transform: translateX(0);      opacity: 1; } }
 
-        @keyframes slideUpOut { from { transform: translateY(0);    opacity: 1; } to { transform: translateY(-35px); opacity: 0; } }
-        @keyframes slideUpIn  { from { transform: translateY(35px); opacity: 0; } to { transform: translateY(0);    opacity: 1; } }
+        @keyframes slideUpOut   { from { transform: translateY(0);     opacity: 1; } to { transform: translateY(-35px);  opacity: 0; } }
+        @keyframes slideUpIn    { from { transform: translateY(35px);  opacity: 0; } to { transform: translateY(0);      opacity: 1; } }
 
-        @keyframes zoomOut    { from { transform: scale(1);    opacity: 1; } to { transform: scale(0.65); opacity: 0; } }
-        @keyframes zoomIn     { from { transform: scale(1.35); opacity: 0; } to { transform: scale(1);    opacity: 1; } }
+        /* Fade ↓ / ↑ — fades OUT upward, fades IN from above */
+        @keyframes fadeOutUp    { from { transform: translateY(0);     opacity: 1; } to { transform: translateY(-35px);  opacity: 0; } }
+        @keyframes fadeInDown   { from { transform: translateY(-35px); opacity: 0; } to { transform: translateY(0);      opacity: 1; } }
 
-        @keyframes flipOut    { from { transform: rotateY(0deg);   opacity: 1; } to { transform: rotateY(90deg);  opacity: 0; } }
-        @keyframes flipIn     { from { transform: rotateY(-90deg); opacity: 0; } to { transform: rotateY(0deg);   opacity: 1; } }
+        @keyframes zoomOut      { from { transform: scale(1);     opacity: 1; } to { transform: scale(0.65);  opacity: 0; } }
+        @keyframes zoomIn       { from { transform: scale(1.35);  opacity: 0; } to { transform: scale(1);     opacity: 1; } }
+
+        @keyframes flipOut      { from { transform: rotateY(0deg);    opacity: 1; } to { transform: rotateY(90deg);   opacity: 0; } }
+        @keyframes flipIn       { from { transform: rotateY(-90deg);  opacity: 0; } to { transform: rotateY(0deg);    opacity: 1; } }
     </style>
 </head>
 <body>
@@ -87,21 +90,42 @@
             snapchat: '#FFFC00',
         };
 
-        const SHADOWS = {
-            none: 'none',
-            soft: '0 2px 10px rgba(0,0,0,0.7)',
-            hard: '2px 2px 0 rgba(0,0,0,1), 3px 3px 0 rgba(0,0,0,0.5)',
-            glow: null, /* computed per-platform */
+        /* Simpleicons CDN slugs */
+        const SIMPLEICONS = {
+            twitch: 'twitch', youtube: 'youtube', kick: 'kick',
+            tiktok: 'tiktok', instagram: 'instagram', twitter: 'x',
+            discord: 'discord', facebook: 'facebook', bluesky: 'bluesky',
+            snapchat: 'snapchat',
+        };
+
+        /* Branded SVGs with real colors/gradients — used in logo mode */
+        const BRAND_SVGS = {
+            instagram: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:block">
+  <defs>
+    <radialGradient id="ig-brand" cx="25%" cy="110%" r="140%">
+      <stop offset="0%"   stop-color="#ffd600"/>
+      <stop offset="20%"  stop-color="#ff7a00"/>
+      <stop offset="40%"  stop-color="#ff0069"/>
+      <stop offset="65%"  stop-color="#d300c5"/>
+      <stop offset="100%" stop-color="#7638fa"/>
+    </radialGradient>
+  </defs>
+  <rect width="24" height="24" rx="5.5" fill="url(#ig-brand)"/>
+  <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="none" stroke="white" stroke-width="1.5"/>
+  <circle cx="12" cy="12" r="4.5" fill="none" stroke="white" stroke-width="1.5"/>
+  <circle cx="17.3" cy="6.7" r="1.2" fill="white"/>
+</svg>`,
         };
 
         const LOGO_SIZES = { sm: 28, md: 40, lg: 56 };
 
         const ANIMS = {
-            fade:    { out: 'fadeOut 0.55s ease forwards',    in: 'fadeIn 0.55s ease forwards'    },
-            slide:   { out: 'slideOut 0.55s ease forwards',   in: 'slideIn 0.55s ease forwards'   },
-            slideup: { out: 'slideUpOut 0.55s ease forwards', in: 'slideUpIn 0.55s ease forwards' },
-            zoom:    { out: 'zoomOut 0.55s ease forwards',    in: 'zoomIn 0.55s ease forwards'    },
-            flip:    { out: 'flipOut 0.55s ease forwards',    in: 'flipIn 0.55s ease forwards'    },
+            fade:       { out: 'fadeOut 0.55s ease forwards',     in: 'fadeIn 0.55s ease forwards'     },
+            slide:      { out: 'slideOut 0.55s ease forwards',    in: 'slideIn 0.55s ease forwards'    },
+            slideup:    { out: 'slideUpOut 0.55s ease forwards',  in: 'slideUpIn 0.55s ease forwards'  },
+            fadedownup: { out: 'fadeOutUp 0.55s ease forwards',   in: 'fadeInDown 0.55s ease forwards' },
+            zoom:       { out: 'zoomOut 0.55s ease forwards',     in: 'zoomIn 0.55s ease forwards'     },
+            flip:       { out: 'flipOut 0.55s ease forwards',     in: 'flipIn 0.55s ease forwards'     },
         };
 
         /* ── Parse config ── */
@@ -112,16 +136,41 @@
         } catch (_) {
             cfg = {
                 platforms: [{ id: 'twitch', username: 'YourName' }, { id: 'youtube', username: '@YourChannel' }],
-                effect: 'fade', font: 'Outfit', size: 28, color: '#ffffff',
-                shadow: 'glow', logoSize: 'md', duration: 5,
+                effect: 'fade', font: 'Poppins', size: 28, color: '#ffffff',
+                shadowType: 'glow', shadowOpts: null,
+                logoSize: 'md', duration: 5,
+                popupMode: false, popupInterval: 10,
+                useLogo: false,
             };
         }
 
-        const { platforms, effect, font, size, color, shadow, logoSize, duration } = cfg;
+        const {
+            platforms, effect, font, size, color,
+            shadowType = 'glow', shadowOpts = null,
+            logoSize, duration,
+            popupMode = false, popupInterval = 10,
+            useLogo = false,
+        } = cfg;
+
+        /* ── Compute text shadow ── */
+        function computeTextShadow(type, opts, platformColor) {
+            if (type === 'none') return 'none';
+            if (type === 'glow') return `0 0 18px ${platformColor}90, 0 0 35px ${platformColor}40`;
+            /* custom */
+            if (!opts) return 'none';
+            const { angle = 135, distance = 4, blur = 8, color: sColor = '#000000', opacity = 80 } = opts;
+            const rad  = (angle * Math.PI) / 180;
+            const hOff = Math.round(distance * Math.cos(rad));
+            const vOff = Math.round(distance * Math.sin(rad));
+            const r = parseInt(sColor.slice(1, 3), 16);
+            const g = parseInt(sColor.slice(3, 5), 16);
+            const b = parseInt(sColor.slice(5, 7), 16);
+            return `${hOff}px ${vOff}px ${blur}px rgba(${r},${g},${b},${(opacity / 100).toFixed(2)})`;
+        }
 
         /* ── Load font ── */
         const fontLink = document.createElement('link');
-        fontLink.rel = 'stylesheet';
+        fontLink.rel  = 'stylesheet';
         fontLink.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(font)}:wght@600;700&display=swap`;
         document.head.appendChild(fontLink);
 
@@ -132,14 +181,11 @@
         const logoPx     = LOGO_SIZES[logoSize] || 40;
         const anim       = ANIMS[effect] || ANIMS.fade;
 
-        /* ── Viewport scaling ──────────────────────────────────────────────
-           Content sizes were designed for a 500px-wide browser source.
-           Scale everything proportionally so the overlay stays crisp at
-           any width the user sets in OBS (e.g. 1000px = 2× everything).   */
-        const BASE_WIDTH    = 500;
-        const vpScale       = window.innerWidth >= 50 ? window.innerWidth / BASE_WIDTH : 1;
-        const scaledLogoPx  = Math.round(logoPx * vpScale);
-        const scaledFontPx  = Math.round(size   * vpScale);
+        /* ── Viewport scaling ── */
+        const BASE_WIDTH   = 500;
+        const vpScale      = window.innerWidth >= 50 ? window.innerWidth / BASE_WIDTH : 1;
+        const scaledLogoPx = Math.round(logoPx * vpScale);
+        const scaledFontPx = Math.round(size   * vpScale);
 
         rotatorEl.style.gap = Math.round(14 * vpScale) + 'px';
 
@@ -152,46 +198,102 @@
             const p    = platforms[idx];
             const pClr = COLORS[p.id] || '#ffffff';
 
-            logoEl.innerHTML = SVGS[p.id] || '';
-            const svg = logoEl.querySelector('svg');
-            if (svg) {
-                svg.style.width  = `${scaledLogoPx}px`;
-                svg.style.height = `${scaledLogoPx}px`;
-                svg.style.color  = pClr;
-                svg.style.filter = `drop-shadow(0 0 6px ${pClr}70)`;
+            /* Logo — prefer BRAND_SVGS, then simpleicons CDN, then flat SVG */
+            if (useLogo && BRAND_SVGS[p.id]) {
+                logoEl.innerHTML = BRAND_SVGS[p.id];
+                const svg = logoEl.querySelector('svg');
+                if (svg) {
+                    svg.style.width  = `${scaledLogoPx}px`;
+                    svg.style.height = `${scaledLogoPx}px`;
+                }
+            } else if (useLogo) {
+                const slug = SIMPLEICONS[p.id] || p.id;
+                logoEl.innerHTML = `<img src="https://cdn.simpleicons.org/${slug}"
+                    width="${scaledLogoPx}" height="${scaledLogoPx}" alt="${p.id}"
+                    style="display:block;object-fit:contain;">`;
+            } else {
+                logoEl.innerHTML = SVGS[p.id] || '';
+                const svg = logoEl.querySelector('svg');
+                if (svg) {
+                    svg.style.width  = `${scaledLogoPx}px`;
+                    svg.style.height = `${scaledLogoPx}px`;
+                    svg.style.color  = pClr;
+                    svg.style.filter = `drop-shadow(0 0 6px ${pClr}70)`;
+                }
             }
 
             usernameEl.textContent = p.username;
-            usernameEl.style.textShadow = shadow === 'glow'
-                ? `0 0 18px ${pClr}90, 0 0 35px ${pClr}40`
-                : (SHADOWS[shadow] || SHADOWS.soft);
+            usernameEl.style.textShadow = computeTextShadow(shadowType, shadowOpts, pClr);
         }
+
+        /* ── Simple async sleep ── */
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
         /* ── Rotation logic ── */
         let current = 0;
-        let busy    = false;
 
-        render(0);
+        if (popupMode) {
+            /* ── Popup mode: cycle once, hide, wait, repeat ── */
+            rotatorEl.style.transition = 'opacity 0.8s ease';
+            rotatorEl.style.opacity    = '0';
 
-        if (platforms.length > 1) {
-            setInterval(() => {
-                if (busy) return;
-                busy = true;
+            async function runPopupCycle() {
+                /* Render first platform & fade in */
+                current = 0;
+                render(0);
+                await sleep(50); /* allow paint */
+                rotatorEl.style.opacity = '1';
+                await sleep(duration * 1000 + 800);
 
-                rotatorEl.style.animation = anim.out;
-
-                setTimeout(() => {
-                    current = (current + 1) % platforms.length;
+                /* Cycle through remaining platforms */
+                for (let i = 1; i < platforms.length; i++) {
+                    rotatorEl.style.animation = anim.out;
+                    await sleep(580);
+                    current = i;
                     render(current);
                     rotatorEl.style.animation = anim.in;
+                    await sleep(600);
+                    rotatorEl.style.animation = '';
+                    await sleep(duration * 1000);
+                }
+
+                /* Fade out, then wait for next popup */
+                rotatorEl.style.opacity = '0';
+                await sleep(800 + popupInterval * 60 * 1000);
+
+                /* Repeat */
+                runPopupCycle();
+            }
+
+            /* Wait one full interval before first appearance */
+            sleep(popupInterval * 60 * 1000).then(runPopupCycle);
+
+        } else {
+            /* ── Normal always-visible mode ── */
+            render(0);
+
+            if (platforms.length > 1) {
+                let busy = false;
+
+                setInterval(() => {
+                    if (busy) return;
+                    busy = true;
+
+                    rotatorEl.style.animation = anim.out;
 
                     setTimeout(() => {
-                        rotatorEl.style.animation = '';
-                        busy = false;
-                    }, 600);
-                }, 580);
+                        current = (current + 1) % platforms.length;
+                        render(current);
+                        rotatorEl.style.animation = anim.in;
 
-            }, duration * 1000 + 700);
+                        setTimeout(() => {
+                            rotatorEl.style.animation = '';
+                            busy = false;
+                        }, 600);
+                    }, 580);
+
+                }, duration * 1000 + 700);
+            }
         }
     </script>
 </body>

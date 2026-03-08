@@ -15,12 +15,13 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script src="../../js/config.js?v=6"></script>
     <link rel="stylesheet" href="../../css/shared.css">
     <link rel="stylesheet" href="../../css/glass.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@600;700&family=Montserrat:wght@600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Arimo:wght@400;600;700&family=Barlow:wght@400;600;700&family=Blinker:wght@400;600;700&family=Chakra+Petch:wght@400;600;700&family=Cuprum:wght@400;600;700&family=Edu+TAS+Beginner:wght@400;700&family=Inter:wght@400;600;700&family=Kalam:wght@400;700&family=Kanit:wght@400;600;700&family=Montserrat:wght@600;700&family=Neuton:wght@400;700&family=Orbitron:wght@600;700&family=Oswald:wght@400;600;700&family=Outfit:wght@300;400;500;600;700;800&family=Poppins:wght@400;600;700&family=Quicksand:wght@400;600;700&family=Rokkitt:wght@400;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Stardos+Stencil:wght@400;700&family=Teko:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         .platform-card { transition: all 0.15s; cursor: pointer; user-select: none; }
         .platform-card:hover { transform: translateY(-2px); }
@@ -60,6 +61,50 @@
         }
         .username-input:focus { border-color: rgba(147,51,234,0.5); }
         .username-input::placeholder { color: rgba(255,255,255,0.25); }
+
+        /* Font select — explicit dark bg so options are always readable */
+        select.username-input {
+            background: rgba(12,12,24,0.97);
+            color: rgba(255,255,255,0.9);
+        }
+        select.username-input option {
+            background: #0c0c18;
+            color: rgba(255,255,255,0.9);
+        }
+
+        /* ── Light mode overrides ── */
+        html.light .section-card {
+            background: rgba(0,0,0,0.03);
+            border-color: rgba(0,0,0,0.08);
+        }
+        html.light .username-input {
+            background: rgba(0,0,0,0.05);
+            border-color: rgba(0,0,0,0.1);
+        }
+        html.light .username-input::placeholder { color: rgba(0,0,0,0.3); }
+        html.light select.username-input {
+            background: rgba(240,240,255,0.97);
+            color: #111;
+        }
+        html.light select.username-input option {
+            background: #f0f0ff;
+            color: #111;
+        }
+        html.light .url-box { color: #222; }
+        html.light .remove-btn {
+            background: rgba(239,68,68,0.06);
+            border-color: rgba(239,68,68,0.12);
+        }
+        html.light .shadow-row label { color: #555; }
+        html.light .suggest-textarea {
+            background: rgba(0,0,0,0.05);
+            border-color: rgba(0,0,0,0.1);
+        }
+        html.light .suggest-textarea::placeholder { color: rgba(0,0,0,0.3); }
+        html.light .toggle-track {
+            background: rgba(0,0,0,0.1);
+            border-color: rgba(0,0,0,0.15);
+        }
 
         .generate-btn {
             background: linear-gradient(135deg, #7c3aed, #a855f7);
@@ -113,6 +158,60 @@
             color: #a855f7;
             margin-bottom: 6px;
         }
+
+        /* Shadow builder rows */
+        .shadow-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .shadow-row label { font-size: 12px; color: #9ca3af; min-width: 72px; flex-shrink: 0; }
+        .shadow-row span.val { font-size: 12px; color: #a855f7; font-family: monospace; min-width: 42px; text-align: right; flex-shrink: 0; }
+
+        /* Toggle switch */
+        .toggle-track {
+            width: 44px; height: 24px; border-radius: 12px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.15);
+            position: relative; cursor: pointer; transition: background 0.2s, border-color 0.2s;
+            flex-shrink: 0;
+        }
+        .toggle-track.on { background: rgba(147,51,234,0.4); border-color: rgba(147,51,234,0.6); }
+        .toggle-thumb {
+            width: 18px; height: 18px; border-radius: 50%;
+            background: rgba(255,255,255,0.5);
+            position: absolute; top: 2px; left: 2px;
+            transition: left 0.2s, background 0.2s;
+        }
+        .toggle-track.on .toggle-thumb { left: 22px; background: #c084fc; }
+
+        /* Suggestion box */
+        .suggest-textarea {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 12px;
+            color: inherit;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 100px;
+            outline: none;
+            font-family: inherit;
+            transition: border-color 0.15s;
+        }
+        .suggest-textarea:focus { border-color: rgba(147,51,234,0.5); }
+        .suggest-textarea::placeholder { color: rgba(255,255,255,0.25); }
+
+        .suggest-btn {
+            background: linear-gradient(135deg, #7c3aed, #a855f7);
+            color: white;
+            font-weight: 700;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 24px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .suggest-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(168,85,247,0.3); }
+        .suggest-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
     </style>
 </head>
 <body>
@@ -120,7 +219,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+        const { useState, useEffect, useRef } = React;
 
         /* ── Platform definitions ── */
         const PLATFORMS = [
@@ -152,12 +251,44 @@
         };
 
         const LOGO_SIZES = { sm: 28, md: 40, lg: 56 };
-        const SHADOW_MAP = {
-            none: 'none',
-            soft: '0 2px 10px rgba(0,0,0,0.7)',
-            hard: '2px 2px 0 rgba(0,0,0,1), 3px 3px 0 rgba(0,0,0,0.5)',
-            glow: null,
+
+        /* Simpleicons CDN slugs — for official logo mode */
+        const SIMPLEICONS = {
+            twitch: 'twitch', youtube: 'youtube', kick: 'kick',
+            tiktok: 'tiktok', instagram: 'instagram', twitter: 'x',
+            discord: 'discord', facebook: 'facebook', bluesky: 'bluesky',
+            snapchat: 'snapchat',
         };
+
+        /* Branded SVGs with real colors/gradients — used in logo mode when available */
+        const BRAND_SVGS = {
+            instagram: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:block">
+  <defs>
+    <radialGradient id="ig-brand" cx="25%" cy="110%" r="140%">
+      <stop offset="0%"   stop-color="#ffd600"/>
+      <stop offset="20%"  stop-color="#ff7a00"/>
+      <stop offset="40%"  stop-color="#ff0069"/>
+      <stop offset="65%"  stop-color="#d300c5"/>
+      <stop offset="100%" stop-color="#7638fa"/>
+    </radialGradient>
+  </defs>
+  <rect width="24" height="24" rx="5.5" fill="url(#ig-brand)"/>
+  <rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="none" stroke="white" stroke-width="1.5"/>
+  <circle cx="12" cy="12" r="4.5" fill="none" stroke="white" stroke-width="1.5"/>
+  <circle cx="17.3" cy="6.7" r="1.2" fill="white"/>
+</svg>`,
+        };
+
+        /* Compute custom drop shadow CSS value */
+        function computeCustomShadow({ angle = 135, distance = 4, blur = 8, color = '#000000', opacity = 80 }) {
+            const rad = (angle * Math.PI) / 180;
+            const hOff = Math.round(distance * Math.cos(rad));
+            const vOff = Math.round(distance * Math.sin(rad));
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+            return `${hOff}px ${vOff}px ${blur}px rgba(${r},${g},${b},${(opacity / 100).toFixed(2)})`;
+        }
 
         /* ── ThemeToggle ── */
         const ThemeToggle = () => {
@@ -179,11 +310,17 @@
             );
         };
 
+        /* ── Toggle switch ── */
+        const Toggle = ({ on, onChange }) => (
+            <div className={`toggle-track ${on ? 'on' : ''}`} onClick={() => onChange(!on)}>
+                <div className="toggle-thumb" />
+            </div>
+        );
+
         /* ── Navigation ── */
         const Navigation = () => {
             const [scrolled, setScrolled] = useState(false);
             const [mobileOpen, setMobileOpen] = useState(false);
-            const discordUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social?.discord) || 'https://discord.gg/Nk8vekY';
             useEffect(() => {
                 const h = () => setScrolled(window.scrollY > 50);
                 window.addEventListener('scroll', h, { passive: true });
@@ -232,7 +369,7 @@
         };
 
         /* ── Live Preview ── */
-        const Preview = ({ platforms, effect, font, size, color, shadow, logoSize }) => {
+        const Preview = ({ platforms, effect, font, size, color, shadowType, shadowOpts, logoSize, useLogo }) => {
             const validPlatforms = platforms.filter(p => p.username.trim());
             const [displayIdx, setDisplayIdx] = useState(0);
             const [phase, setPhase] = useState('visible');
@@ -276,26 +413,37 @@
             const logoPx  = LOGO_SIZES[logoSize] || 40;
 
             const EFFECT_TRANSFORMS = {
-                fade:    { out: { opacity: 0 },                              inStart: { opacity: 0 },                              visible: { opacity: 1 } },
-                slide:   { out: { transform: 'translateX(-30px)', opacity: 0 }, inStart: { transform: 'translateX(30px)', opacity: 0 },  visible: { transform: 'translateX(0)', opacity: 1 } },
-                slideup: { out: { transform: 'translateY(-20px)', opacity: 0 }, inStart: { transform: 'translateY(20px)', opacity: 0 },  visible: { transform: 'translateY(0)', opacity: 1 } },
-                zoom:    { out: { transform: 'scale(0.65)', opacity: 0 },    inStart: { transform: 'scale(1.35)', opacity: 0 },        visible: { transform: 'scale(1)', opacity: 1 } },
-                flip:    { out: { transform: 'rotateY(90deg)', opacity: 0 }, inStart: { transform: 'rotateY(-90deg)', opacity: 0 },    visible: { transform: 'rotateY(0deg)', opacity: 1 } },
+                fade:       { out: { opacity: 0 },                                  inStart: { opacity: 0 },                                  visible: { opacity: 1 } },
+                slide:      { out: { transform: 'translateX(-30px)', opacity: 0 },  inStart: { transform: 'translateX(30px)', opacity: 0 },    visible: { transform: 'translateX(0)', opacity: 1 } },
+                slideup:    { out: { transform: 'translateY(-20px)', opacity: 0 },  inStart: { transform: 'translateY(20px)', opacity: 0 },    visible: { transform: 'translateY(0)', opacity: 1 } },
+                fadedownup: { out: { transform: 'translateY(-20px)', opacity: 0 },  inStart: { transform: 'translateY(-20px)', opacity: 0 },   visible: { transform: 'translateY(0)', opacity: 1 } },
+                zoom:       { out: { transform: 'scale(0.65)', opacity: 0 },        inStart: { transform: 'scale(1.35)', opacity: 0 },         visible: { transform: 'scale(1)', opacity: 1 } },
+                flip:       { out: { transform: 'rotateY(90deg)', opacity: 0 },     inStart: { transform: 'rotateY(-90deg)', opacity: 0 },     visible: { transform: 'rotateY(0deg)', opacity: 1 } },
             };
 
             const states = EFFECT_TRANSFORMS[effect] || EFFECT_TRANSFORMS.fade;
             const phaseStyle = phase === 'visible' ? states.visible : phase === 'out' ? states.out : states.inStart;
             const transition = phase === 'inStart' ? 'none' : 'all 0.5s ease';
 
-            const textShadow = shadow === 'glow'
-                ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
-                : (SHADOW_MAP[shadow] || SHADOW_MAP.soft);
+            const textShadow = shadowType === 'none'   ? 'none'
+                : shadowType === 'glow' ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
+                : computeCustomShadow(shadowOpts);
+
+            /* Logo element — prefer BRAND_SVGS, then simpleicons CDN, then flat SVG */
+            const logoEl = useLogo
+                ? BRAND_SVGS[current.id]
+                    ? <div dangerouslySetInnerHTML={{ __html: BRAND_SVGS[current.id] }}
+                        style={{ width: logoPx, height: logoPx, flexShrink: 0 }} />
+                    : <img src={`https://cdn.simpleicons.org/${SIMPLEICONS[current.id] || current.id}`}
+                        width={logoPx} height={logoPx} alt={current.id}
+                        style={{ display: 'block', flexShrink: 0, objectFit: 'contain' }} />
+                : <div dangerouslySetInnerHTML={{ __html: SVGS[current.id] || '' }}
+                    style={{ width: logoPx, height: logoPx, color: pColor, filter: `drop-shadow(0 0 6px ${pColor}60)`, flexShrink: 0 }} />;
 
             return (
                 <div className="preview-checker rounded-xl flex items-center px-5" style={{ minHeight: 90, perspective: '800px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, transition, ...phaseStyle }}>
-                        <div dangerouslySetInnerHTML={{ __html: SVGS[current.id] || '' }}
-                            style={{ width: logoPx, height: logoPx, color: pColor, filter: `drop-shadow(0 0 6px ${pColor}60)`, flexShrink: 0 }} />
+                        {logoEl}
                         <span style={{
                             fontFamily: `'${font}', Outfit, sans-serif`,
                             fontSize: Math.min(size, 42) + 'px',
@@ -311,18 +459,126 @@
             );
         };
 
+        /* ── Suggestion Box ── */
+        const SuggestionBox = () => {
+            const [suggestion, setSuggestion] = useState('');
+            const [name, setName] = useState('');
+            const [status, setStatus] = useState('idle'); // idle | sending | success | error
+
+            const emailjsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG?.emailjs : null;
+            const hasEmailjs = emailjsCfg?.publicKey && emailjsCfg?.serviceId &&
+                (emailjsCfg?.submitReviewTemplateId || emailjsCfg?.ticketTemplateId);
+            const discordUrl = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG?.social?.discord : null;
+
+            const submit = async () => {
+                if (!suggestion.trim()) return;
+
+                if (!hasEmailjs) {
+                    /* Fallback: open mailto */
+                    const body = name ? `From: ${name}\n\n${suggestion}` : suggestion;
+                    window.open(`mailto:kiernenyt@gmail.com?subject=${encodeURIComponent('TrueBeast Tool Suggestion')}&body=${encodeURIComponent(body)}`);
+                    setStatus('success');
+                    setSuggestion('');
+                    setName('');
+                    return;
+                }
+
+                setStatus('sending');
+                try {
+                    emailjs.init(emailjsCfg.publicKey);
+                    await emailjs.send(
+                        emailjsCfg.serviceId,
+                        emailjsCfg.submitReviewTemplateId || emailjsCfg.ticketTemplateId,
+                        { name: name || 'Anonymous', message: suggestion, subject: 'Tool Suggestion – Social Rotator' }
+                    );
+                    setStatus('success');
+                    setSuggestion('');
+                    setName('');
+                } catch (e) {
+                    setStatus('error');
+                }
+            };
+
+            return (
+                <section className="py-16 px-6 border-t border-white/5">
+                    <div className="max-w-2xl mx-auto">
+                        <div className="section-card">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(147,51,234,0.15)', border: '1px solid rgba(147,51,234,0.3)' }}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                </div>
+                                <div>
+                                    <h3 className="font-display font-bold text-lg">Got a Suggestion?</h3>
+                                    <p className="text-gray-500 text-sm">Feature ideas, new tools, improvements — I read everything.</p>
+                                </div>
+                            </div>
+
+                            {status === 'success' ? (
+                                <div className="mt-5 p-4 rounded-xl text-center" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                                    <div className="text-2xl mb-1">🎉</div>
+                                    <p className="text-green-400 font-semibold text-sm">Thanks for the suggestion!</p>
+                                    <p className="text-gray-500 text-xs mt-1">I appreciate the feedback — it helps make these tools better.</p>
+                                    <button onClick={() => setStatus('idle')} className="mt-3 text-xs text-gray-500 hover:text-gray-300 transition-colors underline">Submit another</button>
+                                </div>
+                            ) : (
+                                <div className="mt-5 flex flex-col gap-3">
+                                    <input
+                                        className="username-input"
+                                        placeholder="Your name (optional)"
+                                        value={name}
+                                        onChange={e => setName(e.target.value)}
+                                    />
+                                    <textarea
+                                        className="suggest-textarea"
+                                        placeholder="What feature would you like? Or suggest a new tool idea…"
+                                        value={suggestion}
+                                        onChange={e => setSuggestion(e.target.value)}
+                                    />
+                                    {status === 'error' && (
+                                        <p className="text-red-400 text-xs">Something went wrong. Try the Discord link below or email kiernenyt@gmail.com.</p>
+                                    )}
+                                    <div className="flex items-center gap-3 flex-wrap">
+                                        <button className="suggest-btn" onClick={submit} disabled={!suggestion.trim() || status === 'sending'}>
+                                            {status === 'sending' ? 'Sending…' : 'Send Suggestion'}
+                                        </button>
+                                        {discordUrl && (
+                                            <a href={discordUrl} target="_blank" rel="noopener noreferrer"
+                                                className="text-sm text-gray-500 hover:text-indigo-400 transition-colors flex items-center gap-1.5">
+                                                <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path fill-rule="evenodd" d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+                                                Or post in Discord
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </section>
+            );
+        };
+
         /* ── App ── */
         const App = () => {
-            const [selected, setSelected]     = useState([]); // [{id, username}]
-            const [effect, setEffect]         = useState('fade');
-            const [font, setFont]             = useState('Outfit');
-            const [size, setSize]             = useState(28);
-            const [color, setColor]           = useState('#ffffff');
-            const [shadow, setShadow]         = useState('glow');
-            const [logoSize, setLogoSize]     = useState('md');
-            const [duration, setDuration]     = useState(5);
-            const [generatedUrl, setGenUrl]   = useState('');
-            const [copied, setCopied]         = useState(false);
+            const [selected, setSelected]         = useState([]);
+            const [effect, setEffect]             = useState('fade');
+            const [font, setFont]                 = useState('Poppins');
+            const [size, setSize]                 = useState(28);
+            const [color, setColor]               = useState('#ffffff');
+            const [shadowType, setShadowType]     = useState('glow');  // none | glow | custom
+            const [shadowAngle, setShadowAngle]   = useState(135);
+            const [shadowDist, setShadowDist]     = useState(4);
+            const [shadowBlur, setShadowBlur]     = useState(8);
+            const [shadowColor, setShadowColor]   = useState('#000000');
+            const [shadowOpacity, setShadowOpacity] = useState(80);
+            const [logoSize, setLogoSize]         = useState('md');
+            const [duration, setDuration]         = useState(5);
+            const [popupMode, setPopupMode]       = useState(false);
+            const [popupInterval, setPopupInterval] = useState(10);
+            const [useLogo, setUseLogo]           = useState(false);
+            const [generatedUrl, setGenUrl]       = useState('');
+            const [copied, setCopied]             = useState(false);
+
+            const shadowOpts = { angle: shadowAngle, distance: shadowDist, blur: shadowBlur, color: shadowColor, opacity: shadowOpacity };
 
             const isSelected = (id) => selected.some(p => p.id === id);
 
@@ -351,7 +607,15 @@
                     alert('Please select at least one platform and enter your username.');
                     return;
                 }
-                const cfg = { platforms: validPlatforms, effect, font, size, color, shadow, logoSize, duration };
+                const cfg = {
+                    platforms: validPlatforms,
+                    effect, font, size, color,
+                    shadowType,
+                    shadowOpts: shadowType === 'custom' ? shadowOpts : null,
+                    logoSize, duration,
+                    popupMode, popupInterval,
+                    useLogo,
+                };
                 const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
                 const base = window.location.href.replace(/\/[^/]*$/, '');
                 setGenUrl(`${base}/rotator.html?c=${encoded}`);
@@ -367,20 +631,19 @@
             const validCount = selected.filter(p => p.username.trim()).length;
 
             const EFFECTS = [
-                { id: 'fade',    label: 'Fade'      },
-                { id: 'slide',   label: 'Slide'     },
-                { id: 'slideup', label: 'Slide Up'  },
-                { id: 'zoom',    label: 'Zoom'      },
-                { id: 'flip',    label: 'Flip'      },
+                { id: 'fade',       label: 'Fade'          },
+                { id: 'fadedownup', label: 'Fade ↓ / ↑'    },
+                { id: 'slide',      label: 'Slide'         },
+                { id: 'slideup',    label: 'Slide Up'      },
+                { id: 'zoom',       label: 'Zoom'          },
+                { id: 'flip',       label: 'Flip'          },
             ];
 
-            const FONTS = ['Outfit', 'Space Grotesk', 'Orbitron', 'Montserrat', 'Roboto', 'Inter'];
-
-            const SHADOWS = [
-                { id: 'none', label: 'None'  },
-                { id: 'soft', label: 'Soft'  },
-                { id: 'hard', label: 'Hard'  },
-                { id: 'glow', label: 'Glow'  },
+            const FONTS = [
+                'Poppins', 'Outfit', 'Space Grotesk', 'Arimo', 'Barlow',
+                'Oswald', 'Kanit', 'Quicksand', 'Teko', 'Chakra Petch',
+                'Kalam', 'Neuton', 'Rokkitt', 'Cuprum', 'Blinker',
+                'Edu TAS Beginner', 'Stardos Stencil', 'Orbitron', 'Montserrat', 'Inter',
             ];
 
             const LOGO_SIZE_OPTS = [
@@ -488,14 +751,14 @@
                                             </div>
                                         </div>
 
-                                        {/* Shadow */}
+                                        {/* Logo size */}
                                         <div>
-                                            <div className="text-sm text-gray-400 font-medium mb-2">Text Shadow</div>
+                                            <div className="text-sm text-gray-400 font-medium mb-2">Logo Size</div>
                                             <div className="flex flex-wrap gap-2">
-                                                {SHADOWS.map(s => (
-                                                    <button key={s.id} onClick={() => setShadow(s.id)}
-                                                        className={`pill-btn liquid-glass border border-white/10 px-3 py-1.5 rounded-full text-sm font-medium ${shadow === s.id ? 'active' : 'text-gray-400 hover:text-white'}`}>
-                                                        {s.label}
+                                                {LOGO_SIZE_OPTS.map(l => (
+                                                    <button key={l.id} onClick={() => setLogoSize(l.id)}
+                                                        className={`pill-btn liquid-glass border border-white/10 px-3 py-1.5 rounded-full text-sm font-medium ${logoSize === l.id ? 'active' : 'text-gray-400 hover:text-white'}`}>
+                                                        {l.label}
                                                     </button>
                                                 ))}
                                             </div>
@@ -508,19 +771,6 @@
                                                 className="username-input" style={{ cursor: 'pointer' }}>
                                                 {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
                                             </select>
-                                        </div>
-
-                                        {/* Logo size */}
-                                        <div>
-                                            <div className="text-sm text-gray-400 font-medium mb-2">Logo Size</div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {LOGO_SIZE_OPTS.map(l => (
-                                                    <button key={l.id} onClick={() => setLogoSize(l.id)}
-                                                        className={`pill-btn liquid-glass border border-white/10 px-3 py-1.5 rounded-full text-sm font-medium ${logoSize === l.id ? 'active' : 'text-gray-400 hover:text-white'}`}>
-                                                        {l.label}
-                                                    </button>
-                                                ))}
-                                            </div>
                                         </div>
 
                                         {/* Text size */}
@@ -550,12 +800,121 @@
                                                     className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Reset</button>
                                             </div>
                                         </div>
+
+                                        {/* Drop Shadow — full column width */}
+                                        <div className="sm:col-span-2">
+                                            <div className="text-sm text-gray-400 font-medium mb-3">Drop Shadow</div>
+                                            <div className="flex flex-wrap gap-2 mb-4">
+                                                {['none', 'glow', 'custom'].map(t => (
+                                                    <button key={t} onClick={() => setShadowType(t)}
+                                                        className={`pill-btn liquid-glass border border-white/10 px-3 py-1.5 rounded-full text-sm font-medium capitalize ${shadowType === t ? 'active' : 'text-gray-400 hover:text-white'}`}>
+                                                        {t === 'none' ? 'None' : t === 'glow' ? 'Glow' : 'Custom'}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            {shadowType === 'custom' && (
+                                                <div className="liquid-glass rounded-xl p-4 border border-white/5">
+                                                    <div className="shadow-row">
+                                                        <label>Angle</label>
+                                                        <input type="range" min="0" max="360" value={shadowAngle} onChange={e => setShadowAngle(Number(e.target.value))} className="flex-1" />
+                                                        <span className="val">{shadowAngle}°</span>
+                                                    </div>
+                                                    <div className="shadow-row">
+                                                        <label>Distance</label>
+                                                        <input type="range" min="0" max="40" value={shadowDist} onChange={e => setShadowDist(Number(e.target.value))} className="flex-1" />
+                                                        <span className="val">{shadowDist}px</span>
+                                                    </div>
+                                                    <div className="shadow-row">
+                                                        <label>Blur</label>
+                                                        <input type="range" min="0" max="50" value={shadowBlur} onChange={e => setShadowBlur(Number(e.target.value))} className="flex-1" />
+                                                        <span className="val">{shadowBlur}px</span>
+                                                    </div>
+                                                    <div className="shadow-row">
+                                                        <label>Opacity</label>
+                                                        <input type="range" min="0" max="100" value={shadowOpacity} onChange={e => setShadowOpacity(Number(e.target.value))} className="flex-1" />
+                                                        <span className="val">{shadowOpacity}%</span>
+                                                    </div>
+                                                    <div className="shadow-row" style={{ marginBottom: 0 }}>
+                                                        <label>Color</label>
+                                                        <div className="flex items-center gap-3 flex-1">
+                                                            <input type="color" value={shadowColor} onChange={e => setShadowColor(e.target.value)} className="w-8 h-8 rounded-lg cursor-pointer" />
+                                                            <span className="font-mono text-xs text-gray-400">{shadowColor.toUpperCase()}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 pt-3 border-t border-white/5">
+                                                        <span className="text-xs text-gray-600">Preview: </span>
+                                                        <span className="text-xs font-mono text-purple-400/70">
+                                                            {computeCustomShadow(shadowOpts)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Logo mode toggle — full column width */}
+                                        <div className="sm:col-span-2">
+                                            <div className="text-sm text-gray-400 font-medium mb-3">Logo Style</div>
+                                            <div className="flex flex-col gap-3">
+                                                <div className="flex items-center gap-4">
+                                                    <button onClick={() => setUseLogo(false)}
+                                                        className={`pill-btn liquid-glass border border-white/10 px-3 py-1.5 rounded-full text-sm font-medium ${!useLogo ? 'active' : 'text-gray-400 hover:text-white'}`}>
+                                                        Icon (SVG)
+                                                    </button>
+                                                    <button onClick={() => setUseLogo(true)}
+                                                        className={`pill-btn liquid-glass border border-white/10 px-3 py-1.5 rounded-full text-sm font-medium ${useLogo ? 'active' : 'text-gray-400 hover:text-white'}`}>
+                                                        Official Logo
+                                                    </button>
+                                                    {useLogo && (
+                                                        <span className="text-xs text-gray-500">Brand colors from Simple Icons CDN</span>
+                                                    )}
+                                                </div>
+                                                {useLogo && (
+                                                    <div className="p-3 rounded-xl text-xs text-yellow-400/80" style={{ background: 'rgba(234,179,8,0.05)', border: '1px solid rgba(234,179,8,0.15)' }}>
+                                                        Official logos load from simpleicons.org. Requires an internet connection in OBS.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
                                     </div>
                                 </div>
 
-                                {/* Step 4 – Preview & Generate */}
+                                {/* Step 4 – Popup Timing */}
                                 <div className="section-card">
                                     <div className="step-label">Step 4</div>
+                                    <h2 className="font-display font-bold text-xl mb-1">Popup Timing</h2>
+                                    <p className="text-gray-500 text-sm mb-5">
+                                        By default the overlay is always visible. Enable Popup Mode to have it appear for one cycle, then hide until the next interval.
+                                    </p>
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <Toggle on={popupMode} onChange={setPopupMode} />
+                                        <div>
+                                            <span className="text-sm font-medium">Popup Mode</span>
+                                            <p className="text-xs text-gray-500 mt-0.5">{popupMode ? 'Overlay hides between cycles' : 'Overlay always visible'}</p>
+                                        </div>
+                                    </div>
+                                    {popupMode && (
+                                        <div className="liquid-glass rounded-xl p-4 border border-white/5">
+                                            <div className="text-sm text-gray-400 font-medium mb-2">
+                                                Show every <span className="text-purple-400 font-mono">{popupInterval} minute{popupInterval !== 1 ? 's' : ''}</span>
+                                            </div>
+                                            <input type="range" min="1" max="60" value={popupInterval}
+                                                onChange={e => setPopupInterval(Number(e.target.value))}
+                                                className="w-full" />
+                                            <div className="flex justify-between text-xs text-gray-600 mt-1">
+                                                <span>1 min</span>
+                                                <span>60 min</span>
+                                            </div>
+                                            <div className="mt-3 p-3 rounded-lg text-xs text-gray-400" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                                The overlay will wait <strong className="text-gray-300">{popupInterval} min</strong>, show all {validCount > 0 ? validCount : '?'} platform{validCount !== 1 ? 's' : ''} once ({Math.round(validCount * (duration + 1))}s), then hide and repeat.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Step 5 – Preview & Generate */}
+                                <div className="section-card">
+                                    <div className="step-label">Step 5</div>
                                     <h2 className="font-display font-bold text-xl mb-2">Preview &amp; Generate</h2>
                                     <p className="text-gray-500 text-sm mb-5">
                                         The checkerboard shows transparency &mdash; your overlay will be invisible in OBS except for the logo &amp; username.
@@ -570,9 +929,16 @@
                                             font={font}
                                             size={size}
                                             color={color}
-                                            shadow={shadow}
+                                            shadowType={shadowType}
+                                            shadowOpts={shadowOpts}
                                             logoSize={logoSize}
+                                            useLogo={useLogo}
                                         />
+                                        {popupMode && validCount > 0 && (
+                                            <div className="mt-2 text-xs text-purple-400/70 text-center">
+                                                Popup mode active — overlay hides for {popupInterval} min between cycles
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Generate */}
@@ -625,6 +991,9 @@
                             </div>
                         </div>
                     </main>
+
+                    {/* Suggestion Box */}
+                    <SuggestionBox />
 
                     {/* Footer */}
                     <footer className="py-10 px-6 border-t border-white/5">
