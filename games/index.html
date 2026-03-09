@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Games — TrueBeast</title>
+    <script src="../js/theme.js"></script>
+    <link rel="stylesheet" href="../css/shared.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: #0a0a0f;
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Background */
+        .bg-orbs {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background: #0a0a0f;
+            overflow: hidden;
+        }
+        .bg-orbs::before {
+            content: '';
+            position: absolute;
+            top: -40%;
+            left: -20%;
+            width: 70%;
+            height: 70%;
+            background: radial-gradient(ellipse, rgba(34,197,94,0.06) 0%, transparent 60%);
+            animation: orbFloat 18s ease-in-out infinite alternate;
+        }
+        .bg-orbs::after {
+            content: '';
+            position: absolute;
+            bottom: -30%;
+            right: -10%;
+            width: 60%;
+            height: 60%;
+            background: radial-gradient(ellipse, rgba(57,255,20,0.04) 0%, transparent 60%);
+            animation: orbFloat 22s ease-in-out infinite alternate-reverse;
+        }
+        @keyframes orbFloat {
+            0%   { transform: translate(0,0) scale(1); }
+            100% { transform: translate(3%,4%) scale(1.08); }
+        }
+
+        /* Nav */
+        nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(10,10,15,0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding: 0 2rem;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .nav-logo {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #22c55e;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .nav-logo span { color: #fff; }
+        .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+        .nav-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover { color: #22c55e; }
+        .back-link {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: rgba(255,255,255,0.6) !important;
+            font-size: 0.875rem !important;
+        }
+        .back-link:hover { color: #22c55e !important; }
+
+        /* Theme toggle */
+        .theme-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.2s;
+        }
+        .theme-btn:hover {
+            border-color: #22c55e;
+            background: rgba(34,197,94,0.1);
+        }
+
+        /* Page content */
+        .page {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        .page-header {
+            text-align: center;
+            margin-bottom: 3.5rem;
+        }
+        .page-header .label {
+            display: inline-block;
+            background: rgba(34,197,94,0.12);
+            border: 1px solid rgba(34,197,94,0.3);
+            color: #22c55e;
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 0.35rem 1rem;
+            border-radius: 100px;
+            margin-bottom: 1.2rem;
+        }
+        .page-header h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1rem;
+        }
+        .page-header h1 .green {
+            background: linear-gradient(135deg, #22c55e, #39ff14);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .page-header p {
+            font-size: 1.1rem;
+            color: rgba(255,255,255,0.6);
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        /* Game grid */
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        /* Game card */
+        .game-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            overflow: hidden;
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        .game-card:hover {
+            border-color: rgba(34,197,94,0.25);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(34,197,94,0.1);
+        }
+        .game-card-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(57,255,20,0.04) 50%, rgba(22,163,74,0.08) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .game-card-thumb::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 20px,
+                rgba(34,197,94,0.03) 20px,
+                rgba(34,197,94,0.03) 21px
+            );
+        }
+        .game-card-thumb .icon {
+            font-size: 4.5rem;
+            filter: drop-shadow(0 0 20px rgba(34,197,94,0.5));
+            position: relative;
+            z-index: 1;
+            animation: iconFloat 3s ease-in-out infinite;
+        }
+        @keyframes iconFloat {
+            0%, 100% { transform: translateY(0); }
+            50%       { transform: translateY(-8px); }
+        }
+        .game-card-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(34,197,94,0.9);
+            color: #000;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 0.25rem 0.65rem;
+            border-radius: 100px;
+        }
+        .game-card-body {
+            padding: 1.5rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .game-card-body h2 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        .game-card-body p {
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.55);
+            line-height: 1.6;
+            flex: 1;
+        }
+        .game-card-meta {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .meta-tag {
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.4);
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+        }
+        .play-btn {
+            display: block;
+            text-align: center;
+            text-decoration: none;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: #000;
+            font-weight: 700;
+            font-size: 0.9rem;
+            padding: 0.7rem 1.5rem;
+            border-radius: 10px;
+            margin-top: 0.25rem;
+            transition: all 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+        .play-btn:hover {
+            background: linear-gradient(135deg, #4ade80, #22c55e);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(34,197,94,0.4);
+        }
+
+        /* Coming soon card */
+        .coming-soon-card {
+            background: rgba(255,255,255,0.015);
+            border: 1px dashed rgba(255,255,255,0.12);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem 2rem;
+            text-align: center;
+            gap: 0.75rem;
+            min-height: 280px;
+        }
+        .coming-soon-card .cs-icon {
+            font-size: 2.5rem;
+            opacity: 0.4;
+        }
+        .coming-soon-card h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.35);
+        }
+        .coming-soon-card p {
+            font-size: 0.85rem;
+            color: rgba(255,255,255,0.25);
+        }
+
+        /* Light mode */
+        html.light body { background: #f0f4f0; color: #0e1a0e; }
+        html.light nav {
+            background: rgba(240,244,240,0.9);
+            border-color: rgba(0,0,0,0.1);
+        }
+        html.light .game-card {
+            background: rgba(255,255,255,0.7);
+            border-color: rgba(0,0,0,0.1);
+        }
+        html.light .game-card-body p { color: rgba(0,0,0,0.55); }
+        html.light .meta-tag {
+            color: rgba(0,0,0,0.4);
+            background: rgba(0,0,0,0.05);
+            border-color: rgba(0,0,0,0.08);
+        }
+        html.light .coming-soon-card {
+            background: rgba(0,0,0,0.02);
+            border-color: rgba(0,0,0,0.1);
+        }
+        html.light .coming-soon-card h3 { color: rgba(0,0,0,0.35); }
+        html.light .coming-soon-card p  { color: rgba(0,0,0,0.25); }
+        html.light .page-header p { color: rgba(0,0,0,0.6); }
+        html.light .nav-links a { color: rgba(0,0,0,0.6); }
+        html.light .back-link { color: rgba(0,0,0,0.5) !important; }
+        html.light .theme-btn { color: #0e1a0e; background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
+
+        @media (max-width: 600px) {
+            .page { padding: 2rem 1rem; }
+            nav { padding: 0 1rem; }
+            .games-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-orbs"></div>
+
+    <nav>
+        <a href="../index.html" class="nav-logo">True<span>Beast</span></a>
+        <div class="nav-links">
+            <a href="../index.html" class="back-link">← Back to Home</a>
+            <button class="theme-btn" id="themeToggle" title="Toggle theme">🌙</button>
+        </div>
+    </nav>
+
+    <main class="page">
+        <header class="page-header">
+            <div class="label">🕹️ TrueBeast Gaming Hub</div>
+            <h1>Play <span class="green">Games</span></h1>
+            <p>Mini-games built right into the TrueBeast website. No downloads, just play.</p>
+        </header>
+
+        <div class="games-grid">
+            <!-- Clout Clicker -->
+            <div class="game-card">
+                <div class="game-card-thumb">
+                    <span class="icon">🎮</span>
+                    <span class="game-card-badge">Available Now</span>
+                </div>
+                <div class="game-card-body">
+                    <h2>Clout Clicker</h2>
+                    <p>Click your way to internet fame. Build a content creation empire — from a single viewer all the way to a Cosmic Broadcast. Cookie Clicker, but make it creator-mode.</p>
+                    <div class="game-card-meta">
+                        <span class="meta-tag">Idle / Clicker</span>
+                        <span class="meta-tag">538 Achievements</span>
+                        <span class="meta-tag">Leaderboard</span>
+                    </div>
+                    <a href="./clout-clicker/" class="play-btn">🚀 Play Now</a>
+                </div>
+            </div>
+
+            <!-- Coming soon 1 -->
+            <div class="coming-soon-card">
+                <div class="cs-icon">🎯</div>
+                <h3>More Games Coming Soon</h3>
+                <p>New games are in development. Stay tuned to the Discord for announcements.</p>
+            </div>
+
+            <!-- Coming soon 2 -->
+            <div class="coming-soon-card">
+                <div class="cs-icon">💡</div>
+                <h3>Have an Idea?</h3>
+                <p>Drop your game suggestions in the Discord server and they might just get built.</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Theme toggle
+        const btn = document.getElementById('themeToggle');
+        function updateIcon() {
+            btn.textContent = document.documentElement.classList.contains('light') ? '☀️' : '🌙';
+        }
+        updateIcon();
+        btn.addEventListener('click', () => {
+            const isLight = document.documentElement.classList.toggle('light');
+            localStorage.setItem('tb-theme', isLight ? 'light' : 'dark');
+            updateIcon();
+        });
+    </script>
+</body>
+</html>

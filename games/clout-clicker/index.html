@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Clout Clicker — TrueBeast</title>
+
+    <!-- Theme must be before any paint -->
+    <script src="../../js/theme.js"></script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- Shared site styles -->
+    <link rel="stylesheet" href="../../css/shared.css" />
+
+    <!-- Game styles -->
+    <link rel="stylesheet" href="./clout-clicker.css" />
+
+    <!-- Firebase (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+</head>
+<body>
+
+<!-- ── Background ──────────────────────────────────────────── -->
+<div class="cc-bg"></div>
+
+<!-- ── Top Nav ─────────────────────────────────────────────── -->
+<nav id="cc-nav">
+    <a href="../index.html" class="nav-brand">True<span>Beast</span></a>
+    <span class="nav-sep">/</span>
+    <span class="nav-title">🎮 Clout Clicker</span>
+
+    <div class="nav-actions">
+        <button class="nav-btn" id="btn-save" title="Save game">💾 Save</button>
+        <button class="nav-btn" id="btn-io"   title="Import/Export save">📤 Export</button>
+        <button class="nav-btn" id="btn-auth">🔑 Sign In</button>
+        <button class="nav-btn" id="btn-theme" title="Toggle theme">🌙</button>
+    </div>
+</nav>
+
+<!-- ── Main 3-column layout ────────────────────────────────── -->
+<main id="cc-main">
+
+    <!-- ══ LEFT: Store ══════════════════════════════════════ -->
+    <div id="col-store" class="cc-col">
+        <!-- Tabs -->
+        <div class="store-tabs">
+            <button class="store-tab active" id="tab-buildings">🏗️ Buildings</button>
+            <button class="store-tab"        id="tab-upgrades">⬆️ Upgrades</button>
+        </div>
+
+        <!-- Buildings panel -->
+        <div id="buildings-panel" class="store-panel">
+            <!-- Bulk buy row -->
+            <div class="bulk-row">
+                <button class="bulk-btn active" data-qty="1">×1</button>
+                <button class="bulk-btn"        data-qty="10">×10</button>
+                <button class="bulk-btn"        data-qty="100">×100</button>
+                <button class="bulk-btn"        data-qty="max">Max</button>
+            </div>
+            <!-- Buildings injected here -->
+            <div id="buildings-list"></div>
+        </div>
+
+        <!-- Upgrades panel -->
+        <div id="upgrades-panel" class="store-panel hidden">
+            <div class="upgrades-grid" id="upgrades-grid"></div>
+        </div>
+    </div>
+
+    <!-- ══ CENTER: Click area ═══════════════════════════════ -->
+    <div id="col-center">
+        <!-- Clout display -->
+        <div id="clout-display">
+            <div id="clout-label">Clout</div>
+            <div id="clout-value">0 Clout</div>
+            <div id="cps-display">per second: <span class="cps-val">0</span></div>
+            <div id="cpc-display">per click: 1</div>
+        </div>
+
+        <!-- Active buffs -->
+        <div id="buff-bar"></div>
+
+        <!-- Click area -->
+        <div id="click-area">
+            <div id="click-target" role="button" aria-label="Click to earn Clout" tabindex="0">🎮</div>
+        </div>
+
+        <!-- Prestige button (hidden until eligible) -->
+        <button id="prestige-btn">🌀 Go Viral</button>
+
+        <!-- News ticker -->
+        <div id="news-ticker">
+            <div id="ticker-track"></div>
+        </div>
+    </div>
+
+    <!-- ══ RIGHT: Stats & Achievements ══════════════════════ -->
+    <div id="col-stats" class="cc-col">
+
+        <!-- Player card -->
+        <div class="player-card">
+            <!-- Logged in state -->
+            <div id="player-logged-in" class="player-logged-in" style="display:none; flex-direction:column; gap:0.5rem;">
+                <div class="player-info">
+                    <div class="player-avatar" id="player-avatar">T</div>
+                    <div>
+                        <div class="player-name" id="player-name">TrueBeast</div>
+                        <div class="player-sub">Cloud saves enabled ✓</div>
+                    </div>
+                </div>
+                <button class="player-btn sign-out" id="btn-signout" onclick="if(window.GameEngine){window.GameEngine.fullSave(true);window.GameEngine.signOut();}">Sign Out</button>
+            </div>
+
+            <!-- Logged out state -->
+            <div id="player-logged-out" class="player-logged-out">
+                <div class="player-signed-out-text">Sign in to save to the cloud & compete on the leaderboard.</div>
+                <button class="player-btn sign-in" onclick="document.getElementById('modal-auth').classList.add('open')">Sign In / Register</button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-panel">
+            <div class="stats-header">📊 Stats</div>
+            <div class="stat-row"><span class="stat-label">Clout</span><span class="stat-value green" id="stat-clout">0</span></div>
+            <div class="stat-row"><span class="stat-label">Per Second</span><span class="stat-value green" id="stat-cps">0</span></div>
+            <div class="stat-row"><span class="stat-label">Per Click</span><span class="stat-value" id="stat-cpc">1</span></div>
+            <div class="stat-row"><span class="stat-label">Total Ever</span><span class="stat-value" id="stat-total">0</span></div>
+            <div class="stat-row"><span class="stat-label">Golden Clouts</span><span class="stat-value gold" id="stat-golden">0</span></div>
+            <div class="stat-row"><span class="stat-label">Times Gone Viral</span><span class="stat-value" id="stat-prestige">0</span></div>
+            <div class="stat-row"><span class="stat-label">Viral Chips</span><span class="stat-value gold" id="stat-chips">0</span></div>
+            <div class="stat-row"><span class="stat-label">Time Played</span><span class="stat-value" id="stat-time">0s</span></div>
+        </div>
+
+        <!-- Leaderboard button -->
+        <button class="lb-btn" id="btn-leaderboard">🏆 Global Leaderboard</button>
+
+        <!-- Achievements -->
+        <div class="ach-panel">
+            <div class="ach-header">
+                <span class="ach-title">🏅 Achievements</span>
+                <span class="ach-count" id="ach-count">0 / 0</span>
+            </div>
+            <div class="ach-progress-bar">
+                <div class="ach-progress-fill" id="ach-progress" style="width:0%"></div>
+            </div>
+            <div class="ach-filters">
+                <button class="ach-filter active" data-filter="all">All</button>
+                <button class="ach-filter"        data-filter="unlocked">Unlocked</button>
+                <button class="ach-filter"        data-filter="locked">Locked</button>
+            </div>
+            <div class="ach-grid" id="ach-grid"></div>
+        </div>
+
+    </div><!-- /col-stats -->
+</main>
+
+<!-- ══ Golden Clout ══════════════════════════════════════════ -->
+<div id="golden-clout" title="Click the Golden Clout!">
+    💛
+    <div class="golden-ring"></div>
+    <div id="golden-countdown">13s</div>
+</div>
+
+<!-- ══ Toast container ═══════════════════════════════════════ -->
+<div id="toast-container"></div>
+
+<!-- ════════════════════════════════════════════════════════════
+     MODALS
+     ════════════════════════════════════════════════════════════ -->
+
+<!-- Auth modal -->
+<div class="modal-overlay" id="modal-auth">
+    <div class="modal">
+        <button class="modal-close">✕</button>
+        <h2>🔑 Sign In</h2>
+        <p class="modal-sub">Sign in to save your Clout empire to the cloud and compete on the global leaderboard.</p>
+
+        <div class="auth-tabs">
+            <button class="auth-tab active" data-authtab="signin">Sign In</button>
+            <button class="auth-tab"        data-authtab="signup">Create Account</button>
+        </div>
+
+        <!-- Sign In -->
+        <form class="auth-form" id="auth-signin-form">
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" type="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input class="form-input" type="password" name="password" placeholder="••••••••" required autocomplete="current-password" />
+            </div>
+            <div class="form-error"></div>
+            <button class="form-btn" type="submit">Sign In</button>
+        </form>
+
+        <!-- Sign Up -->
+        <form class="auth-form hidden" id="auth-signup-form">
+            <div class="form-group">
+                <label class="form-label">Display Name (shown on leaderboard)</label>
+                <input class="form-input" type="text" name="displayName" placeholder="YourGamerTag" required maxlength="20" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" type="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input class="form-input" type="password" name="password" placeholder="Minimum 6 characters" required minlength="6" autocomplete="new-password" />
+            </div>
+            <div class="form-error"></div>
+            <button class="form-btn" type="submit">Create Account</button>
+        </form>
+    </div>
+</div>
+
+<!-- Leaderboard modal -->
+<div class="modal-overlay" id="modal-leaderboard">
+    <div class="modal modal-lg">
+        <button class="modal-close">✕</button>
+        <h2>🏆 Global Leaderboard</h2>
+        <p class="modal-sub">Top 25 Clout earners across all time. Sign in to appear on the board.</p>
+        <table class="lb-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Player</th>
+                    <th>Total Clout</th>
+                    <th>Viral</th>
+                    <th>CPS</th>
+                </tr>
+            </thead>
+            <tbody id="lb-tbody">
+                <tr><td colspan="5" class="lb-empty">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Achievement detail modal -->
+<div class="modal-overlay" id="modal-achievement">
+    <div class="modal">
+        <button class="modal-close">✕</button>
+        <div class="ach-detail-icon">🏆</div>
+        <h2>Achievement Name</h2>
+        <div class="ach-detail-status unlocked">Unlocked ✓</div>
+        <p class="modal-sub">Achievement description here.</p>
+    </div>
+</div>
+
+<!-- Prestige / Go Viral modal -->
+<div class="modal-overlay" id="modal-prestige">
+    <div class="modal">
+        <button class="modal-close">✕</button>
+        <h2>🌀 Go Viral</h2>
+        <p class="modal-sub">Reset your empire in exchange for permanent bonuses. This is the prestige system — every run you go further, faster.</p>
+
+        <div class="prestige-reward">
+            <div class="reward-num" id="prestige-chip-reward">+0 Viral Chips</div>
+            <div class="reward-label" id="prestige-chip-detail">Each chip gives +1% permanent CPS bonus</div>
+        </div>
+
+        <ul class="prestige-list">
+            <li><span class="loses">✗</span> You lose all current Clout</li>
+            <li><span class="loses">✗</span> You lose all buildings</li>
+            <li><span class="loses">✗</span> You lose all upgrades</li>
+            <li><span class="keeps">✓</span> You KEEP all achievements</li>
+            <li><span class="keeps">✓</span> You KEEP Viral Chips</li>
+            <li><span class="keeps">✓</span> You KEEP your Golden Clout click count</li>
+            <li><span class="keeps">✓</span> Prestige upgrades are purchasable with Viral Chips</li>
+        </ul>
+
+        <button class="prestige-confirm-btn" id="prestige-confirm-btn">🔄 Go Viral Now</button>
+    </div>
+</div>
+
+<!-- Offline income modal -->
+<div class="modal-overlay" id="modal-offline">
+    <div class="modal">
+        <button class="modal-close">✕</button>
+        <h2>💤 Welcome Back!</h2>
+        <p class="modal-sub">Your empire kept working while you were away.</p>
+        <div class="offline-reward-box">
+            <div class="offline-amount">+0 Clout</div>
+            <div class="offline-time">Earned while you were away</div>
+        </div>
+        <button class="offline-ok-btn" id="offline-ok-btn">Collect &amp; Continue</button>
+    </div>
+</div>
+
+<!-- Import / Export modal -->
+<div class="modal-overlay" id="modal-io">
+    <div class="modal">
+        <button class="modal-close">✕</button>
+        <h2>📤 Save Data</h2>
+        <p class="modal-sub">Export to back up your save or transfer it to another device. Import to restore a save.</p>
+
+        <div class="io-group">
+            <div class="io-label">Export (copy this)</div>
+            <textarea class="io-textarea" id="export-textarea" readonly placeholder="Your save data will appear here..."></textarea>
+            <button class="io-btn primary" id="btn-export-copy">📋 Copy to Clipboard</button>
+        </div>
+
+        <div class="io-group" style="margin-top:1rem">
+            <div class="io-label">Import (paste save data)</div>
+            <textarea class="io-textarea" id="import-textarea" placeholder="Paste your exported save data here..."></textarea>
+            <button class="io-btn" id="btn-import-load">⬇️ Load Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     Game Scripts (order matters)
+     ════════════════════════════════════════════════════════════ -->
+<script src="./data.js"></script>
+<script src="./engine.js"></script>
+<script src="./ui.js"></script>
+
+<!-- Keyboard shortcuts -->
+<script>
+document.addEventListener('keydown', (e) => {
+    // Space or Enter on click target
+    if ((e.key === ' ' || e.key === 'Enter') && document.activeElement.id === 'click-target') {
+        e.preventDefault();
+        if (window.GameEngine) window.GameEngine.handleClick();
+    }
+    // Escape closes modals
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    }
+});
+
+// Update auth button text based on state
+setInterval(() => {
+    const btn = document.getElementById('btn-auth');
+    if (btn && window.GameState) {
+        btn.textContent = window.GameState.isLoggedIn ? '👤 ' + (window.GameState.displayName || 'Account') : '🔑 Sign In';
+    }
+}, 1000);
+</script>
+
+</body>
+</html>
