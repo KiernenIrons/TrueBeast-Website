@@ -39,9 +39,26 @@
         <button class="nav-btn" id="btn-save" title="Save game">💾 Save</button>
         <button class="nav-btn" id="btn-io"   title="Import/Export save">📤 Export</button>
         <button class="nav-btn" id="btn-auth">🔑 Sign In</button>
+        <button class="nav-btn" id="btn-audio" title="Audio settings">🔊</button>
         <button class="nav-btn" id="btn-theme" title="Toggle theme">🌙</button>
     </div>
 </nav>
+
+<!-- ── Audio popover ───────────────────────────────────────── -->
+<div id="audio-popover">
+    <div class="audio-pop-title">🔊 Audio</div>
+    <div class="audio-row">
+        <label class="audio-label">
+            <input type="checkbox" id="audio-mute-toggle" checked>
+            Sound On
+        </label>
+    </div>
+    <div class="audio-row">
+        <span class="audio-label">Volume</span>
+        <span id="audio-vol-label" class="audio-vol-label">35%</span>
+    </div>
+    <input type="range" id="audio-vol-slider" min="0" max="100" value="35" class="audio-slider">
+</div>
 
 <!-- ── Main 3-column layout ────────────────────────────────── -->
 <main id="cc-main">
@@ -322,6 +339,7 @@
 <script src="./data.js"></script>
 <script src="./engine.js"></script>
 <script src="./ui.js"></script>
+<script src="./sound.js"></script>
 
 <!-- Keyboard shortcuts -->
 <script>

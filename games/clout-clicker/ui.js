@@ -110,31 +110,62 @@ function onClickEffect(amount) {
     document.body.appendChild(numEl);
     setTimeout(() => numEl.remove(), 1200);
 
-    // Particles
-    const count = 8;
+    // Enhanced particles
+    const isFrenzy = window.GameEngine && window.GameEngine.Buffs.clickFrenzy;
+    const count = isFrenzy ? 24 : 14;
+    const colors = ['#22c55e','#39ff14','#4ade80','#86efac','#a3e635'];
+    if (isFrenzy) colors.push('#facc15','#fbbf24','#f59e0b');
+
     for (let i = 0; i < count; i++) {
         const p = document.createElement('div');
         p.className = 'click-particle';
-        const angle = (i / count) * Math.PI * 2;
-        const dist  = 30 + Math.random() * 50;
+        const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+        const dist  = 30 + Math.random() * (isFrenzy ? 100 : 65);
         const px    = Math.cos(angle) * dist;
         const py    = Math.sin(angle) * dist;
-        const size  = 4 + Math.random() * 5;
+        const size  = 3 + Math.random() * (isFrenzy ? 9 : 6);
+        const color = colors[Math.floor(Math.random() * colors.length)];
         p.style.cssText = `
             width:${size}px;height:${size}px;
             left:${cx}px;top:${cy}px;
-            background:#${Math.random()>0.5?'22c55e':'39ff14'};
+            background:${color};
             --px:${px}px;--py:${py}px;
         `;
         document.body.appendChild(p);
         setTimeout(() => p.remove(), 700);
     }
 
-    // Check frenzy indicator
-    if (window.GameEngine && window.GameEngine.Buffs.clickFrenzy) {
+    // Frenzy class + sound
+    if (isFrenzy) {
         target.classList.add('frenzy-active');
+        window.GameSound && window.GameSound.playClickFrenzy();
     } else {
         target.classList.remove('frenzy-active');
+        window.GameSound && window.GameSound.playClick();
+    }
+}
+
+/* ── Achievement shower ───────────────────────────────────── */
+function showAchievementShower() {
+    const colors = ['#22c55e','#39ff14','#4ade80','#fbbf24','#c084fc','#38bdf8','#f472b6'];
+    for (let i = 0; i < 45; i++) {
+        setTimeout(() => {
+            const p = document.createElement('div');
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const size  = 4 + Math.random() * 7;
+            const left  = 10 + Math.random() * 80;
+            const dur   = 0.8 + Math.random() * 0.9;
+            const delay = Math.random() * 0.4;
+            p.style.cssText = `
+                position:fixed;pointer-events:none;z-index:9999;
+                left:${left}%;top:-12px;
+                width:${size}px;height:${size}px;
+                background:${color};border-radius:50%;
+                animation:achShower ${dur}s ease-in ${delay}s forwards;
+            `;
+            document.body.appendChild(p);
+            setTimeout(() => p.remove(), (dur + delay + 0.1) * 1000);
+        }, i * 8);
     }
 }
 
@@ -170,11 +201,20 @@ function renderBuildings() {
     list.innerHTML = '';
     BUILDINGS.forEach(b => {
         const owned = s.buildings[b.id] || 0;
-        const qty   = bulkMode === 'max' ? getMaxAffordable(b, owned, s.clout).qty || 1 : bulkMode;
-        const cost  = bulkMode === 'max'
-            ? getMaxAffordable(b, owned, s.clout).cost
-            : getBuildingCost(b, owned, qty);
-        const canAfford = s.clout >= cost && (bulkMode !== 'max' || getMaxAffordable(b,owned,s.clout).qty > 0);
+
+        let qty, cost, canAfford, qtyLabel;
+        if (bulkMode === 'max') {
+            const maxRes = getMaxAffordable(b, owned, s.clout);
+            qty       = maxRes.qty;
+            cost      = qty > 0 ? maxRes.cost : getBuildingCost(b, owned, 1);
+            canAfford = qty > 0;
+            qtyLabel  = qty > 0 ? ` ×${qty}` : ' ×0';
+        } else {
+            qty       = bulkMode;
+            cost      = getBuildingCost(b, owned, qty);
+            canAfford = s.clout >= cost;
+            qtyLabel  = bulkMode > 1 ? ` ×${bulkMode}` : '';
+        }
 
         const row = document.createElement('div');
         row.className = 'building-row ' + (canAfford ? 'can-afford' : 'cannot-afford');
@@ -184,7 +224,7 @@ function renderBuildings() {
             <span class="building-emoji">${b.emoji}</span>
             <div class="building-info">
                 <div class="building-name">${b.name}</div>
-                <div class="building-cost">${formatNumber(cost)} Clout${bulkMode !== 1 ? ` ×${bulkMode === 'max' ? 'max' : bulkMode}` : ''}</div>
+                <div class="building-cost">${formatNumber(cost)} Clout${qtyLabel}</div>
                 <div class="building-cps">${formatNumber(effectiveCps)}/s each${owned > 0 ? ` · ${formatNumber(effectiveCps * owned)}/s total` : ''}</div>
             </div>
             <div class="building-owned">${owned}</div>
@@ -730,8 +770,69 @@ function initUI() {
     // News ticker
     initTicker();
 
+    // Ambient particles on click area
+    initAmbientParticles();
+
     // Initial full render
     fullRender();
+}
+
+/* ── Ambient particle canvas ─────────────────────────────── */
+function initAmbientParticles() {
+    const area = document.getElementById('click-area');
+    if (!area) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;';
+    area.insertBefore(canvas, area.firstChild);
+
+    const ctx = canvas.getContext('2d');
+    const particles = [];
+
+    function resize() {
+        canvas.width  = area.clientWidth  || 400;
+        canvas.height = area.clientHeight || 500;
+    }
+    new ResizeObserver(resize).observe(area);
+    resize();
+
+    function spawn(randomY) {
+        return {
+            x: Math.random() * canvas.width,
+            y: randomY ? Math.random() * canvas.height : canvas.height + 5,
+            vx: (Math.random() - 0.5) * 0.35,
+            vy: -(0.35 + Math.random() * 0.75),
+            r: 0.6 + Math.random() * 1.8,
+            op: 0.08 + Math.random() * 0.28,
+            life: 1,
+            decay: 0.003 + Math.random() * 0.005,
+            color: Math.random() > 0.6 ? '#39ff14' : '#22c55e',
+        };
+    }
+
+    for (let i = 0; i < 28; i++) particles.push(spawn(true));
+
+    function tick() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx; p.y += p.vy; p.life -= p.decay;
+            if (p.life <= 0 || p.y < -5) particles.splice(i, 1, spawn(false));
+        }
+        while (particles.length < 28) particles.push(spawn(false));
+
+        particles.forEach(p => {
+            ctx.save();
+            ctx.globalAlpha = p.life * p.op;
+            ctx.fillStyle   = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        });
+        requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
 }
 
 /* ── Auth form ───────────────────────────────────────────── */
@@ -826,6 +927,7 @@ window.GameUI = {
     showAchievementModal,
     showPrestigeModal,
     showLeaderboardModal,
+    showAchievementShower,
     fullRender,
     tickUpdate,
     markDirty,

@@ -446,7 +446,7 @@ body {
     font-size: 0.7rem;
 }
 
-/* Click area */
+/* Click area — padding-bottom shifts controller visually higher */
 #click-area {
     flex: 1;
     display: flex;
@@ -454,6 +454,7 @@ body {
     justify-content: center;
     position: relative;
     width: 100%;
+    padding-bottom: 5rem;
 }
 
 /* Orbit ring — fills click-area, wrappers inside use top:50% left:50% */
@@ -1307,6 +1308,84 @@ body {
     background: linear-gradient(135deg, #22c55e, #16a34a);
     color: #000;
     border-color: transparent;
+}
+
+/* ── Audio popover ───────────────────────────────────────── */
+#audio-popover {
+    position: fixed;
+    top: 58px;
+    right: 4.5rem;
+    z-index: 1000;
+    background: rgba(10,10,15,0.97);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    width: 210px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    backdrop-filter: blur(20px);
+    display: none;
+    flex-direction: column;
+    gap: 0.6rem;
+    animation: toastIn 0.2s ease forwards;
+}
+#audio-popover.open { display: flex; }
+.audio-pop-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.1rem;
+}
+.audio-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.audio-label {
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.65);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+.audio-label input[type="checkbox"] {
+    accent-color: #22c55e;
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+.audio-vol-label {
+    font-size: 0.8rem;
+    color: #22c55e;
+    font-weight: 600;
+    min-width: 32px;
+    text-align: right;
+}
+.audio-slider {
+    width: 100%;
+    accent-color: #22c55e;
+    cursor: pointer;
+    height: 4px;
+}
+
+/* Light mode audio popover */
+html.light #audio-popover {
+    background: rgba(244,250,244,0.98);
+    border-color: rgba(0,0,0,0.1);
+}
+html.light .audio-pop-title { color: rgba(0,0,0,0.5); border-bottom-color: rgba(0,0,0,0.08); }
+html.light .audio-label { color: rgba(0,0,0,0.65); }
+
+/* ── Achievement particle shower ─────────────────────────── */
+@keyframes achShower {
+    0%   { transform: translateY(0) rotate(0deg);   opacity: 1; }
+    100% { transform: translateY(60vh) rotate(540deg); opacity: 0; }
 }
 
 /* ── Light mode overrides ────────────────────────────────── */

@@ -340,6 +340,7 @@ function buyBuilding(buildingId, qty) {
 
     recalculate();
     checkAchievements();
+    window.GameSound && window.GameSound.playPurchase();
     window.GameUI && window.GameUI.markDirty();
 }
 
@@ -364,6 +365,7 @@ function buyUpgrade(upgradeId) {
 
     recalculate();
     checkAchievements();
+    window.GameSound && window.GameSound.playPurchase();
     window.GameUI && window.GameUI.markDirty();
 }
 
@@ -420,6 +422,7 @@ function spawnGoldenClout() {
     el.style.left = x + 'px';
     el.style.top  = y + 'px';
     el.style.display = 'block';
+    window.GameSound && window.GameSound.playGoldenAppear();
     el.style.transform = 'scale(1)';
 
     window.GameState._goldenSpawnTime = Date.now();
@@ -448,6 +451,7 @@ function clickGoldenClout() {
 
     clearInterval(window._goldenInterval);
     el.style.display = 'none';
+    window.GameSound && window.GameSound.playGoldenClick();
 
     const s = window.GameState;
     s.goldenCloutClicks  += 1;
@@ -546,6 +550,8 @@ function checkAchievements() {
             if (ach.condition(s)) {
                 s.achievements.add(ach.id);
                 anyNew = true;
+                window.GameSound && window.GameSound.playAchievement();
+                window.GameUI && window.GameUI.showAchievementShower && window.GameUI.showAchievementShower();
                 window.GameUI && window.GameUI.showToast('ach', `🏆 Achievement Unlocked!`, `${ach.icon} ${ach.name} — ${ach.desc}`);
             }
         } catch(e) { /* silently skip bad conditions */ }
@@ -586,6 +592,7 @@ function prestige() {
 
     recalculate();
     checkAchievements();
+    window.GameSound && window.GameSound.playPrestige();
     fullSave(true);
     window.GameUI && window.GameUI.showToast('info', '🔄 Gone Viral!', `+${chips} Viral Chips earned! CPS bonus: +${((1 + s.viralChips * 0.01) * 100 - 100).toFixed(1)}%`);
     window.GameUI && window.GameUI.fullRender();
@@ -593,8 +600,9 @@ function prestige() {
 
 /* ── Game Loop ────────────────────────────────────────────── */
 const TICK_MS = 100;
-let lastTickTime = Date.now();
-let autoSaveTimer = 0;
+let lastTickTime   = Date.now();
+let localSaveTimer = 0;   // localStorage save every 15s (free, unlimited)
+let fbSaveTimer    = 0;   // Firebase save every 60s (limits writes)
 
 function gameTick() {
     const now = Date.now();
@@ -652,11 +660,17 @@ function gameTick() {
         }
     }
 
-    // Auto-save every 30 seconds
-    autoSaveTimer += dt;
-    if (autoSaveTimer >= 30) {
-        autoSaveTimer = 0;
-        fullSave(true);
+    // localStorage auto-save every 15s
+    localSaveTimer += dt;
+    if (localSaveTimer >= 15) {
+        localSaveTimer = 0;
+        saveToLocalStorage();
+    }
+    // Firebase auto-save every 60s (when logged in)
+    fbSaveTimer += dt;
+    if (fbSaveTimer >= 60) {
+        fbSaveTimer = 0;
+        if (window.GameState.isLoggedIn) saveToFirebase();
     }
 
     // Check achievements periodically
@@ -742,6 +756,8 @@ async function init() {
                 recalculate();
                 applyOfflineIncome();
                 checkAchievements();
+                // Immediately write to leaderboard so user appears right away
+                saveToFirebase();
                 window.GameUI && window.GameUI.showToast('info', `👋 Welcome back, ${s.displayName}!`, 'Your save has been loaded.');
                 window.GameUI && window.GameUI.fullRender();
             } else {
@@ -762,6 +778,13 @@ async function init() {
 
     // Start game loop
     setInterval(gameTick, TICK_MS);
+
+    // Save on tab close / refresh
+    window.addEventListener('beforeunload', () => {
+        saveToLocalStorage();
+        // Firebase async save is best-effort on unload
+        if (window.GameState.isLoggedIn) saveToFirebase();
+    });
 
     // Schedule first golden clout
     scheduleNextGolden();
