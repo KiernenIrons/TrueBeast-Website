@@ -489,52 +489,50 @@ function updateOrbitIcons() {
     const ring = document.getElementById('orbit-ring');
     if (!ring) return;
 
-    // Build a key from owned building counts so we only re-render when something changes
     const key = BUILDINGS.map(b => s.buildings[b.id] || 0).join(',');
     if (key === lastOrbitKey) return;
     lastOrbitKey = key;
 
     ring.innerHTML = '';
 
-    // Show up to 8 building types you own, inner→outer rings based on tier
-    const owned = BUILDINGS.filter(b => (s.buildings[b.id] || 0) > 0);
-    if (owned.length === 0) return;
+    // Each distinct owned building type gets its own orbit ring, inner → outer
+    const ownedBuildings = BUILDINGS.filter(b => (s.buildings[b.id] || 0) > 0);
+    if (ownedBuildings.length === 0) return;
 
-    const radii = [90, 115, 140, 165, 190, 215, 240, 265];
-    const speeds = [10, 13, 16, 20, 24, 28, 32, 36]; // seconds per revolution
+    const radii = [85, 110, 135, 160, 185, 210, 235, 260];
+    const speeds = [9, 12, 15, 19, 23, 27, 31, 35];
+    const sizes  = [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.72, 0.70];
 
-    owned.slice(0, 8).forEach((b, i) => {
-        const radius = radii[i] || 265;
-        const speed  = speeds[i] || 36;
-        const count  = Math.min(s.buildings[b.id] || 0, 6); // max 6 icons per orbit
-        const dir    = i % 2 === 0 ? 1 : -1; // alternate clockwise/counter
+    ownedBuildings.slice(0, 8).forEach((b, i) => {
+        const radius = radii[i] ?? 260;
+        const speed  = speeds[i] ?? 35;
+        const fs     = sizes[i]  ?? 0.70;
+        const count  = Math.min(s.buildings[b.id] || 0, 6);
+        const cw     = i % 2 === 0; // alternate direction per ring
 
         for (let j = 0; j < count; j++) {
-            const startAngle = (j / count) * 360;
-            const wrapper = document.createElement('div');
-            wrapper.className = 'orbit-wrapper';
-            wrapper.style.cssText = `
-                position: absolute;
-                top: 50%; left: 50%;
-                width: 0; height: 0;
-                animation: orbit-spin ${speed}s linear infinite ${dir === -1 ? 'reverse' : ''};
-                animation-delay: ${-(j / count) * speed}s;
-            `;
+            // Rotating arm — spins around the ring center (which is at 50%,50% of #orbit-ring)
+            const arm = document.createElement('div');
+            arm.className = 'orbit-arm';
+            arm.style.animation = `orbit-spin ${speed}s linear infinite${cw ? '' : ' reverse'}`;
+            arm.style.animationDelay = `${-(j / count) * speed}s`;
 
+            // Icon — positioned at the radius, no competing animation
             const icon = document.createElement('span');
-            icon.className = 'orbit-icon';
-            icon.textContent = b.emoji;
             icon.style.cssText = `
                 position: absolute;
-                transform: translateX(${radius}px) translateY(-50%);
-                font-size: ${Math.max(0.6, 1.1 - i * 0.07)}rem;
-                filter: drop-shadow(0 0 4px rgba(34,197,94,0.5));
-                animation: orbit-counter ${speed}s linear infinite ${dir === -1 ? '' : 'reverse'};
-                animation-delay: ${-(j / count) * speed}s;
+                left: ${radius}px;
+                top: 0;
+                transform: translateY(-50%);
+                font-size: ${fs}rem;
+                filter: drop-shadow(0 0 5px rgba(34,197,94,0.55));
+                line-height: 1;
+                pointer-events: none;
             `;
+            icon.textContent = b.emoji;
 
-            wrapper.appendChild(icon);
-            ring.appendChild(wrapper);
+            arm.appendChild(icon);
+            ring.appendChild(arm);
         }
     });
 }
