@@ -270,6 +270,7 @@ body {
 }
 
 .store-panel { flex: 1; overflow-y: auto; overflow-x: hidden; }
+.store-panel.hidden { display: none; }
 .store-panel::-webkit-scrollbar { width: 4px; }
 .store-panel::-webkit-scrollbar-track { background: transparent; }
 .store-panel::-webkit-scrollbar-thumb { background: #16a34a; border-radius: 2px; }

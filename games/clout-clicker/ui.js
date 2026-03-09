@@ -724,15 +724,7 @@ function tickUpdate(dt) {
 
     // Partial updates based on dirty flags
     if (dirty.buildings) { renderBuildings(); dirty.buildings = false; }
-    if (dirty.upgrades)  {
-        const s = GS();
-        const hasAvailable = UPGRADES.some(u => !s.upgrades.has(u.id) && u.condition(s));
-        const tabBtn = document.getElementById('tab-upgrades');
-        if (tabBtn) tabBtn.style.display = hasAvailable ? '' : 'none';
-        if (!hasAvailable && currentTab === 'upgrades') switchTab('buildings');
-        else if (currentTab === 'upgrades') { renderUpgrades(); }
-        dirty.upgrades = false;
-    }
+    if (dirty.upgrades)  { if (currentTab === 'upgrades') { renderUpgrades(); } dirty.upgrades = false; }
     if (dirty.stats)     { updateStats(); dirty.stats = false; }
     if (dirty.achievements){ renderAchievements(); dirty.achievements = false; }
 
