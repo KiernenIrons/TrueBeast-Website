@@ -99,7 +99,7 @@ function animateClout() {
 /* ── Click speed ring ────────────────────────────────────── */
 (function () {
     const CIRC        = 616;   // 2π × 98
-    const MAX_CPS     = 6;     // clicks/sec = full ring
+    const MAX_CPS     = 30;    // clicks/sec = full ring
     const WINDOW_MS   = 2500;  // rolling window to measure rate
     const DRAIN_MS    = 1800;  // ms after last click before ring drains
     const clickTimes  = [];
