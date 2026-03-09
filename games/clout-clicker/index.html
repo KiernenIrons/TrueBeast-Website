@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="../../css/glass.css?v=5" />
 
     <!-- Game styles -->
-    <link rel="stylesheet" href="./clout-clicker.css?v=7" />
+    <link rel="stylesheet" href="./clout-clicker.css?v=8" />
 
     <!-- Firebase (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -518,7 +518,8 @@ document.addEventListener('keydown', (e) => {
     Object.entries(map).forEach(([mobId, realId]) => {
         const mob  = document.getElementById(mobId);
         const real = document.getElementById(realId);
-        if (mob && real) mob.addEventListener('click', function () {
+        if (mob && real) mob.addEventListener('click', function (e) {
+            e.stopPropagation(); // prevent bubbling to document close-handlers in sound.js / ui.js
             closeMenu();
             real.click();
         });
