@@ -1622,16 +1622,18 @@ html.light .audio-label { color: rgba(0,0,0,0.65); }
 }
 
 /* ── Light mode overrides ────────────────────────────────── */
-html.light body { background: #eef3ee; color: #0e1a0e; }
+html.light body { background: #ffffff !important; color: #0e1a0e !important; }
 
 html.light .cc-bg {
     background:
-        radial-gradient(circle, rgba(34,197,94,0.12) 1px, transparent 1px),
-        #eef3ee;
-    background-size: 36px 36px, 100%;
+        radial-gradient(circle, rgba(34,197,94,0.45) 1px, transparent 1px),
+        #ffffff !important;
+    background-size: 36px 36px, 100% !important;
 }
-html.light .cc-bg::before { background: radial-gradient(ellipse, rgba(34,197,94,0.14) 0%, transparent 60%); }
-html.light .cc-bg::after  { background: radial-gradient(ellipse, rgba(34,197,94,0.10) 0%, transparent 60%); }
+/* Vivid green orbs on white — actually visible */
+html.light .cc-bg::before { background: radial-gradient(ellipse, rgba(34,197,94,0.35) 0%, transparent 60%) !important; }
+html.light .cc-bg::after  { background: radial-gradient(ellipse, rgba(57,255,20,0.28) 0%, transparent 60%) !important; }
+html.light .cc-bg-orb3    { background: radial-gradient(ellipse, rgba(34,197,94,0.30) 0%, transparent 65%) !important; }
 
 /* Nav */
 html.light #cc-nav {
