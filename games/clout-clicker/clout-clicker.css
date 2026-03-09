@@ -477,6 +477,22 @@ body {
     to   { transform: rotate(360deg); }
 }
 
+/* Orbit icon sequential pulse wave */
+@keyframes iconPulse {
+    0%   { transform: translateY(-50%) rotate(-90deg) scale(1);    opacity: 0.8; filter: none; }
+    7%   { transform: translateY(-50%) rotate(-90deg) scale(1.65); opacity: 1;   filter: drop-shadow(0 0 8px rgba(57,255,20,0.95)); }
+    15%  { transform: translateY(-50%) rotate(-90deg) scale(1);    opacity: 0.8; filter: none; }
+    100% { transform: translateY(-50%) rotate(-90deg) scale(1);    opacity: 0.8; filter: none; }
+}
+
+/* Falling items from top of screen */
+@keyframes fallingItem {
+    0%   { transform: translateY(-30px) rotate(0deg);   opacity: 0.9; }
+    15%  { opacity: 0.85; }
+    80%  { opacity: 0.6; }
+    100% { transform: translateY(105vh) rotate(var(--fall-spin, 300deg)); opacity: 0; }
+}
+
 /* Controller — shares exact same anchor point as orbit arms */
 #click-target {
     cursor: pointer;
@@ -1515,8 +1531,9 @@ html.light .audio-label { color: rgba(0,0,0,0.65); }
 
 /* ── Achievement particle shower ─────────────────────────── */
 @keyframes achShower {
-    0%   { transform: translateY(0) rotate(0deg);   opacity: 1; }
-    100% { transform: translateY(60vh) rotate(540deg); opacity: 0; }
+    0%   { transform: translateY(0) rotate(0deg);    opacity: 1; }
+    70%  { opacity: 0.9; }
+    100% { transform: translateY(90vh) rotate(720deg); opacity: 0; }
 }
 
 /* ── Light mode overrides ────────────────────────────────── */

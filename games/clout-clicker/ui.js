@@ -129,6 +129,9 @@ function onClickEffect(amount) {
 
     // Click sparks handled by global document listener
 
+    // Falling items — spawn on click, more during frenzy
+    if (isFrenzy || Math.random() < 0.55) spawnFallingItem(!!isFrenzy);
+
     // DOM burst particles
     const count = isFrenzy ? 24 : 14;
     const colors = ['#22c55e','#39ff14','#4ade80','#86efac','#a3e635'];
@@ -163,27 +166,51 @@ function onClickEffect(amount) {
     }
 }
 
+/* ── Falling items (active background while clicking) ─────── */
+const FALLING_EMOJIS = ['📱','🎬','💰','⭐','🔥','👀','📈','🎮','💎','🌟','📺','🎯','💫','🏆','📣','🎤','✨','💥','🎧','🕹️'];
+let _lastFallTime = 0;
+function spawnFallingItem(isFrenzy) {
+    const now = Date.now();
+    const minGap = isFrenzy ? 50 : 120; // rate limit
+    if (now - _lastFallTime < minGap) return;
+    _lastFallTime = now;
+
+    const emoji = FALLING_EMOJIS[Math.floor(Math.random() * FALLING_EMOJIS.length)];
+    const el = document.createElement('div');
+    const size  = 20 + Math.random() * 20;
+    const left  = 3 + Math.random() * 94;
+    const dur   = 2.0 + Math.random() * 2.5;
+    const delay = Math.random() * 0.2;
+    const spin  = Math.round((Math.random() - 0.5) * 600);
+    el.style.cssText = `position:fixed;pointer-events:none;z-index:1;left:${left}%;top:-40px;font-size:${size}px;line-height:1;--fall-spin:${spin}deg;animation:fallingItem ${dur}s ease-in ${delay}s forwards;`;
+    el.textContent = emoji;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), (dur + delay + 0.1) * 1000);
+}
+
 /* ── Achievement shower ───────────────────────────────────── */
 function showAchievementShower() {
-    const colors = ['#22c55e','#39ff14','#4ade80','#fbbf24','#c084fc','#38bdf8','#f472b6'];
-    for (let i = 0; i < 45; i++) {
+    const colors = ['#22c55e','#39ff14','#4ade80','#fbbf24','#c084fc','#38bdf8','#f472b6','#fb923c','#e879f9'];
+    for (let i = 0; i < 160; i++) {
         setTimeout(() => {
             const p = document.createElement('div');
             const color = colors[Math.floor(Math.random() * colors.length)];
-            const size  = 4 + Math.random() * 7;
-            const left  = 10 + Math.random() * 80;
-            const dur   = 0.8 + Math.random() * 0.9;
-            const delay = Math.random() * 0.4;
+            const size  = 4 + Math.random() * 10;
+            const left  = 3 + Math.random() * 94;
+            const dur   = 1.5 + Math.random() * 2.0;
+            const delay = Math.random() * 0.6;
+            // Mix circles and rectangles
+            const isRect = Math.random() > 0.6;
             p.style.cssText = `
                 position:fixed;pointer-events:none;z-index:9999;
-                left:${left}%;top:-12px;
-                width:${size}px;height:${size}px;
-                background:${color};border-radius:50%;
+                left:${left}%;top:-14px;
+                width:${size}px;height:${isRect ? size * 0.45 : size}px;
+                background:${color};border-radius:${isRect ? '2px' : '50%'};
                 animation:achShower ${dur}s ease-in ${delay}s forwards;
             `;
             document.body.appendChild(p);
-            setTimeout(() => p.remove(), (dur + delay + 0.1) * 1000);
-        }, i * 8);
+            setTimeout(() => p.remove(), (dur + delay + 0.2) * 1000);
+        }, i * 5);
     }
 }
 
@@ -560,22 +587,36 @@ function updateOrbitIcons() {
     ring.innerHTML = '';
     if (viewerCount === 0) return;
 
-    const count = Math.min(viewerCount, 20);
-    const radius = 120;
-    const speed  = 12;
+    // Multi-ring stacking: 20 per ring, up to 3 rings (60 max)
+    const ICONS_PER_RING = 20;
+    const total  = Math.min(viewerCount, 60);
+    const radii  = [120, 158, 196];
+    const speeds = [12,  15,  18];
+    const PULSE_CYCLE = 10; // seconds for one full wave across all icons
 
-    for (let j = 0; j < count; j++) {
-        const arm = document.createElement('div');
-        arm.className = 'orbit-arm';
-        arm.style.animation = `orbit-spin ${speed}s linear infinite`;
-        arm.style.animationDelay = `${-(j / count) * speed}s`;
+    let iconIndex = 0;
+    let remaining = total;
 
-        const icon = document.createElement('span');
-        icon.style.cssText = `position:absolute;left:${radius}px;top:0;transform:translateY(-50%) rotate(-90deg);font-size:1rem;line-height:1;pointer-events:none;`;
-        icon.textContent = '👆';
+    for (let r = 0; r < radii.length && remaining > 0; r++) {
+        const ringCount = Math.min(remaining, ICONS_PER_RING);
+        remaining -= ringCount;
 
-        arm.appendChild(icon);
-        ring.appendChild(arm);
+        for (let j = 0; j < ringCount; j++) {
+            const arm = document.createElement('div');
+            arm.className = 'orbit-arm';
+            arm.style.animation = `orbit-spin ${speeds[r]}s linear infinite`;
+            arm.style.animationDelay = `${-(j / ringCount) * speeds[r]}s`;
+
+            const icon = document.createElement('span');
+            // Pulse delay spreads all icons evenly across the 10s cycle
+            const pulseDelay = -(iconIndex / total) * PULSE_CYCLE;
+            icon.style.cssText = `position:absolute;left:${radii[r]}px;top:0;font-size:1rem;line-height:1;pointer-events:none;animation:iconPulse ${PULSE_CYCLE}s linear infinite;animation-delay:${pulseDelay}s;`;
+            icon.textContent = '👆';
+
+            arm.appendChild(icon);
+            ring.appendChild(arm);
+            iconIndex++;
+        }
     }
 }
 
