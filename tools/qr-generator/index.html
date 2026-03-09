@@ -50,8 +50,8 @@
         .txt-inp::placeholder { color: rgba(255,255,255,0.25); }
         .batch-row { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); transition: border-color 0.15s; }
         .batch-row:focus-within { border-color: rgba(34,197,94,0.3); }
-        /* Preview SVG/canvas should fill the fixed-size container */
-        #qr-preview-wrap svg, #qr-preview-wrap canvas { display: block; }
+        /* Canvas preview: renders at 280px, scales down if viewport is narrower */
+        #qr-preview-inner canvas { display: block; max-width: 100%; height: auto !important; }
         select option { background: #111827; }
     </style>
 </head>
@@ -471,7 +471,8 @@ const App = () => {
     // Preview always renders at PREVIEW_SIZE so it fits the container exactly
     useEffect(() => {
         if (!previewRef.current) return;
-        const opts = buildQROpts(getQRData(), { ...st, qrSize: PREVIEW_SIZE });
+        // Use canvas type for the preview — more reliable than SVG on mobile browsers
+        const opts = { ...buildQROpts(getQRData(), { ...st, qrSize: PREVIEW_SIZE }), type: 'canvas' };
         if (!qrRef.current) {
             qrRef.current = new QRCodeStyling(opts);
             qrRef.current.append(previewRef.current);
@@ -550,7 +551,7 @@ const App = () => {
             <SL>Preview</SL>
             {/* Checkerboard container — fixed 280px, SVG scales to fill */}
             <div className="qr-checker rounded-2xl flex items-center justify-center" style={{ padding:'16px' }}>
-                <div ref={previewRef} style={{ width:'280px', height:'280px', flexShrink:0 }} />
+                <div id="qr-preview-inner" ref={previewRef} style={{ width:'280px', flexShrink:0 }} />
             </div>
 
             {/* Quick Styles */}
@@ -641,7 +642,7 @@ const App = () => {
                             </div>
                             <OptionsPanel {...optionsProps} />
                         </div>
-                        <div className="lg:w-72 flex flex-col gap-4">
+                        <div className="lg:w-96 flex flex-col gap-4">
                             <div className="lg:sticky lg:top-24">
                                 {previewBox}
                                 <div className="liquid-glass rounded-2xl p-4 mt-4">
@@ -677,7 +678,7 @@ const App = () => {
                             </div>
                             <OptionsPanel {...optionsProps} />
                         </div>
-                        <div className="lg:w-72"><div className="lg:sticky lg:top-24">{previewBox}</div></div>
+                        <div className="lg:w-96"><div className="lg:sticky lg:top-24">{previewBox}</div></div>
                     </div>
                 )}
 
@@ -741,7 +742,7 @@ const App = () => {
                             </div>
                             <OptionsPanel {...optionsProps} />
                         </div>
-                        <div className="lg:w-72">
+                        <div className="lg:w-96">
                             <div className="lg:sticky lg:top-24">
                                 {previewBox}
                                 <div className="liquid-glass rounded-2xl p-4 mt-4 text-xs" style={{ color:'rgba(255,255,255,0.4)' }}>
