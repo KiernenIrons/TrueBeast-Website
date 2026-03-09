@@ -36,6 +36,30 @@ body {
     font-family: 'Space Grotesk', sans-serif;
 }
 
+/* Gradient Background — used by tool pages & other non-index pages
+   ============================================================ */
+.gradient-bg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: -2;
+    background:
+        radial-gradient(ellipse at 15% 20%, rgba(34, 197, 94, 0.20) 0%, transparent 52%),
+        radial-gradient(ellipse at 85% 75%, rgba(57, 255, 20,  0.13) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(22, 163, 74,  0.09) 0%, transparent 65%),
+        #0c0c14;
+}
+
+.gradient-bg::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(ellipse at 72% 18%, rgba(74, 222, 128, 0.10) 0%, transparent 48%);
+    animation: gradientShift 18s ease-in-out infinite;
+    will-change: transform;
+}
+
 /* Animated Gradient Background
    ============================================================ */
 .animated-bg {
@@ -187,6 +211,7 @@ html.light ::selection {
 }
 
 /* Gradient background — overrides page-specific dark gradients */
+html.light .gradient-bg::after { display: none; }
 html.light .gradient-bg {
     background:
         radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.22) 0%, transparent 50%),
