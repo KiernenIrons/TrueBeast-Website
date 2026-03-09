@@ -75,9 +75,6 @@
             font-weight: 700;
             color: #22c55e;
             text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
         }
         .nav-logo span { color: #fff; }
         .nav-links { display: flex; align-items: center; gap: 1.5rem; }
@@ -89,14 +86,25 @@
             transition: color 0.2s;
         }
         .nav-links a:hover { color: #22c55e; }
-        .back-link {
+        .home-btn {
             display: flex;
             align-items: center;
             gap: 0.4rem;
-            color: rgba(255,255,255,0.6) !important;
-            font-size: 0.875rem !important;
+            padding: 0.4rem 0.9rem;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: rgba(255,255,255,0.75) !important;
+            font-size: 0.85rem !important;
+            font-weight: 600;
+            text-decoration: none;
+            transition: border-color 0.2s, color 0.2s, background 0.2s;
         }
-        .back-link:hover { color: #22c55e !important; }
+        .home-btn:hover {
+            border-color: #22c55e;
+            color: #22c55e !important;
+            background: rgba(34,197,94,0.08);
+        }
 
         /* Theme toggle */
         .theme-btn {
@@ -335,7 +343,8 @@
         html.light .coming-soon-card p  { color: rgba(0,0,0,0.25); }
         html.light .page-header p { color: rgba(0,0,0,0.6); }
         html.light .nav-links a { color: rgba(0,0,0,0.6); }
-        html.light .back-link { color: rgba(0,0,0,0.5) !important; }
+        html.light .home-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.6) !important; }
+        html.light .home-btn:hover { border-color: #16a34a; color: #16a34a !important; background: rgba(34,197,94,0.08); }
         html.light .theme-btn { color: #0e1a0e; background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
 
         @media (max-width: 600px) {
@@ -351,7 +360,7 @@
     <nav>
         <a href="../index.html" class="nav-logo">True<span>Beast</span></a>
         <div class="nav-links">
-            <a href="../index.html" class="back-link">← Back to Home</a>
+            <a href="../index.html" class="home-btn">🏠 Home</a>
             <button class="theme-btn liquid-glass" id="themeToggle" title="Toggle theme">
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
             </button>
