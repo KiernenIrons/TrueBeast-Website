@@ -50,7 +50,7 @@ body {
     right: -10%;
     width: 65%;
     height: 65%;
-    background: radial-gradient(ellipse, rgba(34,197,94,0.13) 0%, transparent 60%);
+    background: radial-gradient(ellipse, rgba(57,255,20,0.13) 0%, transparent 60%);
     animation: bgOrb2 25s ease-in-out infinite alternate-reverse;
 }
 @keyframes bgOrb1 { 0%{transform:translate(0,0)} 100%{transform:translate(4%,5%)} }
