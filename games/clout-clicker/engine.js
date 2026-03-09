@@ -562,11 +562,83 @@ function checkAchievements() {
                 window.GameSound && window.GameSound.playAchievement();
                 window.GameUI && window.GameUI.showAchievementShower && window.GameUI.showAchievementShower();
                 window.GameUI && window.GameUI.showToast('ach', `🏆 Achievement Unlocked!`, `${ach.icon} ${ach.name} — ${ach.desc}`);
+                // Broadcast to global live feed if logged in
+                if (s.isLoggedIn && s.displayName) writeAchievementEvent(ach, s.displayName);
             }
         } catch(e) { /* silently skip bad conditions */ }
     });
 
     return anyNew;
+}
+
+/* ── Live feed: write achievement event ──────────────────── */
+function writeAchievementEvent(ach, playerName) {
+    if (!fbDb) return;
+    fbDb.collection('clout-clicker-events').add({
+        type:       'achievement',
+        playerName: playerName,
+        achName:    ach.name,
+        achIcon:    ach.icon || '🏅',
+        timestamp:  firebase.firestore.FieldValue.serverTimestamp(),
+    }).catch(() => {});
+}
+
+/* ── Live feed: watch leaderboard for rank changes ───────── */
+let _lbSnapshot  = null;   // last known leaderboard state
+let _lbWatchInit = false;  // skip first snapshot (avoid noise on load)
+
+function watchLiveFeeds() {
+    if (!fbDb) return;
+
+    // Watch leaderboard
+    fbDb.collection('clout-clicker-leaderboard')
+        .orderBy('totalCloutEver', 'desc')
+        .limit(25)
+        .onSnapshot(snap => {
+            const newRows = snap.docs.map((d, i) => ({ id: d.id, rank: i + 1, ...d.data() }));
+            if (!_lbWatchInit) { _lbSnapshot = newRows; _lbWatchInit = true; return; }
+
+            newRows.forEach(nr => {
+                const or = _lbSnapshot && _lbSnapshot.find(r => r.id === nr.id);
+                const name = nr.displayName || 'Someone';
+                if (!or) {
+                    // New entrant into top 25
+                    const displaced = _lbSnapshot && _lbSnapshot[nr.rank - 1];
+                    const msg = displaced ? `Overtook ${displaced.displayName || 'someone'} for #${nr.rank}` : `Entered the top 25`;
+                    window.GameUI && window.GameUI.showFeedEvent('⬆️', `${name} is now #${nr.rank}!`, msg);
+                } else if (nr.rank < or.rank) {
+                    // Moved up
+                    const displaced = _lbSnapshot && _lbSnapshot.find(r => r.rank === nr.rank);
+                    if (nr.rank === 1) {
+                        const msg = displaced ? `Overtook ${displaced.displayName || 'the previous leader'}` : 'New #1!';
+                        window.GameUI && window.GameUI.showFeedEvent('🏆', `${name} is #1 on the leaderboard!`, msg);
+                    } else if (displaced && displaced.id !== nr.id) {
+                        window.GameUI && window.GameUI.showFeedEvent('⬆️', `${name} climbed to #${nr.rank}`, `Overtook ${displaced.displayName || 'someone'}`);
+                    }
+                }
+            });
+            _lbSnapshot = newRows;
+        }, () => {});
+
+    // Watch global achievement events (new docs only)
+    let eventsInit = false;
+    fbDb.collection('clout-clicker-events')
+        .orderBy('timestamp', 'desc')
+        .limit(1)
+        .onSnapshot(snap => {
+            if (!eventsInit) { eventsInit = true; return; }
+            snap.docChanges().forEach(change => {
+                if (change.type !== 'added') return;
+                const d = change.doc.data();
+                if (d.type === 'achievement') {
+                    window.GameUI && window.GameUI.showFeedEvent(
+                        d.achIcon || '🏅',
+                        `${d.playerName} unlocked an achievement!`,
+                        d.achName
+                    );
+                }
+            });
+        }, () => {});
 }
 
 /* ── Prestige ─────────────────────────────────────────────── */
@@ -803,6 +875,9 @@ async function init() {
         applyOfflineIncome();
     }
     checkAchievements();
+
+    // Start live feed watchers
+    watchLiveFeeds();
 
     // Start game loop
     setInterval(gameTick, TICK_MS);

@@ -695,12 +695,29 @@ function updateOrbitIcons() {
     }
 }
 
-/* ── News ticker ─────────────────────────────────────────── */
-function initTicker() {
-    const track = document.getElementById('ticker-track');
-    if (!track) return;
-    const msgs = [...NEWS_TICKER, ...NEWS_TICKER]; // duplicate for seamless loop
-    track.innerHTML = msgs.map(m => `<span class="ticker-item">${m}</span>`).join('');
+/* ── Live feed notifications ─────────────────────────────── */
+const _feedQueue = [];
+let   _feedBusy  = false;
+
+function showFeedEvent(icon, title, subtitle) {
+    _feedQueue.push({ icon, title, subtitle });
+    if (!_feedBusy) _nextFeedEvent();
+}
+
+function _nextFeedEvent() {
+    if (_feedQueue.length === 0) { _feedBusy = false; return; }
+    _feedBusy = true;
+    const { icon, title, subtitle } = _feedQueue.shift();
+    const feed = document.getElementById('live-feed');
+    if (!feed) { _feedBusy = false; return; }
+
+    feed.innerHTML = `<span class="feed-icon">${icon}</span><div class="feed-text"><div class="feed-title">${escapeHtml(title)}</div><div class="feed-sub">${escapeHtml(subtitle)}</div></div>`;
+    feed.classList.add('visible');
+
+    setTimeout(() => {
+        feed.classList.remove('visible');
+        setTimeout(_nextFeedEvent, 500);
+    }, 5000);
 }
 
 /* ── Tab switching ───────────────────────────────────────── */
@@ -1019,8 +1036,7 @@ function initUI() {
         }
     });
 
-    // News ticker
-    initTicker();
+    // (ticker removed — replaced by live feed)
 
     // Ambient particles on click area
     initAmbientParticles();
@@ -1342,6 +1358,7 @@ function initAuthForm() {
 /* ── Expose API ──────────────────────────────────────────── */
 window.GameUI = {
     showToast,
+    showFeedEvent,
     onClickEffect,
     updateBuffBar,
     updatePlayerCard,
