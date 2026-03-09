@@ -620,6 +620,60 @@ body {
     50%{filter:drop-shadow(0 0 60px rgba(57,255,20,1));transform:translate(-50%,-50%) scale(1.05)}
 }
 
+/* ── Click speed boost ring ──────────────────────────────── */
+#click-boost-wrap {
+    position: absolute;
+    top: var(--orbit-cy);
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 220px;
+    height: 220px;
+    pointer-events: none;
+    z-index: 1;
+}
+#click-boost-svg {
+    position: absolute;
+    inset: 0;
+    transform: rotate(-90deg); /* start fill from top */
+}
+.boost-ring-bg {
+    fill: none;
+    stroke: rgba(34,197,94,0.1);
+    stroke-width: 4;
+}
+.boost-ring-fill {
+    fill: none;
+    stroke: #22c55e;
+    stroke-width: 4;
+    stroke-linecap: round;
+    /* circumference of r=98: 2π×98 ≈ 616 */
+    stroke-dasharray: 616;
+    stroke-dashoffset: 616; /* starts empty */
+    transition: stroke-dashoffset 0.25s ease, stroke 0.25s ease, filter 0.25s ease;
+    filter: drop-shadow(0 0 4px rgba(34,197,94,0.6));
+}
+.boost-ring-fill.hot {
+    stroke: #39ff14;
+    filter: drop-shadow(0 0 10px rgba(57,255,20,0.9));
+}
+#click-boost-label {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #22c55e;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s ease, color 0.3s ease;
+    text-shadow: 0 0 8px rgba(34,197,94,0.8);
+}
+#click-boost-label.visible { opacity: 1; }
+#click-boost-label.hot { color: #39ff14; text-shadow: 0 0 10px rgba(57,255,20,0.9); }
+
 /* Floating click numbers */
 .float-num {
     position: absolute;

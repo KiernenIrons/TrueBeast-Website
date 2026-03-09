@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="../../css/glass.css?v=5" />
 
     <!-- Game styles -->
-    <link rel="stylesheet" href="./clout-clicker.css?v=15" />
+    <link rel="stylesheet" href="./clout-clicker.css?v=16" />
 
     <!-- Firebase (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -147,6 +147,16 @@
         <!-- Click area — orbit-ring and click-target both absolute at 50%/50% -->
         <div id="click-area">
             <div id="orbit-ring"></div>
+
+            <!-- Click speed ring -->
+            <div id="click-boost-wrap">
+                <svg id="click-boost-svg" viewBox="0 0 220 220" width="220" height="220">
+                    <circle class="boost-ring-bg"   cx="110" cy="110" r="98"/>
+                    <circle class="boost-ring-fill" cx="110" cy="110" r="98" id="boost-ring-fill"/>
+                </svg>
+                <div id="click-boost-label"></div>
+            </div>
+
             <div id="click-target" role="button" aria-label="Click to earn Clout" tabindex="0">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 70" width="108" height="68" style="display:block" aria-hidden="true">
                     <!-- Body -->

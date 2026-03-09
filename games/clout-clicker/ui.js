@@ -96,7 +96,60 @@ function animateClout() {
 }
 
 /* ── Click effect ─────────────────────────────────────────── */
+/* ── Click speed ring ────────────────────────────────────── */
+(function () {
+    const CIRC        = 616;   // 2π × 98
+    const MAX_CPS     = 6;     // clicks/sec = full ring
+    const WINDOW_MS   = 2500;  // rolling window to measure rate
+    const DRAIN_MS    = 1800;  // ms after last click before ring drains
+    const clickTimes  = [];
+    let   drainTimer  = null;
+
+    const ringFill    = () => document.getElementById('boost-ring-fill');
+    const label       = () => document.getElementById('click-boost-label');
+
+    function setRing(pct) {
+        const fill = ringFill();
+        const lbl  = label();
+        if (!fill || !lbl) return;
+        const offset = CIRC * (1 - pct);
+        fill.style.strokeDashoffset = offset;
+        const hot = pct >= 0.75;
+        fill.classList.toggle('hot', hot);
+        lbl.classList.toggle('hot', hot);
+        if (pct > 0.02) {
+            const cps = Math.round(pct * MAX_CPS * 10) / 10;
+            lbl.textContent = cps.toFixed(1) + ' clicks/s';
+            lbl.classList.add('visible');
+        } else {
+            lbl.classList.remove('visible');
+        }
+    }
+
+    function drain() {
+        const fill = ringFill();
+        if (!fill) return;
+        fill.style.transition = 'stroke-dashoffset 1.4s ease, stroke 0.3s ease, filter 0.3s ease';
+        setRing(0);
+        setTimeout(() => {
+            if (fill) fill.style.transition = 'stroke-dashoffset 0.25s ease, stroke 0.25s ease, filter 0.25s ease';
+        }, 1500);
+    }
+
+    window._boostRingClick = function () {
+        const now = Date.now();
+        clickTimes.push(now);
+        // purge old entries outside window
+        while (clickTimes.length && now - clickTimes[0] > WINDOW_MS) clickTimes.shift();
+        const cps = clickTimes.length / (WINDOW_MS / 1000);
+        setRing(Math.min(cps / MAX_CPS, 1));
+        clearTimeout(drainTimer);
+        drainTimer = setTimeout(drain, DRAIN_MS);
+    };
+})();
+
 function onClickEffect(amount) {
+    window._boostRingClick && window._boostRingClick();
     const target = document.getElementById('click-target');
     if (!target) return;
     const rect = target.getBoundingClientRect();
