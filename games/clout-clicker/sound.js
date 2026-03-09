@@ -139,7 +139,7 @@ function loadMusicPrefs() {
 }
 const musicPrefs  = loadMusicPrefs();
 let _musicEnabled = musicPrefs.enabled !== false;
-let _musicVolume  = typeof musicPrefs.volume === 'number' ? musicPrefs.volume : 0.4;
+let _musicVolume  = typeof musicPrefs.volume === 'number' ? musicPrefs.volume : 0.05;
 
 let ytPlayer      = null;
 let ytReady       = false;
