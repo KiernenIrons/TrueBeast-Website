@@ -721,6 +721,15 @@ async function signOut() {
     await fbAuth.signOut();
 }
 
+async function updateDisplayName(name) {
+    if (!fbAuth || !fbAuth.currentUser) throw new Error('Not signed in');
+    name = name.trim().slice(0, 20);
+    if (!name) throw new Error('Name cannot be empty');
+    await fbAuth.currentUser.updateProfile({ displayName: name });
+    window.GameState.displayName = name;
+    await saveToFirebase();
+}
+
 /* ── Leaderboard ─────────────────────────────────────────── */
 async function fetchLeaderboard() {
     if (!fbDb) return [];
@@ -804,6 +813,7 @@ async function init() {
         signIn,
         signUp,
         signOut,
+        updateDisplayName,
         fetchLeaderboard,
         fullSave,
         Buffs,

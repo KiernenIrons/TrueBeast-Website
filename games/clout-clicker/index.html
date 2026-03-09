@@ -27,6 +27,7 @@
 <body>
 
 <!-- ── Background ──────────────────────────────────────────── -->
+<canvas id="page-particles"></canvas>
 <div class="cc-bg"><div class="cc-bg-orb3"></div></div>
 
 <!-- ── Top Nav ─────────────────────────────────────────────── -->
@@ -43,6 +44,33 @@
         <button class="nav-btn" id="btn-theme" title="Toggle theme">🌙</button>
     </div>
 </nav>
+
+<!-- ── Profile popover ─────────────────────────────────────── -->
+<div id="profile-popover">
+    <div class="prof-pop-header">
+        <div class="prof-pop-avatar" id="prof-pop-avatar">T</div>
+        <div>
+            <div class="prof-pop-name" id="prof-pop-name">Player</div>
+            <div class="prof-pop-sub">Cloud saves enabled ✓</div>
+        </div>
+    </div>
+
+    <!-- Edit name section -->
+    <div id="prof-name-edit-row">
+        <input id="prof-name-input" class="form-input" type="text" maxlength="20"
+               placeholder="New display name"
+               style="font-size:0.8rem;padding:0.35rem 0.65rem;" />
+        <div class="prof-name-edit-controls">
+            <button class="io-btn primary" id="btn-prof-name-save"
+                    style="flex:1;padding:0.35rem;font-size:0.75rem;">Save</button>
+            <button class="io-btn" id="btn-prof-name-cancel"
+                    style="padding:0.35rem 0.6rem;font-size:0.75rem;">✕</button>
+        </div>
+    </div>
+
+    <button class="prof-pop-btn" id="btn-prof-edit-name">✏️ Change Display Name</button>
+    <button class="prof-pop-btn danger" id="btn-prof-signout">🚪 Sign Out</button>
+</div>
 
 <!-- ── Audio popover ───────────────────────────────────────── -->
 <div id="audio-popover">
@@ -103,10 +131,40 @@
         <!-- Active buffs -->
         <div id="buff-bar"></div>
 
-        <!-- Click area -->
+        <!-- Click area — orbit-ring and click-target both absolute at 50%/50% -->
         <div id="click-area">
             <div id="orbit-ring"></div>
-            <div id="click-target" role="button" aria-label="Click to earn Clout" tabindex="0">🎮</div>
+            <div id="click-target" role="button" aria-label="Click to earn Clout" tabindex="0">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 70" width="108" height="68" style="display:block" aria-hidden="true">
+                    <!-- Body -->
+                    <path d="M18 32 C14 20 22 14 34 14 L42 14 C44 11 66 11 68 14 L76 14 C88 14 96 20 92 32 L86 55 C84 62 76 65 68 60 L62 55 C59 58 55 59 55 59 C55 59 51 58 48 55 L42 60 C34 65 26 62 24 55 Z"
+                          fill="rgba(34,197,94,0.1)" stroke="rgba(34,197,94,0.9)" stroke-width="2.5" stroke-linejoin="round"/>
+                    <!-- Shoulder bumpers -->
+                    <path d="M22 16 C28 10 38 12 42 14" stroke="rgba(34,197,94,0.7)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                    <path d="M88 16 C82 10 72 12 68 14" stroke="rgba(34,197,94,0.7)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                    <!-- D-pad vertical -->
+                    <rect x="24" y="22" width="7" height="18" rx="2" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" stroke-width="1.8"/>
+                    <!-- D-pad horizontal -->
+                    <rect x="18" y="28" width="19" height="6" rx="2" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" stroke-width="1.8"/>
+                    <!-- Face buttons (diamond) -->
+                    <circle cx="83" cy="24" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" stroke-width="1.8"/>
+                    <circle cx="76" cy="30" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" stroke-width="1.8"/>
+                    <circle cx="90" cy="30" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" stroke-width="1.8"/>
+                    <circle cx="83" cy="36" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" stroke-width="1.8"/>
+                    <!-- Left analog stick -->
+                    <circle cx="38" cy="44" r="6.5" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.6)" stroke-width="1.8"/>
+                    <circle cx="38" cy="44" r="2.5" fill="rgba(34,197,94,0.3)"/>
+                    <!-- Right analog stick -->
+                    <circle cx="68" cy="44" r="6.5" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.6)" stroke-width="1.8"/>
+                    <circle cx="68" cy="44" r="2.5" fill="rgba(34,197,94,0.3)"/>
+                    <!-- Center buttons -->
+                    <rect x="48" y="24" width="5" height="3.5" rx="1.5" fill="rgba(34,197,94,0.45)"/>
+                    <rect x="57" y="24" width="5" height="3.5" rx="1.5" fill="rgba(34,197,94,0.45)"/>
+                    <!-- Home circle with TB -->
+                    <circle cx="55" cy="38" r="5" fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.5)" stroke-width="1.8"/>
+                    <text x="55" y="41" text-anchor="middle" font-size="5" fill="rgba(34,197,94,0.85)" font-family="sans-serif" font-weight="bold">TB</text>
+                </svg>
+            </div>
         </div>
 
         <!-- Prestige button (hidden until eligible) -->
@@ -123,8 +181,8 @@
 
         <!-- Player card -->
         <div class="player-card">
-            <!-- Logged in state -->
-            <div id="player-logged-in" class="player-logged-in" style="display:none; flex-direction:column; gap:0.5rem;">
+            <!-- Logged in state — actions are in the nav profile popover -->
+            <div id="player-logged-in" class="player-logged-in" style="display:none;">
                 <div class="player-info">
                     <div class="player-avatar" id="player-avatar">T</div>
                     <div>
@@ -132,7 +190,6 @@
                         <div class="player-sub">Cloud saves enabled ✓</div>
                     </div>
                 </div>
-                <button class="player-btn sign-out" id="btn-signout" onclick="if(window.GameEngine){window.GameEngine.fullSave(true);window.GameEngine.signOut();}">Sign Out</button>
             </div>
 
             <!-- Logged out state -->
@@ -355,13 +412,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Update auth button text based on state
-setInterval(() => {
-    const btn = document.getElementById('btn-auth');
-    if (btn && window.GameState) {
-        btn.textContent = window.GameState.isLoggedIn ? '👤 ' + (window.GameState.displayName || 'Account') : '🔑 Sign In';
-    }
-}, 1000);
 </script>
 
 </body>

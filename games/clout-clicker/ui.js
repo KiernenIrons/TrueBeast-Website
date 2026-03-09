@@ -415,9 +415,14 @@ function updatePlayerCard() {
         loggedOut.style.display = 'none';
         if (avatarEl) avatarEl.textContent = s.displayName[0].toUpperCase();
         if (nameEl)   nameEl.textContent   = s.displayName;
+        // Sync nav button
+        const authBtn = document.getElementById('btn-auth');
+        if (authBtn) authBtn.textContent = '👤 ' + s.displayName;
     } else {
         loggedIn.style.display  = 'none';
         loggedOut.style.display = 'flex';
+        const authBtn = document.getElementById('btn-auth');
+        if (authBtn) authBtn.textContent = '🔑 Sign In';
     }
 }
 
@@ -547,7 +552,11 @@ function updateOrbitIcons() {
         const radius = radii[i] ?? 260;
         const speed  = speeds[i] ?? 35;
         const fs     = sizes[i]  ?? 0.70;
-        const count  = Math.min(s.buildings[b.id] || 0, 6);
+        // Cookie Clicker style tier-based count (1–10), same thresholds as CC
+        const owned = s.buildings[b.id] || 0;
+        const count = owned >= 250 ? 10 : owned >= 200 ? 9 : owned >= 150 ? 8
+                    : owned >= 100 ? 7  : owned >= 75  ? 6 : owned >= 50  ? 5
+                    : owned >= 25  ? 4  : owned >= 10  ? 3 : owned >= 5   ? 2 : 1;
         const cw     = i % 2 === 0; // alternate direction per ring
 
         for (let j = 0; j < count; j++) {
@@ -671,6 +680,86 @@ function initUI() {
         });
     }
 
+    // ── Profile popover ──────────────────────────────────────
+    const profPop         = document.getElementById('profile-popover');
+    const profNameInput   = document.getElementById('prof-name-input');
+    const profNameEditRow = document.getElementById('prof-name-edit-row');
+    const btnProfEditName = document.getElementById('btn-prof-edit-name');
+    const btnProfSaveName = document.getElementById('btn-prof-name-save');
+    const btnProfCancel   = document.getElementById('btn-prof-name-cancel');
+    const btnProfSignout  = document.getElementById('btn-prof-signout');
+
+    function openProfilePopover() {
+        const s = GS();
+        const el = document.getElementById('prof-pop-name');
+        const av = document.getElementById('prof-pop-avatar');
+        if (el) el.textContent = s.displayName || 'Player';
+        if (av) av.textContent = (s.displayName || 'P')[0].toUpperCase();
+        profNameEditRow && profNameEditRow.classList.remove('open');
+        profPop && profPop.classList.toggle('open');
+    }
+
+    if (btnProfEditName) {
+        btnProfEditName.addEventListener('click', () => {
+            profNameInput.value = GS().displayName || '';
+            profNameEditRow.classList.add('open');
+            profNameInput.focus();
+            profNameInput.select();
+        });
+    }
+    if (btnProfCancel) {
+        btnProfCancel.addEventListener('click', () => profNameEditRow.classList.remove('open'));
+    }
+    if (btnProfSaveName) {
+        btnProfSaveName.addEventListener('click', async () => {
+            const newName = profNameInput.value.trim();
+            if (!newName) return;
+            btnProfSaveName.disabled = true;
+            btnProfSaveName.textContent = '...';
+            try {
+                await window.GameEngine.updateDisplayName(newName);
+                profNameEditRow.classList.remove('open');
+                // Update all name displays
+                ['player-name', 'prof-pop-name'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = newName;
+                });
+                ['player-avatar', 'prof-pop-avatar'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = newName[0].toUpperCase();
+                });
+                document.getElementById('btn-auth').textContent = '👤 ' + newName;
+                showToast('save', '✅ Name updated!', `Now showing as "${newName}" on the leaderboard.`);
+            } catch(err) {
+                showToast('info', '❌ Failed', err.message || 'Could not update name.');
+            } finally {
+                btnProfSaveName.disabled = false;
+                btnProfSaveName.textContent = 'Save';
+            }
+        });
+    }
+    profNameInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter')  btnProfSaveName?.click();
+        if (e.key === 'Escape') btnProfCancel?.click();
+    });
+    if (btnProfSignout) {
+        btnProfSignout.addEventListener('click', () => {
+            profPop && profPop.classList.remove('open');
+            if (window.GameEngine) {
+                window.GameEngine.fullSave(true);
+                window.GameEngine.signOut();
+            }
+        });
+    }
+    // Close profile popover when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!profPop) return;
+        const authBtn = document.getElementById('btn-auth');
+        if (!profPop.contains(e.target) && authBtn && !authBtn.contains(e.target)) {
+            profPop.classList.remove('open');
+        }
+    });
+
     // Prestige button
     const prestBtn = document.getElementById('prestige-btn');
     if (prestBtn) {
@@ -685,9 +774,8 @@ function initUI() {
     document.getElementById('btn-leaderboard')?.addEventListener('click', showLeaderboardModal);
     document.getElementById('btn-auth')?.addEventListener('click', () => {
         const s = GS();
-        if (s.isLoggedIn && window.GameEngine) {
-            window.GameEngine.fullSave(true);
-            window.GameEngine.signOut();
+        if (s.isLoggedIn) {
+            openProfilePopover();
         } else {
             showAuthModal();
         }
@@ -773,6 +861,9 @@ function initUI() {
     // Ambient particles on click area
     initAmbientParticles();
 
+    // Page-wide ambient particles
+    initPageParticles();
+
     // Initial full render
     fullRender();
 }
@@ -810,7 +901,7 @@ function initAmbientParticles() {
         };
     }
 
-    for (let i = 0; i < 28; i++) particles.push(spawn(true));
+    for (let i = 0; i < 45; i++) particles.push(spawn(true));
 
     function tick() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -819,7 +910,63 @@ function initAmbientParticles() {
             p.x += p.vx; p.y += p.vy; p.life -= p.decay;
             if (p.life <= 0 || p.y < -5) particles.splice(i, 1, spawn(false));
         }
-        while (particles.length < 28) particles.push(spawn(false));
+        while (particles.length < 45) particles.push(spawn(false));
+
+        particles.forEach(p => {
+            ctx.save();
+            ctx.globalAlpha = p.life * p.op;
+            ctx.fillStyle   = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        });
+        requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+}
+
+/* ── Page-wide ambient particle canvas ───────────────────── */
+function initPageParticles() {
+    const canvas = document.getElementById('page-particles');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const particles = [];
+
+    function resize() {
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const colors = ['#22c55e','#39ff14','#4ade80','#16a34a'];
+
+    function spawn(randomY) {
+        return {
+            x: Math.random() * canvas.width,
+            y: randomY ? Math.random() * canvas.height : canvas.height + 5,
+            vx: (Math.random() - 0.5) * 0.25,
+            vy: -(0.25 + Math.random() * 0.6),
+            r: 0.5 + Math.random() * 1.5,
+            op: 0.04 + Math.random() * 0.12,
+            life: 1,
+            decay: 0.002 + Math.random() * 0.004,
+            color: colors[Math.floor(Math.random() * colors.length)],
+        };
+    }
+
+    for (let i = 0; i < 55; i++) particles.push(spawn(true));
+
+    function tick() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx; p.y += p.vy; p.life -= p.decay;
+            if (p.life <= 0 || p.y < -5) particles.splice(i, 1, spawn(false));
+        }
+        while (particles.length < 55) particles.push(spawn(false));
 
         particles.forEach(p => {
             ctx.save();

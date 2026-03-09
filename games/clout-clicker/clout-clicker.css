@@ -446,27 +446,28 @@ body {
     font-size: 0.7rem;
 }
 
-/* Click area — padding-bottom shifts controller visually higher */
+/* Click area — single positioning context for both orbit and controller.
+   --orbit-cy controls the shared vertical center for BOTH the controller
+   and orbit arms — change ONE value and both move together. */
 #click-area {
     flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     position: relative;
     width: 100%;
-    padding-bottom: 5rem;
+    overflow: hidden;
+    --orbit-cy: 44%;
 }
 
-/* Orbit ring — fills click-area, wrappers inside use top:50% left:50% */
+/* Orbit ring — inset:0 makes it exactly = click-area size */
 #orbit-ring {
     position: absolute;
     inset: 0;
     pointer-events: none;
     z-index: 1;
 }
+/* Orbit arms pivot at the SAME point as #click-target */
 .orbit-arm {
     position: absolute;
-    top: 50%;
+    top: var(--orbit-cy);
     left: 50%;
     width: 0;
     height: 0;
@@ -476,23 +477,26 @@ body {
     to   { transform: rotate(360deg); }
 }
 
+/* Controller — shares exact same anchor point as orbit arms */
 #click-target {
-    font-size: 7rem;
     cursor: pointer;
-    position: relative;
+    position: absolute;
+    top: var(--orbit-cy);
+    left: 50%;
+    transform: translate(-50%, -50%);
     z-index: 2;
-    transition: transform 0.08s ease;
+    transition: transform 0.08s ease, filter 0.08s ease;
     filter: drop-shadow(0 0 20px rgba(34,197,94,0.4));
     -webkit-tap-highlight-color: transparent;
     outline: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 140px;
-    height: 140px;
+    width: 145px;
+    height: 145px;
     border-radius: 50%;
     background: radial-gradient(circle, rgba(34,197,94,0.08) 0%, transparent 70%);
-    border: 1px solid rgba(34,197,94,0.15);
+    border: 1px solid rgba(34,197,94,0.18);
     animation: ctIdle 4s ease-in-out infinite;
 }
 @keyframes ctIdle {
@@ -500,20 +504,20 @@ body {
     50%{filter:drop-shadow(0 0 35px rgba(57,255,20,0.6))}
 }
 #click-target:hover {
-    transform: scale(1.08);
+    transform: translate(-50%, -50%) scale(1.08);
     filter: drop-shadow(0 0 40px rgba(57,255,20,0.7));
     animation: none;
 }
 #click-target:active {
-    transform: scale(0.93);
+    transform: translate(-50%, -50%) scale(0.93);
     filter: drop-shadow(0 0 50px rgba(57,255,20,0.9));
 }
 #click-target.frenzy-active {
     animation: frenzyPulse 0.5s ease-in-out infinite;
 }
 @keyframes frenzyPulse {
-    0%,100%{filter:drop-shadow(0 0 30px rgba(57,255,20,0.8));transform:scale(1)}
-    50%{filter:drop-shadow(0 0 60px rgba(57,255,20,1));transform:scale(1.05)}
+    0%,100%{filter:drop-shadow(0 0 30px rgba(57,255,20,0.8));transform:translate(-50%,-50%) scale(1)}
+    50%{filter:drop-shadow(0 0 60px rgba(57,255,20,1));transform:translate(-50%,-50%) scale(1.05)}
 }
 
 /* Floating click numbers */
@@ -702,6 +706,20 @@ body {
     color: rgba(255,255,255,0.6);
 }
 .player-btn.sign-out:hover { border-color: #ef4444; color: #ef4444; }
+
+/* Edit name button (pencil icon next to player name) */
+.edit-name-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.7rem;
+    opacity: 0.4;
+    padding: 0;
+    line-height: 1;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+.edit-name-btn:hover { opacity: 1; }
 
 /* Stats panel */
 .stats-panel {
@@ -905,6 +923,14 @@ body {
 @keyframes goldenRing {
     0%,100%{transform:scale(1);opacity:0.5}
     50%{transform:scale(1.15);opacity:1}
+}
+
+/* ── Page-wide ambient particle canvas ───────────────────── */
+#page-particles {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
 }
 
 /* ── Toast Notifications ─────────────────────────────────── */
@@ -1374,6 +1400,91 @@ body {
     height: 4px;
 }
 
+/* ── Profile popover ─────────────────────────────────────── */
+#profile-popover {
+    position: fixed;
+    top: 58px;
+    right: 6.5rem;
+    z-index: 1000;
+    background: rgba(10,10,15,0.97);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    width: 230px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    backdrop-filter: blur(20px);
+    display: none;
+    flex-direction: column;
+    gap: 0.65rem;
+    animation: toastIn 0.2s ease forwards;
+}
+#profile-popover.open { display: flex; }
+.prof-pop-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    padding-bottom: 0.65rem;
+}
+.prof-pop-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #000;
+    flex-shrink: 0;
+}
+.prof-pop-name {
+    font-weight: 700;
+    font-size: 0.88rem;
+    color: #fff;
+}
+.prof-pop-sub {
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.35);
+    margin-top: 1px;
+}
+.prof-pop-btn {
+    width: 100%;
+    padding: 0.45rem 0.75rem;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 8px;
+    color: rgba(255,255,255,0.75);
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+}
+.prof-pop-btn:hover {
+    border-color: rgba(34,197,94,0.35);
+    color: #22c55e;
+    background: rgba(34,197,94,0.07);
+}
+.prof-pop-btn.danger:hover {
+    border-color: rgba(239,68,68,0.35);
+    color: #ef4444;
+    background: rgba(239,68,68,0.07);
+}
+#prof-name-edit-row {
+    display: none;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+#prof-name-edit-row.open { display: flex; }
+.prof-name-edit-controls {
+    display: flex;
+    gap: 0.3rem;
+}
+
 /* Light mode audio popover */
 html.light #audio-popover {
     background: rgba(244,250,244,0.98);
@@ -1544,7 +1655,7 @@ html.light .float-num { color: #16a34a; text-shadow: none; }
         border-top: 1px solid rgba(255,255,255,0.07);
         max-height: 260px;
     }
-    #click-target { font-size: 5rem; width: 110px; height: 110px; }
+    #click-target { width: 110px; height: 110px; }
     #clout-value  { font-size: 1.6rem; }
 }
 
