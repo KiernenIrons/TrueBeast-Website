@@ -50,9 +50,8 @@
         .txt-inp::placeholder { color: rgba(255,255,255,0.25); }
         .batch-row { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); transition: border-color 0.15s; }
         .batch-row:focus-within { border-color: rgba(34,197,94,0.3); }
-        /* SVG preview scales naturally */
-        #qr-preview-wrap svg { width: 100% !important; height: auto !important; display: block; }
-        #qr-preview-wrap canvas { width: 100% !important; height: auto !important; display: block; }
+        /* Preview SVG/canvas should fill the fixed-size container */
+        #qr-preview-wrap svg, #qr-preview-wrap canvas { display: block; }
         select option { background: #111827; }
     </style>
 </head>
@@ -460,6 +459,7 @@ const App = () => {
     };
 
     // QR instance lives here — never inside a child component
+    const PREVIEW_SIZE = 280;
     const previewRef = useRef(null);
     const qrRef = useRef(null);
 
@@ -468,25 +468,39 @@ const App = () => {
         return buildSingleData(ct, sData);
     };
 
-    // Single stable effect — runs when any relevant state changes
+    // Preview always renders at PREVIEW_SIZE so it fits the container exactly
     useEffect(() => {
         if (!previewRef.current) return;
-        const opts = buildQROpts(getQRData(), st);
+        const opts = buildQROpts(getQRData(), { ...st, qrSize: PREVIEW_SIZE });
         if (!qrRef.current) {
             qrRef.current = new QRCodeStyling(opts);
             qrRef.current.append(previewRef.current);
         } else {
             qrRef.current.update(opts);
         }
-    }); // intentionally no deps — runs every render but qr.update() is idempotent and fast
+    }); // no deps — runs every render, qr.update() is fast and idempotent
 
-    const download = ext => qrRef.current?.download({ name:'qr-code', extension:ext });
+    // Downloads create a separate full-size QR instance so output = user's chosen size
+    const makeTempQR = async (ext, cb) => {
+        const div = document.createElement('div');
+        div.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+        document.body.appendChild(div);
+        const qr = new QRCodeStyling(buildQROpts(getQRData(), st));
+        qr.append(div);
+        await new Promise(r => setTimeout(r, 120));
+        await cb(qr);
+        document.body.removeChild(div);
+    };
+
+    const download = ext => makeTempQR(ext, qr => qr.download({ name:'qr-code', extension:ext }));
 
     const copyQR = async () => {
         try {
-            const blob = await qrRef.current.getRawData('png');
-            await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
-            setCopied(true); setTimeout(()=>setCopied(false),2000);
+            await makeTempQR('png', async qr => {
+                const blob = await qr.getRawData('png');
+                await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+                setCopied(true); setTimeout(()=>setCopied(false),2000);
+            });
         } catch(e) { alert('Copy failed — try downloading instead.'); }
     };
 
@@ -536,7 +550,7 @@ const App = () => {
             <SL>Preview</SL>
             {/* Checkerboard container — fixed 280px, SVG scales to fill */}
             <div className="qr-checker rounded-2xl flex items-center justify-center" style={{ padding:'16px' }}>
-                <div id="qr-preview-wrap" ref={previewRef} style={{ width:'100%', maxWidth:'280px' }} />
+                <div ref={previewRef} style={{ width:'280px', height:'280px', flexShrink:0 }} />
             </div>
 
             {/* Quick Styles */}
