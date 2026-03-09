@@ -127,8 +127,7 @@ function onClickEffect(amount) {
         }, i * 100);
     }
 
-    // Click sparks (canvas-based)
-    if (_addSparks) _addSparks(cx, cy, isFrenzy);
+    // Click sparks handled by global document listener
 
     // DOM burst particles
     const count = isFrenzy ? 24 : 14;
@@ -553,56 +552,31 @@ function updateOrbitIcons() {
     const ring = document.getElementById('orbit-ring');
     if (!ring) return;
 
-    const key = BUILDINGS.map(b => s.buildings[b.id] || 0).join(',');
+    const viewerCount = s.buildings['viewer'] || 0;
+    const key = viewerCount.toString();
     if (key === lastOrbitKey) return;
     lastOrbitKey = key;
 
     ring.innerHTML = '';
+    if (viewerCount === 0) return;
 
-    // Each distinct owned building type gets its own orbit ring, inner → outer
-    const ownedBuildings = BUILDINGS.filter(b => (s.buildings[b.id] || 0) > 0);
-    if (ownedBuildings.length === 0) return;
+    const count = Math.min(viewerCount, 20);
+    const radius = 120;
+    const speed  = 12;
 
-    const radii = [85, 110, 135, 160, 185, 210, 235, 260];
-    const speeds = [9, 12, 15, 19, 23, 27, 31, 35];
-    const sizes  = [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.72, 0.70];
+    for (let j = 0; j < count; j++) {
+        const arm = document.createElement('div');
+        arm.className = 'orbit-arm';
+        arm.style.animation = `orbit-spin ${speed}s linear infinite`;
+        arm.style.animationDelay = `${-(j / count) * speed}s`;
 
-    ownedBuildings.slice(0, 8).forEach((b, i) => {
-        const radius = radii[i] ?? 260;
-        const speed  = speeds[i] ?? 35;
-        const fs     = sizes[i]  ?? 0.70;
-        // Cookie Clicker style tier-based count (1–10), same thresholds as CC
-        const owned = s.buildings[b.id] || 0;
-        const count = owned >= 250 ? 10 : owned >= 200 ? 9 : owned >= 150 ? 8
-                    : owned >= 100 ? 7  : owned >= 75  ? 6 : owned >= 50  ? 5
-                    : owned >= 25  ? 4  : owned >= 10  ? 3 : owned >= 5   ? 2 : 1;
-        const cw     = i % 2 === 0; // alternate direction per ring
+        const icon = document.createElement('span');
+        icon.style.cssText = `position:absolute;left:${radius}px;top:0;transform:translateY(-50%) rotate(-90deg);font-size:1rem;line-height:1;pointer-events:none;`;
+        icon.textContent = '👆';
 
-        for (let j = 0; j < count; j++) {
-            // Rotating arm — spins around the ring center (which is at 50%,50% of #orbit-ring)
-            const arm = document.createElement('div');
-            arm.className = 'orbit-arm';
-            arm.style.animation = `orbit-spin ${speed}s linear infinite${cw ? '' : ' reverse'}`;
-            arm.style.animationDelay = `${-(j / count) * speed}s`;
-
-            // Icon — positioned at the radius, no competing animation
-            const icon = document.createElement('span');
-            icon.style.cssText = `
-                position: absolute;
-                left: ${radius}px;
-                top: 0;
-                transform: translateY(-50%);
-                font-size: ${fs}rem;
-                filter: drop-shadow(0 0 5px rgba(34,197,94,0.55));
-                line-height: 1;
-                pointer-events: none;
-            `;
-            icon.textContent = b.emoji;
-
-            arm.appendChild(icon);
-            ring.appendChild(arm);
-        }
-    });
+        arm.appendChild(icon);
+        ring.appendChild(arm);
+    }
 }
 
 /* ── News ticker ─────────────────────────────────────────── */
@@ -883,10 +857,18 @@ function initUI() {
     // Click spark canvas
     _addSparks = initClickSparkCanvas();
 
+    // Global click sparks — fire on any click anywhere on the page
+    document.addEventListener('click', (e) => {
+        if (_addSparks) {
+            const isFrenzy = window.GameEngine && window.GameEngine.Buffs.clickFrenzy;
+            _addSparks(e.clientX, e.clientY, !!isFrenzy);
+        }
+    });
+
     // Page-wide ambient particles
     initPageParticles();
 
-    // Custom arrow cursor (applies to body + click-target)
+    // Custom 👆 cursor (applies to #col-center only)
     setCustomCursor();
 
     // Initial full render
@@ -1025,16 +1007,27 @@ function initClickSparkCanvas() {
 
 /* ── Custom cursor — classic arrow pointer SVG ────────────── */
 function setCustomCursor() {
-    // Classic arrow cursor (white with dark outline), hotspot at tip (2,2)
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="28">
-        <path d="M2 2 L2 22 L7 17 L10 25 L13 24 L10 16 L16 16 Z"
-              fill="white" stroke="#222" stroke-width="1.8" stroke-linejoin="round"/>
-    </svg>`;
-    const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 2, auto`;
-    document.body.style.cursor = url;
-    // Also override the pointer cursor on the click target
-    const ct = document.getElementById('click-target');
-    if (ct) ct.style.cursor = url;
+    try {
+        // Draw 👆 emoji rotated -45° (counterclockwise → points top-left like a cursor)
+        const sz = 40;
+        const c = document.createElement('canvas');
+        c.width = sz; c.height = sz;
+        const ctx = c.getContext('2d');
+        ctx.save();
+        ctx.translate(sz / 2, sz / 2);
+        ctx.rotate(-Math.PI / 4); // -45°
+        ctx.font = '30px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👆', 0, 0);
+        ctx.restore();
+        const url = `url('${c.toDataURL()}') 8 8, auto`;
+        // Apply only to the center column (not store/buy items)
+        const colCenter = document.getElementById('col-center');
+        if (colCenter) colCenter.style.cursor = url;
+        const ct = document.getElementById('click-target');
+        if (ct) ct.style.cursor = url;
+    } catch(e) {}
 }
 
 /* ── Page-wide ambient particle canvas ───────────────────── */
