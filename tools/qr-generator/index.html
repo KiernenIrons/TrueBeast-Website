@@ -17,6 +17,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/qr-code-styling@1.6.0-rc.1/lib/qr-code-styling.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script src="../../js/config.js"></script>
     <link rel="stylesheet" href="../../css/shared.css">
     <link rel="stylesheet" href="../../css/glass.css">
@@ -109,6 +110,34 @@
         html.light .range-input { background: rgba(0,0,0,0.12); }
         html.light select option { background: #f0f4f0; color: #0e1a0e; }
         html.light .acc-hdr:hover { background: rgba(0,0,0,0.03); }
+
+        /* ── Suggestion box ── */
+        .suggest-textarea {
+            width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 10px 12px; color: white; font-size: 0.875rem;
+            min-height: 90px; resize: vertical; outline: none; font-family: inherit;
+            transition: border-color 0.15s;
+        }
+        .suggest-textarea:focus { border-color: rgba(34,197,94,0.5); }
+        .suggest-textarea::placeholder { color: rgba(255,255,255,0.25); }
+        .suggest-name-inp {
+            width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 8px 12px; color: white; font-size: 0.875rem;
+            outline: none; font-family: inherit; transition: border-color 0.15s;
+        }
+        .suggest-name-inp:focus { border-color: rgba(34,197,94,0.5); }
+        .suggest-name-inp::placeholder { color: rgba(255,255,255,0.25); }
+        .suggest-submit-btn {
+            background: linear-gradient(135deg, #16a34a, #22c55e); color: black; font-weight: 700;
+            border: none; border-radius: 10px; padding: 9px 20px; cursor: pointer;
+            font-size: 0.875rem; transition: all 0.2s;
+        }
+        .suggest-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(34,197,94,0.3); }
+        .suggest-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+        html.light .suggest-textarea { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: #0e1a0e; }
+        html.light .suggest-textarea::placeholder { color: rgba(0,0,0,0.3); }
+        html.light .suggest-name-inp { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: #0e1a0e; }
+        html.light .suggest-name-inp::placeholder { color: rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
@@ -469,6 +498,88 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
     </div>
 );
 
+// ── Suggestion Box ────────────────────────────────────────────────────────────
+const SuggestionBox = () => {
+    const [suggestion, setSuggestion] = useState('');
+    const [name, setName] = useState('');
+    const [status, setStatus] = useState('idle');
+
+    const emailjsCfg = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG?.emailjs : null;
+    const hasEmailjs = emailjsCfg?.publicKey && emailjsCfg?.serviceId &&
+        (emailjsCfg?.submitReviewTemplateId || emailjsCfg?.ticketTemplateId);
+    const discordUrl = typeof SITE_CONFIG !== 'undefined' ? SITE_CONFIG?.social?.discord : null;
+
+    const submit = async () => {
+        if (!suggestion.trim()) return;
+        if (!hasEmailjs) {
+            const body = name ? `From: ${name}\n\n${suggestion}` : suggestion;
+            window.open(`mailto:kiernenyt@gmail.com?subject=${encodeURIComponent('TrueBeast Tool Suggestion')}&body=${encodeURIComponent(body)}`);
+            setStatus('success'); setSuggestion(''); setName('');
+            return;
+        }
+        setStatus('sending');
+        try {
+            emailjs.init(emailjsCfg.publicKey);
+            await emailjs.send(
+                emailjsCfg.serviceId,
+                emailjsCfg.submitReviewTemplateId || emailjsCfg.ticketTemplateId,
+                { name: name || 'Anonymous', message: suggestion, subject: 'Tool Suggestion – QR Generator' }
+            );
+            setStatus('success'); setSuggestion(''); setName('');
+        } catch(e) { setStatus('error'); }
+    };
+
+    return (
+        <section className="py-16 px-4 border-t" style={{ borderColor:'var(--c-border-sub)' }}>
+            <div className="max-w-2xl mx-auto">
+                <div className="liquid-glass rounded-2xl p-6">
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                            style={{ background:'rgba(34,197,94,0.12)', border:'1px solid rgba(34,197,94,0.25)' }}>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        </div>
+                        <div>
+                            <h3 className="font-display font-bold text-lg">Got a Suggestion?</h3>
+                            <p className="text-sm" style={{ color:'var(--c-text-label)' }}>Feature ideas, improvements — I read everything.</p>
+                        </div>
+                    </div>
+                    {status === 'success' ? (
+                        <div className="mt-5 p-4 rounded-xl text-center" style={{ background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.2)' }}>
+                            <div className="text-2xl mb-1">🎉</div>
+                            <p className="font-semibold text-sm" style={{ color:'#4ade80' }}>Thanks for the suggestion!</p>
+                            <p className="text-xs mt-1" style={{ color:'var(--c-text-label)' }}>I appreciate the feedback — it helps make these tools better.</p>
+                            <button onClick={() => setStatus('idle')} className="mt-3 text-xs underline" style={{ color:'var(--c-text-label)', background:'none', border:'none', cursor:'pointer' }}>Submit another</button>
+                        </div>
+                    ) : (
+                        <div className="mt-5 flex flex-col gap-3">
+                            <input className="suggest-name-inp" placeholder="Your name (optional)" value={name} onChange={e => setName(e.target.value)} />
+                            <textarea className="suggest-textarea" placeholder="What feature would you like? Or suggest a new tool idea…" value={suggestion} onChange={e => setSuggestion(e.target.value)} />
+                            {status === 'error' && (
+                                <p className="text-xs" style={{ color:'#f87171' }}>Something went wrong. Try the Discord link below or email kiernenyt@gmail.com.</p>
+                            )}
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <button className="suggest-submit-btn" onClick={submit} disabled={!suggestion.trim() || status === 'sending'}>
+                                    {status === 'sending' ? 'Sending…' : 'Send Suggestion'}
+                                </button>
+                                {discordUrl && (
+                                    <a href={discordUrl} target="_blank" rel="noopener noreferrer"
+                                        className="text-sm flex items-center gap-1.5 transition-colors"
+                                        style={{ color:'var(--c-text-label)', textDecoration:'none' }}
+                                        onMouseEnter={e => e.currentTarget.style.color='#818cf8'}
+                                        onMouseLeave={e => e.currentTarget.style.color='var(--c-text-label)'}>
+                                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+                                        Or post in Discord
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </section>
+    );
+};
+
 // ── App ───────────────────────────────────────────────────────────────────────
 const App = () => {
     const [scrolled, setScrolled] = useState(false);
@@ -817,6 +928,8 @@ const App = () => {
 
                 </div>
             </div>
+
+            <SuggestionBox />
 
             <footer className="border-t py-8 px-4" style={{ borderColor:'var(--c-border-sub)' }}>
                 <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
