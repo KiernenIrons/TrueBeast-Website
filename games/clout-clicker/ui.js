@@ -12,6 +12,16 @@ const { BUILDINGS, UPGRADES, ACHIEVEMENTS, NEWS_TICKER, formatNumber, formatTime
 function GS() { return window.GameState; }
 function GE() { return window.GameEngine; }
 
+/* ── Avatar helper ────────────────────────────────────────── */
+function setAvatarEl(el, photoURL, displayName) {
+    if (photoURL) {
+        el.innerHTML = `<img src="${photoURL}" alt="${escapeHtml(displayName)}" class="avatar-img" />`;
+    } else {
+        el.innerHTML = '';
+        el.textContent = (displayName || '?')[0].toUpperCase();
+    }
+}
+
 /* ── Click spark canvas (vanilla port of ClickSpark component) ── */
 let _addSparks = null; // set by initClickSparkCanvas()
 
@@ -512,7 +522,7 @@ function updatePlayerCard() {
     if (s.isLoggedIn && s.displayName) {
         loggedIn.style.display  = 'flex';
         loggedOut.style.display = 'none';
-        if (avatarEl) avatarEl.textContent = s.displayName[0].toUpperCase();
+        if (avatarEl) setAvatarEl(avatarEl, s.photoURL, s.displayName);
         if (nameEl)   nameEl.textContent   = s.displayName;
         // Sync nav button
         const authBtn = document.getElementById('btn-auth');
@@ -594,10 +604,13 @@ async function showLeaderboardModal() {
     tbody.innerHTML = rows.map((r, i) => {
         const rank = i + 1;
         const rankClass = rank <= 3 ? `r${rank}` : '';
+        const avatarHtml = r.photoURL
+            ? `<img src="${r.photoURL}" class="lb-avatar-img" alt="" />`
+            : `<span class="lb-avatar-init">${(r.displayName || '?')[0].toUpperCase()}</span>`;
         return `
             <tr>
                 <td><span class="lb-rank ${rankClass}">#${rank}</span></td>
-                <td>${escapeHtml(r.displayName || 'Anonymous')}</td>
+                <td><div class="lb-player-cell">${avatarHtml}<span>${escapeHtml(r.displayName || 'Anonymous')}</span></div></td>
                 <td>${formatNumber(r.totalCloutEver || 0)}</td>
                 <td>${r.prestigeLevel || 0}</td>
                 <td>${formatNumber(r.cps || 0)}/s</td>
@@ -735,6 +748,30 @@ function tickUpdate(dt) {
     if (Math.random() < 0.1) { dirty.buildings = true; dirty.stats = true; }
 }
 
+/* ── Image resize helper ──────────────────────────────────── */
+function resizeImageToBase64(file, w, h) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onerror = reject;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                // Cover-crop: centre the image
+                const scale = Math.max(w / img.width, h / img.height);
+                const sw = img.width * scale, sh = img.height * scale;
+                ctx.drawImage(img, (w - sw) / 2, (h - sh) / 2, sw, sh);
+                resolve(canvas.toDataURL('image/jpeg', 0.75));
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 /* ── Init UI ──────────────────────────────────────────────── */
 function initUI() {
     // Tab buttons
@@ -786,7 +823,7 @@ function initUI() {
         const el = document.getElementById('prof-pop-name');
         const av = document.getElementById('prof-pop-avatar');
         if (el) el.textContent = s.displayName || 'Player';
-        if (av) av.textContent = (s.displayName || 'P')[0].toUpperCase();
+        if (av) setAvatarEl(av, s.photoURL, s.displayName || 'P');
         profNameEditRow && profNameEditRow.classList.remove('open');
         profPop && profPop.classList.toggle('open');
     }
@@ -818,7 +855,7 @@ function initUI() {
                 });
                 ['player-avatar', 'prof-pop-avatar'].forEach(id => {
                     const el = document.getElementById(id);
-                    if (el) el.textContent = newName[0].toUpperCase();
+                    if (el) setAvatarEl(el, GS().photoURL, newName);
                 });
                 document.getElementById('btn-auth').textContent = '👤 ' + newName;
                 showToast('save', '✅ Name updated!', `Now showing as "${newName}" on the leaderboard.`);
@@ -843,6 +880,37 @@ function initUI() {
             }
         });
     }
+    // Profile photo upload
+    const photoInput = document.getElementById('prof-photo-input');
+    const btnUploadPhoto = document.getElementById('btn-prof-upload-photo');
+    if (btnUploadPhoto && photoInput) {
+        btnUploadPhoto.addEventListener('click', (e) => {
+            e.stopPropagation();
+            photoInput.click();
+        });
+        photoInput.addEventListener('change', async () => {
+            const file = photoInput.files[0];
+            if (!file) return;
+            photoInput.value = '';
+            btnUploadPhoto.disabled = true;
+            btnUploadPhoto.textContent = '⏳ Uploading...';
+            try {
+                const base64 = await resizeImageToBase64(file, 64, 64);
+                await window.GameEngine.updateProfilePhoto(base64);
+                ['player-avatar', 'prof-pop-avatar'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) setAvatarEl(el, base64, GS().displayName);
+                });
+                showToast('save', '✅ Photo updated!', 'Your profile photo is saved.');
+            } catch(err) {
+                showToast('info', '❌ Failed', err.message || 'Could not upload photo.');
+            } finally {
+                btnUploadPhoto.disabled = false;
+                btnUploadPhoto.textContent = '🖼️ Change Photo';
+            }
+        });
+    }
+
     // Close profile popover when clicking outside
     document.addEventListener('click', (e) => {
         if (!profPop) return;

@@ -61,6 +61,7 @@ function defaultState() {
         saveLoaded:       false,
         isLoggedIn:       false,
         displayName:      '',
+        photoURL:         '',
         userId:           '',
 
         // transient (not saved)
@@ -177,6 +178,7 @@ function serializeState() {
         timeSincePrestige:s.timeSincePrestige,
         longestOffline:   s.longestOffline,
         displayName:      s.displayName,
+        photoURL:         s.photoURL || '',
         saveLoaded:       s.saveLoaded,
         goldenFastClick:  s.goldenFastClick,
     };
@@ -204,6 +206,7 @@ function deserializeState(data) {
     s.timeSincePrestige= data.timeSincePrestige|| 0;
     s.longestOffline   = data.longestOffline   || 0;
     s.displayName      = data.displayName      || '';
+    s.photoURL         = data.photoURL         || '';
     s.saveLoaded       = true;
     s.goldenFastClick  = data.goldenFastClick  || false;
 
@@ -242,6 +245,7 @@ async function saveToFirebase() {
         // Update leaderboard
         await fbDb.collection('clout-clicker-leaderboard').doc(uid).set({
             displayName:    window.GameState.displayName || fbAuth.currentUser.email.split('@')[0],
+            photoURL:       window.GameState.photoURL || '',
             totalCloutEver: window.GameState.totalCloutEver,
             prestigeLevel:  window.GameState.prestigeLevel,
             cps:            window.GameState.cps,
@@ -735,6 +739,12 @@ async function updateDisplayName(name) {
     await saveToFirebase();
 }
 
+async function updateProfilePhoto(base64) {
+    if (!fbAuth || !fbAuth.currentUser) throw new Error('Not signed in');
+    window.GameState.photoURL = base64;
+    await saveToFirebase();
+}
+
 /* ── Leaderboard ─────────────────────────────────────────── */
 async function fetchLeaderboard() {
     if (!fbDb) return [];
@@ -819,6 +829,7 @@ async function init() {
         signUp,
         signOut,
         updateDisplayName,
+        updateProfilePhoto,
         fetchLeaderboard,
         fullSave,
         Buffs,
