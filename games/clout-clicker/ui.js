@@ -1197,9 +1197,9 @@ function initAuthForm() {
 
         try {
             await window.GameEngine.signUp(email, password, displayName);
-            window.GameState.displayName = displayName;
             modal.classList.remove('open');
             showToast('info', '🎉 Account created!', `Welcome, ${displayName}!`);
+            updatePlayerCard(); // ensure nav + right column reflect the new account
         } catch (err) {
             if (errorEl) errorEl.textContent = err.message || 'Sign up failed.';
         } finally {

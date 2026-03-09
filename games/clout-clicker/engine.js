@@ -713,6 +713,10 @@ async function signUp(email, password, displayName) {
     if (!fbAuth) throw new Error('Firebase not available');
     const cred = await fbAuth.createUserWithEmailAndPassword(email, password);
     await cred.user.updateProfile({ displayName });
+    // onAuthStateChanged fires before updateProfile completes, so patch state now
+    window.GameState.isLoggedIn  = true;
+    window.GameState.userId      = cred.user.uid;
+    window.GameState.displayName = displayName;
     return cred.user;
 }
 
