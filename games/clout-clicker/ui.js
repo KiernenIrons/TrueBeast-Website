@@ -886,8 +886,8 @@ function initUI() {
     // Page-wide ambient particles
     initPageParticles();
 
-    // Custom cursor (🖱️ to match Viewer building)
-    setCustomCursor('🖱️');
+    // Custom arrow cursor (applies to body + click-target)
+    setCustomCursor();
 
     // Initial full render
     fullRender();
@@ -1023,19 +1023,18 @@ function initClickSparkCanvas() {
     };
 }
 
-/* ── Custom cursor (emoji on canvas → CSS cursor data URL) ── */
-function setCustomCursor(emoji) {
-    try {
-        const sz = 32;
-        const c  = document.createElement('canvas');
-        c.width  = sz; c.height = sz;
-        const ctx = c.getContext('2d');
-        ctx.font          = `${sz - 6}px serif`;
-        ctx.textBaseline  = 'top';
-        ctx.fillText(emoji, 0, 0);
-        // hotspot at 4,0 (tip of the mouse emoji)
-        document.body.style.cursor = `url('${c.toDataURL()}') 4 0, auto`;
-    } catch(e) { /* silently ignore if blocked */ }
+/* ── Custom cursor — classic arrow pointer SVG ────────────── */
+function setCustomCursor() {
+    // Classic arrow cursor (white with dark outline), hotspot at tip (2,2)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="28">
+        <path d="M2 2 L2 22 L7 17 L10 25 L13 24 L10 16 L16 16 Z"
+              fill="white" stroke="#222" stroke-width="1.8" stroke-linejoin="round"/>
+    </svg>`;
+    const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 2, auto`;
+    document.body.style.cursor = url;
+    // Also override the pointer cursor on the click target
+    const ct = document.getElementById('click-target');
+    if (ct) ct.style.cursor = url;
 }
 
 /* ── Page-wide ambient particle canvas ───────────────────── */
