@@ -245,6 +245,7 @@ async function saveToFirebase() {
             totalCloutEver: window.GameState.totalCloutEver,
             prestigeLevel:  window.GameState.prestigeLevel,
             cps:            window.GameState.cps,
+            clicks:         window.GameState.clicks,
             lastUpdated:    firebase.firestore.FieldValue.serverTimestamp(),
         });
     } catch(e) {

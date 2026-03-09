@@ -363,6 +363,7 @@ function updateStats() {
     setStatVal('stat-cps',       formatNumber(s.cps * activeCpsMult));
     setStatVal('stat-cpc',       formatNumber(s.clickPower * activeClickMult + s.cps * 0.01 * activeClickMult));
     setStatVal('stat-total',     formatNumber(s.totalCloutEver));
+    setStatVal('stat-clicks',    formatNumber(s.clicks));
     setStatVal('stat-golden',    s.goldenCloutClicks);
     setStatVal('stat-prestige',  s.prestigeLevel);
     setStatVal('stat-chips',     s.viralChips || 0);
@@ -525,7 +526,7 @@ async function showLeaderboardModal() {
     overlay.classList.add('open');
 
     const tbody = overlay.querySelector('#lb-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="lb-empty">Loading...</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="lb-empty">Loading...</td></tr>';
 
     const ge = window.GameEngine;
     if (!ge) return;
@@ -533,7 +534,7 @@ async function showLeaderboardModal() {
 
     if (!tbody) return;
     if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
         return;
     }
 
@@ -547,6 +548,7 @@ async function showLeaderboardModal() {
                 <td>${formatNumber(r.totalCloutEver || 0)}</td>
                 <td>${r.prestigeLevel || 0}</td>
                 <td>${formatNumber(r.cps || 0)}/s</td>
+                <td>${formatNumber(r.clicks || 0)}</td>
             </tr>
         `;
     }).join('');

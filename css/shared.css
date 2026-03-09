@@ -45,7 +45,7 @@ body {
     z-index: -2;
     background:
         radial-gradient(ellipse at 15% 20%, rgba(34, 197, 94, 0.20) 0%, transparent 52%),
-        radial-gradient(ellipse at 85% 75%, rgba(57, 255, 20,  0.13) 0%, transparent 50%),
+        radial-gradient(ellipse at 85% 75%, rgba(34, 197, 94,  0.13) 0%, transparent 50%),
         radial-gradient(ellipse at 50% 50%, rgba(22, 163, 74,  0.09) 0%, transparent 65%),
         #0c0c14;
 }
@@ -81,7 +81,7 @@ body {
     width: 200%;
     height: 200%;
     background: radial-gradient(ellipse at 20% 50%, rgba(34, 197, 94, 0.05) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 20%, rgba(57, 255, 20, 0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(34, 197, 94, 0.03) 0%, transparent 50%),
                 radial-gradient(ellipse at 50% 80%, rgba(22, 163, 74, 0.04) 0%, transparent 50%);
     animation: gradientShift 15s ease infinite alternate;
     will-change: transform;
