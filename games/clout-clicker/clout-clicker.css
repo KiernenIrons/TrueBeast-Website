@@ -1666,6 +1666,17 @@ html.light .nav-menu-btn:hover, html.light .nav-menu-btn:active {
     color: #16a34a;
 }
 
+/* ── Light mode: mobile tab bar ──────────────────────────── */
+html.light #mobile-tabs {
+    background: rgba(238,243,238,0.97);
+    border-top-color: rgba(0,0,0,0.1);
+}
+html.light .mob-tab { color: rgba(0,0,0,0.4); }
+html.light .mob-tab:hover { color: rgba(0,0,0,0.65); background: rgba(0,0,0,0.03); }
+html.light .mob-tab.active { color: #16a34a; }
+html.light .mob-tab.active .mob-tab-icon { filter: drop-shadow(0 0 6px rgba(34,197,94,0.5)); }
+html.light #mob-backdrop { background: rgba(0,0,0,0.25); backdrop-filter: blur(3px); }
+
 /* Left column */
 html.light #col-store { border-right-color: rgba(0,0,0,0.1); background: rgba(255,255,255,0.35); }
 html.light .store-tabs { border-bottom-color: rgba(0,0,0,0.08); }
@@ -1915,12 +1926,15 @@ html.light .float-num { color: #16a34a; text-shadow: none; }
     #clout-value  { font-size: clamp(2rem, 7vw, 2.8rem); }
     #clout-display { padding: 1rem 1rem 0.4rem; }
 
-    /* Light mode drawer */
+    /* Light mode drawers + drag handle */
     html.light #col-store,
     html.light #col-stats {
-        background: rgba(238,243,238,0.98);
+        background: #f4faf4;
         border-top-color: rgba(0,0,0,0.1);
+        box-shadow: 0 -8px 40px rgba(0,0,0,0.12);
     }
+    html.light #col-store::before,
+    html.light #col-stats::before { background: rgba(0,0,0,0.15); }
 }
 
 /* ── Utility ─────────────────────────────────────────────── */
