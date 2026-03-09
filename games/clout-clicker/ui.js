@@ -642,11 +642,14 @@ function updateOrbitIcons() {
     ring.innerHTML = '';
     if (viewerCount === 0) return;
 
-    // Multi-ring stacking: 20 per ring, up to 3 rings (60 max)
+    // Multi-ring stacking: 20 per ring, infinite rings
     const ICONS_PER_RING = 20;
-    const total  = Math.min(viewerCount, 60);
-    const radii  = [120, 158, 196];
-    const speeds = [12,  15,  18];
+    const total  = viewerCount;
+    const BASE_RADIUS = 120, RING_GAP = 38;
+    const BASE_SPEED  = 12,  SPEED_STEP = 3;
+    const ringCount   = Math.ceil(total / ICONS_PER_RING);
+    const radii  = Array.from({ length: ringCount }, (_, i) => BASE_RADIUS + i * RING_GAP);
+    const speeds = Array.from({ length: ringCount }, (_, i) => BASE_SPEED  + i * SPEED_STEP);
     const PULSE_CYCLE = 10; // seconds for one full wave across all icons
 
     let iconIndex = 0;
