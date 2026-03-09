@@ -26,28 +26,34 @@
     <style>
         /* ── Theme colour tokens ── */
         :root {
-            --c-text-faint:  rgba(255,255,255,0.22);
-            --c-text-dim:    rgba(255,255,255,0.32);
-            --c-text-muted:  rgba(255,255,255,0.42);
-            --c-text-label:  rgba(255,255,255,0.52);
-            --c-text-medium: rgba(255,255,255,0.62);
-            --c-text-strong: rgba(255,255,255,0.72);
-            --c-text-bolder: rgba(255,255,255,0.82);
-            --c-border-sub:  rgba(255,255,255,0.06);
-            --c-border:      rgba(255,255,255,0.10);
-            --c-surface:     rgba(255,255,255,0.05);
+            --c-text-faint:   rgba(255,255,255,0.22);
+            --c-text-dim:     rgba(255,255,255,0.32);
+            --c-text-muted:   rgba(255,255,255,0.42);
+            --c-text-label:   rgba(255,255,255,0.52);
+            --c-text-medium:  rgba(255,255,255,0.62);
+            --c-text-strong:  rgba(255,255,255,0.72);
+            --c-text-bolder:  rgba(255,255,255,0.82);
+            --c-border-sub:   rgba(255,255,255,0.06);
+            --c-border:       rgba(255,255,255,0.10);
+            --c-surface:      rgba(255,255,255,0.05);
+            --c-btn-inactive: rgba(255,255,255,0.04);
+            --c-toggle-track: rgba(255,255,255,0.12);
+            --c-acc-title:    rgba(255,255,255,0.75);
         }
         html.light {
-            --c-text-faint:  rgba(0,0,0,0.38);
-            --c-text-dim:    rgba(0,0,0,0.48);
-            --c-text-muted:  rgba(0,0,0,0.56);
-            --c-text-label:  rgba(0,0,0,0.62);
-            --c-text-medium: rgba(0,0,0,0.70);
-            --c-text-strong: rgba(0,0,0,0.76);
-            --c-text-bolder: rgba(0,0,0,0.85);
-            --c-border-sub:  rgba(0,0,0,0.08);
-            --c-border:      rgba(0,0,0,0.12);
-            --c-surface:     rgba(255,255,255,0.65);
+            --c-text-faint:   rgba(0,0,0,0.38);
+            --c-text-dim:     rgba(0,0,0,0.48);
+            --c-text-muted:   rgba(0,0,0,0.56);
+            --c-text-label:   rgba(0,0,0,0.62);
+            --c-text-medium:  rgba(0,0,0,0.70);
+            --c-text-strong:  rgba(0,0,0,0.76);
+            --c-text-bolder:  rgba(0,0,0,0.85);
+            --c-border-sub:   rgba(0,0,0,0.08);
+            --c-border:       rgba(0,0,0,0.12);
+            --c-surface:      rgba(255,255,255,0.65);
+            --c-btn-inactive: rgba(0,0,0,0.04);
+            --c-toggle-track: rgba(0,0,0,0.18);
+            --c-acc-title:    rgba(0,0,0,0.72);
         }
 
         .mode-tab { transition: all 0.15s; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); }
@@ -142,7 +148,7 @@ const Nav = ({ scrolled }) => (
                     <a href="../" className="px-3 py-1.5 text-sm font-medium rounded-lg"
                         style={{ color:'var(--c-text-medium)', textDecoration:'none' }}
                         onMouseEnter={e => e.target.style.color='white'}
-                        onMouseLeave={e => e.target.style.color='rgba(255,255,255,0.6)'}>
+                        onMouseLeave={e => e.target.style.color='var(--c-text-medium)'}>
                         ← Tools
                     </a>
                     <ThemeToggle />
@@ -262,7 +268,7 @@ const Range = ({ label, value, onChange, min, max, step=1, unit='' }) => (
 const Toggle = ({ checked, onChange, label }) => (
     <label className="flex items-center gap-3 cursor-pointer select-none">
         <div style={{ position:'relative', width:'36px', height:'20px', flexShrink:0 }}>
-            <div onClick={()=>onChange(!checked)} style={{ position:'absolute', inset:0, background:checked?'#22c55e':'rgba(255,255,255,0.12)', borderRadius:'10px', transition:'background 0.2s', cursor:'pointer' }}>
+            <div onClick={()=>onChange(!checked)} style={{ position:'absolute', inset:0, background:checked?'#22c55e':'var(--c-toggle-track)', borderRadius:'10px', transition:'background 0.2s', cursor:'pointer' }}>
                 <div style={{ position:'absolute', width:'14px', height:'14px', background:'white', borderRadius:'50%', top:'3px', left:checked?'19px':'3px', transition:'left 0.2s' }} />
             </div>
         </div>
@@ -285,11 +291,11 @@ const ColorPicker = ({ label, value, onChange }) => {
     );
 };
 const Acc = ({ title, open, onToggle, children, accent }) => (
-    <div style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+    <div style={{ borderBottom:'1px solid var(--c-border-sub)' }}>
         <div className="acc-hdr flex items-center justify-between px-4 py-3 rounded-xl" onClick={onToggle}>
-            <span className="text-sm font-semibold" style={{ color:open?(accent||'#4ade80'):'rgba(255,255,255,0.75)' }}>{title}</span>
+            <span className="text-sm font-semibold" style={{ color:open?(accent||'#4ade80'):'var(--c-acc-title)' }}>{title}</span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform:open?'rotate(180deg)':'', transition:'transform 0.2s', flexShrink:0 }}>
-                <path d="M2 4l4 4 4-4" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 4l4 4 4-4" stroke="var(--c-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
         </div>
         {open && <div className="px-4 pb-5">{children}</div>}
@@ -366,7 +372,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                         <ColorPicker label="Color 1" value={st.g1} onChange={v=>update('g1',v)} />
                         <ColorPicker label="Color 2" value={st.g2} onChange={v=>update('g2',v)} />
                     </div>
-                    <div className="h-7 rounded-lg mb-3" style={{ background:`linear-gradient(${st.gradAngle}deg,${st.g1},${st.g2})`, border:'1px solid rgba(255,255,255,0.08)' }} />
+                    <div className="h-7 rounded-lg mb-3" style={{ background:`linear-gradient(${st.gradAngle}deg,${st.g1},${st.g2})`, border:'1px solid var(--c-border-sub)' }} />
                     <div className="flex gap-2 mb-3">
                         {['linear','radial'].map(t=>(
                             <button key={t} onClick={()=>update('gradType',t)}
@@ -435,7 +441,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
         <Acc title="Logo / Image" open={acc.logo} onToggle={()=>togAcc('logo')} accent="#a78bfa">
             {st.logoSrc ? (
                 <div className="flex items-center gap-3 mb-3">
-                    <img src={st.logoSrc} alt="logo" className="w-12 h-12 rounded-lg object-contain" style={{ border:'1px solid rgba(255,255,255,0.1)' }} />
+                    <img src={st.logoSrc} alt="logo" className="w-12 h-12 rounded-lg object-contain" style={{ border:'1px solid var(--c-border)' }} />
                     <button onClick={()=>update('logoSrc','')}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
                         style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171' }}>
@@ -674,7 +680,7 @@ const App = () => {
                     {['Single','vCard Builder','Batch Mode'].map(m=>(
                         <button key={m} onClick={()=>setMode(m)}
                             className={`mode-tab px-4 py-2 rounded-xl text-sm font-semibold flex-1 sm:flex-none ${mode===m?'active':''}`}
-                            style={{ background:mode===m?'rgba(34,197,94,0.12)':'rgba(255,255,255,0.04)', color:mode===m?'#4ade80':'rgba(255,255,255,0.6)' }}>
+                            style={{ background:mode===m?'rgba(34,197,94,0.12)':'var(--c-btn-inactive)', color:mode===m?'#4ade80':'var(--c-text-medium)' }}>
                             {m}
                         </button>
                     ))}
@@ -694,7 +700,7 @@ const App = () => {
                                     {CONTENT_TYPES.map(c=>(
                                         <button key={c.id} onClick={()=>setCt(c.id)}
                                             className={`ct-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium ${ct===c.id?'active':''}`}
-                                            style={{ background:ct===c.id?'rgba(34,197,94,0.12)':'rgba(255,255,255,0.04)', color:ct===c.id?'#4ade80':'rgba(255,255,255,0.6)' }}>
+                                            style={{ background:ct===c.id?'rgba(34,197,94,0.12)':'var(--c-btn-inactive)', color:ct===c.id?'#4ade80':'var(--c-text-medium)' }}>
                                             {c.icon} {c.label}
                                         </button>
                                     ))}
