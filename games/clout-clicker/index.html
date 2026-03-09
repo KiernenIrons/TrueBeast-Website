@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="../../css/glass.css?v=5" />
 
     <!-- Game styles -->
-    <link rel="stylesheet" href="./clout-clicker.css?v=5" />
+    <link rel="stylesheet" href="./clout-clicker.css?v=6" />
 
     <!-- Firebase (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -46,7 +46,21 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
         </button>
     </div>
+
+    <!-- Mobile hamburger (hidden on desktop) -->
+    <button id="btn-hamburger" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+    </button>
 </nav>
+
+<!-- Mobile nav dropdown menu -->
+<div id="nav-menu" role="menu">
+    <button class="nav-menu-btn" id="mob-btn-save">💾 Save game</button>
+    <button class="nav-menu-btn" id="mob-btn-io">📤 Export / Import</button>
+    <button class="nav-menu-btn" id="mob-btn-auth">🔑 Sign In</button>
+    <button class="nav-menu-btn" id="mob-btn-audio">🔊 Audio settings</button>
+    <button class="nav-menu-btn" id="mob-btn-theme">☀️ Toggle theme</button>
+</div>
 
 <!-- ── Profile popover ─────────────────────────────────────── -->
 <div id="profile-popover">
@@ -468,6 +482,51 @@ document.addEventListener('keydown', (e) => {
 
     window.addEventListener('resize', () => {
         if (window.innerWidth > 720) close();
+    });
+})();
+
+// ── Mobile hamburger menu ──────────────────────────────────
+(function () {
+    const hamburger = document.getElementById('btn-hamburger');
+    const menu      = document.getElementById('nav-menu');
+    if (!hamburger || !menu) return;
+
+    function closeMenu() {
+        hamburger.classList.remove('open');
+        hamburger.setAttribute('aria-expanded', 'false');
+        menu.classList.remove('open');
+    }
+
+    hamburger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const isOpen = menu.classList.contains('open');
+        if (isOpen) { closeMenu(); } else {
+            hamburger.classList.add('open');
+            hamburger.setAttribute('aria-expanded', 'true');
+            menu.classList.add('open');
+        }
+    });
+
+    // Proxy menu buttons → real nav buttons, then close
+    const map = {
+        'mob-btn-save':  'btn-save',
+        'mob-btn-io':    'btn-io',
+        'mob-btn-auth':  'btn-auth',
+        'mob-btn-audio': 'btn-audio',
+        'mob-btn-theme': 'btn-theme',
+    };
+    Object.entries(map).forEach(([mobId, realId]) => {
+        const mob  = document.getElementById(mobId);
+        const real = document.getElementById(realId);
+        if (mob && real) mob.addEventListener('click', function () {
+            closeMenu();
+            real.click();
+        });
+    });
+
+    // Close on outside tap
+    document.addEventListener('click', function (e) {
+        if (!menu.contains(e.target) && e.target !== hamburger) closeMenu();
     });
 })();
 
