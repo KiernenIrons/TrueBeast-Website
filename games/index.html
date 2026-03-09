@@ -319,33 +319,48 @@
             color: rgba(255,255,255,0.25);
         }
 
-        /* Light mode */
-        html.light body { background: #f0f4f0; color: #0e1a0e; }
+        /* ── Light mode — built from scratch ── */
+        html.light body           { background-color: #ffffff !important; color: #111827 !important; }
+        html.light .bg-orbs       { background-color: #ffffff !important; }
+        html.light .bg-orbs::before { background-image: radial-gradient(ellipse, rgba(34,197,94,0.30) 0%, transparent 60%) !important; background-color: transparent !important; }
+        html.light .bg-orbs::after  { background-image: radial-gradient(ellipse, rgba(34,197,94,0.20) 0%, transparent 60%) !important; background-color: transparent !important; }
+
         html.light nav {
-            background: rgba(240,244,240,0.9);
-            border-color: rgba(0,0,0,0.1);
+            background-color: #ffffff !important;
+            border-bottom: 2px solid #22c55e !important;
+            backdrop-filter: none !important;
         }
+        html.light .nav-logo       { color: #16a34a !important; }
+        html.light .nav-logo span  { color: #111827 !important; }
+        html.light .home-btn       { background: #f0fdf4 !important; border-color: #bbf7d0 !important; color: #15803d !important; }
+        html.light .home-btn:hover { background: #dcfce7 !important; border-color: #22c55e !important; color: #15803d !important; }
+        html.light .theme-btn      { color: #111827 !important; }
+
+        html.light .page-header p  { color: #6b7280 !important; }
+
         html.light .game-card {
-            background: rgba(255,255,255,0.7);
-            border-color: rgba(0,0,0,0.1);
+            background-color: #ffffff !important;
+            border-color: #e5e7eb !important;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
         }
-        html.light .game-card-body p { color: rgba(0,0,0,0.55); }
+        html.light .game-card:hover {
+            border-color: #22c55e !important;
+            box-shadow: 0 8px 32px rgba(34,197,94,0.15) !important;
+        }
+        html.light .game-card-thumb {
+            background: linear-gradient(135deg, #f0fdf4, #dcfce7) !important;
+        }
+        html.light .game-card-body h2 { color: #111827 !important; }
+        html.light .game-card-body p  { color: #6b7280 !important; }
         html.light .meta-tag {
-            color: rgba(0,0,0,0.4);
-            background: rgba(0,0,0,0.05);
-            border-color: rgba(0,0,0,0.08);
+            color: #374151 !important;
+            background-color: #f3f4f6 !important;
+            border-color: #e5e7eb !important;
         }
-        html.light .coming-soon-card {
-            background: rgba(0,0,0,0.02);
-            border-color: rgba(0,0,0,0.1);
-        }
-        html.light .coming-soon-card h3 { color: rgba(0,0,0,0.35); }
-        html.light .coming-soon-card p  { color: rgba(0,0,0,0.25); }
-        html.light .page-header p { color: rgba(0,0,0,0.6); }
-        html.light .nav-links a { color: rgba(0,0,0,0.6); }
-        html.light .home-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.6) !important; }
-        html.light .home-btn:hover { border-color: #16a34a; color: #16a34a !important; background: rgba(34,197,94,0.08); }
-        html.light .theme-btn { color: #0e1a0e; background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
+
+        html.light .coming-soon-card  { background-color: #f9fafb !important; border-color: #d1d5db !important; }
+        html.light .coming-soon-card h3 { color: #9ca3af !important; }
+        html.light .coming-soon-card p   { color: #d1d5db !important; }
 
         @media (max-width: 600px) {
             .page { padding: 2rem 1rem; }
@@ -358,7 +373,7 @@
     <div class="bg-orbs"></div>
 
     <nav>
-        <a href="../index.html" class="nav-logo">True<span>Beast</span></a>
+        <a href="../index.html" class="nav-logo">TrueBeast</a>
         <div class="nav-links">
             <a href="../index.html" class="home-btn">🏠 Home</a>
             <button class="theme-btn liquid-glass" id="themeToggle" title="Toggle theme">
