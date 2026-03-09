@@ -630,13 +630,14 @@ function watchLiveFeeds() {
             _lbSnapshot = newRows;
         }, () => {});
 
-    // Watch global achievement events (new docs only)
-    let eventsInit = false;
+    // Watch global achievement/golden events — all docs added after page load.
+    // startAfter(now) means no old events on initial snapshot; catches every new
+    // event regardless of how many fire in quick succession (no limit(1) race).
+    const _eventsStartAt = firebase.firestore.Timestamp.now();
     fbDb.collection('clout-clicker-events')
-        .orderBy('timestamp', 'desc')
-        .limit(1)
+        .orderBy('timestamp', 'asc')
+        .startAfter(_eventsStartAt)
         .onSnapshot(snap => {
-            if (!eventsInit) { eventsInit = true; return; }
             snap.docChanges().forEach(change => {
                 if (change.type !== 'added') return;
                 const d = change.doc.data();
@@ -655,7 +656,7 @@ function watchLiveFeeds() {
                     );
                 }
             });
-        }, () => {});
+        }, err => console.warn('[LiveFeed] events listener error:', err));
 }
 
 /* ── Prestige ─────────────────────────────────────────────── */
