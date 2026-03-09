@@ -529,6 +529,15 @@ document.addEventListener('keydown', (e) => {
     document.addEventListener('click', function (e) {
         if (!menu.contains(e.target) && e.target !== hamburger) closeMenu();
     });
+
+    // Mirror #btn-auth text → mob-btn-auth (shows profile name when logged in)
+    const realAuth = document.getElementById('btn-auth');
+    const mobAuth  = document.getElementById('mob-btn-auth');
+    if (realAuth && mobAuth) {
+        const syncAuthLabel = () => { mobAuth.textContent = realAuth.textContent; };
+        new MutationObserver(syncAuthLabel).observe(realAuth, { childList: true, characterData: true, subtree: true });
+        syncAuthLabel(); // sync on load too
+    }
 })();
 
 </script>
