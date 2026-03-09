@@ -90,9 +90,6 @@ body {
     font-size: 1.05rem;
     color: #22c55e;
     text-decoration: none;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
     flex-shrink: 0;
 }
 #cc-nav .nav-brand span { color: #fff; }
@@ -1741,6 +1738,10 @@ html.light .float-num { color: #16a34a; text-shadow: none; }
 @media (max-width: 720px) {
     /* Show bottom tab bar */
     #mobile-tabs { display: flex; }
+
+    /* Hide breadcrumb on small screens to prevent overflow */
+    #cc-nav .nav-sep,
+    #cc-nav .nav-title { display: none; }
 
     /* Main fills remaining height; center column always visible */
     #cc-main {
