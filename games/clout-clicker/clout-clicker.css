@@ -886,8 +886,8 @@ body {
 .ach-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 0.3rem;
-    padding: 0.5rem;
+    gap: 0.55rem;
+    padding: 0.65rem;
     overflow-y: auto;
     flex: 1;
 }
@@ -897,11 +897,12 @@ body {
     aspect-ratio: 1;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 7px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.9rem;
+    padding: 0.25rem;
+    font-size: 1rem;
     cursor: pointer;
     transition: all 0.15s;
     position: relative;
