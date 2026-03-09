@@ -24,6 +24,32 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* ── Theme colour tokens ── */
+        :root {
+            --c-text-faint:  rgba(255,255,255,0.22);
+            --c-text-dim:    rgba(255,255,255,0.32);
+            --c-text-muted:  rgba(255,255,255,0.42);
+            --c-text-label:  rgba(255,255,255,0.52);
+            --c-text-medium: rgba(255,255,255,0.62);
+            --c-text-strong: rgba(255,255,255,0.72);
+            --c-text-bolder: rgba(255,255,255,0.82);
+            --c-border-sub:  rgba(255,255,255,0.06);
+            --c-border:      rgba(255,255,255,0.10);
+            --c-surface:     rgba(255,255,255,0.05);
+        }
+        html.light {
+            --c-text-faint:  rgba(0,0,0,0.38);
+            --c-text-dim:    rgba(0,0,0,0.48);
+            --c-text-muted:  rgba(0,0,0,0.56);
+            --c-text-label:  rgba(0,0,0,0.62);
+            --c-text-medium: rgba(0,0,0,0.70);
+            --c-text-strong: rgba(0,0,0,0.76);
+            --c-text-bolder: rgba(0,0,0,0.85);
+            --c-border-sub:  rgba(0,0,0,0.08);
+            --c-border:      rgba(0,0,0,0.12);
+            --c-surface:     rgba(255,255,255,0.65);
+        }
+
         .mode-tab { transition: all 0.15s; cursor: pointer; border: 1px solid rgba(255,255,255,0.08); }
         .mode-tab.active { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.35); color: #4ade80; }
         .mode-tab:hover:not(.active) { border-color: rgba(255,255,255,0.2); }
@@ -53,6 +79,30 @@
         /* Canvas preview: renders at 280px, scales down if viewport is narrower */
         #qr-preview-inner canvas { display: block; max-width: 100%; height: auto !important; }
         select option { background: #111827; }
+
+        /* ── Light mode overrides ── */
+        html.light body { background: #f0f4f0; color: #0e1a0e; }
+        html.light .mode-tab { border-color: rgba(0,0,0,0.1); color: var(--c-text-medium); }
+        html.light .mode-tab.active { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.4); color: #16a34a; }
+        html.light .mode-tab:hover:not(.active) { border-color: rgba(0,0,0,0.2); }
+        html.light .ct-btn { border-color: rgba(0,0,0,0.1); color: var(--c-text-medium); }
+        html.light .ct-btn.active { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.4); color: #16a34a; }
+        html.light .ct-btn:hover:not(.active) { border-color: rgba(0,0,0,0.2); }
+        html.light .shape-btn { border-color: rgba(0,0,0,0.1); background: rgba(0,0,0,0.03); color: var(--c-text-medium); }
+        html.light .shape-btn.active { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.4); color: #16a34a; }
+        html.light .shape-btn:hover:not(.active) { border-color: rgba(0,0,0,0.2); }
+        html.light .qs-pill { border-color: rgba(0,0,0,0.12); background: rgba(0,0,0,0.04); color: var(--c-text-medium) !important; }
+        html.light .qs-pill:hover { border-color: rgba(0,0,0,0.25); background: rgba(0,0,0,0.07); }
+        html.light .txt-inp { background: rgba(255,255,255,0.7); border-color: rgba(0,0,0,0.15); color: #0e1a0e; }
+        html.light .txt-inp::placeholder { color: rgba(0,0,0,0.3); }
+        html.light .txt-inp:focus { border-color: rgba(34,197,94,0.5); }
+        html.light .batch-row { border-color: rgba(0,0,0,0.1); background: rgba(255,255,255,0.6); }
+        html.light .batch-row:focus-within { border-color: rgba(34,197,94,0.4); }
+        html.light .batch-row input { color: #0e1a0e !important; }
+        html.light .qr-checker { background-image: linear-gradient(45deg,#ccc 25%,transparent 25%),linear-gradient(-45deg,#ccc 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ccc 75%),linear-gradient(-45deg,transparent 75%,#ccc 75%); background-color:#e8e8e8; }
+        html.light .range-input { background: rgba(0,0,0,0.12); }
+        html.light select option { background: #f0f4f0; color: #0e1a0e; }
+        html.light .acc-hdr:hover { background: rgba(0,0,0,0.03); }
     </style>
 </head>
 <body>
@@ -70,9 +120,13 @@ const ThemeToggle = () => {
         return () => window.removeEventListener('tb-theme-change', h);
     }, []);
     return (
-        <button onClick={() => window.tbToggleTheme?.()}
-            className="w-9 h-9 rounded-lg liquid-glass flex items-center justify-center text-base transition-all hover:scale-105">
-            {light ? '🌙' : '☀️'}
+        <button onClick={() => window.TBTheme && window.TBTheme.toggle()}
+            className="liquid-glass p-2 rounded-xl transition-all flex-shrink-0"
+            title={light ? 'Switch to dark mode' : 'Switch to light mode'}>
+            {light
+                ? <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                : <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            }
         </button>
     );
 };
@@ -86,7 +140,7 @@ const Nav = ({ scrolled }) => (
                 </a>
                 <div className="flex items-center gap-2">
                     <a href="../" className="px-3 py-1.5 text-sm font-medium rounded-lg"
-                        style={{ color:'rgba(255,255,255,0.6)', textDecoration:'none' }}
+                        style={{ color:'var(--c-text-medium)', textDecoration:'none' }}
                         onMouseEnter={e => e.target.style.color='white'}
                         onMouseLeave={e => e.target.style.color='rgba(255,255,255,0.6)'}>
                         ← Tools
@@ -174,13 +228,13 @@ function buildQROpts(data, st) {
 
 // ── Shared small components ───────────────────────────────────────────────────
 const SL = ({ children }) => (
-    <div className="text-xs font-bold uppercase tracking-widest mb-2.5" style={{ color:'rgba(255,255,255,0.3)' }}>{children}</div>
+    <div className="text-xs font-bold uppercase tracking-widest mb-2.5" style={{ color:'var(--c-text-dim)' }}>{children}</div>
 );
 const Inp = ({ label, value, onChange, placeholder, type='text', rows, ...rest }) => {
     const cls = "w-full px-3 py-2 rounded-xl text-sm txt-inp";
     return (
         <div className="mb-3">
-            {label && <label className="block text-xs mb-1.5" style={{ color:'rgba(255,255,255,0.5)' }}>{label}</label>}
+            {label && <label className="block text-xs mb-1.5" style={{ color:'var(--c-text-label)' }}>{label}</label>}
             {rows
                 ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} className={cls+" resize-none"} />
                 : <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} className={cls} {...rest} />
@@ -190,7 +244,7 @@ const Inp = ({ label, value, onChange, placeholder, type='text', rows, ...rest }
 };
 const Sel = ({ label, value, onChange, options }) => (
     <div className="mb-3">
-        {label && <label className="block text-xs mb-1.5" style={{ color:'rgba(255,255,255,0.5)' }}>{label}</label>}
+        {label && <label className="block text-xs mb-1.5" style={{ color:'var(--c-text-label)' }}>{label}</label>}
         <select value={value} onChange={e=>onChange(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm txt-inp cursor-pointer">
             {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
         </select>
@@ -199,7 +253,7 @@ const Sel = ({ label, value, onChange, options }) => (
 const Range = ({ label, value, onChange, min, max, step=1, unit='' }) => (
     <div className="mb-3">
         <div className="flex justify-between items-center mb-2">
-            <span className="text-sm" style={{ color:'rgba(255,255,255,0.6)' }}>{label}</span>
+            <span className="text-sm" style={{ color:'var(--c-text-medium)' }}>{label}</span>
             <span className="text-xs font-mono px-2 py-0.5 rounded-md" style={{ background:'rgba(34,197,94,0.1)', color:'#4ade80' }}>{value}{unit}</span>
         </div>
         <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} className="range-input" />
@@ -212,14 +266,14 @@ const Toggle = ({ checked, onChange, label }) => (
                 <div style={{ position:'absolute', width:'14px', height:'14px', background:'white', borderRadius:'50%', top:'3px', left:checked?'19px':'3px', transition:'left 0.2s' }} />
             </div>
         </div>
-        {label && <span className="text-sm" style={{ color:'rgba(255,255,255,0.65)' }}>{label}</span>}
+        {label && <span className="text-sm" style={{ color:'var(--c-text-strong)' }}>{label}</span>}
     </label>
 );
 const ColorPicker = ({ label, value, onChange }) => {
     const ref = useRef(null);
     return (
         <div>
-            {label && <div className="text-xs mb-1.5" style={{ color:'rgba(255,255,255,0.5)' }}>{label}</div>}
+            {label && <div className="text-xs mb-1.5" style={{ color:'var(--c-text-label)' }}>{label}</div>}
             <div className="flex items-center gap-2">
                 <div style={{ position:'relative' }}>
                     <div className="swatch" style={{ background:value }} onClick={()=>ref.current?.click()} />
@@ -278,7 +332,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
             <Range label="Size" value={st.qrSize} onChange={v=>update('qrSize',v)} min={200} max={1000} step={50} unit="px" />
             <Range label="Padding" value={st.padding} onChange={v=>update('padding',v)} min={0} max={50} unit="px" />
             <div className="mt-1">
-                <div className="text-xs mb-2" style={{ color:'rgba(255,255,255,0.5)' }}>Error Correction</div>
+                <div className="text-xs mb-2" style={{ color:'var(--c-text-label)' }}>Error Correction</div>
                 <div className="grid grid-cols-4 gap-1.5">
                     {['L','M','Q','H'].map(l=>(
                         <button key={l} onClick={()=>update('errLevel',l)}
@@ -288,7 +342,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                         </button>
                     ))}
                 </div>
-                <div className="flex text-xs mt-1" style={{ color:'rgba(255,255,255,0.2)' }}>
+                <div className="flex text-xs mt-1" style={{ color:'var(--c-text-faint)' }}>
                     {['~7%','~15%','~25%','~30%'].map((v,i)=><span key={i} className="flex-1 text-center">{v}</span>)}
                 </div>
             </div>
@@ -302,9 +356,9 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
             <div className="mb-4">
                 <Toggle checked={st.bgTransparent} onChange={v=>update('bgTransparent',v)} label="Transparent background" />
             </div>
-            <div className="pt-3 border-t" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
+            <div className="pt-3 border-t" style={{ borderColor:'var(--c-border-sub)' }}>
                 <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm" style={{ color:'rgba(255,255,255,0.7)' }}>Gradient</span>
+                    <span className="text-sm" style={{ color:'var(--c-text-strong)' }}>Gradient</span>
                     <Toggle checked={st.useGrad} onChange={v=>update('useGrad',v)} />
                 </div>
                 {st.useGrad && <>
@@ -325,9 +379,9 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                     {st.gradType==='linear' && <Range label="Angle" value={st.gradAngle} onChange={v=>update('gradAngle',v)} min={0} max={360} unit="°" />}
                 </>}
             </div>
-            <div className="pt-3 border-t" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
+            <div className="pt-3 border-t" style={{ borderColor:'var(--c-border-sub)' }}>
                 <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm" style={{ color:'rgba(255,255,255,0.7)' }}>Custom eye &amp; pupil colors</span>
+                    <span className="text-sm" style={{ color:'var(--c-text-strong)' }}>Custom eye &amp; pupil colors</span>
                     <Toggle checked={st.customEye} onChange={v=>update('customEye',v)} />
                 </div>
                 {st.customEye && (
@@ -346,7 +400,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                     {DOT_STYLES.map(d=>(
                         <button key={d.id} onClick={()=>update('dotType',d.id)}
                             className="shape-btn py-2 rounded-xl text-xs font-medium"
-                            style={st.dotType===d.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'rgba(255,255,255,0.6)'}}>
+                            style={st.dotType===d.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'var(--c-text-medium)'}}>
                             {d.label}
                         </button>
                     ))}
@@ -358,7 +412,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                     {EYE_STYLES.map(e=>(
                         <button key={e.id} onClick={()=>update('eyeType',e.id)}
                             className="flex-1 shape-btn py-2 rounded-xl text-xs font-medium"
-                            style={st.eyeType===e.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'rgba(255,255,255,0.6)'}}>
+                            style={st.eyeType===e.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'var(--c-text-medium)'}}>
                             {e.label}
                         </button>
                     ))}
@@ -370,7 +424,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                     {PUPIL_STYLES.map(p=>(
                         <button key={p.id} onClick={()=>update('pupilType',p.id)}
                             className="flex-1 shape-btn py-2 rounded-xl text-xs font-medium"
-                            style={st.pupilType===p.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'rgba(255,255,255,0.6)'}}>
+                            style={st.pupilType===p.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'var(--c-text-medium)'}}>
                             {p.label}
                         </button>
                     ))}
@@ -403,7 +457,7 @@ const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) =>
                 <Range label="Logo Size" value={st.logoSize} onChange={v=>update('logoSize',v)} min={10} max={50} unit="%" />
                 <Range label="Logo Margin" value={st.logoMargin} onChange={v=>update('logoMargin',v)} min={0} max={20} unit="px" />
                 <Toggle checked={st.logoExcavate} onChange={v=>update('logoExcavate',v)} label="Clear dots behind logo" />
-                <p className="text-xs mt-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tip: Use Error Correction H when adding a logo.</p>
+                <p className="text-xs mt-2" style={{ color:'var(--c-text-dim)' }}>Tip: Use Error Correction H when adding a logo.</p>
             </>}
         </Acc>
     </div>
@@ -559,12 +613,12 @@ const App = () => {
 
             {/* Quick Styles */}
             <div>
-                <div className="text-xs mb-2" style={{ color:'rgba(255,255,255,0.35)' }}>Quick Styles</div>
+                <div className="text-xs mb-2" style={{ color:'var(--c-text-dim)' }}>Quick Styles</div>
                 <div className="flex flex-wrap gap-2">
                     {QUICK_STYLES.map(qs=>(
                         <button key={qs.id} onClick={()=>applyQuickStyle(qs)}
                             className="qs-pill px-3 py-1 rounded-full text-xs font-medium"
-                            style={{ color:'rgba(255,255,255,0.7)' }}>
+                            style={{ color:'var(--c-text-strong)' }}>
                             {qs.label}
                         </button>
                     ))}
@@ -582,13 +636,13 @@ const App = () => {
                     {[['SVG','svg'],['JPEG','jpeg'],['Copy',null]].map(([lbl,ext])=>(
                         <button key={lbl} onClick={()=>ext?download(ext):copyQR()}
                             className="dl-btn py-2 rounded-xl text-sm font-medium"
-                            style={{ background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.8)' }}>
+                            style={{ background:'var(--c-surface)', border:'1px solid var(--c-border)', color:'var(--c-text-bolder)' }}>
                             {lbl==='Copy'?(copied?'✓ Copied':'📋 Copy'):lbl}
                         </button>
                     ))}
                 </div>
             </div>
-            <div className="text-center text-xs" style={{ color:'rgba(255,255,255,0.25)' }}>
+            <div className="text-center text-xs" style={{ color:'var(--c-text-faint)' }}>
                 Output: {st.qrSize} × {st.qrSize}px
             </div>
         </div>
@@ -670,7 +724,7 @@ const App = () => {
                         {mode==='Batch Mode' && (<>
                             <div className="liquid-glass rounded-2xl p-5">
                                 <SL>Batch Items</SL>
-                                <p className="text-sm mb-4" style={{ color:'rgba(255,255,255,0.4)' }}>
+                                <p className="text-sm mb-4" style={{ color:'var(--c-text-muted)' }}>
                                     Add one URL or piece of text per row, or upload a .txt file with one item per line.
                                 </p>
                                 <div className="flex gap-2 mb-4">
@@ -681,7 +735,7 @@ const App = () => {
                                     </button>
                                     <button onClick={()=>batchFileRef.current?.click()}
                                         className="flex-1 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
-                                        style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.7)' }}>
+                                        style={{ background:'var(--c-surface)', border:'1px solid var(--c-border)', color:'var(--c-text-strong)' }}>
                                         ↑ Upload List
                                     </button>
                                     <input ref={batchFileRef} type="file" accept=".txt,text/plain" style={{ display:'none' }} onChange={handleBatchFile} />
@@ -689,7 +743,7 @@ const App = () => {
                                 <div className="flex flex-col gap-2 mb-4">
                                     {batchItems.map((item,i)=>(
                                         <div key={i} className="batch-row flex items-center gap-2 rounded-xl px-3 py-2">
-                                            <span className="text-xs font-mono w-5 text-center" style={{ color:'rgba(255,255,255,0.3)' }}>{i+1}</span>
+                                            <span className="text-xs font-mono w-5 text-center" style={{ color:'var(--c-text-dim)' }}>{i+1}</span>
                                             <input type="text" value={item} onChange={e=>setBatchItem(i,e.target.value)}
                                                 placeholder="https://example.com or any text..."
                                                 className="flex-1 bg-transparent text-sm outline-none"
@@ -716,9 +770,9 @@ const App = () => {
                             </div>
                             <div className="liquid-glass rounded-2xl p-5">
                                 <SL>About QR Codes</SL>
-                                <div className="text-sm space-y-1" style={{ color:'rgba(255,255,255,0.45)' }}>
-                                    <p><strong style={{ color:'rgba(255,255,255,0.65)' }}>Invented by:</strong> Masahiro Hara (Denso Wave)</p>
-                                    <p><strong style={{ color:'rgba(255,255,255,0.65)' }}>Year:</strong> 1994</p>
+                                <div className="text-sm space-y-1" style={{ color:'var(--c-text-muted)' }}>
+                                    <p><strong style={{ color:'var(--c-text-strong)' }}>Invented by:</strong> Masahiro Hara (Denso Wave)</p>
+                                    <p><strong style={{ color:'var(--c-text-strong)' }}>Year:</strong> 1994</p>
                                     <p className="pt-1">Quick Response code, originally for automotive tracking. Now ubiquitous for URLs, payments, menus, and more.</p>
                                 </div>
                             </div>
@@ -735,9 +789,9 @@ const App = () => {
                             {/* Tips (Single only) */}
                             {mode==='Single' && (
                                 <div className="liquid-glass rounded-2xl p-4">
-                                    <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tips</div>
-                                    <ul className="text-xs space-y-1.5" style={{ color:'rgba(255,255,255,0.4)' }}>
-                                        <li>• Use <strong style={{ color:'rgba(255,255,255,0.65)' }}>Error Level H</strong> when adding a logo</li>
+                                    <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color:'var(--c-text-dim)' }}>Tips</div>
+                                    <ul className="text-xs space-y-1.5" style={{ color:'var(--c-text-muted)' }}>
+                                        <li>• Use <strong style={{ color:'var(--c-text-strong)' }}>Error Level H</strong> when adding a logo</li>
                                         <li>• SVG scales to any size without blur</li>
                                         <li>• Keep high contrast between FG and BG</li>
                                         <li>• Always test before printing</li>
@@ -747,8 +801,8 @@ const App = () => {
 
                             {/* Note (Batch only) */}
                             {mode==='Batch Mode' && (
-                                <div className="liquid-glass rounded-2xl p-4 text-xs" style={{ color:'rgba(255,255,255,0.4)' }}>
-                                    <div className="font-bold uppercase tracking-widest mb-1.5" style={{ color:'rgba(255,255,255,0.3)' }}>Note</div>
+                                <div className="liquid-glass rounded-2xl p-4 text-xs" style={{ color:'var(--c-text-muted)' }}>
+                                    <div className="font-bold uppercase tracking-widest mb-1.5" style={{ color:'var(--c-text-dim)' }}>Note</div>
                                     <p>Preview shows QR #1. All items use the same style.</p>
                                 </div>
                             )}
@@ -758,13 +812,13 @@ const App = () => {
                 </div>
             </div>
 
-            <footer className="border-t py-8 px-4" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
+            <footer className="border-t py-8 px-4" style={{ borderColor:'var(--c-border-sub)' }}>
                 <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="font-display font-bold text-lg">
                         <span className="text-white">True</span><span style={{ color:'#22c55e' }}>Beast</span>
                     </div>
-                    <p className="text-sm" style={{ color:'rgba(255,255,255,0.3)' }}>Free QR Code Generator — no account, no limits</p>
-                    <a href="../" style={{ color:'rgba(255,255,255,0.4)', textDecoration:'none', fontSize:'0.875rem' }}>← Back to Tools</a>
+                    <p className="text-sm" style={{ color:'var(--c-text-dim)' }}>Free QR Code Generator — no account, no limits</p>
+                    <a href="../" style={{ color:'var(--c-text-muted)', textDecoration:'none', fontSize:'0.875rem' }}>← Back to Tools</a>
                 </div>
             </footer>
         </div>
