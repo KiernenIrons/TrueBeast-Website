@@ -1597,6 +1597,11 @@ body {
     height: 15px;
     cursor: pointer;
 }
+.audio-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin: 0.5rem 0;
+}
 .audio-vol-label {
     font-size: 0.8rem;
     color: #22c55e;

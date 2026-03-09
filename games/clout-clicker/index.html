@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="../../css/glass.css?v=5" />
 
     <!-- Game styles -->
-    <link rel="stylesheet" href="./clout-clicker.css?v=18" />
+    <link rel="stylesheet" href="./clout-clicker.css?v=19" />
 
     <!-- Firebase (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -101,6 +101,20 @@
         <span id="audio-vol-label" class="audio-vol-label">35%</span>
     </div>
     <input type="range" id="audio-vol-slider" min="0" max="100" value="35" class="audio-slider">
+
+    <div class="audio-divider"></div>
+
+    <div class="audio-row">
+        <label class="audio-label">
+            <input type="checkbox" id="music-mute-toggle" checked>
+            Lofi Music
+        </label>
+    </div>
+    <div class="audio-row">
+        <span class="audio-label">Music Volume</span>
+        <span id="music-vol-label" class="audio-vol-label">25%</span>
+    </div>
+    <input type="range" id="music-vol-slider" min="0" max="100" value="25" class="audio-slider">
 </div>
 
 <!-- ── Main 3-column layout ────────────────────────────────── -->
