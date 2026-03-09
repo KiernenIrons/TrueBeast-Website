@@ -166,26 +166,56 @@ const ThemeToggle = () => {
     );
 };
 
-const Nav = ({ scrolled }) => (
-    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'py-2' : 'py-3'}`}>
-        <div className="max-w-6xl mx-auto px-4">
-            <div className={`liquid-glass rounded-2xl px-4 py-2.5 flex items-center justify-between ${scrolled ? 'shadow-lg' : ''}`}>
-                <a href="../../" className="font-display font-bold text-xl" style={{ textDecoration:'none', color:'inherit' }}>
-                    <span className="text-white">True</span><span style={{ color:'#22c55e' }}>Beast</span>
-                </a>
-                <div className="flex items-center gap-2">
-                    <a href="../" className="px-3 py-1.5 text-sm font-medium rounded-lg"
-                        style={{ color:'var(--c-text-medium)', textDecoration:'none' }}
-                        onMouseEnter={e => e.target.style.color='white'}
-                        onMouseLeave={e => e.target.style.color='var(--c-text-medium)'}>
-                        ← Tools
-                    </a>
-                    <ThemeToggle />
+const Navigation = () => {
+    const [scrolled, setScrolled] = useState(false);
+    const [mobileOpen, setMobileOpen] = useState(false);
+    const discordUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social?.discord) || 'https://discord.gg/Nk8vekY';
+    useEffect(() => {
+        const h = () => setScrolled(window.scrollY > 50);
+        window.addEventListener('scroll', h, { passive: true });
+        return () => window.removeEventListener('scroll', h);
+    }, []);
+    const btn = "border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 px-3.5 py-2 rounded-xl text-sm font-medium text-gray-200 hover:text-white transition-all";
+    return (
+        <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'py-3' : 'py-6'}`}>
+            <div className="max-w-7xl mx-auto px-6">
+                <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
+                    <div className="flex items-center justify-between">
+                        <a href="../../" className="flex items-center gap-3 group flex-shrink-0">
+                            <img src="../../assets/logos/logo.png" alt="TrueBeast" className="w-10 h-10 object-contain rounded-full pulse-glow flex-shrink-0" />
+                            <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
+                        </a>
+                        <div className="hidden md:flex items-center gap-2">
+                            <a href="../../" className={btn}>Home</a>
+                            <a href="../../giveaways/" className={btn}>Giveaways</a>
+                            <a href="../../tools/" className={`${btn} text-white bg-white/10`}>Toolkit</a>
+                            <a href="../../tech-support/" className={btn}>Tech Support</a>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <ThemeToggle />
+                            <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden liquid-glass p-2 rounded-xl">
+                                {mobileOpen
+                                    ? <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    : <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    {mobileOpen && (
+                        <div className="md:hidden mt-4 pt-4 border-t border-white/10">
+                            <div className="flex flex-col gap-1">
+                                <a href="../../" onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Home</a>
+                                <a href="../../giveaways/" onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Giveaways</a>
+                                <a href="../../tools/" onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-white bg-white/5 transition-colors font-medium">Toolkit</a>
+                                <a href="../../tech-support/" onClick={() => setMobileOpen(false)} className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Tech Support</a>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
-        </div>
-    </nav>
-);
+        </nav>
+    );
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CONTENT_TYPES = [
@@ -582,13 +612,6 @@ const SuggestionBox = () => {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 const App = () => {
-    const [scrolled, setScrolled] = useState(false);
-    useEffect(() => {
-        const h = () => setScrolled(window.scrollY > 20);
-        window.addEventListener('scroll', h);
-        return () => window.removeEventListener('scroll', h);
-    }, []);
-
     const [mode, setMode] = useState('Single');
     const [ct, setCt] = useState('url');
     const [sData, setSData] = useState({
@@ -769,7 +792,7 @@ const App = () => {
 
     return (
         <div className="min-h-screen font-body">
-            <Nav scrolled={scrolled} />
+            <Navigation />
 
             <div className="pt-28 pb-8 px-4 text-center">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-4"
@@ -782,6 +805,13 @@ const App = () => {
                 <p className="text-gray-400 max-w-md mx-auto">
                     Create beautiful, fully customizable QR codes. Dots, gradients, logos, batch export. Free, no account needed.
                 </p>
+                <div className="inline-flex items-start gap-2.5 mt-4 px-4 py-3 rounded-xl text-left max-w-sm mx-auto"
+                    style={{ background:'rgba(34,197,94,0.07)', border:'1px solid rgba(34,197,94,0.2)' }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <p className="text-xs" style={{ color:'rgba(255,255,255,0.65)' }}>
+                        <strong style={{ color:'#4ade80' }}>100% Static QR codes.</strong> All data is encoded directly into the image — no servers, no accounts, no subscriptions. Your QR code will <strong style={{ color:'rgba(255,255,255,0.85)' }}>never expire</strong> and will keep working forever.
+                    </p>
+                </div>
             </div>
 
             <div className="max-w-6xl mx-auto px-4 pb-20">
