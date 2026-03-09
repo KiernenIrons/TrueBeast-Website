@@ -153,6 +153,8 @@ function animateClout() {
         while (clickTimes.length && now - clickTimes[0] > WINDOW_MS) clickTimes.shift();
         const cps = clickTimes.length / (WINDOW_MS / 1000);
         setRing(Math.min(cps / MAX_CPS, 1));
+        const gs = window.GameState;
+        if (gs && cps > (gs.peakClickCps || 0)) gs.peakClickCps = Math.round(cps * 10) / 10;
         clearTimeout(drainTimer);
         drainTimer = setTimeout(drain, DRAIN_MS);
     };
@@ -427,6 +429,7 @@ function updateStats() {
     setStatVal('stat-cpc',       formatNumber(s.clickPower * activeClickMult + s.cps * 0.01 * activeClickMult));
     setStatVal('stat-total',     formatNumber(s.totalCloutEver));
     setStatVal('stat-clicks',    formatNumber(s.clicks));
+    setStatVal('stat-peak-cps',  (s.peakClickCps || 0).toFixed(1) + '/s');
     setStatVal('stat-golden',    s.goldenCloutClicks);
     setStatVal('stat-prestige',  s.prestigeLevel);
     setStatVal('stat-chips',     s.viralChips || 0);
@@ -597,7 +600,7 @@ async function showLeaderboardModal() {
 
     if (!tbody) return;
     if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
         return;
     }
 
@@ -615,6 +618,7 @@ async function showLeaderboardModal() {
                 <td>${r.prestigeLevel || 0}</td>
                 <td>${formatNumber(r.cps || 0)}/s</td>
                 <td>${formatNumber(r.clicks || 0)}</td>
+                <td>${r.peakClickCps ? r.peakClickCps.toFixed(1) + '/s' : '—'}</td>
             </tr>
         `;
     }).join('');

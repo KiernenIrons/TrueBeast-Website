@@ -48,6 +48,7 @@ function defaultState() {
         achievements:     new Set(),
         prestigeLevel:    0,
         viralChips:       0,
+        peakClickCps:     0,
         goldenCloutClicks:0,
         goldenCloutThisRun: 0,
         frenzyCount:      0,
@@ -167,6 +168,7 @@ function serializeState() {
         achievements:     [...s.achievements],
         prestigeLevel:    s.prestigeLevel,
         viralChips:       s.viralChips,
+        peakClickCps:     s.peakClickCps || 0,
         goldenCloutClicks:s.goldenCloutClicks,
         goldenCloutThisRun: s.goldenCloutThisRun,
         frenzyCount:      s.frenzyCount,
@@ -195,6 +197,7 @@ function deserializeState(data) {
     s.achievements     = new Set(data.achievements || []);
     s.prestigeLevel    = data.prestigeLevel    || 0;
     s.viralChips       = data.viralChips       || 0;
+    s.peakClickCps     = data.peakClickCps     || 0;
     s.goldenCloutClicks= data.goldenCloutClicks|| 0;
     s.goldenCloutThisRun = data.goldenCloutThisRun || 0;
     s.frenzyCount      = data.frenzyCount      || 0;
@@ -246,6 +249,7 @@ async function saveToFirebase() {
         await fbDb.collection('clout-clicker-leaderboard').doc(uid).set({
             displayName:    window.GameState.displayName || fbAuth.currentUser.email.split('@')[0],
             photoURL:       window.GameState.photoURL || '',
+            peakClickCps:   window.GameState.peakClickCps || 0,
             totalCloutEver: window.GameState.totalCloutEver,
             prestigeLevel:  window.GameState.prestigeLevel,
             cps:            window.GameState.cps,
