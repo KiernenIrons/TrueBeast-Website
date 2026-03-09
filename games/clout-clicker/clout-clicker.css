@@ -27,7 +27,7 @@ body {
     inset: 0;
     z-index: -1;
     background:
-        radial-gradient(circle, rgba(34,197,94,0.22) 1px, transparent 1px),
+        radial-gradient(circle, rgba(34,197,94,0.40) 1px, transparent 1px),
         #0a0a0f;
     background-size: 36px 36px, 100%;
     overflow: hidden;
@@ -1622,18 +1622,35 @@ html.light .audio-label { color: rgba(0,0,0,0.65); }
 }
 
 /* ── Light mode overrides ────────────────────────────────── */
-html.light body { background: #ffffff !important; color: #0e1a0e !important; }
-
-html.light .cc-bg {
-    background:
-        radial-gradient(circle, rgba(34,197,94,0.45) 1px, transparent 1px),
-        #ffffff !important;
-    background-size: 36px 36px, 100% !important;
+html.light body {
+    background-color: #ffffff !important;
+    color: #0e1a0e !important;
 }
-/* Vivid green orbs on white — actually visible */
-html.light .cc-bg::before { background: radial-gradient(ellipse, rgba(34,197,94,0.35) 0%, transparent 60%) !important; }
-html.light .cc-bg::after  { background: radial-gradient(ellipse, rgba(57,255,20,0.28) 0%, transparent 60%) !important; }
-html.light .cc-bg-orb3    { background: radial-gradient(ellipse, rgba(34,197,94,0.30) 0%, transparent 65%) !important; }
+
+/* Split shorthand so !important is unambiguous on all mobile browsers */
+html.light .cc-bg {
+    background-color: #ffffff !important;
+    background-image: radial-gradient(circle, rgba(34,197,94,0.55) 1px, transparent 1px) !important;
+    background-size: 36px 36px !important;
+}
+html.light .cc-bg::before {
+    background-image: radial-gradient(ellipse, rgba(34,197,94,0.40) 0%, transparent 60%) !important;
+    background-color: transparent !important;
+}
+html.light .cc-bg::after {
+    background-image: radial-gradient(ellipse, rgba(22,163,74,0.35) 0%, transparent 60%) !important;
+    background-color: transparent !important;
+}
+html.light .cc-bg-orb3 {
+    background-image: radial-gradient(ellipse, rgba(34,197,94,0.32) 0%, transparent 65%) !important;
+    background-color: transparent !important;
+}
+
+/* Dark text on white in light mode */
+html.light #clout-value  { color: #0a1a0a !important; }
+html.light #clout-label  { color: #6b7280 !important; }
+html.light #cps-display  { color: #374151 !important; }
+html.light #cpc-display  { color: #6b7280 !important; }
 
 /* Nav */
 html.light #cc-nav {
