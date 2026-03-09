@@ -886,10 +886,12 @@ body {
 .ach-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
+    grid-auto-rows: minmax(44px, auto);
     gap: 0.55rem;
     padding: 0.65rem;
     overflow-y: auto;
     flex: 1;
+    align-content: start;
 }
 .ach-grid::-webkit-scrollbar { width: 3px; }
 .ach-grid::-webkit-scrollbar-thumb { background: #16a34a; }
