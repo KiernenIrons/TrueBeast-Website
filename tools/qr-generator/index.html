@@ -626,10 +626,14 @@ const App = () => {
                     ))}
                 </div>
 
-                {/* ── Single ──────────────────────────────────────────────── */}
-                {mode==='Single' && (
-                    <div className="flex flex-col lg:flex-row gap-6">
-                        <div className="flex-1 min-w-0 flex flex-col gap-4">
+                {/* ── Persistent two-column layout — preview ref NEVER unmounts ── */}
+                <div className="flex flex-col lg:flex-row gap-6">
+
+                    {/* Left column — mode-specific content */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-4">
+
+                        {/* Single */}
+                        {mode==='Single' && (
                             <div className="liquid-glass rounded-2xl p-5">
                                 <SL>Content Type</SL>
                                 <div className="flex flex-wrap gap-2 mb-4">
@@ -643,29 +647,10 @@ const App = () => {
                                 </div>
                                 <ContentInputs ct={ct} s={sData} set={setS} />
                             </div>
-                            <OptionsPanel {...optionsProps} />
-                        </div>
-                        <div className="lg:w-96 flex flex-col gap-4">
-                            <div className="lg:sticky lg:top-24">
-                                {previewBox}
-                                <div className="liquid-glass rounded-2xl p-4 mt-4">
-                                    <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tips</div>
-                                    <ul className="text-xs space-y-1.5" style={{ color:'rgba(255,255,255,0.4)' }}>
-                                        <li>• Use <strong style={{ color:'rgba(255,255,255,0.65)' }}>Error Level H</strong> when adding a logo</li>
-                                        <li>• SVG scales to any size without blur</li>
-                                        <li>• Keep high contrast between FG and BG</li>
-                                        <li>• Always test before printing</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                        )}
 
-                {/* ── vCard ───────────────────────────────────────────────── */}
-                {mode==='vCard Builder' && (
-                    <div className="flex flex-col lg:flex-row gap-6">
-                        <div className="flex-1 min-w-0 flex flex-col gap-4">
+                        {/* vCard */}
+                        {mode==='vCard Builder' && (
                             <div className="liquid-glass rounded-2xl p-5">
                                 <SL>Contact Details</SL>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
@@ -679,16 +664,10 @@ const App = () => {
                                     <Inp label="Address" value={vc.address} onChange={v=>setV('address',v)} placeholder="123 Main St, City" />
                                 </div>
                             </div>
-                            <OptionsPanel {...optionsProps} />
-                        </div>
-                        <div className="lg:w-96"><div className="lg:sticky lg:top-24">{previewBox}</div></div>
-                    </div>
-                )}
+                        )}
 
-                {/* ── Batch ───────────────────────────────────────────────── */}
-                {mode==='Batch Mode' && (
-                    <div className="flex flex-col lg:flex-row gap-6">
-                        <div className="flex-1 min-w-0 flex flex-col gap-4">
+                        {/* Batch */}
+                        {mode==='Batch Mode' && (<>
                             <div className="liquid-glass rounded-2xl p-5">
                                 <SL>Batch Items</SL>
                                 <p className="text-sm mb-4" style={{ color:'rgba(255,255,255,0.4)' }}>
@@ -743,19 +722,40 @@ const App = () => {
                                     <p className="pt-1">Quick Response code, originally for automotive tracking. Now ubiquitous for URLs, payments, menus, and more.</p>
                                 </div>
                             </div>
-                            <OptionsPanel {...optionsProps} />
-                        </div>
-                        <div className="lg:w-96">
-                            <div className="lg:sticky lg:top-24">
-                                {previewBox}
-                                <div className="liquid-glass rounded-2xl p-4 mt-4 text-xs" style={{ color:'rgba(255,255,255,0.4)' }}>
+                        </>)}
+
+                        <OptionsPanel {...optionsProps} />
+                    </div>
+
+                    {/* Right column — preview always mounted, ref is stable */}
+                    <div className="lg:w-96 flex flex-col gap-4">
+                        <div className="lg:sticky lg:top-24 flex flex-col gap-4">
+                            {previewBox}
+
+                            {/* Tips (Single only) */}
+                            {mode==='Single' && (
+                                <div className="liquid-glass rounded-2xl p-4">
+                                    <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tips</div>
+                                    <ul className="text-xs space-y-1.5" style={{ color:'rgba(255,255,255,0.4)' }}>
+                                        <li>• Use <strong style={{ color:'rgba(255,255,255,0.65)' }}>Error Level H</strong> when adding a logo</li>
+                                        <li>• SVG scales to any size without blur</li>
+                                        <li>• Keep high contrast between FG and BG</li>
+                                        <li>• Always test before printing</li>
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Note (Batch only) */}
+                            {mode==='Batch Mode' && (
+                                <div className="liquid-glass rounded-2xl p-4 text-xs" style={{ color:'rgba(255,255,255,0.4)' }}>
                                     <div className="font-bold uppercase tracking-widest mb-1.5" style={{ color:'rgba(255,255,255,0.3)' }}>Note</div>
                                     <p>Preview shows QR #1. All items use the same style.</p>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     </div>
-                )}
+
+                </div>
             </div>
 
             <footer className="border-t py-8 px-4" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
