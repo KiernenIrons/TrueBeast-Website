@@ -10,10 +10,10 @@
     width: 100%; height: 100%;
     z-index: -2;
     background:
-        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.12) 0%, transparent 50%),
-        radial-gradient(ellipse at 80% 80%, rgba(57, 255, 20, 0.08)  0%, transparent 50%),
-        radial-gradient(ellipse at 40% 60%, rgba(22, 163, 74, 0.10)  0%, transparent 40%),
-        #050505;
+        radial-gradient(ellipse at 20% 20%, rgba(34, 197, 94, 0.22) 0%, transparent 52%),
+        radial-gradient(ellipse at 80% 80%, rgba(57, 255, 20, 0.16)  0%, transparent 50%),
+        radial-gradient(ellipse at 40% 60%, rgba(22, 163, 74, 0.18)  0%, transparent 42%),
+        #080808;
 }
 
 .gradient-bg::before {
@@ -21,7 +21,7 @@
     position: absolute;
     top: 0; left: 0;
     width: 100%; height: 100%;
-    background: radial-gradient(ellipse at 60% 30%, rgba(74, 222, 128, 0.06) 0%, transparent 40%);
+    background: radial-gradient(ellipse at 60% 30%, rgba(74, 222, 128, 0.13) 0%, transparent 42%);
     animation: gradientShift 20s ease-in-out infinite;
     will-change: transform;
 }
