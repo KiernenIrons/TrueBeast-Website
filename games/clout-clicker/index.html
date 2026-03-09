@@ -239,6 +239,19 @@
     </div><!-- /col-stats -->
 </main>
 
+<!-- ── Mobile bottom tab bar ─────────────────────────────── -->
+<nav id="mobile-tabs">
+    <button class="mob-tab" data-panel="store">
+        <span class="mob-tab-icon">🏗️</span>Store
+    </button>
+    <button class="mob-tab active" data-panel="center">
+        <span class="mob-tab-icon">🎮</span>Click
+    </button>
+    <button class="mob-tab" data-panel="stats">
+        <span class="mob-tab-icon">📊</span>Stats
+    </button>
+</nav>
+
 <!-- ══ Golden Clout ══════════════════════════════════════════ -->
 <div id="golden-clout" title="Click the Golden Clout!">
     💛
@@ -416,6 +429,34 @@ document.addEventListener('keydown', (e) => {
         document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
     }
 });
+
+// ── Mobile tab switching ──────────────────────────────────
+(function () {
+    const PANEL_IDS = { store: 'col-store', center: 'col-center', stats: 'col-stats' };
+    const tabs = document.querySelectorAll('#mobile-tabs .mob-tab');
+
+    function switchTab(panelKey) {
+        tabs.forEach(t => t.classList.remove('active'));
+        Object.values(PANEL_IDS).forEach(id => document.getElementById(id)?.classList.remove('mob-active'));
+        document.querySelector(`#mobile-tabs [data-panel="${panelKey}"]`)?.classList.add('active');
+        document.getElementById(PANEL_IDS[panelKey])?.classList.add('mob-active');
+    }
+
+    // Initialise on mobile
+    if (window.innerWidth <= 720) switchTab('center');
+
+    tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.panel)));
+
+    // On resize: restore desktop layout or re-init mobile
+    window.addEventListener('resize', () => {
+        if (window.innerWidth > 720) {
+            Object.values(PANEL_IDS).forEach(id => document.getElementById(id)?.classList.remove('mob-active'));
+        } else {
+            const anyActive = Object.values(PANEL_IDS).some(id => document.getElementById(id)?.classList.contains('mob-active'));
+            if (!anyActive) switchTab('center');
+        }
+    });
+})();
 
 </script>
 
