@@ -1635,48 +1635,49 @@ html.light .cc-bg::after  { background: radial-gradient(ellipse, rgba(34,197,94,
 
 /* Nav */
 html.light #cc-nav {
-    background: #ffffff;
-    border-bottom: 2px solid #22c55e;
+    background: #ffffff !important;
+    border-bottom: 2px solid #22c55e !important;
 }
-html.light #cc-nav .nav-brand { color: #16a34a; }
-html.light #cc-nav .nav-title { color: #374151; }
-html.light #cc-nav .nav-sep   { color: #d1fae5; }
+html.light #cc-nav .nav-brand { color: #16a34a !important; }
+html.light #cc-nav .nav-title { color: #374151 !important; }
+html.light #cc-nav .nav-sep   { color: #bbf7d0 !important; }
 html.light .nav-btn {
-    background: #f0fdf4;
-    border-color: #bbf7d0;
-    color: #15803d;
+    background: #f0fdf4 !important;
+    border-color: #bbf7d0 !important;
+    color: #15803d !important;
 }
-html.light .nav-btn:hover { background: #dcfce7; border-color: #22c55e; color: #15803d; }
+html.light .nav-btn:hover { background: #dcfce7 !important; border-color: #22c55e !important; color: #15803d !important; }
 html.light #btn-hamburger {
-    background: #f0fdf4;
-    border-color: #bbf7d0;
+    background: #f0fdf4 !important;
+    border-color: #bbf7d0 !important;
 }
-html.light #btn-hamburger span { background: #15803d; }
-html.light #btn-hamburger:hover { border-color: #22c55e; background: #dcfce7; }
+html.light #btn-hamburger span { background: #15803d !important; }
+html.light #btn-hamburger:hover { border-color: #22c55e !important; background: #dcfce7 !important; }
 html.light #nav-menu {
-    background: #ffffff;
-    border-bottom: 2px solid #22c55e;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    background: #ffffff !important;
+    border-bottom: 2px solid #22c55e !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1) !important;
 }
 html.light .nav-menu-btn {
-    color: #374151;
-    border-bottom-color: #f0fdf4;
+    color: #374151 !important;
+    border-bottom-color: #f0fdf4 !important;
 }
 html.light .nav-menu-btn:hover, html.light .nav-menu-btn:active {
-    background: #f0fdf4;
-    color: #16a34a;
+    background: #f0fdf4 !important;
+    color: #16a34a !important;
 }
 
 /* ── Light mode: mobile tab bar ──────────────────────────── */
 html.light #mobile-tabs {
-    background: #ffffff;
-    border-top: 2px solid #22c55e;
+    background: #ffffff !important;
+    border-top: 2px solid #22c55e !important;
+    border-bottom: none !important;
 }
-html.light .mob-tab { color: #6b7280; }
-html.light .mob-tab:hover { color: #16a34a; background: rgba(34,197,94,0.06); }
-html.light .mob-tab.active { color: #16a34a; background: rgba(34,197,94,0.08); }
-html.light .mob-tab.active .mob-tab-icon { filter: drop-shadow(0 0 6px rgba(34,197,94,0.5)); }
-html.light #mob-backdrop { background: rgba(0,0,0,0.2); backdrop-filter: blur(2px); }
+html.light .mob-tab { color: #6b7280 !important; background: transparent !important; }
+html.light .mob-tab:hover { color: #16a34a !important; background: #f0fdf4 !important; }
+html.light .mob-tab.active { color: #16a34a !important; background: #f0fdf4 !important; }
+html.light .mob-tab.active .mob-tab-icon { filter: drop-shadow(0 0 6px rgba(34,197,94,0.5)) !important; }
+html.light #mob-backdrop { background: rgba(0,0,0,0.2) !important; }
 
 /* Left column */
 html.light #col-store { border-right-color: rgba(0,0,0,0.1); background: rgba(255,255,255,0.35); }
@@ -1930,12 +1931,12 @@ html.light .float-num { color: #16a34a; text-shadow: none; }
     /* Light mode drawers + drag handle */
     html.light #col-store,
     html.light #col-stats {
-        background: #ffffff;
-        border-top: 3px solid #22c55e;
-        box-shadow: 0 -8px 40px rgba(34,197,94,0.15);
+        background: #ffffff !important;
+        border-top: 3px solid #22c55e !important;
+        box-shadow: 0 -8px 40px rgba(34,197,94,0.15) !important;
     }
     html.light #col-store::before,
-    html.light #col-stats::before { background: #22c55e; opacity: 0.4; }
+    html.light #col-stats::before { background: #22c55e !important; opacity: 0.4; }
 }
 
 /* ── Utility ─────────────────────────────────────────────── */
