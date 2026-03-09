@@ -486,6 +486,16 @@ function clickGoldenClout() {
     applyGoldenEffect(effect);
     checkAchievements();
     scheduleNextGolden();
+
+    // Broadcast to live feed if logged in
+    if (s.isLoggedIn && s.displayName && fbDb) {
+        fbDb.collection('clout-clicker-events').add({
+            type:       'golden',
+            playerName: s.displayName,
+            effect:     effect,
+            timestamp:  firebase.firestore.FieldValue.serverTimestamp(),
+        }).catch(() => {});
+    }
 }
 
 function applyGoldenEffect(effect) {
@@ -635,6 +645,13 @@ function watchLiveFeeds() {
                         d.achIcon || '🏅',
                         `${d.playerName} unlocked an achievement!`,
                         d.achName
+                    );
+                } else if (d.type === 'golden') {
+                    const effectLabels = { frenzy: '×7 Frenzy', clickFrenzy: '×777 Click Frenzy', lucky: 'Lucky Bonus', freeUpgrade: 'Free Upgrade' };
+                    window.GameUI && window.GameUI.showFeedEvent(
+                        '💛',
+                        `${d.playerName} caught a Golden Clout!`,
+                        effectLabels[d.effect] || 'Bonus activated'
                     );
                 }
             });
