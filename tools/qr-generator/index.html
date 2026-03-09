@@ -462,6 +462,7 @@ const App = () => {
     const PREVIEW_SIZE = 280;
     const previewRef = useRef(null);
     const qrRef = useRef(null);
+    const qrAttachedTo = useRef(null); // track which DOM node QR is appended to
 
     const getQRData = () => {
         if (mode === 'vCard Builder') return buildVCardData(vc);
@@ -471,11 +472,13 @@ const App = () => {
     // Preview always renders at PREVIEW_SIZE so it fits the container exactly
     useEffect(() => {
         if (!previewRef.current) return;
-        // Use canvas type for the preview — more reliable than SVG on mobile browsers
+        // Use canvas type — more reliable than SVG on mobile browsers
         const opts = { ...buildQROpts(getQRData(), { ...st, qrSize: PREVIEW_SIZE }), type: 'canvas' };
-        if (!qrRef.current) {
+        if (!qrRef.current || qrAttachedTo.current !== previewRef.current) {
+            // First mount OR mode switch (previewRef DOM node changed) — create fresh instance
             qrRef.current = new QRCodeStyling(opts);
             qrRef.current.append(previewRef.current);
+            qrAttachedTo.current = previewRef.current;
         } else {
             qrRef.current.update(opts);
         }
