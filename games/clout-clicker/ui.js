@@ -12,6 +12,9 @@ const { BUILDINGS, UPGRADES, ACHIEVEMENTS, NEWS_TICKER, formatNumber, formatTime
 function GS() { return window.GameState; }
 function GE() { return window.GameEngine; }
 
+/* ── Click spark canvas (vanilla port of ClickSpark component) ── */
+let _addSparks = null; // set by initClickSparkCanvas()
+
 /* ── Dirty flags for partial updates ─────────────────────── */
 const dirty = {
     clout:      true,
@@ -110,8 +113,24 @@ function onClickEffect(amount) {
     document.body.appendChild(numEl);
     setTimeout(() => numEl.remove(), 1200);
 
-    // Enhanced particles
     const isFrenzy = window.GameEngine && window.GameEngine.Buffs.clickFrenzy;
+
+    // Ripple rings (2 staggered)
+    for (let i = 0; i < 2; i++) {
+        setTimeout(() => {
+            const r = document.createElement('div');
+            r.className = 'click-ripple' + (isFrenzy ? ' frenzy' : '');
+            r.style.left = cx + 'px';
+            r.style.top  = cy + 'px';
+            document.body.appendChild(r);
+            setTimeout(() => r.remove(), 700);
+        }, i * 100);
+    }
+
+    // Click sparks (canvas-based)
+    if (_addSparks) _addSparks(cx, cy, isFrenzy);
+
+    // DOM burst particles
     const count = isFrenzy ? 24 : 14;
     const colors = ['#22c55e','#39ff14','#4ade80','#86efac','#a3e635'];
     if (isFrenzy) colors.push('#facc15','#fbbf24','#f59e0b');
@@ -861,8 +880,14 @@ function initUI() {
     // Ambient particles on click area
     initAmbientParticles();
 
+    // Click spark canvas
+    _addSparks = initClickSparkCanvas();
+
     // Page-wide ambient particles
     initPageParticles();
+
+    // Custom cursor (🖱️ to match Viewer building)
+    setCustomCursor('🖱️');
 
     // Initial full render
     fullRender();
@@ -924,6 +949,93 @@ function initAmbientParticles() {
         requestAnimationFrame(tick);
     }
     requestAnimationFrame(tick);
+}
+
+/* ── Click spark canvas (vanilla JS port of ClickSpark) ───── */
+function initClickSparkCanvas() {
+    const area = document.getElementById('click-area');
+    if (!area) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+    area.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+    const sparks = [];
+
+    function resize() {
+        canvas.width  = area.clientWidth  || 400;
+        canvas.height = area.clientHeight || 500;
+    }
+    new ResizeObserver(resize).observe(area);
+    resize();
+
+    const DURATION    = 500;
+    const SPARK_SIZE  = 13;
+    const SPARK_RADIUS = 90;
+    const SPARK_COUNT  = 12;
+    const EXTRA_SCALE  = 1.0;
+
+    function easeOut(t) { return t * (2 - t); }
+
+    function draw(timestamp) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = sparks.length - 1; i >= 0; i--) {
+            const sp = sparks[i];
+            const elapsed = timestamp - sp.startTime;
+            if (elapsed >= DURATION) { sparks.splice(i, 1); continue; }
+
+            const progress   = elapsed / DURATION;
+            const eased      = easeOut(progress);
+            const distance   = eased * SPARK_RADIUS * EXTRA_SCALE;
+            const lineLength = SPARK_SIZE * (1 - eased);
+
+            const x1 = sp.x + distance * Math.cos(sp.angle);
+            const y1 = sp.y + distance * Math.sin(sp.angle);
+            const x2 = sp.x + (distance + lineLength) * Math.cos(sp.angle);
+            const y2 = sp.y + (distance + lineLength) * Math.sin(sp.angle);
+
+            ctx.globalAlpha = (1 - progress) * 0.9;
+            ctx.strokeStyle = sp.color;
+            ctx.lineWidth   = 2.5;
+            ctx.lineCap     = 'round';
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+
+    // Returns the function to call on each click
+    return function addSparks(clientX, clientY, isFrenzy) {
+        const rect  = canvas.getBoundingClientRect();
+        const x     = clientX - rect.left;
+        const y     = clientY - rect.top;
+        const now   = performance.now();
+        const color = isFrenzy ? '#facc15' : '#39ff14';
+        const count = isFrenzy ? 16 : SPARK_COUNT;
+        for (let i = 0; i < count; i++) {
+            sparks.push({ x, y, angle: (2 * Math.PI * i) / count, startTime: now, color });
+        }
+    };
+}
+
+/* ── Custom cursor (emoji on canvas → CSS cursor data URL) ── */
+function setCustomCursor(emoji) {
+    try {
+        const sz = 32;
+        const c  = document.createElement('canvas');
+        c.width  = sz; c.height = sz;
+        const ctx = c.getContext('2d');
+        ctx.font          = `${sz - 6}px serif`;
+        ctx.textBaseline  = 'top';
+        ctx.fillText(emoji, 0, 0);
+        // hotspot at 4,0 (tip of the mouse emoji)
+        document.body.style.cursor = `url('${c.toDataURL()}') 4 0, auto`;
+    } catch(e) { /* silently ignore if blocked */ }
 }
 
 /* ── Page-wide ambient particle canvas ───────────────────── */

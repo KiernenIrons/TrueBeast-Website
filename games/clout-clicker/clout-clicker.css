@@ -497,11 +497,13 @@ body {
     border-radius: 50%;
     background: radial-gradient(circle, rgba(34,197,94,0.08) 0%, transparent 70%);
     border: 1px solid rgba(34,197,94,0.18);
-    animation: ctIdle 4s ease-in-out infinite;
+    animation: ctIdle 3s ease-in-out infinite;
 }
+/* Slow scale pulse — "floating closer and further" effect */
 @keyframes ctIdle {
-    0%,100%{filter:drop-shadow(0 0 20px rgba(34,197,94,0.4))}
-    50%{filter:drop-shadow(0 0 35px rgba(57,255,20,0.6))}
+    0%   { filter: drop-shadow(0 0 18px rgba(34,197,94,0.4));  transform: translate(-50%,-50%) scale(1); }
+    50%  { filter: drop-shadow(0 0 38px rgba(57,255,20,0.65)); transform: translate(-50%,-50%) scale(1.09); }
+    100% { filter: drop-shadow(0 0 18px rgba(34,197,94,0.4));  transform: translate(-50%,-50%) scale(1); }
 }
 #click-target:hover {
     transform: translate(-50%, -50%) scale(1.08);
@@ -549,6 +551,24 @@ body {
 @keyframes particleBurst {
     0%   { opacity: 0.9; transform: translate(0,0) scale(1); }
     100% { opacity: 0;   transform: translate(var(--px), var(--py)) scale(0); }
+}
+
+/* Click ripple rings */
+.click-ripple {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9;
+    border-radius: 50%;
+    border: 2.5px solid rgba(34,197,94,0.7);
+    transform: translate(-50%, -50%);
+    animation: rippleOut 0.65s ease-out forwards;
+}
+.click-ripple.frenzy {
+    border-color: rgba(57,255,20,0.8);
+}
+@keyframes rippleOut {
+    0%   { width: 0;     height: 0;     opacity: 0.85; }
+    100% { width: 260px; height: 260px; opacity: 0;    }
 }
 
 /* Prestige button */

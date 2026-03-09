@@ -33,7 +33,7 @@ function formatTime(seconds) {
 
 /* ── Buildings ────────────────────────────────────────────── */
 const BUILDINGS = [
-    { id: 'viewer',      name: 'Viewer',            emoji: '👀', baseCps: 0.1,         baseCost: 15,                desc: 'A loyal fan who watches your content on repeat.' },
+    { id: 'viewer',      name: 'Viewer',            emoji: '🖱️', baseCps: 0.1,         baseCost: 15,                desc: 'A loyal fan who watches your content on repeat.' },
     { id: 'chatter',     name: 'Stream Chatter',    emoji: '💬', baseCps: 0.5,         baseCost: 100,               desc: 'An engaged viewer spamming emotes in your chat.' },
     { id: 'clipEditor',  name: 'Clip Editor',       emoji: '✂️', baseCps: 4,           baseCost: 1100,              desc: 'Churns out viral clips from your stream 24/7.' },
     { id: 'gamingPC',    name: 'Gaming PC',          emoji: '🖥️', baseCps: 15,          baseCost: 12000,             desc: 'A monster rig pushing your content quality through the roof.' },
