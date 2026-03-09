@@ -1034,10 +1034,9 @@ function initClickSparkCanvas() {
 
     // Returns the function to call on each click
     return function addSparks(clientX, clientY, isFrenzy) {
-        const zoom  = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
         const rect  = canvas.getBoundingClientRect();
-        const x     = (clientX - rect.left) / zoom;
-        const y     = (clientY - rect.top)  / zoom;
+        const x     = clientX - rect.left;
+        const y     = clientY - rect.top;
         const now   = performance.now();
         const color = isFrenzy ? '#facc15' : '#39ff14';
         const count = isFrenzy ? 16 : SPARK_COUNT;
