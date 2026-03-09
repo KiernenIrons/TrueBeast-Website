@@ -39,7 +39,7 @@
         .dl-btn:hover { opacity: 0.85; transform: translateY(-1px); }
         .range-input { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.1); outline: none; cursor: pointer; }
         .range-input::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #22c55e; cursor: pointer; box-shadow: 0 0 0 3px rgba(34,197,94,0.2); }
-        .qr-checker { background-image: linear-gradient(45deg, #2a2a2a 25%, transparent 25%), linear-gradient(-45deg, #2a2a2a 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #2a2a2a 75%), linear-gradient(-45deg, transparent 75%, #2a2a2a 75%); background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0px; background-color: #1a1a1a; }
+        .qr-checker { background-image: linear-gradient(45deg,#2a2a2a 25%,transparent 25%),linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2a 75%),linear-gradient(-45deg,transparent 75%,#2a2a2a 75%); background-size:12px 12px; background-position:0 0,0 6px,6px -6px,-6px 0; background-color:#1a1a1a; }
         .acc-hdr { cursor: pointer; user-select: none; transition: background 0.15s; }
         .acc-hdr:hover { background: rgba(255,255,255,0.03); }
         .swatch { width: 30px; height: 30px; border-radius: 7px; border: 2px solid rgba(255,255,255,0.15); cursor: pointer; flex-shrink: 0; transition: transform 0.15s; }
@@ -50,6 +50,9 @@
         .txt-inp::placeholder { color: rgba(255,255,255,0.25); }
         .batch-row { border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); transition: border-color 0.15s; }
         .batch-row:focus-within { border-color: rgba(34,197,94,0.3); }
+        /* SVG preview scales naturally */
+        #qr-preview-wrap svg { width: 100% !important; height: auto !important; display: block; }
+        #qr-preview-wrap canvas { width: 100% !important; height: auto !important; display: block; }
         select option { background: #111827; }
     </style>
 </head>
@@ -57,9 +60,9 @@
 <div class="gradient-bg"></div>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useRef } = React;
 
-// ── Theme Toggle ─────────────────────────────────────────────────────────────
+// ── Theme Toggle & Nav ────────────────────────────────────────────────────────
 const ThemeToggle = () => {
     const [light, setLight] = React.useState(() => document.documentElement.classList.contains('light'));
     React.useEffect(() => {
@@ -79,14 +82,14 @@ const Nav = ({ scrolled }) => (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? 'py-2' : 'py-3'}`}>
         <div className="max-w-6xl mx-auto px-4">
             <div className={`liquid-glass rounded-2xl px-4 py-2.5 flex items-center justify-between ${scrolled ? 'shadow-lg' : ''}`}>
-                <a href="../../" className="font-display font-bold text-xl" style={{ textDecoration: 'none', color: 'inherit' }}>
-                    <span className="text-white">True</span><span style={{ color: '#22c55e' }}>Beast</span>
+                <a href="../../" className="font-display font-bold text-xl" style={{ textDecoration:'none', color:'inherit' }}>
+                    <span className="text-white">True</span><span style={{ color:'#22c55e' }}>Beast</span>
                 </a>
                 <div className="flex items-center gap-2">
                     <a href="../" className="px-3 py-1.5 text-sm font-medium rounded-lg"
-                        style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none' }}
-                        onMouseEnter={e => e.target.style.color = 'white'}
-                        onMouseLeave={e => e.target.style.color = 'rgba(255,255,255,0.6)'}>
+                        style={{ color:'rgba(255,255,255,0.6)', textDecoration:'none' }}
+                        onMouseEnter={e => e.target.style.color='white'}
+                        onMouseLeave={e => e.target.style.color='rgba(255,255,255,0.6)'}>
                         ← Tools
                     </a>
                     <ThemeToggle />
@@ -98,27 +101,17 @@ const Nav = ({ scrolled }) => (
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CONTENT_TYPES = [
-    { id: 'url',   label: 'URL',   icon: '🔗' },
-    { id: 'email', label: 'Email', icon: '✉️' },
-    { id: 'phone', label: 'Phone', icon: '📱' },
-    { id: 'wifi',  label: 'WiFi',  icon: '📶' },
-    { id: 'sms',   label: 'SMS',   icon: '💬' },
-    { id: 'geo',   label: 'Geo',   icon: '📍' },
-    { id: 'text',  label: 'Text',  icon: '📝' },
+    { id:'url',   label:'URL',   icon:'🔗' },
+    { id:'email', label:'Email', icon:'✉️' },
+    { id:'phone', label:'Phone', icon:'📱' },
+    { id:'wifi',  label:'WiFi',  icon:'📶' },
+    { id:'sms',   label:'SMS',   icon:'💬' },
+    { id:'geo',   label:'Geo',   icon:'📍' },
+    { id:'text',  label:'Text',  icon:'📝' },
 ];
-
-const DOT_STYLES = [
-    { id: 'square',         label: 'Boxy' },
-    { id: 'extra-rounded',  label: 'Bouba' },
-    { id: 'dots',           label: 'Braille' },
-    { id: 'rounded',        label: 'Rounded' },
-    { id: 'classy',         label: 'Classy' },
-    { id: 'classy-rounded', label: 'Kiki' },
-];
-
-const EYE_STYLES   = [{ id:'square', label:'Boxy' }, { id:'dot', label:'Circular' }, { id:'extra-rounded', label:'Rounded' }];
-const PUPIL_STYLES = [{ id:'square', label:'Square' }, { id:'dot', label:'Circle' }];
-
+const DOT_STYLES   = [{ id:'square', label:'Boxy' },{ id:'extra-rounded', label:'Bouba' },{ id:'dots', label:'Braille' },{ id:'rounded', label:'Rounded' },{ id:'classy', label:'Classy' },{ id:'classy-rounded', label:'Kiki' }];
+const EYE_STYLES   = [{ id:'square', label:'Boxy' },{ id:'dot', label:'Circular' },{ id:'extra-rounded', label:'Rounded' }];
+const PUPIL_STYLES = [{ id:'square', label:'Square' },{ id:'dot', label:'Circle' }];
 const QUICK_STYLES = [
     { id:'classic', label:'Classic', dot:'square',        cs:'square',        cd:'square', fg:'#000000', bg:'#ffffff', grad:false },
     { id:'rounded', label:'Rounded', dot:'extra-rounded', cs:'extra-rounded', cd:'dot',    fg:'#000000', bg:'#ffffff', grad:false },
@@ -131,7 +124,7 @@ const QUICK_STYLES = [
     { id:'neon',    label:'Neon',    dot:'dots',          cs:'dot',           cd:'dot',    fg:'#39ff14', bg:'#000000', grad:false },
 ];
 
-// ── Build data strings ────────────────────────────────────────────────────────
+// ── Data builders ─────────────────────────────────────────────────────────────
 function buildSingleData(ct, s) {
     switch(ct) {
         case 'url':   return s.url || 'https://truebeast.io';
@@ -143,40 +136,31 @@ function buildSingleData(ct, s) {
             return p.length ? str + '?' + p.join('&') : str;
         }
         case 'phone': return `tel:${s.phone}`;
-        case 'wifi':  return `WIFI:T:${s.wifiSec};S:${s.wifiSsid};P:${s.wifiPass};${s.wifiHidden ? 'H:true;' : ''};`;
-        case 'sms':   return `smsto:${s.smsPhone}${s.smsMsg ? ':' + s.smsMsg : ''}`;
+        case 'wifi':  return `WIFI:T:${s.wifiSec};S:${s.wifiSsid};P:${s.wifiPass};${s.wifiHidden?'H:true;':''};`;
+        case 'sms':   return `smsto:${s.smsPhone}${s.smsMsg?':'+s.smsMsg:''}`;
         case 'geo':   return `geo:${s.geoLat},${s.geoLng}`;
-        case 'text':
         default:      return s.text || 'Hello from TrueBeast!';
     }
 }
-
 function buildVCardData(v) {
     return ['BEGIN:VCARD','VERSION:3.0',
         `N:${v.lastName};${v.firstName}`,
-        `FN:${(v.firstName + ' ' + v.lastName).trim()}`,
-        v.org     && `ORG:${v.org}`,
-        v.title   && `TITLE:${v.title}`,
-        v.phone   && `TEL:${v.phone}`,
-        v.email   && `EMAIL:${v.email}`,
-        v.website && `URL:${v.website}`,
-        v.address && `ADR:;;${v.address}`,
+        `FN:${(v.firstName+' '+v.lastName).trim()}`,
+        v.org&&`ORG:${v.org}`, v.title&&`TITLE:${v.title}`,
+        v.phone&&`TEL:${v.phone}`, v.email&&`EMAIL:${v.email}`,
+        v.website&&`URL:${v.website}`, v.address&&`ADR:;;${v.address}`,
         'END:VCARD',
     ].filter(Boolean).join('\n');
 }
-
 function buildQROpts(data, st) {
     const primary = st.useGrad ? st.g1 : st.fg;
     const dotsOptions = { type: st.dotType };
     if (st.useGrad) {
-        dotsOptions.gradient = {
-            type: st.gradType,
-            rotation: st.gradAngle * Math.PI / 180,
-            colorStops: [{ offset: 0, color: st.g1 }, { offset: 1, color: st.g2 }],
-        };
+        dotsOptions.gradient = { type: st.gradType, rotation: st.gradAngle * Math.PI / 180,
+            colorStops: [{ offset:0, color:st.g1 },{ offset:1, color:st.g2 }] };
     } else { dotsOptions.color = st.fg; }
-
     return {
+        type: 'svg',
         width: st.qrSize, height: st.qrSize, data,
         margin: st.padding,
         qrOptions: { errorCorrectionLevel: st.errLevel },
@@ -185,84 +169,73 @@ function buildQROpts(data, st) {
         cornersSquareOptions: { type: st.eyeType,   color: st.customEye ? st.eyeColor   : primary },
         cornersDotOptions:    { type: st.pupilType, color: st.customEye ? st.pupilColor : primary },
         image: st.logoSrc || undefined,
-        imageOptions: { crossOrigin: 'anonymous', margin: st.logoMargin, imageSize: st.logoSize / 100, hideBackgroundDots: st.logoExcavate },
+        imageOptions: { crossOrigin:'anonymous', margin:st.logoMargin, imageSize:st.logoSize/100, hideBackgroundDots:st.logoExcavate },
     };
 }
 
-// ── Small UI Components ───────────────────────────────────────────────────────
-const SectionLabel = ({ children }) => (
-    <div className="text-xs font-bold uppercase tracking-widest mb-2.5" style={{ color: 'rgba(255,255,255,0.3)' }}>{children}</div>
+// ── Shared small components ───────────────────────────────────────────────────
+const SL = ({ children }) => (
+    <div className="text-xs font-bold uppercase tracking-widest mb-2.5" style={{ color:'rgba(255,255,255,0.3)' }}>{children}</div>
 );
-
 const Inp = ({ label, value, onChange, placeholder, type='text', rows, ...rest }) => {
     const cls = "w-full px-3 py-2 rounded-xl text-sm txt-inp";
     return (
         <div className="mb-3">
-            {label && <label className="block text-xs mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{label}</label>}
+            {label && <label className="block text-xs mb-1.5" style={{ color:'rgba(255,255,255,0.5)' }}>{label}</label>}
             {rows
-                ? <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows} className={cls + " resize-none"} />
-                : <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={cls} {...rest} />
+                ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} className={cls+" resize-none"} />
+                : <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} className={cls} {...rest} />
             }
         </div>
     );
 };
-
 const Sel = ({ label, value, onChange, options }) => (
     <div className="mb-3">
-        {label && <label className="block text-xs mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{label}</label>}
-        <select value={value} onChange={e => onChange(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm txt-inp cursor-pointer">
-            {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+        {label && <label className="block text-xs mb-1.5" style={{ color:'rgba(255,255,255,0.5)' }}>{label}</label>}
+        <select value={value} onChange={e=>onChange(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm txt-inp cursor-pointer">
+            {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
         </select>
     </div>
 );
-
 const Range = ({ label, value, onChange, min, max, step=1, unit='' }) => (
     <div className="mb-3">
         <div className="flex justify-between items-center mb-2">
-            <span className="text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>{label}</span>
-            <span className="text-xs font-mono px-2 py-0.5 rounded-md" style={{ background: 'rgba(34,197,94,0.1)', color: '#4ade80' }}>{value}{unit}</span>
+            <span className="text-sm" style={{ color:'rgba(255,255,255,0.6)' }}>{label}</span>
+            <span className="text-xs font-mono px-2 py-0.5 rounded-md" style={{ background:'rgba(34,197,94,0.1)', color:'#4ade80' }}>{value}{unit}</span>
         </div>
-        <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} className="range-input" />
+        <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} className="range-input" />
     </div>
 );
-
 const Toggle = ({ checked, onChange, label }) => (
     <label className="flex items-center gap-3 cursor-pointer select-none">
-        <div style={{ position: 'relative', width: '36px', height: '20px', flexShrink: 0 }}>
-            <div onClick={() => onChange(!checked)} style={{
-                position: 'absolute', inset: 0,
-                background: checked ? '#22c55e' : 'rgba(255,255,255,0.12)',
-                borderRadius: '10px', transition: 'background 0.2s', cursor: 'pointer',
-            }}>
-                <div style={{ position: 'absolute', width: '14px', height: '14px', background: 'white', borderRadius: '50%', top: '3px', left: checked ? '19px' : '3px', transition: 'left 0.2s' }} />
+        <div style={{ position:'relative', width:'36px', height:'20px', flexShrink:0 }}>
+            <div onClick={()=>onChange(!checked)} style={{ position:'absolute', inset:0, background:checked?'#22c55e':'rgba(255,255,255,0.12)', borderRadius:'10px', transition:'background 0.2s', cursor:'pointer' }}>
+                <div style={{ position:'absolute', width:'14px', height:'14px', background:'white', borderRadius:'50%', top:'3px', left:checked?'19px':'3px', transition:'left 0.2s' }} />
             </div>
         </div>
-        {label && <span className="text-sm" style={{ color: 'rgba(255,255,255,0.65)' }}>{label}</span>}
+        {label && <span className="text-sm" style={{ color:'rgba(255,255,255,0.65)' }}>{label}</span>}
     </label>
 );
-
 const ColorPicker = ({ label, value, onChange }) => {
     const ref = useRef(null);
     return (
         <div>
-            {label && <div className="text-xs mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{label}</div>}
+            {label && <div className="text-xs mb-1.5" style={{ color:'rgba(255,255,255,0.5)' }}>{label}</div>}
             <div className="flex items-center gap-2">
-                <div style={{ position: 'relative' }}>
-                    <div className="swatch" style={{ background: value }} onClick={() => ref.current?.click()} />
-                    <input ref={ref} type="color" value={value} onChange={e => onChange(e.target.value)} />
+                <div style={{ position:'relative' }}>
+                    <div className="swatch" style={{ background:value }} onClick={()=>ref.current?.click()} />
+                    <input ref={ref} type="color" value={value} onChange={e=>onChange(e.target.value)} />
                 </div>
-                <input type="text" value={value} onChange={e => onChange(e.target.value)}
-                    className="flex-1 px-2 py-1.5 rounded-lg text-xs font-mono txt-inp" />
+                <input type="text" value={value} onChange={e=>onChange(e.target.value)} className="flex-1 px-2 py-1.5 rounded-lg text-xs font-mono txt-inp" />
             </div>
         </div>
     );
 };
-
 const Acc = ({ title, open, onToggle, children, accent }) => (
-    <div style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+    <div style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
         <div className="acc-hdr flex items-center justify-between px-4 py-3 rounded-xl" onClick={onToggle}>
-            <span className="text-sm font-semibold" style={{ color: open ? (accent || '#4ade80') : 'rgba(255,255,255,0.75)' }}>{title}</span>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: open ? 'rotate(180deg)' : '', transition: 'transform 0.2s', flexShrink: 0 }}>
+            <span className="text-sm font-semibold" style={{ color:open?(accent||'#4ade80'):'rgba(255,255,255,0.75)' }}>{title}</span>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform:open?'rotate(180deg)':'', transition:'transform 0.2s', flexShrink:0 }}>
                 <path d="M2 4l4 4 4-4" stroke="rgba(255,255,255,0.4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
         </div>
@@ -273,31 +246,169 @@ const Acc = ({ title, open, onToggle, children, accent }) => (
 // ── Content Inputs ────────────────────────────────────────────────────────────
 const ContentInputs = ({ ct, s, set }) => {
     switch(ct) {
-        case 'url':   return <Inp value={s.url} onChange={v => set('url', v)} placeholder="https://example.com" />;
+        case 'url':   return <Inp value={s.url} onChange={v=>set('url',v)} placeholder="https://example.com" />;
         case 'email': return <>
-            <Inp label="To" value={s.emailTo} onChange={v => set('emailTo', v)} placeholder="name@example.com" />
-            <Inp label="Subject (optional)" value={s.emailSubj} onChange={v => set('emailSubj', v)} placeholder="Subject" />
-            <Inp label="Body (optional)" value={s.emailBody} onChange={v => set('emailBody', v)} placeholder="Message..." rows={3} />
+            <Inp label="To" value={s.emailTo} onChange={v=>set('emailTo',v)} placeholder="name@example.com" />
+            <Inp label="Subject (optional)" value={s.emailSubj} onChange={v=>set('emailSubj',v)} placeholder="Subject" />
+            <Inp label="Body (optional)" value={s.emailBody} onChange={v=>set('emailBody',v)} placeholder="Message..." rows={3} />
         </>;
-        case 'phone': return <Inp label="Phone Number" value={s.phone} onChange={v => set('phone', v)} placeholder="+1 234 567 8900" type="tel" />;
+        case 'phone': return <Inp label="Phone Number" value={s.phone} onChange={v=>set('phone',v)} placeholder="+1 234 567 8900" type="tel" />;
         case 'wifi':  return <>
-            <Inp label="Network Name (SSID)" value={s.wifiSsid} onChange={v => set('wifiSsid', v)} placeholder="My WiFi Network" />
-            <Inp label="Password" value={s.wifiPass} onChange={v => set('wifiPass', v)} placeholder="Password" type="password" />
-            <Sel label="Security" value={s.wifiSec} onChange={v => set('wifiSec', v)} options={[{ v:'WPA', l:'WPA/WPA2' }, { v:'WEP', l:'WEP' }, { v:'nopass', l:'No Password' }]} />
-            <Toggle checked={s.wifiHidden} onChange={v => set('wifiHidden', v)} label="Hidden network" />
+            <Inp label="Network Name (SSID)" value={s.wifiSsid} onChange={v=>set('wifiSsid',v)} placeholder="My WiFi Network" />
+            <Inp label="Password" value={s.wifiPass} onChange={v=>set('wifiPass',v)} placeholder="Password" type="password" />
+            <Sel label="Security" value={s.wifiSec} onChange={v=>set('wifiSec',v)} options={[{v:'WPA',l:'WPA/WPA2'},{v:'WEP',l:'WEP'},{v:'nopass',l:'No Password'}]} />
+            <Toggle checked={s.wifiHidden} onChange={v=>set('wifiHidden',v)} label="Hidden network" />
         </>;
         case 'sms':   return <>
-            <Inp label="Phone Number" value={s.smsPhone} onChange={v => set('smsPhone', v)} placeholder="+1 234 567 8900" type="tel" />
-            <Inp label="Message (optional)" value={s.smsMsg} onChange={v => set('smsMsg', v)} placeholder="Pre-filled message..." rows={2} />
+            <Inp label="Phone Number" value={s.smsPhone} onChange={v=>set('smsPhone',v)} placeholder="+1 234 567 8900" type="tel" />
+            <Inp label="Message (optional)" value={s.smsMsg} onChange={v=>set('smsMsg',v)} placeholder="Pre-filled message..." rows={2} />
         </>;
         case 'geo':   return <>
-            <Inp label="Latitude" value={s.geoLat} onChange={v => set('geoLat', v)} placeholder="37.7749" />
-            <Inp label="Longitude" value={s.geoLng} onChange={v => set('geoLng', v)} placeholder="-122.4194" />
+            <Inp label="Latitude" value={s.geoLat} onChange={v=>set('geoLat',v)} placeholder="37.7749" />
+            <Inp label="Longitude" value={s.geoLng} onChange={v=>set('geoLng',v)} placeholder="-122.4194" />
         </>;
-        case 'text':
-        default:      return <Inp value={s.text} onChange={v => set('text', v)} placeholder="Enter any text..." rows={4} />;
+        default:      return <Inp value={s.text} onChange={v=>set('text',v)} placeholder="Enter any text..." rows={4} />;
     }
 };
+
+// ── Options Panel — defined OUTSIDE App so React never remounts it ────────────
+const OptionsPanel = ({ st, update, acc, togAcc, logoFileRef, onLogoUpload }) => (
+    <div className="liquid-glass rounded-2xl overflow-hidden">
+
+        <Acc title="Basics" open={acc.basics} onToggle={()=>togAcc('basics')}>
+            <Range label="Size" value={st.qrSize} onChange={v=>update('qrSize',v)} min={200} max={1000} step={50} unit="px" />
+            <Range label="Padding" value={st.padding} onChange={v=>update('padding',v)} min={0} max={50} unit="px" />
+            <div className="mt-1">
+                <div className="text-xs mb-2" style={{ color:'rgba(255,255,255,0.5)' }}>Error Correction</div>
+                <div className="grid grid-cols-4 gap-1.5">
+                    {['L','M','Q','H'].map(l=>(
+                        <button key={l} onClick={()=>update('errLevel',l)}
+                            className="py-2 rounded-lg text-sm font-bold shape-btn"
+                            style={st.errLevel===l?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{}}>
+                            {l}
+                        </button>
+                    ))}
+                </div>
+                <div className="flex text-xs mt-1" style={{ color:'rgba(255,255,255,0.2)' }}>
+                    {['~7%','~15%','~25%','~30%'].map((v,i)=><span key={i} className="flex-1 text-center">{v}</span>)}
+                </div>
+            </div>
+        </Acc>
+
+        <Acc title="Colours" open={acc.colours} onToggle={()=>togAcc('colours')}>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+                {!st.useGrad && <ColorPicker label="Foreground" value={st.fg} onChange={v=>update('fg',v)} />}
+                <ColorPicker label="Background" value={st.bg} onChange={v=>update('bg',v)} />
+            </div>
+            <div className="mb-4">
+                <Toggle checked={st.bgTransparent} onChange={v=>update('bgTransparent',v)} label="Transparent background" />
+            </div>
+            <div className="pt-3 border-t" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
+                <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm" style={{ color:'rgba(255,255,255,0.7)' }}>Gradient</span>
+                    <Toggle checked={st.useGrad} onChange={v=>update('useGrad',v)} />
+                </div>
+                {st.useGrad && <>
+                    <div className="grid grid-cols-2 gap-4 mb-3">
+                        <ColorPicker label="Color 1" value={st.g1} onChange={v=>update('g1',v)} />
+                        <ColorPicker label="Color 2" value={st.g2} onChange={v=>update('g2',v)} />
+                    </div>
+                    <div className="h-7 rounded-lg mb-3" style={{ background:`linear-gradient(${st.gradAngle}deg,${st.g1},${st.g2})`, border:'1px solid rgba(255,255,255,0.08)' }} />
+                    <div className="flex gap-2 mb-3">
+                        {['linear','radial'].map(t=>(
+                            <button key={t} onClick={()=>update('gradType',t)}
+                                className="flex-1 py-1.5 rounded-lg text-xs font-medium capitalize shape-btn"
+                                style={st.gradType===t?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{}}>
+                                {t}
+                            </button>
+                        ))}
+                    </div>
+                    {st.gradType==='linear' && <Range label="Angle" value={st.gradAngle} onChange={v=>update('gradAngle',v)} min={0} max={360} unit="°" />}
+                </>}
+            </div>
+            <div className="pt-3 border-t" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
+                <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm" style={{ color:'rgba(255,255,255,0.7)' }}>Custom eye &amp; pupil colors</span>
+                    <Toggle checked={st.customEye} onChange={v=>update('customEye',v)} />
+                </div>
+                {st.customEye && (
+                    <div className="grid grid-cols-2 gap-4">
+                        <ColorPicker label="Eye Color" value={st.eyeColor} onChange={v=>update('eyeColor',v)} />
+                        <ColorPicker label="Pupil Color" value={st.pupilColor} onChange={v=>update('pupilColor',v)} />
+                    </div>
+                )}
+            </div>
+        </Acc>
+
+        <Acc title="Shapes" open={acc.shapes} onToggle={()=>togAcc('shapes')}>
+            <div className="mb-4">
+                <SL>Bit Style</SL>
+                <div className="grid grid-cols-3 gap-2">
+                    {DOT_STYLES.map(d=>(
+                        <button key={d.id} onClick={()=>update('dotType',d.id)}
+                            className="shape-btn py-2 rounded-xl text-xs font-medium"
+                            style={st.dotType===d.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'rgba(255,255,255,0.6)'}}>
+                            {d.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div className="mb-4">
+                <SL>Eyes</SL>
+                <div className="flex gap-2">
+                    {EYE_STYLES.map(e=>(
+                        <button key={e.id} onClick={()=>update('eyeType',e.id)}
+                            className="flex-1 shape-btn py-2 rounded-xl text-xs font-medium"
+                            style={st.eyeType===e.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'rgba(255,255,255,0.6)'}}>
+                            {e.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            <div>
+                <SL>Pupils</SL>
+                <div className="flex gap-2">
+                    {PUPIL_STYLES.map(p=>(
+                        <button key={p.id} onClick={()=>update('pupilType',p.id)}
+                            className="flex-1 shape-btn py-2 rounded-xl text-xs font-medium"
+                            style={st.pupilType===p.id?{background:'rgba(34,197,94,0.15)',borderColor:'rgba(34,197,94,0.4)',color:'#4ade80'}:{color:'rgba(255,255,255,0.6)'}}>
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        </Acc>
+
+        <Acc title="Logo / Image" open={acc.logo} onToggle={()=>togAcc('logo')} accent="#a78bfa">
+            {st.logoSrc ? (
+                <div className="flex items-center gap-3 mb-3">
+                    <img src={st.logoSrc} alt="logo" className="w-12 h-12 rounded-lg object-contain" style={{ border:'1px solid rgba(255,255,255,0.1)' }} />
+                    <button onClick={()=>update('logoSrc','')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
+                        style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171' }}>
+                        ✕ Remove
+                    </button>
+                </div>
+            ) : (
+                <button onClick={()=>logoFileRef.current?.click()}
+                    className="w-full py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 mb-3"
+                    style={{ background:'rgba(167,139,250,0.08)', border:'1px dashed rgba(167,139,250,0.3)', color:'#a78bfa' }}>
+                    📤 Upload Logo / Image
+                </button>
+            )}
+            <input ref={logoFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={onLogoUpload} />
+            {!st.logoSrc && (
+                <Inp value={st.logoSrc} onChange={v=>update('logoSrc',v)} placeholder="Or paste image URL..." />
+            )}
+            {st.logoSrc && <>
+                <Range label="Logo Size" value={st.logoSize} onChange={v=>update('logoSize',v)} min={10} max={50} unit="%" />
+                <Range label="Logo Margin" value={st.logoMargin} onChange={v=>update('logoMargin',v)} min={0} max={20} unit="px" />
+                <Toggle checked={st.logoExcavate} onChange={v=>update('logoExcavate',v)} label="Clear dots behind logo" />
+                <p className="text-xs mt-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tip: Use Error Correction H when adding a logo.</p>
+            </>}
+        </Acc>
+    </div>
+);
 
 // ── App ───────────────────────────────────────────────────────────────────────
 const App = () => {
@@ -308,28 +419,22 @@ const App = () => {
         return () => window.removeEventListener('scroll', h);
     }, []);
 
-    // Mode
     const [mode, setMode] = useState('Single');
-
-    // Single content state
     const [ct, setCt] = useState('url');
     const [sData, setSData] = useState({
         url:'https://truebeast.io', emailTo:'', emailSubj:'', emailBody:'',
         phone:'', wifiSsid:'', wifiPass:'', wifiSec:'WPA', wifiHidden:false,
         smsPhone:'', smsMsg:'', geoLat:'', geoLng:'', text:'',
     });
-    const setS = (k, v) => setSData(p => ({ ...p, [k]: v }));
+    const setS = (k,v) => setSData(p=>({...p,[k]:v}));
 
-    // vCard state
     const [vc, setVc] = useState({ firstName:'', lastName:'', org:'', title:'', phone:'', email:'', website:'', address:'' });
-    const setV = (k, v) => setVc(p => ({ ...p, [k]: v }));
+    const setV = (k,v) => setVc(p=>({...p,[k]:v}));
 
-    // Batch state
     const [batchItems, setBatchItems] = useState(['']);
     const [batchLoading, setBatchLoading] = useState(false);
     const batchFileRef = useRef(null);
 
-    // Style state
     const [st, setSt] = useState({
         dotType:'square', eyeType:'square', pupilType:'square',
         fg:'#000000', bg:'#ffffff', bgTransparent:false,
@@ -338,269 +443,108 @@ const App = () => {
         logoSrc:'', logoSize:30, logoMargin:5, logoExcavate:true,
         qrSize:400, padding:10, errLevel:'H',
     });
-    const setSt_ = (k, v) => setSt(p => ({ ...p, [k]: v }));
-    const setStMulti = (obj) => setSt(p => ({ ...p, ...obj }));
+    const updateSt = (k,v) => setSt(p=>({...p,[k]:v}));
+    const setStMulti = obj => setSt(p=>({...p,...obj}));
 
-    // Accordion state
     const [acc, setAcc] = useState({ basics:true, colours:false, shapes:false, logo:false });
-    const togAcc = (k) => setAcc(p => ({ ...p, [k]: !p[k] }));
+    const togAcc = k => setAcc(p=>({...p,[k]:!p[k]}));
 
-    // UI
     const [copied, setCopied] = useState(false);
 
-    // Logo upload
     const logoFileRef = useRef(null);
-    const handleLogoUpload = (e) => {
-        const f = e.target.files[0]; if (!f) return;
+    const handleLogoUpload = e => {
+        const f = e.target.files[0]; if(!f) return;
         const r = new FileReader();
-        r.onload = ev => setSt_(  'logoSrc', ev.target.result);
+        r.onload = ev => updateSt('logoSrc', ev.target.result);
         r.readAsDataURL(f);
     };
 
-    // QR preview
+    // QR instance lives here — never inside a child component
     const previewRef = useRef(null);
     const qrRef = useRef(null);
 
-    const qrData = useMemo(() => {
+    const getQRData = () => {
         if (mode === 'vCard Builder') return buildVCardData(vc);
         return buildSingleData(ct, sData);
-    }, [mode, ct, sData, vc]);
+    };
 
-    const qrOptsKey = JSON.stringify({ qrData, ...st });
-
+    // Single stable effect — runs when any relevant state changes
     useEffect(() => {
         if (!previewRef.current) return;
-        const opts = buildQROpts(qrData, st);
+        const opts = buildQROpts(getQRData(), st);
         if (!qrRef.current) {
             qrRef.current = new QRCodeStyling(opts);
             qrRef.current.append(previewRef.current);
         } else {
             qrRef.current.update(opts);
         }
-    }, [qrOptsKey]);
+    }); // intentionally no deps — runs every render but qr.update() is idempotent and fast
 
-    const download = (ext) => qrRef.current?.download({ name: 'qr-code', extension: ext });
+    const download = ext => qrRef.current?.download({ name:'qr-code', extension:ext });
 
     const copyQR = async () => {
         try {
             const blob = await qrRef.current.getRawData('png');
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch (e) { alert('Copy failed — try downloading instead.'); }
+            await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+            setCopied(true); setTimeout(()=>setCopied(false),2000);
+        } catch(e) { alert('Copy failed — try downloading instead.'); }
     };
 
-    const applyQuickStyle = (qs) => {
-        setStMulti({
-            dotType: qs.dot, eyeType: qs.cs, pupilType: qs.cd,
-            fg: qs.fg, bg: qs.bg, useGrad: qs.grad,
-            g1: qs.g1 || qs.fg, g2: qs.g2 || qs.fg,
-        });
-    };
+    const applyQuickStyle = qs => setStMulti({
+        dotType:qs.dot, eyeType:qs.cs, pupilType:qs.cd,
+        fg:qs.fg, bg:qs.bg, useGrad:qs.grad,
+        g1:qs.g1||qs.fg, g2:qs.g2||qs.fg,
+    });
 
     // Batch
-    const addBatchItem = () => setBatchItems(p => [...p, '']);
-    const setBatchItem = (i, v) => setBatchItems(p => p.map((x, j) => j === i ? v : x));
-    const removeBatchItem = (i) => setBatchItems(p => p.filter((_, j) => j !== i));
-    const handleBatchFile = (e) => {
-        const f = e.target.files[0]; if (!f) return;
-        const r = new FileReader();
-        r.onload = ev => {
-            const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
-            if (lines.length) setBatchItems(lines);
+    const addBatchItem   = () => setBatchItems(p=>[...p,'']);
+    const setBatchItem   = (i,v) => setBatchItems(p=>p.map((x,j)=>j===i?v:x));
+    const removeBatchItem= i => setBatchItems(p=>p.filter((_,j)=>j!==i));
+    const handleBatchFile= e => {
+        const f=e.target.files[0]; if(!f) return;
+        const r=new FileReader();
+        r.onload=ev=>{
+            const lines=ev.target.result.split('\n').map(l=>l.trim()).filter(Boolean);
+            if(lines.length) setBatchItems(lines);
         };
         r.readAsText(f);
     };
     const generateBatch = async () => {
-        const items = batchItems.filter(Boolean);
-        if (!items.length) return;
+        const items = batchItems.filter(Boolean); if(!items.length) return;
         setBatchLoading(true);
         try {
             const zip = new JSZip();
-            for (let i = 0; i < items.length; i++) {
-                const div = document.createElement('div');
-                document.body.appendChild(div);
-                const opts = buildQROpts(items[i], st);
-                const qr = new QRCodeStyling(opts);
+            for (let i=0;i<items.length;i++) {
+                const div=document.createElement('div'); document.body.appendChild(div);
+                const qr=new QRCodeStyling(buildQROpts(items[i],st));
                 qr.append(div);
-                await new Promise(r => setTimeout(r, 80));
-                const blob = await qr.getRawData('png');
-                const name = `qr-${i + 1}-${items[i].slice(0, 24).replace(/[^a-z0-9]/gi, '_')}.png`;
-                zip.file(name, blob);
+                await new Promise(r=>setTimeout(r,80));
+                const blob=await qr.getRawData('png');
+                zip.file(`qr-${i+1}-${items[i].slice(0,24).replace(/[^a-z0-9]/gi,'_')}.png`,blob);
                 document.body.removeChild(div);
             }
-            const content = await zip.generateAsync({ type: 'blob' });
-            const url = URL.createObjectURL(content);
-            const a = document.createElement('a'); a.href = url; a.download = 'qr-codes.zip'; a.click();
+            const content=await zip.generateAsync({type:'blob'});
+            const url=URL.createObjectURL(content);
+            const a=document.createElement('a'); a.href=url; a.download='qr-codes.zip'; a.click();
             URL.revokeObjectURL(url);
         } finally { setBatchLoading(false); }
     };
 
-    const PREVIEW_SIZE = 260;
-    const scale = Math.min(1, PREVIEW_SIZE / st.qrSize);
-
-    // ── Shared Options Panel ──────────────────────────────────────────────────
-    const OptionsPanel = () => (
-        <div className="liquid-glass rounded-2xl overflow-hidden">
-            {/* Basics */}
-            <Acc title="Basics" open={acc.basics} onToggle={() => togAcc('basics')}>
-                <Range label="Size" value={st.qrSize} onChange={v => setSt_('qrSize', v)} min={200} max={1000} step={50} unit="px" />
-                <Range label="Padding" value={st.padding} onChange={v => setSt_('padding', v)} min={0} max={50} unit="px" />
-                <div className="mt-1">
-                    <div className="text-xs mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>Error Correction</div>
-                    <div className="grid grid-cols-4 gap-1.5">
-                        {['L','M','Q','H'].map(l => (
-                            <button key={l} onClick={() => setSt_('errLevel', l)}
-                                className="py-2 rounded-lg text-sm font-bold shape-btn"
-                                style={st.errLevel === l ? { background:'rgba(34,197,94,0.15)', borderColor:'rgba(34,197,94,0.4)', color:'#4ade80' } : {}}>
-                                {l}
-                            </button>
-                        ))}
-                    </div>
-                    <div className="flex text-xs mt-1" style={{ color: 'rgba(255,255,255,0.2)' }}>
-                        {['~7%','~15%','~25%','~30%'].map((v,i) => <span key={i} className="flex-1 text-center">{v}</span>)}
-                    </div>
-                </div>
-            </Acc>
-
-            {/* Colours */}
-            <Acc title="Colours" open={acc.colours} onToggle={() => togAcc('colours')}>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                    {!st.useGrad && <ColorPicker label="Foreground" value={st.fg} onChange={v => setSt_('fg', v)} />}
-                    <ColorPicker label="Background" value={st.bg} onChange={v => setSt_('bg', v)} />
-                </div>
-                <div className="mb-4">
-                    <Toggle checked={st.bgTransparent} onChange={v => setSt_('bgTransparent', v)} label="Transparent background" />
-                </div>
-
-                <div className="pt-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>Gradient</span>
-                        <Toggle checked={st.useGrad} onChange={v => setSt_('useGrad', v)} />
-                    </div>
-                    {st.useGrad && <>
-                        <div className="grid grid-cols-2 gap-4 mb-3">
-                            <ColorPicker label="Color 1" value={st.g1} onChange={v => setSt_('g1', v)} />
-                            <ColorPicker label="Color 2" value={st.g2} onChange={v => setSt_('g2', v)} />
-                        </div>
-                        <div className="h-7 rounded-lg mb-3" style={{ background: `linear-gradient(${st.gradAngle}deg, ${st.g1}, ${st.g2})`, border: '1px solid rgba(255,255,255,0.08)' }} />
-                        <div className="flex gap-2 mb-3">
-                            {['linear','radial'].map(t => (
-                                <button key={t} onClick={() => setSt_('gradType', t)}
-                                    className="flex-1 py-1.5 rounded-lg text-xs font-medium capitalize shape-btn"
-                                    style={st.gradType === t ? { background:'rgba(34,197,94,0.15)', borderColor:'rgba(34,197,94,0.4)', color:'#4ade80' } : {}}>
-                                    {t}
-                                </button>
-                            ))}
-                        </div>
-                        {st.gradType === 'linear' && <Range label="Angle" value={st.gradAngle} onChange={v => setSt_('gradAngle', v)} min={0} max={360} unit="°" />}
-                    </>}
-                </div>
-
-                <div className="pt-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>Custom eye/pupil colors</span>
-                        <Toggle checked={st.customEye} onChange={v => setSt_('customEye', v)} />
-                    </div>
-                    {st.customEye && (
-                        <div className="grid grid-cols-2 gap-4">
-                            <ColorPicker label="Eye Color" value={st.eyeColor} onChange={v => setSt_('eyeColor', v)} />
-                            <ColorPicker label="Pupil Color" value={st.pupilColor} onChange={v => setSt_('pupilColor', v)} />
-                        </div>
-                    )}
-                </div>
-            </Acc>
-
-            {/* Shapes */}
-            <Acc title="Shapes" open={acc.shapes} onToggle={() => togAcc('shapes')}>
-                <div className="mb-4">
-                    <SectionLabel>Bit Style</SectionLabel>
-                    <div className="grid grid-cols-3 gap-2">
-                        {DOT_STYLES.map(d => (
-                            <button key={d.id} onClick={() => setSt_('dotType', d.id)}
-                                className="shape-btn py-2 rounded-xl text-xs font-medium"
-                                style={st.dotType === d.id ? { background:'rgba(34,197,94,0.15)', borderColor:'rgba(34,197,94,0.4)', color:'#4ade80' } : { color:'rgba(255,255,255,0.6)' }}>
-                                {d.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                <div className="mb-4">
-                    <SectionLabel>Eyes</SectionLabel>
-                    <div className="flex gap-2">
-                        {EYE_STYLES.map(e => (
-                            <button key={e.id} onClick={() => setSt_('eyeType', e.id)}
-                                className="flex-1 shape-btn py-2 rounded-xl text-xs font-medium"
-                                style={st.eyeType === e.id ? { background:'rgba(34,197,94,0.15)', borderColor:'rgba(34,197,94,0.4)', color:'#4ade80' } : { color:'rgba(255,255,255,0.6)' }}>
-                                {e.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-                <div>
-                    <SectionLabel>Pupils</SectionLabel>
-                    <div className="flex gap-2">
-                        {PUPIL_STYLES.map(p => (
-                            <button key={p.id} onClick={() => setSt_('pupilType', p.id)}
-                                className="flex-1 shape-btn py-2 rounded-xl text-xs font-medium"
-                                style={st.pupilType === p.id ? { background:'rgba(34,197,94,0.15)', borderColor:'rgba(34,197,94,0.4)', color:'#4ade80' } : { color:'rgba(255,255,255,0.6)' }}>
-                                {p.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </Acc>
-
-            {/* Logo */}
-            <Acc title="Logo / Image" open={acc.logo} onToggle={() => togAcc('logo')} accent="#a78bfa">
-                <div>
-                    {st.logoSrc ? (
-                        <div className="flex items-center gap-3 mb-3">
-                            <img src={st.logoSrc} alt="logo" className="w-12 h-12 rounded-lg object-contain" style={{ border:'1px solid rgba(255,255,255,0.1)' }} />
-                            <button onClick={() => setSt_('logoSrc', '')}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs"
-                                style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.2)', color:'#f87171' }}>
-                                ✕ Remove
-                            </button>
-                        </div>
-                    ) : (
-                        <button onClick={() => logoFileRef.current?.click()}
-                            className="w-full py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2 mb-3"
-                            style={{ background:'rgba(167,139,250,0.08)', border:'1px dashed rgba(167,139,250,0.3)', color:'#a78bfa' }}>
-                            📤 Upload Logo / Image
-                        </button>
-                    )}
-                    <input ref={logoFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleLogoUpload} />
-                    {!st.logoSrc && (
-                        <Inp value={st.logoSrc} onChange={v => setSt_('logoSrc', v)} placeholder="Or paste image URL..." />
-                    )}
-                    {st.logoSrc && <>
-                        <Range label="Logo Size" value={st.logoSize} onChange={v => setSt_('logoSize', v)} min={10} max={50} unit="%" />
-                        <Range label="Logo Margin" value={st.logoMargin} onChange={v => setSt_('logoMargin', v)} min={0} max={20} unit="px" />
-                        <Toggle checked={st.logoExcavate} onChange={v => setSt_('logoExcavate', v)} label="Clear dots behind logo" />
-                        <p className="text-xs mt-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tip: Use Error Correction H when adding a logo.</p>
-                    </>}
-                </div>
-            </Acc>
-        </div>
-    );
-
-    // ── Shared Preview + Download ─────────────────────────────────────────────
-    const PreviewPanel = () => (
+    // ── Preview + Download box — inlined JSX, not a sub-component ──────────
+    const previewBox = (
         <div className="liquid-glass rounded-2xl p-5 flex flex-col gap-4">
-            <SectionLabel>Preview</SectionLabel>
-            <div className="qr-checker rounded-2xl flex items-center justify-center" style={{ padding: '20px', minHeight: '220px' }}>
-                <div style={{ position:'relative', width: st.qrSize * scale + 'px', height: st.qrSize * scale + 'px', overflow:'hidden', flexShrink: 0 }}>
-                    <div ref={previewRef} style={{ position:'absolute', top:0, left:0, transform:`scale(${scale})`, transformOrigin:'top left', width: st.qrSize + 'px', height: st.qrSize + 'px' }} />
-                </div>
+            <SL>Preview</SL>
+            {/* Checkerboard container — fixed 280px, SVG scales to fill */}
+            <div className="qr-checker rounded-2xl flex items-center justify-center" style={{ padding:'16px' }}>
+                <div id="qr-preview-wrap" ref={previewRef} style={{ width:'100%', maxWidth:'280px' }} />
             </div>
 
             {/* Quick Styles */}
             <div>
                 <div className="text-xs mb-2" style={{ color:'rgba(255,255,255,0.35)' }}>Quick Styles</div>
                 <div className="flex flex-wrap gap-2">
-                    {QUICK_STYLES.map(qs => (
-                        <button key={qs.id} onClick={() => applyQuickStyle(qs)}
+                    {QUICK_STYLES.map(qs=>(
+                        <button key={qs.id} onClick={()=>applyQuickStyle(qs)}
                             className="qs-pill px-3 py-1 rounded-full text-xs font-medium"
                             style={{ color:'rgba(255,255,255,0.7)' }}>
                             {qs.label}
@@ -609,37 +553,35 @@ const App = () => {
                 </div>
             </div>
 
-            {/* Download buttons */}
+            {/* Download */}
             <div className="flex flex-col gap-2">
-                <button onClick={() => download('png')}
+                <button onClick={()=>download('png')}
                     className="dl-btn w-full py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
                     style={{ background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'black' }}>
                     ⬇️ Download PNG
                 </button>
                 <div className="grid grid-cols-3 gap-2">
-                    {[['SVG','svg'],['JPEG','jpeg'],['Copy',null]].map(([lbl, ext]) => (
-                        <button key={lbl}
-                            onClick={() => ext ? download(ext) : copyQR()}
+                    {[['SVG','svg'],['JPEG','jpeg'],['Copy',null]].map(([lbl,ext])=>(
+                        <button key={lbl} onClick={()=>ext?download(ext):copyQR()}
                             className="dl-btn py-2 rounded-xl text-sm font-medium"
                             style={{ background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.8)' }}>
-                            {lbl === 'Copy' ? (copied ? '✓ Copied' : '📋 Copy') : lbl}
+                            {lbl==='Copy'?(copied?'✓ Copied':'📋 Copy'):lbl}
                         </button>
                     ))}
                 </div>
             </div>
-
-            {/* Output size */}
             <div className="text-center text-xs" style={{ color:'rgba(255,255,255,0.25)' }}>
                 Output: {st.qrSize} × {st.qrSize}px
             </div>
         </div>
     );
 
+    const optionsProps = { st, update:updateSt, acc, togAcc, logoFileRef, onLogoUpload:handleLogoUpload };
+
     return (
         <div className="min-h-screen font-body">
             <Nav scrolled={scrolled} />
 
-            {/* Hero */}
             <div className="pt-28 pb-8 px-4 text-center">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-4"
                     style={{ background:'rgba(34,197,94,0.1)', color:'#4ade80', border:'1px solid rgba(34,197,94,0.2)' }}>
@@ -649,7 +591,7 @@ const App = () => {
                     QR Code <span style={{ color:'#22c55e' }}>Generator</span>
                 </h1>
                 <p className="text-gray-400 max-w-md mx-auto">
-                    Create beautiful, fully customizable QR codes for free. Dots, gradients, logos, batch export. No account needed.
+                    Create beautiful, fully customizable QR codes. Dots, gradients, logos, batch export. Free, no account needed.
                 </p>
             </div>
 
@@ -657,39 +599,37 @@ const App = () => {
 
                 {/* Mode tabs */}
                 <div className="flex gap-2 mb-6">
-                    {['Single', 'vCard Builder', 'Batch Mode'].map(m => (
-                        <button key={m} onClick={() => setMode(m)}
-                            className={`mode-tab px-4 py-2 rounded-xl text-sm font-semibold flex-1 sm:flex-none ${mode === m ? 'active' : ''}`}
-                            style={{ background: mode === m ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)', color: mode === m ? '#4ade80' : 'rgba(255,255,255,0.6)' }}>
+                    {['Single','vCard Builder','Batch Mode'].map(m=>(
+                        <button key={m} onClick={()=>setMode(m)}
+                            className={`mode-tab px-4 py-2 rounded-xl text-sm font-semibold flex-1 sm:flex-none ${mode===m?'active':''}`}
+                            style={{ background:mode===m?'rgba(34,197,94,0.12)':'rgba(255,255,255,0.04)', color:mode===m?'#4ade80':'rgba(255,255,255,0.6)' }}>
                             {m}
                         </button>
                     ))}
                 </div>
 
-                {/* ── Single Mode ─────────────────────────────────────────── */}
-                {mode === 'Single' && (
+                {/* ── Single ──────────────────────────────────────────────── */}
+                {mode==='Single' && (
                     <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Left: Content + Options */}
                         <div className="flex-1 min-w-0 flex flex-col gap-4">
                             <div className="liquid-glass rounded-2xl p-5">
-                                <SectionLabel>Content Type</SectionLabel>
+                                <SL>Content Type</SL>
                                 <div className="flex flex-wrap gap-2 mb-4">
-                                    {CONTENT_TYPES.map(c => (
-                                        <button key={c.id} onClick={() => setCt(c.id)}
-                                            className={`ct-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium ${ct === c.id ? 'active' : ''}`}
-                                            style={{ background: ct === c.id ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)', color: ct === c.id ? '#4ade80' : 'rgba(255,255,255,0.6)' }}>
+                                    {CONTENT_TYPES.map(c=>(
+                                        <button key={c.id} onClick={()=>setCt(c.id)}
+                                            className={`ct-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium ${ct===c.id?'active':''}`}
+                                            style={{ background:ct===c.id?'rgba(34,197,94,0.12)':'rgba(255,255,255,0.04)', color:ct===c.id?'#4ade80':'rgba(255,255,255,0.6)' }}>
                                             {c.icon} {c.label}
                                         </button>
                                     ))}
                                 </div>
                                 <ContentInputs ct={ct} s={sData} set={setS} />
                             </div>
-                            <OptionsPanel />
+                            <OptionsPanel {...optionsProps} />
                         </div>
-                        {/* Right: Preview */}
                         <div className="lg:w-72 flex flex-col gap-4">
                             <div className="lg:sticky lg:top-24">
-                                <PreviewPanel />
+                                {previewBox}
                                 <div className="liquid-glass rounded-2xl p-4 mt-4">
                                     <div className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color:'rgba(255,255,255,0.3)' }}>Tips</div>
                                     <ul className="text-xs space-y-1.5" style={{ color:'rgba(255,255,255,0.4)' }}>
@@ -704,104 +644,95 @@ const App = () => {
                     </div>
                 )}
 
-                {/* ── vCard Builder ───────────────────────────────────────── */}
-                {mode === 'vCard Builder' && (
+                {/* ── vCard ───────────────────────────────────────────────── */}
+                {mode==='vCard Builder' && (
                     <div className="flex flex-col lg:flex-row gap-6">
                         <div className="flex-1 min-w-0 flex flex-col gap-4">
                             <div className="liquid-glass rounded-2xl p-5">
-                                <SectionLabel>Contact Details</SectionLabel>
+                                <SL>Contact Details</SL>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                                    <Inp label="First Name" value={vc.firstName} onChange={v => setV('firstName', v)} placeholder="John" />
-                                    <Inp label="Last Name" value={vc.lastName} onChange={v => setV('lastName', v)} placeholder="Doe" />
-                                    <Inp label="Organization" value={vc.org} onChange={v => setV('org', v)} placeholder="Acme Inc." />
-                                    <Inp label="Job Title" value={vc.title} onChange={v => setV('title', v)} placeholder="Software Engineer" />
-                                    <Inp label="Email" value={vc.email} onChange={v => setV('email', v)} placeholder="john@example.com" />
-                                    <Inp label="Phone" value={vc.phone} onChange={v => setV('phone', v)} placeholder="+1 234 567 8900" type="tel" />
-                                    <Inp label="Website" value={vc.website} onChange={v => setV('website', v)} placeholder="https://example.com" />
-                                    <Inp label="Address" value={vc.address} onChange={v => setV('address', v)} placeholder="123 Main St, City" />
+                                    <Inp label="First Name" value={vc.firstName} onChange={v=>setV('firstName',v)} placeholder="John" />
+                                    <Inp label="Last Name" value={vc.lastName} onChange={v=>setV('lastName',v)} placeholder="Doe" />
+                                    <Inp label="Organization" value={vc.org} onChange={v=>setV('org',v)} placeholder="Acme Inc." />
+                                    <Inp label="Job Title" value={vc.title} onChange={v=>setV('title',v)} placeholder="Software Engineer" />
+                                    <Inp label="Email" value={vc.email} onChange={v=>setV('email',v)} placeholder="john@example.com" />
+                                    <Inp label="Phone" value={vc.phone} onChange={v=>setV('phone',v)} placeholder="+1 234 567 8900" type="tel" />
+                                    <Inp label="Website" value={vc.website} onChange={v=>setV('website',v)} placeholder="https://example.com" />
+                                    <Inp label="Address" value={vc.address} onChange={v=>setV('address',v)} placeholder="123 Main St, City" />
                                 </div>
                             </div>
-                            <OptionsPanel />
+                            <OptionsPanel {...optionsProps} />
                         </div>
-                        <div className="lg:w-72">
-                            <div className="lg:sticky lg:top-24">
-                                <PreviewPanel />
-                            </div>
-                        </div>
+                        <div className="lg:w-72"><div className="lg:sticky lg:top-24">{previewBox}</div></div>
                     </div>
                 )}
 
-                {/* ── Batch Mode ──────────────────────────────────────────── */}
-                {mode === 'Batch Mode' && (
+                {/* ── Batch ───────────────────────────────────────────────── */}
+                {mode==='Batch Mode' && (
                     <div className="flex flex-col lg:flex-row gap-6">
                         <div className="flex-1 min-w-0 flex flex-col gap-4">
                             <div className="liquid-glass rounded-2xl p-5">
-                                <SectionLabel>Batch Items</SectionLabel>
+                                <SL>Batch Items</SL>
                                 <p className="text-sm mb-4" style={{ color:'rgba(255,255,255,0.4)' }}>
-                                    Add one item per row (URL, text, etc.) or upload a .txt file with one item per line.
+                                    Add one URL or piece of text per row, or upload a .txt file with one item per line.
                                 </p>
-
                                 <div className="flex gap-2 mb-4">
                                     <button onClick={addBatchItem}
                                         className="flex-1 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
                                         style={{ background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.2)', color:'#4ade80' }}>
                                         + Add Item
                                     </button>
-                                    <button onClick={() => batchFileRef.current?.click()}
+                                    <button onClick={()=>batchFileRef.current?.click()}
                                         className="flex-1 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
                                         style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.7)' }}>
                                         ↑ Upload List
                                     </button>
                                     <input ref={batchFileRef} type="file" accept=".txt,text/plain" style={{ display:'none' }} onChange={handleBatchFile} />
                                 </div>
-
                                 <div className="flex flex-col gap-2 mb-4">
-                                    {batchItems.map((item, i) => (
+                                    {batchItems.map((item,i)=>(
                                         <div key={i} className="batch-row flex items-center gap-2 rounded-xl px-3 py-2">
                                             <span className="text-xs font-mono w-5 text-center" style={{ color:'rgba(255,255,255,0.3)' }}>{i+1}</span>
-                                            <input type="text" value={item} onChange={e => setBatchItem(i, e.target.value)}
+                                            <input type="text" value={item} onChange={e=>setBatchItem(i,e.target.value)}
                                                 placeholder="https://example.com or any text..."
                                                 className="flex-1 bg-transparent text-sm outline-none"
                                                 style={{ color:'white' }} />
-                                            {batchItems.length > 1 && (
-                                                <button onClick={() => removeBatchItem(i)}
+                                            {batchItems.length>1 && (
+                                                <button onClick={()=>removeBatchItem(i)}
                                                     className="text-xs px-2 py-1 rounded-lg"
-                                                    style={{ background:'rgba(239,68,68,0.08)', color:'#f87171', border:'none' }}>
+                                                    style={{ background:'rgba(239,68,68,0.08)', color:'#f87171', border:'none', cursor:'pointer' }}>
                                                     ✕
                                                 </button>
                                             )}
                                         </div>
                                     ))}
                                 </div>
-
-                                <button onClick={generateBatch} disabled={batchLoading || !batchItems.filter(Boolean).length}
-                                    className="w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all"
+                                <button onClick={generateBatch} disabled={batchLoading||!batchItems.filter(Boolean).length}
+                                    className="w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2"
                                     style={{
-                                        background: batchLoading ? 'rgba(34,197,94,0.3)' : 'linear-gradient(135deg,#16a34a,#22c55e)',
-                                        color: batchLoading ? 'rgba(0,0,0,0.5)' : 'black',
-                                        cursor: batchLoading ? 'not-allowed' : 'pointer',
+                                        background:batchLoading?'rgba(34,197,94,0.3)':'linear-gradient(135deg,#16a34a,#22c55e)',
+                                        color:batchLoading?'rgba(0,0,0,0.5)':'black',
+                                        cursor:batchLoading?'not-allowed':'pointer',
                                     }}>
-                                    {batchLoading ? '⏳ Generating...' : `📦 Generate & Download ZIP (${batchItems.filter(Boolean).length} QR codes)`}
+                                    {batchLoading?'⏳ Generating...':`📦 Generate & Download ZIP (${batchItems.filter(Boolean).length} QR codes)`}
                                 </button>
                             </div>
-
                             <div className="liquid-glass rounded-2xl p-5">
-                                <SectionLabel>About QR Codes</SectionLabel>
+                                <SL>About QR Codes</SL>
                                 <div className="text-sm space-y-1" style={{ color:'rgba(255,255,255,0.45)' }}>
                                     <p><strong style={{ color:'rgba(255,255,255,0.65)' }}>Invented by:</strong> Masahiro Hara (Denso Wave)</p>
                                     <p><strong style={{ color:'rgba(255,255,255,0.65)' }}>Year:</strong> 1994</p>
-                                    <p className="pt-1">Quick Response code, originally for automotive part tracking. Now ubiquitous for URLs, payments, menus, and more.</p>
+                                    <p className="pt-1">Quick Response code, originally for automotive tracking. Now ubiquitous for URLs, payments, menus, and more.</p>
                                 </div>
                             </div>
-
-                            <OptionsPanel />
+                            <OptionsPanel {...optionsProps} />
                         </div>
                         <div className="lg:w-72">
                             <div className="lg:sticky lg:top-24">
-                                <PreviewPanel />
-                                <div className="liquid-glass rounded-2xl p-4 mt-4 text-xs space-y-1.5" style={{ color:'rgba(255,255,255,0.4)' }}>
-                                    <div className="font-bold uppercase tracking-widest mb-2" style={{ color:'rgba(255,255,255,0.3)' }}>Preview</div>
-                                    <p>The preview shows QR #1. All batch items use the same style settings.</p>
+                                {previewBox}
+                                <div className="liquid-glass rounded-2xl p-4 mt-4 text-xs" style={{ color:'rgba(255,255,255,0.4)' }}>
+                                    <div className="font-bold uppercase tracking-widest mb-1.5" style={{ color:'rgba(255,255,255,0.3)' }}>Note</div>
+                                    <p>Preview shows QR #1. All items use the same style.</p>
                                 </div>
                             </div>
                         </div>
@@ -809,7 +740,6 @@ const App = () => {
                 )}
             </div>
 
-            {/* Footer */}
             <footer className="border-t py-8 px-4" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
                 <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div className="font-display font-bold text-lg">
