@@ -179,12 +179,13 @@ function renderBuildings() {
         const row = document.createElement('div');
         row.className = 'building-row ' + (canAfford ? 'can-afford' : 'cannot-afford');
         row.title     = b.desc;
+        const effectiveCps = (s._effectiveCps && s._effectiveCps[b.id]) || b.baseCps;
         row.innerHTML = `
             <span class="building-emoji">${b.emoji}</span>
             <div class="building-info">
                 <div class="building-name">${b.name}</div>
                 <div class="building-cost">${formatNumber(cost)} Clout${bulkMode !== 1 ? ` ×${bulkMode === 'max' ? 'max' : bulkMode}` : ''}</div>
-                <div class="building-cps">${formatNumber(b.baseCps)}/s each</div>
+                <div class="building-cps">${formatNumber(effectiveCps)}/s each${owned > 0 ? ` · ${formatNumber(effectiveCps * owned)}/s total` : ''}</div>
             </div>
             <div class="building-owned">${owned}</div>
         `;
@@ -481,6 +482,63 @@ function showIOModal() {
     overlay.classList.add('open');
 }
 
+/* ── Orbit icons ─────────────────────────────────────────── */
+let lastOrbitKey = '';
+function updateOrbitIcons() {
+    const s = GS();
+    const ring = document.getElementById('orbit-ring');
+    if (!ring) return;
+
+    // Build a key from owned building counts so we only re-render when something changes
+    const key = BUILDINGS.map(b => s.buildings[b.id] || 0).join(',');
+    if (key === lastOrbitKey) return;
+    lastOrbitKey = key;
+
+    ring.innerHTML = '';
+
+    // Show up to 8 building types you own, inner→outer rings based on tier
+    const owned = BUILDINGS.filter(b => (s.buildings[b.id] || 0) > 0);
+    if (owned.length === 0) return;
+
+    const radii = [90, 115, 140, 165, 190, 215, 240, 265];
+    const speeds = [10, 13, 16, 20, 24, 28, 32, 36]; // seconds per revolution
+
+    owned.slice(0, 8).forEach((b, i) => {
+        const radius = radii[i] || 265;
+        const speed  = speeds[i] || 36;
+        const count  = Math.min(s.buildings[b.id] || 0, 6); // max 6 icons per orbit
+        const dir    = i % 2 === 0 ? 1 : -1; // alternate clockwise/counter
+
+        for (let j = 0; j < count; j++) {
+            const startAngle = (j / count) * 360;
+            const wrapper = document.createElement('div');
+            wrapper.className = 'orbit-wrapper';
+            wrapper.style.cssText = `
+                position: absolute;
+                top: 50%; left: 50%;
+                width: 0; height: 0;
+                animation: orbit-spin ${speed}s linear infinite ${dir === -1 ? 'reverse' : ''};
+                animation-delay: ${-(j / count) * speed}s;
+            `;
+
+            const icon = document.createElement('span');
+            icon.className = 'orbit-icon';
+            icon.textContent = b.emoji;
+            icon.style.cssText = `
+                position: absolute;
+                transform: translateX(${radius}px) translateY(-50%);
+                font-size: ${Math.max(0.6, 1.1 - i * 0.07)}rem;
+                filter: drop-shadow(0 0 4px rgba(34,197,94,0.5));
+                animation: orbit-counter ${speed}s linear infinite ${dir === -1 ? '' : 'reverse'};
+                animation-delay: ${-(j / count) * speed}s;
+            `;
+
+            wrapper.appendChild(icon);
+            ring.appendChild(wrapper);
+        }
+    });
+}
+
 /* ── News ticker ─────────────────────────────────────────── */
 function initTicker() {
     const track = document.getElementById('ticker-track');
@@ -524,6 +582,9 @@ function tickUpdate(dt) {
     const activeClickMult = ge ? ge.getActiveClickMultiplier() : 1;
     const cpsEl = document.getElementById('cps-display');
     if (cpsEl) cpsEl.innerHTML = `per second: <span class="cps-val">${formatNumber(s.cps * activeCpsMult)}</span>`;
+
+    // Orbit icons update
+    updateOrbitIcons();
 
     // Partial updates based on dirty flags
     if (dirty.buildings) { renderBuildings(); dirty.buildings = false; }

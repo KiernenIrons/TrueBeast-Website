@@ -14,7 +14,11 @@ function formatNumber(n) {
     if (n >= 1e9)  return (n/1e9).toFixed(2)  + ' B';
     if (n >= 1e6)  return (n/1e6).toFixed(2)  + ' M';
     if (n >= 1e3)  return (n/1e3).toFixed(2)  + ' K';
-    return Math.floor(n).toLocaleString();
+    if (n >= 100)  return Math.floor(n).toLocaleString();
+    if (n >= 10)   return n.toFixed(1);
+    if (n >= 1)    return n.toFixed(2);
+    if (n > 0)     return n.toFixed(1);
+    return '0';
 }
 
 function formatTime(seconds) {

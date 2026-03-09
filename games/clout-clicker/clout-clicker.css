@@ -439,6 +439,25 @@ body {
     width: 100%;
 }
 
+/* Orbit ring */
+#orbit-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 1;
+}
+@keyframes orbit-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+@keyframes orbit-counter {
+    from { transform: translateX(var(--r, 90px)) translateY(-50%) rotate(0deg); }
+    to   { transform: translateX(var(--r, 90px)) translateY(-50%) rotate(-360deg); }
+}
+
 #click-target {
     font-size: 7rem;
     cursor: pointer;

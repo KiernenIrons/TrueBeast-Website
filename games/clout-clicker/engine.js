@@ -146,6 +146,12 @@ function recalculate() {
 
     s.cps        = totalCps * globalMult;
     s.clickPower = 1 * clickMult * globalMult;
+
+    // Store effective CPS per building unit so UI can display it
+    s._effectiveCps = {};
+    BUILDINGS.forEach(b => {
+        s._effectiveCps[b.id] = b.baseCps * buildingMults[b.id] * globalMult;
+    });
 }
 
 /* ── Save / Load ─────────────────────────────────────────── */
