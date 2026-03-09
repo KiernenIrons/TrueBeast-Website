@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="../../css/glass.css?v=5" />
 
     <!-- Game styles -->
-    <link rel="stylesheet" href="./clout-clicker.css" />
+    <link rel="stylesheet" href="./clout-clicker.css?v=3" />
 
     <!-- Firebase (compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -252,6 +252,9 @@
     </button>
 </nav>
 
+<!-- ── Mobile drawer backdrop ────────────────────────────── -->
+<div id="mob-backdrop"></div>
+
 <!-- ══ Golden Clout ══════════════════════════════════════════ -->
 <div id="golden-clout" title="Click the Golden Clout!">
     💛
@@ -430,31 +433,41 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// ── Mobile tab switching ──────────────────────────────────
+// ── Mobile drawer logic ───────────────────────────────────
 (function () {
-    const PANEL_IDS = { store: 'col-store', center: 'col-center', stats: 'col-stats' };
-    const tabs = document.querySelectorAll('#mobile-tabs .mob-tab');
+    const tabs     = document.querySelectorAll('#mobile-tabs .mob-tab');
+    const backdrop = document.getElementById('mob-backdrop');
+    const colStore = document.getElementById('col-store');
+    const colStats = document.getElementById('col-stats');
+    let   active   = null; // 'store' | 'stats' | null
 
-    function switchTab(panelKey) {
-        tabs.forEach(t => t.classList.remove('active'));
-        Object.values(PANEL_IDS).forEach(id => document.getElementById(id)?.classList.remove('mob-active'));
-        document.querySelector(`#mobile-tabs [data-panel="${panelKey}"]`)?.classList.add('active');
-        document.getElementById(PANEL_IDS[panelKey])?.classList.add('mob-active');
+    function close() {
+        active = null;
+        colStore.classList.remove('mob-open');
+        colStats.classList.remove('mob-open');
+        backdrop.classList.remove('open');
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.panel === 'center'));
     }
 
-    // Initialise on mobile
-    if (window.innerWidth <= 720) switchTab('center');
+    function open(panel) {
+        if (active === panel) { close(); return; }
+        active = panel;
+        colStore.classList.toggle('mob-open', panel === 'store');
+        colStats.classList.toggle('mob-open', panel === 'stats');
+        backdrop.classList.add('open');
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.panel === panel));
+    }
 
-    tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.panel)));
+    if (window.innerWidth <= 720) {
+        tabs.forEach(tab => tab.addEventListener('click', () => {
+            if (tab.dataset.panel === 'center') close();
+            else open(tab.dataset.panel);
+        }));
+        backdrop.addEventListener('click', close);
+    }
 
-    // On resize: restore desktop layout or re-init mobile
     window.addEventListener('resize', () => {
-        if (window.innerWidth > 720) {
-            Object.values(PANEL_IDS).forEach(id => document.getElementById(id)?.classList.remove('mob-active'));
-        } else {
-            const anyActive = Object.values(PANEL_IDS).some(id => document.getElementById(id)?.classList.contains('mob-active'));
-            if (!anyActive) switchTab('center');
-        }
+        if (window.innerWidth > 720) close();
     });
 })();
 
