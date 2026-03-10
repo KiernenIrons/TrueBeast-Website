@@ -365,8 +365,7 @@
                 <tr>
                     <th>Rank</th>
                     <th>Player</th>
-                    <th>Total Clout</th>
-                    <th>Viral</th>
+                    <th>All-Time Clout</th>
                     <th>CPS</th>
                     <th>Clicks</th>
                     <th>Peak CPS</th>
@@ -395,24 +394,25 @@
     <div class="modal">
         <button class="modal-close">✕</button>
         <h2>🌀 Go Viral</h2>
-        <p class="modal-sub">Reset your empire in exchange for permanent bonuses. This is the prestige system — every run you go further, faster.</p>
+        <p class="modal-sub">You're ready to go viral — the prestige system. <strong style="color:#fbbf24">Your empire resets</strong>, but you earn permanent power that makes every future run faster and stronger.</p>
 
         <div class="prestige-reward">
             <div class="reward-num" id="prestige-chip-reward">+0 Viral Chips</div>
             <div class="reward-label" id="prestige-chip-detail">Each chip gives +1% permanent CPS bonus</div>
         </div>
 
+        <div class="prestige-warning">⚠️ This will reset your current run. Your leaderboard rank is based on <strong>all-time clout across all runs</strong>, so you won't lose your spot.</div>
+
         <ul class="prestige-list">
-            <li><span class="loses">✗</span> You lose all current Clout</li>
-            <li><span class="loses">✗</span> You lose all buildings</li>
-            <li><span class="loses">✗</span> You lose all upgrades</li>
+            <li><span class="loses">✗</span> You lose all current Clout &amp; buildings</li>
+            <li><span class="loses">✗</span> You lose all upgrades (except prestige ones)</li>
             <li><span class="keeps">✓</span> You KEEP all achievements</li>
-            <li><span class="keeps">✓</span> You KEEP Viral Chips</li>
+            <li><span class="keeps">✓</span> You KEEP Viral Chips &amp; prestige upgrades</li>
             <li><span class="keeps">✓</span> You KEEP your Golden Clout click count</li>
-            <li><span class="keeps">✓</span> Prestige upgrades are purchasable with Viral Chips</li>
+            <li><span class="keeps">✓</span> Your <strong>all-time leaderboard clout is preserved</strong></li>
         </ul>
 
-        <button class="prestige-confirm-btn" id="prestige-confirm-btn">🔄 Go Viral Now</button>
+        <button class="prestige-confirm-btn" id="prestige-confirm-btn">🌀 Go Viral Now</button>
     </div>
 </div>
 

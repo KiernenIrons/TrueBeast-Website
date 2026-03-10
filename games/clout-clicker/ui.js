@@ -592,7 +592,7 @@ async function showLeaderboardModal() {
     overlay.classList.add('open');
 
     const tbody = overlay.querySelector('#lb-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="lb-empty">Loading...</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="lb-empty">Loading...</td></tr>';
 
     const ge = window.GameEngine;
     if (!ge) return;
@@ -600,28 +600,52 @@ async function showLeaderboardModal() {
 
     if (!tbody) return;
     if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
         return;
     }
 
     tbody.innerHTML = rows.map((r, i) => {
-        const rank = i + 1;
+        const rank      = i + 1;
         const rankClass = rank <= 3 ? `r${rank}` : '';
+        const prestige  = r.prestigeLevel || 0;
+        const viral     = prestige > 0;
+        const allTime   = r.allTimeCloutEver || r.totalCloutEver || 0;
         const avatarHtml = r.photoURL
             ? `<img src="${r.photoURL}" class="lb-avatar-img" alt="" />`
             : `<span class="lb-avatar-init">${(r.displayName || '?')[0].toUpperCase()}</span>`;
+        const viralBadge = viral ? `<span class="lb-viral-badge">🌀${prestige > 1 ? ' ×' + prestige : ''}</span>` : '';
         return `
-            <tr>
+            <tr class="${viral ? 'lb-row-viral' : ''}">
                 <td><span class="lb-rank ${rankClass}">#${rank}</span></td>
-                <td><div class="lb-player-cell">${avatarHtml}<span>${escapeHtml(r.displayName || 'Anonymous')}</span></div></td>
-                <td>${formatNumber(r.totalCloutEver || 0)}</td>
-                <td>${r.prestigeLevel || 0}</td>
+                <td><div class="lb-player-cell">${avatarHtml}<span>${escapeHtml(r.displayName || 'Anonymous')}</span>${viralBadge}</div></td>
+                <td class="${viral ? 'lb-alltime-gold' : ''}">${formatNumber(allTime)}</td>
                 <td>${formatNumber(r.cps || 0)}/s</td>
                 <td>${formatNumber(r.clicks || 0)}</td>
                 <td>${r.peakClickCps ? r.peakClickCps.toFixed(1) + '/s' : '—'}</td>
             </tr>
         `;
     }).join('');
+
+    // Sparkle particles on viral rows
+    setTimeout(() => {
+        tbody.querySelectorAll('.lb-row-viral').forEach(row => _spawnLbSparkles(row));
+    }, 80);
+}
+
+function _spawnLbSparkles(row) {
+    const rect = row.getBoundingClientRect();
+    if (!rect.width) return;
+    const PARTICLES = 12;
+    for (let i = 0; i < PARTICLES; i++) {
+        const p = document.createElement('span');
+        p.className = 'lb-sparkle';
+        p.textContent = ['✨','⭐','🌟','💛'][Math.floor(Math.random() * 4)];
+        const delay = (Math.random() * 1.5).toFixed(2);
+        const dur   = (1.2 + Math.random()).toFixed(2);
+        p.style.cssText = `left:${Math.random() * 100}%;top:${Math.random() * 100}%;--delay:${delay}s;--dur:${dur}s;`;
+        row.style.position = 'relative';
+        row.appendChild(p);
+    }
 }
 
 function escapeHtml(str) {

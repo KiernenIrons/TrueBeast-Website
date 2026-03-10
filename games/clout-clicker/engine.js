@@ -39,6 +39,7 @@ function defaultState() {
     return {
         clout:            0,
         totalCloutEver:   0,
+        allTimeCloutEver: 0,
         cps:              0,
         clickPower:       1,
         clicks:           0,
@@ -162,6 +163,7 @@ function serializeState() {
     const data = {
         clout:            s.clout,
         totalCloutEver:   s.totalCloutEver,
+        allTimeCloutEver: s.allTimeCloutEver || s.totalCloutEver || 0,
         clicks:           s.clicks,
         buildings:        { ...s.buildings },
         upgrades:         [...s.upgrades],
@@ -191,6 +193,7 @@ function deserializeState(data) {
     const s = window.GameState;
     s.clout            = data.clout            || 0;
     s.totalCloutEver   = data.totalCloutEver   || 0;
+    s.allTimeCloutEver = data.allTimeCloutEver || data.totalCloutEver || 0;
     s.clicks           = data.clicks           || 0;
     s.buildings        = data.buildings        || {};
     s.upgrades         = new Set(data.upgrades || []);
@@ -322,15 +325,17 @@ async function saveToFirebase() {
 
     // 4. Leaderboard — always, independent of everything above
     try {
+        const s = window.GameState;
         await fbDb.collection('clout-clicker-leaderboard').doc(uid).set({
-            displayName:    window.GameState.displayName || fbAuth.currentUser.email.split('@')[0],
-            photoURL:       window.GameState.photoURL || '',
-            peakClickCps:   window.GameState.peakClickCps || 0,
-            totalCloutEver: window.GameState.totalCloutEver,
-            prestigeLevel:  window.GameState.prestigeLevel,
-            cps:            window.GameState.cps,
-            clicks:         window.GameState.clicks,
-            lastUpdated:    now,
+            displayName:      s.displayName || fbAuth.currentUser.email.split('@')[0],
+            photoURL:         s.photoURL || '',
+            peakClickCps:     s.peakClickCps || 0,
+            totalCloutEver:   s.totalCloutEver,
+            allTimeCloutEver: s.allTimeCloutEver || s.totalCloutEver || 0,
+            prestigeLevel:    s.prestigeLevel,
+            cps:              s.cps,
+            clicks:           s.clicks,
+            lastUpdated:      now,
         });
     } catch(e) { console.warn('Firebase leaderboard update failed:', e); }
 }
@@ -806,8 +811,11 @@ function prestige() {
             .catch(() => {});
     }
 
+    // Accumulate into all-time total before wiping
+    s.allTimeCloutEver = (s.allTimeCloutEver || 0) + (s.totalCloutEver || 0);
+
     s.clout          = 0;
-    s.totalCloutEver = 0;  // reset for this run; chips track cross-run progress
+    s.totalCloutEver = 0;
     s.buildings      = {};
     s.upgrades       = new Set();
     s.cps            = 0;
@@ -982,13 +990,22 @@ async function fetchLeaderboard() {
     if (!fbDb) return [];
     try {
         const snap = await fbDb.collection('clout-clicker-leaderboard')
-            .orderBy('totalCloutEver', 'desc')
+            .orderBy('allTimeCloutEver', 'desc')
             .limit(25)
             .get();
         return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch(e) {
-        console.warn('Leaderboard fetch failed:', e);
-        return [];
+        // Fallback to totalCloutEver if index not yet built
+        try {
+            const snap2 = await fbDb.collection('clout-clicker-leaderboard')
+                .orderBy('totalCloutEver', 'desc')
+                .limit(25)
+                .get();
+            return snap2.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch(e2) {
+            console.warn('Leaderboard fetch failed:', e2);
+            return [];
+        }
     }
 }
 
@@ -1079,7 +1096,7 @@ async function init() {
         // Set any state fields directly. e.g.: _ccAdmin.set({ totalCloutEver: 1e12, clout: 1e12 })
         set(overrides) {
             const s = window.GameState;
-            const allowed = ['clout','totalCloutEver','clicks','goldenCloutClicks',
+            const allowed = ['clout','totalCloutEver','allTimeCloutEver','clicks','goldenCloutClicks',
                 'prestigeLevel','viralChips','cps','clickPower','peakClickCps',
                 'frenzyCount','clickFrenzyCount','timePlayed'];
             allowed.forEach(k => {

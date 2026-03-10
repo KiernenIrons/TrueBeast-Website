@@ -1358,6 +1358,50 @@ body {
     color: rgba(255,255,255,0.8);
 }
 .lb-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* Viral / prestige rows — gold shimmer */
+.lb-row-viral { position: relative; overflow: hidden; }
+.lb-row-viral td {
+    background: linear-gradient(90deg, rgba(251,191,36,0.08), rgba(245,158,11,0.04));
+    border-bottom-color: rgba(251,191,36,0.2);
+}
+.lb-row-viral:hover td { background: rgba(251,191,36,0.12) !important; }
+.lb-alltime-gold {
+    color: #fbbf24 !important;
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(251,191,36,0.5);
+}
+.lb-viral-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #f59e0b, #fbbf24);
+    color: #000;
+    font-size: 0.65rem;
+    font-weight: 800;
+    padding: 0.1rem 0.4rem;
+    border-radius: 20px;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    box-shadow: 0 0 8px rgba(251,191,36,0.5);
+    animation: viralBadgePulse 2s ease-in-out infinite;
+}
+@keyframes viralBadgePulse {
+    0%,100% { box-shadow: 0 0 6px rgba(251,191,36,0.4); }
+    50%      { box-shadow: 0 0 18px rgba(251,191,36,0.95); }
+}
+.lb-sparkle {
+    position: absolute;
+    pointer-events: none;
+    font-size: 0.8rem;
+    opacity: 0;
+    animation: lbSparkle var(--dur, 1.5s) ease-in-out var(--delay, 0s) infinite;
+}
+@keyframes lbSparkle {
+    0%   { opacity: 0;   transform: translateY(0)    scale(0.4); }
+    30%  { opacity: 1;   transform: translateY(-10px) scale(1);   }
+    70%  { opacity: 0.5; transform: translateY(-20px) scale(0.7); }
+    100% { opacity: 0;   transform: translateY(-30px) scale(0.2); }
+}
+
 .lb-rank {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
@@ -1427,6 +1471,16 @@ body {
     font-size: 0.82rem;
     color: rgba(255,255,255,0.6);
     margin-top: 0.2rem;
+}
+.prestige-warning {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.35);
+    border-radius: 8px;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.78rem;
+    color: #fbbf24;
+    margin-bottom: 0.9rem;
+    line-height: 1.4;
 }
 .prestige-list {
     list-style: none;
