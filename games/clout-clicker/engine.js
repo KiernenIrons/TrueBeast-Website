@@ -284,49 +284,41 @@ function getLocalBackups() {
     return backups.sort((a, b) => b.totalCloutEver - a.totalCloutEver);
 }
 
-let _lastBackupScore = 0;
-
 async function saveToFirebase() {
     if (!fbDb || !fbAuth || !fbAuth.currentUser) return;
     const uid  = fbAuth.currentUser.uid;
     const data = serializeState();
     const currentTotal = data.totalCloutEver || 0;
+    const now  = firebase.firestore.FieldValue.serverTimestamp();
 
     // 1. Main save — always
     try {
         await fbDb.collection('clout-clicker-saves').doc(uid).set(data);
     } catch(e) { console.warn('Firebase main save failed:', e); }
 
-    // 2. Peak save — independent, only if score improved
+    // 2. Peak doc — only written when totalCloutEver is a new high (never goes down)
     try {
         const peakRef = fbDb.collection('clout-clicker-peak').doc(uid);
         const peakDoc = await peakRef.get();
         if (!peakDoc.exists || currentTotal > (peakDoc.data().totalCloutEver || 0)) {
-            await peakRef.set({ ...data, peakedAt: firebase.firestore.FieldValue.serverTimestamp() });
+            await peakRef.set({ ...data, peakedAt: now });
         }
     } catch(e) { console.warn('Firebase peak save failed:', e); }
 
-    // 3. Rolling backups — independent, write snapshot if score improved >1%
+    // 3. Rolling snapshots — written on every save, pruned to 20 most recent
+    //    Uses saveTime (client ms) as doc ID so no Firestore index needed for sorting
     try {
-        if (currentTotal > _lastBackupScore * 1.01 || _lastBackupScore === 0) {
-            _lastBackupScore = currentTotal;
-            const backupsRef = fbDb.collection('clout-clicker-saves').doc(uid).collection('backups');
-            await backupsRef.doc().set({ ...data, backedUpAt: firebase.firestore.FieldValue.serverTimestamp() });
-            // Prune: fetch all sorted client-side to avoid needing a Firestore index
-            const all = await backupsRef.get();
-            if (all.size > 7) {
-                const sorted = all.docs.sort((a, b) => {
-                    const at = a.data().backedUpAt;
-                    const bt = b.data().backedUpAt;
-                    const an = at && at.toMillis ? at.toMillis() : 0;
-                    const bn = bt && bt.toMillis ? bt.toMillis() : 0;
-                    return an - bn;
-                });
-                const toDelete = sorted.slice(0, all.size - 7);
-                await Promise.all(toDelete.map(d => d.ref.delete()));
-            }
+        const backupsRef = fbDb.collection('clout-clicker-saves').doc(uid).collection('backups');
+        const snapId = String(data.saveTime || Date.now());
+        await backupsRef.doc(snapId).set({ ...data, backedUpAt: now });
+        // Prune: list all docs, sort by numeric ID (= saveTime), delete oldest beyond 20
+        const all = await backupsRef.get();
+        if (all.size > 20) {
+            const sorted = all.docs.slice().sort((a, b) => Number(a.id) - Number(b.id));
+            const toDelete = sorted.slice(0, all.size - 20);
+            await Promise.all(toDelete.map(d => d.ref.delete()));
         }
-    } catch(e) { console.warn('Firebase backup failed:', e); }
+    } catch(e) { console.warn('Firebase snapshot failed:', e); }
 
     // 4. Leaderboard — always, independent of everything above
     try {
@@ -338,7 +330,7 @@ async function saveToFirebase() {
             prestigeLevel:  window.GameState.prestigeLevel,
             cps:            window.GameState.cps,
             clicks:         window.GameState.clicks,
-            lastUpdated:    firebase.firestore.FieldValue.serverTimestamp(),
+            lastUpdated:    now,
         });
     } catch(e) { console.warn('Firebase leaderboard update failed:', e); }
 }
@@ -347,23 +339,29 @@ async function loadFromFirebase() {
     if (!fbDb || !fbAuth || !fbAuth.currentUser) return false;
     const uid = fbAuth.currentUser.uid;
     try {
-        const doc = await fbDb.collection('clout-clicker-saves').doc(uid).get();
-        if (!doc.exists) return false;
+        // Fetch both main save and peak doc in parallel
+        const [mainDoc, peakDoc] = await Promise.all([
+            fbDb.collection('clout-clicker-saves').doc(uid).get(),
+            fbDb.collection('clout-clicker-peak').doc(uid).get(),
+        ]);
 
-        const cloudData = doc.data();
-        const localData = _readLocalRaw();
+        if (!mainDoc.exists && !peakDoc.exists) return false;
 
-        const cloudTotal = cloudData.totalCloutEver || 0;
-        const localTotal = localData ? (localData.totalCloutEver || 0) : 0;
+        const mainData = mainDoc.exists ? mainDoc.data() : null;
+        const peakData = peakDoc.exists ? peakDoc.data() : null;
 
-        if (localData && localTotal > cloudTotal) {
-            // Local has MORE progress — keep it and push up to cloud
-            console.log(`[Save] Local (${localTotal}) > Cloud (${cloudTotal}) — keeping local, syncing to cloud`);
-            deserializeState(localData);
-            // Async push local up to cloud without blocking
-            saveToFirebase().catch(() => {});
+        const mainTotal = mainData ? (mainData.totalCloutEver || 0) : 0;
+        const peakTotal = peakData ? (peakData.totalCloutEver || 0) : 0;
+
+        // Always load whichever cloud source has the highest score
+        if (peakTotal > mainTotal) {
+            console.log(`[Save] Peak (${peakTotal}) > Main (${mainTotal}) — loading peak, repairing main save`);
+            deserializeState(peakData);
+            saveToFirebase().catch(() => {}); // repair the main save
+        } else if (mainData) {
+            deserializeState(mainData);
         } else {
-            deserializeState(cloudData);
+            deserializeState(peakData);
         }
         return true;
     } catch(e) {
@@ -376,19 +374,17 @@ async function fetchCloudBackups() {
     if (!fbDb || !fbAuth || !fbAuth.currentUser) return [];
     const uid = fbAuth.currentUser.uid;
     try {
-        // Get rolling backups
-        const snap = await fbDb.collection('clout-clicker-saves').doc(uid)
-                               .collection('backups')
-                               .orderBy('backedUpAt', 'desc').limit(7).get();
-        const backups = snap.docs.map(d => ({
-            id:             d.id,
-            data:           d.data(),
-            totalCloutEver: d.data().totalCloutEver || 0,
-            saveTime:       d.data().saveTime || 0,
-            label:          '☁️ Cloud snapshot',
-        }));
-        // Get peak
-        const peakDoc = await fbDb.collection('clout-clicker-peak').doc(uid).get();
+        const [snap, peakDoc] = await Promise.all([
+            fbDb.collection('clout-clicker-saves').doc(uid).collection('backups').get(),
+            fbDb.collection('clout-clicker-peak').doc(uid).get(),
+        ]);
+        // Sort by doc ID (= saveTime ms) descending — no Firestore index needed
+        const backups = snap.docs
+            .slice().sort((a, b) => Number(b.id) - Number(a.id))
+            .map(d => {
+                const dd = d.data();
+                return { id: d.id, data: dd, totalCloutEver: dd.totalCloutEver || 0, saveTime: Number(d.id), label: '☁️ Cloud snapshot' };
+            });
         if (peakDoc.exists) {
             const pd = peakDoc.data();
             backups.unshift({ id: 'peak', data: pd, totalCloutEver: pd.totalCloutEver || 0, saveTime: pd.saveTime || 0, label: '⭐ Cloud Peak' });
@@ -402,8 +398,8 @@ async function fetchCloudBackups() {
 
 function restoreFromBackup(data) {
     deserializeState(data);
-    saveToLocalStorage();
     saveToFirebase().catch(() => {});
+    saveToLocalStorage(); // belt-and-suspenders local copy
     window.GameUI && window.GameUI.markDirty();
     window.GameUI && window.GameUI.fullRender();
 }
@@ -799,6 +795,16 @@ function calcViralChips(totalEver) {
 function prestige() {
     const s    = window.GameState;
     const chips = calcViralChips(s.totalCloutEver);
+
+    // Snapshot pre-prestige state to cloud before wiping anything
+    if (fbDb && fbAuth && fbAuth.currentUser) {
+        const uid = fbAuth.currentUser.uid;
+        const snapshot = serializeState();
+        const snapId = 'pre-prestige-' + Date.now();
+        fbDb.collection('clout-clicker-saves').doc(uid).collection('backups').doc(snapId)
+            .set({ ...snapshot, label: '🌀 Pre-Prestige', backedUpAt: firebase.firestore.FieldValue.serverTimestamp() })
+            .catch(() => {});
+    }
 
     s.clout          = 0;
     s.totalCloutEver = 0;  // reset for this run; chips track cross-run progress

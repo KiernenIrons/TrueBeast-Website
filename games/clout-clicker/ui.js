@@ -649,17 +649,12 @@ async function showIOModal() {
     backupList.innerHTML = '<div class="backup-loading">Loading backups…</div>';
 
     const { formatNumber } = window.GameData;
-    const [cloudBackups, localBackups] = await Promise.all([
-        ge.fetchCloudBackups().catch(() => []),
-        Promise.resolve(ge.getLocalBackups()),
-    ]);
-
-    const allBackups = [...cloudBackups, ...localBackups]
-        .sort((a, b) => b.totalCloutEver - a.totalCloutEver)
-        .slice(0, 10);
+    const allBackups = await ge.fetchCloudBackups().catch(() => []);
 
     if (allBackups.length === 0) {
-        backupList.innerHTML = '<div class="backup-loading">No backups yet.</div>';
+        backupList.innerHTML = '<div class="backup-loading">' +
+            (window.GameState.isLoggedIn ? 'No cloud backups yet — play a bit and save.' : 'Sign in to see your cloud backups.') +
+            '</div>';
         return;
     }
 
