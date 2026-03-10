@@ -558,6 +558,18 @@ body {
     to   { transform: rotate(360deg); }
 }
 
+/* Override reduced-motion for core gameplay animations */
+@media (prefers-reduced-motion: reduce) {
+    .orbit-arm {
+        animation-duration: 12s !important;
+        animation-iteration-count: infinite !important;
+    }
+    .orbit-arm span {
+        animation-duration: 10s !important;
+        animation-iteration-count: infinite !important;
+    }
+}
+
 /* Orbit icon sequential pulse wave */
 @keyframes iconPulse {
     0%   { transform: translateY(-50%) rotate(-90deg) scale(1);    opacity: 0.8; filter: none; }
