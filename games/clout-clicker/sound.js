@@ -247,9 +247,6 @@ function initAudioUI() {
     updateUI();
     updateMusicUI();
 
-    // Pre-load the YT API early so it's ready by first click
-    loadYTAPI();
-
     btn.addEventListener('click', () => {
         getCtx();
         pop.classList.toggle('open');
@@ -285,14 +282,18 @@ function initAudioUI() {
         musicSlider.addEventListener('input', () => setMusicVolume(musicSlider.value / 100));
     }
 
-    // Start music on first user interaction (browser autoplay policy)
-    function onFirstInteraction() {
-        if (_musicEnabled) startMusic();
-        document.removeEventListener('click',   onFirstInteraction);
-        document.removeEventListener('keydown', onFirstInteraction);
+    // Only load YouTube API + start music if the user hasn't disabled it.
+    // Not pre-loading is intentional — instantiating a YT player claims OS audio
+    // focus on mobile even when paused, which interrupts Spotify etc.
+    if (_musicEnabled) {
+        function onFirstInteraction() {
+            startMusic();
+            document.removeEventListener('click',   onFirstInteraction);
+            document.removeEventListener('keydown', onFirstInteraction);
+        }
+        document.addEventListener('click',   onFirstInteraction);
+        document.addEventListener('keydown', onFirstInteraction);
     }
-    document.addEventListener('click',   onFirstInteraction);
-    document.addEventListener('keydown', onFirstInteraction);
 }
 
 if (document.readyState === 'loading') {
