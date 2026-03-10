@@ -1402,6 +1402,12 @@ body {
     100% { opacity: 0;   transform: translateY(-30px) scale(0.2); }
 }
 
+.lb-viral-count {
+    color: #fbbf24;
+    font-weight: 700;
+    font-size: 0.8rem;
+}
+
 .lb-rank {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;

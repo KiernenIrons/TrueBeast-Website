@@ -989,23 +989,23 @@ async function updateProfilePhoto(base64) {
 async function fetchLeaderboard() {
     if (!fbDb) return [];
     try {
+        // Fetch top 50 by totalCloutEver (field every doc has) then re-sort
+        // client-side by allTimeCloutEver so prestige players rank correctly
+        // even before their allTimeCloutEver field exists on older docs.
         const snap = await fbDb.collection('clout-clicker-leaderboard')
-            .orderBy('allTimeCloutEver', 'desc')
-            .limit(25)
+            .orderBy('totalCloutEver', 'desc')
+            .limit(50)
             .get();
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // allTimeCloutEver falls back to totalCloutEver for docs that predate the field
+        rows.sort((a, b) =>
+            (b.allTimeCloutEver || b.totalCloutEver || 0) -
+            (a.allTimeCloutEver || a.totalCloutEver || 0)
+        );
+        return rows.slice(0, 25);
     } catch(e) {
-        // Fallback to totalCloutEver if index not yet built
-        try {
-            const snap2 = await fbDb.collection('clout-clicker-leaderboard')
-                .orderBy('totalCloutEver', 'desc')
-                .limit(25)
-                .get();
-            return snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-        } catch(e2) {
-            console.warn('Leaderboard fetch failed:', e2);
-            return [];
-        }
+        console.warn('Leaderboard fetch failed:', e);
+        return [];
     }
 }
 

@@ -592,7 +592,7 @@ async function showLeaderboardModal() {
     overlay.classList.add('open');
 
     const tbody = overlay.querySelector('#lb-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="lb-empty">Loading...</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">Loading...</td></tr>';
 
     const ge = window.GameEngine;
     if (!ge) return;
@@ -600,7 +600,7 @@ async function showLeaderboardModal() {
 
     if (!tbody) return;
     if (rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
         return;
     }
 
@@ -619,6 +619,7 @@ async function showLeaderboardModal() {
                 <td><span class="lb-rank ${rankClass}">#${rank}</span></td>
                 <td><div class="lb-player-cell">${avatarHtml}<span>${escapeHtml(r.displayName || 'Anonymous')}</span>${viralBadge}</div></td>
                 <td class="${viral ? 'lb-alltime-gold' : ''}">${formatNumber(allTime)}</td>
+                <td>${viral ? `<span class="lb-viral-count">🌀 ×${prestige}</span>` : '—'}</td>
                 <td>${formatNumber(r.cps || 0)}/s</td>
                 <td>${formatNumber(r.clicks || 0)}</td>
                 <td>${r.peakClickCps ? r.peakClickCps.toFixed(1) + '/s' : '—'}</td>
