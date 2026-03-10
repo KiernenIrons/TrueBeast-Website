@@ -1316,6 +1316,22 @@ function initPageParticles() {
     requestAnimationFrame(tick);
 }
 
+/* ── Auth error messages ─────────────────────────────────── */
+function friendlyAuthError(err) {
+    const map = {
+        'auth/invalid-email':            'That doesn\'t look like a valid email address.',
+        'auth/user-not-found':           'No account found with that email.',
+        'auth/wrong-password':           'Wrong password. Try again.',
+        'auth/invalid-credential':       'Email or password is incorrect.',
+        'auth/email-already-in-use':     'An account with that email already exists. Try signing in instead.',
+        'auth/weak-password':            'Password must be at least 6 characters.',
+        'auth/too-many-requests':        'Too many failed attempts. Try again in a few minutes.',
+        'auth/network-request-failed':   'Network error — check your connection and try again.',
+        'auth/user-disabled':            'This account has been disabled.',
+    };
+    return map[err.code] || err.message || 'Something went wrong. Please try again.';
+}
+
 /* ── Auth form ───────────────────────────────────────────── */
 function initAuthForm() {
     const modal = document.getElementById('modal-auth');
@@ -1359,7 +1375,7 @@ function initAuthForm() {
             modal.classList.remove('open');
             showToast('info', '👋 Signed in!', 'Loading your cloud save...');
         } catch (err) {
-            if (errorEl) errorEl.textContent = err.message || 'Sign in failed.';
+            if (errorEl) errorEl.textContent = friendlyAuthError(err);
         } finally {
             btn.disabled = false;
             btn.textContent = 'Sign In';
@@ -1387,10 +1403,10 @@ function initAuthForm() {
         try {
             await window.GameEngine.signUp(email, password, displayName);
             modal.classList.remove('open');
-            showToast('info', '🎉 Account created!', `Welcome, ${displayName}!`);
-            updatePlayerCard(); // ensure nav + right column reflect the new account
+            showToast('info', '🎉 Account created!', `Welcome, ${displayName}! You're signed in.`);
+            updatePlayerCard();
         } catch (err) {
-            if (errorEl) errorEl.textContent = err.message || 'Sign up failed.';
+            if (errorEl) errorEl.textContent = friendlyAuthError(err);
         } finally {
             btn.disabled = false;
             btn.textContent = 'Create Account';

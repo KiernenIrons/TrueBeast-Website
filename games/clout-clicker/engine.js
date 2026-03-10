@@ -932,11 +932,12 @@ async function signIn(email, password) {
 async function signUp(email, password, displayName) {
     if (!fbAuth) throw new Error('Firebase not available');
     const cred = await fbAuth.createUserWithEmailAndPassword(email, password);
-    await cred.user.updateProfile({ displayName });
-    // onAuthStateChanged fires before updateProfile completes, so patch state now
+    // Patch state immediately so UI can reflect sign-in before onAuthStateChanged resolves
     window.GameState.isLoggedIn  = true;
     window.GameState.userId      = cred.user.uid;
     window.GameState.displayName = displayName;
+    // updateProfile is best-effort — don't let it block or break sign-in flow
+    cred.user.updateProfile({ displayName }).catch(() => {});
     return cred.user;
 }
 
@@ -1055,6 +1056,39 @@ async function init() {
         getActiveClickMultiplier,
         serializeState,
         deserializeState,
+    };
+
+    /* ── Admin tool (owner-only, use from DevTools console) ── */
+    window._ccAdmin = {
+        // Set any state fields directly. e.g.: _ccAdmin.set({ totalCloutEver: 1e12, clout: 1e12 })
+        set(overrides) {
+            const s = window.GameState;
+            const allowed = ['clout','totalCloutEver','clicks','goldenCloutClicks',
+                'prestigeLevel','viralChips','cps','clickPower','peakClickCps',
+                'frenzyCount','clickFrenzyCount','timePlayed'];
+            allowed.forEach(k => {
+                if (overrides[k] !== undefined) s[k] = Number(overrides[k]);
+            });
+            if (overrides.displayName !== undefined) s.displayName = overrides.displayName;
+            recalculate();
+            checkAchievements();
+            saveToLocalStorage();
+            saveToFirebase().catch(() => {});
+            window.GameUI && window.GameUI.fullRender();
+            console.log('[Admin] State updated:', overrides);
+        },
+        // Unlock all currently-conditional upgrades
+        unlockAllUpgrades() {
+            UPGRADES.filter(u => !u.isPrestigeUpgrade).forEach(u => window.GameState.upgrades.add(u.id));
+            recalculate();
+            window.GameUI && window.GameUI.fullRender();
+            console.log('[Admin] All upgrades unlocked.');
+        },
+        // Show current key stats
+        stats() {
+            const s = window.GameState;
+            console.table({ clout: s.clout, totalCloutEver: s.totalCloutEver, cps: s.cps, clicks: s.clicks, prestige: s.prestigeLevel });
+        },
     };
 }
 
