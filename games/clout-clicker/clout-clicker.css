@@ -1555,6 +1555,45 @@ body {
     color: #000;
     border-color: transparent;
 }
+.backup-loading {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+    padding: 0.5rem 0;
+}
+.backup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 8px;
+    margin-bottom: 0.4rem;
+}
+.backup-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+.backup-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.backup-meta {
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.45);
+}
+.backup-restore-btn {
+    flex-shrink: 0;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+}
 
 /* ── Audio popover ───────────────────────────────────────── */
 #audio-popover {

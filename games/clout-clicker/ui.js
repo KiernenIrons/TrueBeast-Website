@@ -635,13 +635,56 @@ function showAuthModal() {
 }
 
 /* ── Import/Export modal ─────────────────────────────────── */
-function showIOModal() {
+async function showIOModal() {
     const overlay = document.getElementById('modal-io');
     if (!overlay) return;
     const ge = window.GameEngine;
     const exportTA = document.getElementById('export-textarea');
     if (exportTA && ge) exportTA.value = ge.exportSave();
     overlay.classList.add('open');
+
+    // Load backups
+    const backupList = document.getElementById('backup-list');
+    if (!backupList || !ge) return;
+    backupList.innerHTML = '<div class="backup-loading">Loading backups…</div>';
+
+    const { formatNumber } = window.GameData;
+    const [cloudBackups, localBackups] = await Promise.all([
+        ge.fetchCloudBackups().catch(() => []),
+        Promise.resolve(ge.getLocalBackups()),
+    ]);
+
+    const allBackups = [...cloudBackups, ...localBackups]
+        .sort((a, b) => b.totalCloutEver - a.totalCloutEver)
+        .slice(0, 10);
+
+    if (allBackups.length === 0) {
+        backupList.innerHTML = '<div class="backup-loading">No backups yet.</div>';
+        return;
+    }
+
+    backupList.innerHTML = allBackups.map((b, i) => {
+        const date = b.saveTime ? new Date(b.saveTime).toLocaleString() : 'Unknown time';
+        const clout = formatNumber(b.totalCloutEver || 0);
+        return `<div class="backup-row">
+            <div class="backup-info">
+                <span class="backup-label">${escapeHtml(b.label)}</span>
+                <span class="backup-meta">${clout} Clout · ${date}</span>
+            </div>
+            <button class="io-btn backup-restore-btn" data-idx="${i}">Restore</button>
+        </div>`;
+    }).join('');
+
+    backupList.querySelectorAll('.backup-restore-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const b = allBackups[parseInt(btn.dataset.idx)];
+            if (!b) return;
+            if (!confirm(`Restore to "${b.label}" (${formatNumber(b.totalCloutEver)} Clout)? Your current session will be replaced.`)) return;
+            ge.restoreFromBackup(b.data);
+            overlay.classList.remove('open');
+            showToast('save', '✅ Restored!', `Loaded backup: ${b.label}`);
+        });
+    });
 }
 
 /* ── Orbit icons ─────────────────────────────────────────── */
