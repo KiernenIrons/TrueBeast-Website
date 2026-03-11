@@ -610,11 +610,13 @@ async function _refreshLeaderboardTable() {
             ? `<img src="${r.photoURL}" class="lb-avatar-img" alt="" />`
             : `<span class="lb-avatar-init">${(r.displayName || '?')[0].toUpperCase()}</span>`;
         const viralBadge = viral ? `<span class="lb-viral-badge">🌀${prestige > 1 ? ' ×' + prestige : ''}</span>` : '';
+        const rowClass   = rank <= 3 ? `lb-row-r${rank}` : (viral ? 'lb-row-viral' : '');
+        const timeClass  = rank <= 3 ? `lb-alltime-r${rank}` : (viral ? 'lb-alltime-gold' : '');
         return `
-            <tr class="${viral ? 'lb-row-viral' : ''}">
+            <tr class="${rowClass}">
                 <td><span class="lb-rank ${rankClass}">#${rank}</span></td>
                 <td><div class="lb-player-cell">${avatarHtml}<span>${escapeHtml(r.displayName || 'Anonymous')}</span>${viralBadge}</div></td>
-                <td class="${viral ? 'lb-alltime-gold' : ''}">${formatNumber(allTime)}</td>
+                <td class="${timeClass}">${formatNumber(allTime)}</td>
                 <td>${viral ? `<span class="lb-viral-count">🌀 ×${prestige}</span>` : '—'}</td>
                 <td>${formatNumber(r.cps || 0)}/s</td>
                 <td>${formatNumber(r.clicks || 0)}</td>
@@ -623,7 +625,7 @@ async function _refreshLeaderboardTable() {
         `;
     }).join('');
     setTimeout(() => {
-        tbody.querySelectorAll('.lb-row-viral').forEach(row => _spawnLbSparkles(row));
+        tbody.querySelectorAll('.lb-row-r1, .lb-row-r2, .lb-row-r3').forEach(row => _spawnLbSparkles(row));
     }, 80);
 }
 
