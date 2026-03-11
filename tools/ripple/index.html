@@ -206,7 +206,7 @@
         .dc-username { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 2px; }
         .dc-timestamp { font-size: 11px; color: #87898c; }
         .dc-msg { color: #dbdee1; font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin-bottom: 6px; }
-        .dc-emb { background: #2b2d31; border-radius: 4px; overflow: hidden; margin-bottom: 6px; max-width: 100%; }
+        .dc-emb { background: #2b2d31; border-radius: 4px; overflow: hidden; margin-bottom: 6px; max-width: 520px; }
         .dc-emb-bar { display: flex; }
         .dc-emb-side { width: 4px; flex-shrink: 0; }
         .dc-emb-body { padding: 10px 14px 10px 10px; flex: 1; min-width: 0; }
@@ -577,10 +577,13 @@
             if (content) payload.content = content;
             if (filteredEmbeds.length > 0) payload.embeds = filteredEmbeds;
             if (filteredComponents.length > 0) payload.components = filteredComponents;
-            const res = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const url = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'wait=true';
+            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (res.status === 204) return { ok: true };
-            let errMsg = 'HTTP ' + res.status;
-            try { const d = await res.json(); if (d && d.message) errMsg = d.message; } catch(e) {}
+            let body;
+            try { body = await res.json(); } catch(e) {}
+            if (res.status === 200) return { ok: true };
+            const errMsg = (body && body.message) ? body.message : 'HTTP ' + res.status;
             throw new Error(errMsg);
         }
 
