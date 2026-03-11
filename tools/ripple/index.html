@@ -489,10 +489,10 @@
                         }
                         h += '</div>';
                     }
-                    if (e.image) h += '<img class="dc-emb-img" src="' + esc(e.image) + '" onerror="this.style.display=\'none\'" />';
                     h += '</div>';
                     if (e.thumbnail) h += '<div><img class="dc-emb-thumb" src="' + esc(e.thumbnail) + '" onerror="this.style.display=\'none\'" /></div>';
-                    h += '</div></div>';
+                    h += '</div>';
+                    if (e.image) h += '<img class="dc-emb-img" src="' + esc(e.image) + '" onerror="this.style.display=\'none\'" />';
                     if (e.footer && (e.footer.text || e.footer.timestamp)) {
                         h += '<div class="dc-emb-footer">';
                         if (e.footer.icon_url) h += '<img src="' + esc(e.footer.icon_url) + '" onerror="this.style.display=\'none\'" />';
@@ -501,7 +501,7 @@
                         if (e.footer.timestamp) h += '<span>' + esc(new Date(e.footer.timestamp).toLocaleString()) + '</span>';
                         h += '</div>';
                     }
-                    h += '</div></div>';
+                    h += '</div></div></div>';
                     html += h;
                 });
             }
@@ -739,7 +739,13 @@
                                 {(dc.embeds||[]).length < 10 && <button className="btn-xs" onClick={addEmbed}><PlusIcon /> Add Embed</button>}
                             </div>
                             {(dc.embeds||[]).map((emb,i) => <EmbedEditor key={emb.id} embed={emb} onChange={e=>updEmbed(i,e)} onRemove={()=>removeEmbed(i)} onSyncFromCore={()=>updEmbed(i,{...emb,title:coreMsg.title,description:coreMsg.body,url:coreMsg.linkUrl,image:coreMsg.imageUrl||emb.image})} />)}
-                            <div style={{marginTop:12}}><label className="field-label" style={{marginBottom:6}}>Link Buttons</label><ButtonsEditor buttons={dc.buttons||[]} onChange={b=>upd('buttons',b)} /></div>
+                            <div style={{marginTop:12}}>
+                                <div style={{display:'flex',alignItems:'baseline',gap:8,marginBottom:6}}>
+                                    <label className="field-label" style={{marginBottom:0}}>Link Buttons</label>
+                                    <span style={{fontSize:11,color:'#f59e0b'}}>⚠ Standard webhooks don't support buttons — they won't appear in Discord</span>
+                                </div>
+                                <ButtonsEditor buttons={dc.buttons||[]} onChange={b=>upd('buttons',b)} />
+                            </div>
                         </div>
                     )}
                 </div>
