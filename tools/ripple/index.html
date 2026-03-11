@@ -549,7 +549,7 @@
         function newButton() { return { emoji: '', label: '', url: '' }; }
         function newButtonRow() { return [newButton()]; }
 
-        async function sendDiscord(webhookUrl, content, embeds, buttons) {
+        async function sendDiscord(webhookUrl, content, embeds, buttons, botToken, channelId) {
             const filteredEmbeds = (embeds || [])
                 .filter(e => e.title || e.description || (e.author && e.author.name) || (e.fields && e.fields.length > 0))
                 .map(e => {
@@ -577,14 +577,26 @@
             if (content) payload.content = content;
             if (filteredEmbeds.length > 0) payload.embeds = filteredEmbeds;
             if (filteredComponents.length > 0) payload.components = filteredComponents;
+
+            // Use bot API when bot token + channel ID are set — supports components (buttons).
+            // Standard incoming webhooks silently strip components.
+            if (botToken && channelId) {
+                const res = await fetch('https://discord.com/api/v10/channels/' + channelId + '/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bot ' + botToken },
+                    body: JSON.stringify(payload)
+                });
+                if (res.status === 200) return { ok: true };
+                let body; try { body = await res.json(); } catch(e) {}
+                throw new Error((body && body.message) ? body.message : 'HTTP ' + res.status);
+            }
+
+            // Fallback: webhook URL (no components)
             const url = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'wait=true';
             const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (res.status === 204) return { ok: true };
-            let body;
-            try { body = await res.json(); } catch(e) {}
-            if (res.status === 200) return { ok: true };
-            const errMsg = (body && body.message) ? body.message : 'HTTP ' + res.status;
-            throw new Error(errMsg);
+            if (res.status === 204 || res.status === 200) return { ok: true };
+            let errBody; try { errBody = await res.json(); } catch(e) {}
+            throw new Error((errBody && errBody.message) ? errBody.message : 'HTTP ' + res.status);
         }
 
         async function sendTelegram(botToken, chatId, text, imageUrl, silent, disablePreview) {
@@ -916,7 +928,7 @@
 
         function SettingsModal({ creds, onSave, onClose }) {
             const [form, setForm] = React.useState({
-                discord: { webhookUrl: (creds.discord||{}).webhookUrl || '' },
+                discord: { webhookUrl: (creds.discord||{}).webhookUrl || '', botToken: (creds.discord||{}).botToken || '', channelId: (creds.discord||{}).channelId || '' },
                 telegram: { botToken: (creds.telegram||{}).botToken || '', chatId: (creds.telegram||{}).chatId || '' },
                 bluesky: { handle: (creds.bluesky||{}).handle || '', appPassword: (creds.bluesky||{}).appPassword || '' },
             });
@@ -931,7 +943,12 @@
                         </div>
                         <p style={{fontSize:12,color:'rgba(255,255,255,0.4)',marginBottom:20,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:8,padding:'8px 12px'}}>Stored in this browser only - never leaves your device.</p>
                         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><DiscordIcon /><span style={{fontSize:15,fontWeight:700}}>Discord</span></div>
-                        <div style={{marginBottom:16}}><label className="field-label">Webhook URL</label><input className="field-input" type="password" value={form.discord.webhookUrl} onChange={e=>upd('discord','webhookUrl',e.target.value)} placeholder="https://discord.com/api/webhooks/..." /></div>
+                        <div style={{marginBottom:10}}><label className="field-label">Webhook URL</label><input className="field-input" type="password" value={form.discord.webhookUrl} onChange={e=>upd('discord','webhookUrl',e.target.value)} placeholder="https://discord.com/api/webhooks/..." /></div>
+                        <div style={{marginBottom:4,padding:'8px 10px',background:'rgba(255,255,255,0.03)',borderRadius:8,border:'1px solid rgba(255,255,255,0.06)',fontSize:12,color:'rgba(255,255,255,0.4)'}}>Optional — required for Link Buttons (webhooks don't support them)</div>
+                        <div className="dc-g2" style={{marginBottom:16}}>
+                            <div><label className="field-label">Bot Token</label><input className="field-input" type="password" value={form.discord.botToken} onChange={e=>upd('discord','botToken',e.target.value)} placeholder="MTA0..." /></div>
+                            <div><label className="field-label">Channel ID</label><input className="field-input" value={form.discord.channelId} onChange={e=>upd('discord','channelId',e.target.value)} placeholder="123456789012345678" /></div>
+                        </div>
                         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><TelegramIcon /><span style={{fontSize:15,fontWeight:700}}>Telegram</span></div>
                         <div className="dc-g2" style={{marginBottom:16}}>
                             <div><label className="field-label">Bot Token</label><input className="field-input" type="password" value={form.telegram.botToken} onChange={e=>upd('telegram','botToken',e.target.value)} placeholder="1234567890:ABC..." /></div>
@@ -1097,13 +1114,13 @@
                     const col = _fbDB.collection('ripple-backups').doc(user.uid).collection('saves');
                     const snap = await col.orderBy('savedAt','desc').get();
                     if (snap.size >= 10) await snap.docs[snap.size-1].ref.delete();
-                    await col.add({ ...state, savedAt: firebase.firestore.FieldValue.serverTimestamp(), label: state.msg.title || new Date().toLocaleString() });
+                    await col.add({ stateJson: JSON.stringify(state), savedAt: firebase.firestore.FieldValue.serverTimestamp(), label: state.msg.title || new Date().toLocaleString() });
                     setStatus('Saved!'); await fetchSaves(user);
                 } catch(e) { setStatus('Save failed: ' + e.message); }
                 finally { setLoading(false); setTimeout(()=>setStatus(''),3000); }
             };
 
-            const loadSave = (s) => { loadState(s); setStatus('Loaded!'); setTimeout(()=>setStatus(''),2000); };
+            const loadSave = (s) => { loadState(s.stateJson ? JSON.parse(s.stateJson) : s); setStatus('Loaded!'); setTimeout(()=>setStatus(''),2000); };
             const deleteSave = async (id) => {
                 if (!user || !_fbDB) return;
                 try { await _fbDB.collection('ripple-backups').doc(user.uid).collection('saves').doc(id).delete(); await fetchSaves(user); } catch(e) {}
@@ -1208,7 +1225,7 @@
             const doSend = async () => {
                 setSending(true); setResults(null);
                 const jobs = [];
-                if (enabled.discord) { if (creds.discord&&creds.discord.webhookUrl) { jobs.push({ platform:'Discord', promise:sendDiscord(creds.discord.webhookUrl,dc.content,dc.embeds,dc.buttons) }); } else { jobs.push({ platform:'Discord', promise:Promise.reject(new Error('No webhook URL - open Settings')) }); } }
+                if (enabled.discord) { if (creds.discord&&creds.discord.webhookUrl) { jobs.push({ platform:'Discord', promise:sendDiscord(creds.discord.webhookUrl,dc.content,dc.embeds,dc.buttons,creds.discord.botToken,creds.discord.channelId) }); } else { jobs.push({ platform:'Discord', promise:Promise.reject(new Error('No webhook URL - open Settings')) }); } }
                 if (enabled.telegram&&tg.text) { if (creds.telegram&&creds.telegram.botToken) { jobs.push({ platform:'Telegram', promise:sendTelegram(creds.telegram.botToken,creds.telegram.chatId,tg.text,tg.imageUrl,tg.silent,tg.disablePreview) }); } else { jobs.push({ platform:'Telegram', promise:Promise.reject(new Error('No bot token - open Settings')) }); } }
                 if (enabled.bluesky&&bs.text) { if (creds.bluesky&&creds.bluesky.handle) { jobs.push({ platform:'Bluesky', promise:sendBluesky(creds.bluesky.handle,creds.bluesky.appPassword,bs.text) }); } else { jobs.push({ platform:'Bluesky', promise:Promise.reject(new Error('No credentials - open Settings')) }); } }
                 if (!jobs.length) { setSending(false); return; }
