@@ -953,7 +953,7 @@
         function initFirebase() {
             if (_fbAuth) return;
             try {
-                const cfg = window.SITE_CONFIG && window.SITE_CONFIG.firebase;
+                const cfg = (typeof SITE_CONFIG !== 'undefined') && SITE_CONFIG.firebase;
                 if (!cfg) { console.warn('Ripple: SITE_CONFIG.firebase not found'); return; }
                 const existing = firebase.apps.find(a => a.name === 'ripple');
                 const app = existing || firebase.initializeApp(cfg, 'ripple');
