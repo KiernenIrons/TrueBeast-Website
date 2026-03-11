@@ -591,8 +591,7 @@
                 throw new Error((body && body.message) ? body.message : 'HTTP ' + res.status);
             }
 
-            // Fallback: webhook URL (no components)
-            const url = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'wait=true';
+            const url = webhookUrl + (webhookUrl.includes('?') ? '&' : '?') + 'wait=true&with_components=true';
             const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (res.status === 204 || res.status === 200) return { ok: true };
             let errBody; try { errBody = await res.json(); } catch(e) {}
