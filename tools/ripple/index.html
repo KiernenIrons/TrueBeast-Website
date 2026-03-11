@@ -1038,23 +1038,87 @@
             const [saves, setSaves] = React.useState([]);
             const [loading, setLoading] = React.useState(false);
             const [status, setStatus] = React.useState('');
-            React.useEffect(() => { initFirebase(); if (!_fbAuth) return; const unsub = _fbAuth.onAuthStateChanged(u => { setUser(u); if (u) fetchSaves(u); }); return unsub; }, []);
-            const fetchSaves = async (u) => { if (!_fbDB) return; try { const snap = await _fbDB.collection('ripple-backups').doc(u.uid).collection('saves').orderBy('savedAt','desc').limit(10).get(); setSaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))); } catch(e) {} };
-            const signIn = async () => { if (!_fbAuth) { setStatus('Firebase not configured'); return; } try { await _fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); } catch(e) { setStatus('Sign-in failed: ' + e.message); } };
+            const [mode, setMode] = React.useState('signin'); // 'signin' | 'register'
+            const [email, setEmail] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            const [authLoading, setAuthLoading] = React.useState(false);
+
+            React.useEffect(() => {
+                initFirebase();
+                if (!_fbAuth) return;
+                const unsub = _fbAuth.onAuthStateChanged(u => { setUser(u); if (u) fetchSaves(u); });
+                return unsub;
+            }, []);
+
+            const fetchSaves = async (u) => {
+                if (!_fbDB) return;
+                try {
+                    const snap = await _fbDB.collection('ripple-backups').doc(u.uid).collection('saves').orderBy('savedAt','desc').limit(10).get();
+                    setSaves(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                } catch(e) {}
+            };
+
+            const signIn = async () => {
+                if (!_fbAuth) { setStatus('Firebase not configured'); return; }
+                setAuthLoading(true); setStatus('');
+                try {
+                    await _fbAuth.signInWithEmailAndPassword(email, password);
+                    setEmail(''); setPassword('');
+                } catch(e) {
+                    setStatus(e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found' ? 'Incorrect email or password.' : e.message);
+                } finally { setAuthLoading(false); }
+            };
+
+            const register = async () => {
+                if (!_fbAuth) { setStatus('Firebase not configured'); return; }
+                if (password.length < 6) { setStatus('Password must be at least 6 characters.'); return; }
+                setAuthLoading(true); setStatus('');
+                try {
+                    await _fbAuth.createUserWithEmailAndPassword(email, password);
+                    setEmail(''); setPassword('');
+                } catch(e) {
+                    setStatus(e.code === 'auth/email-already-in-use' ? 'An account with that email already exists.' : e.message);
+                } finally { setAuthLoading(false); }
+            };
+
             const signOut = async () => { if (_fbAuth) await _fbAuth.signOut(); setUser(null); setSaves([]); };
+
             const saveNow = async () => {
                 if (!user || !_fbDB) return; setLoading(true);
-                try { const state = getState(); const col = _fbDB.collection('ripple-backups').doc(user.uid).collection('saves'); const snap = await col.orderBy('savedAt','desc').get(); if (snap.size >= 10) await snap.docs[snap.size-1].ref.delete(); await col.add({ ...state, savedAt: firebase.firestore.FieldValue.serverTimestamp(), label: state.msg.title || new Date().toLocaleString() }); setStatus('Saved!'); await fetchSaves(user); } catch(e) { setStatus('Save failed: ' + e.message); } finally { setLoading(false); setTimeout(()=>setStatus(''),3000); }
+                try {
+                    const state = getState();
+                    const col = _fbDB.collection('ripple-backups').doc(user.uid).collection('saves');
+                    const snap = await col.orderBy('savedAt','desc').get();
+                    if (snap.size >= 10) await snap.docs[snap.size-1].ref.delete();
+                    await col.add({ ...state, savedAt: firebase.firestore.FieldValue.serverTimestamp(), label: state.msg.title || new Date().toLocaleString() });
+                    setStatus('Saved!'); await fetchSaves(user);
+                } catch(e) { setStatus('Save failed: ' + e.message); }
+                finally { setLoading(false); setTimeout(()=>setStatus(''),3000); }
             };
+
             const loadSave = (s) => { loadState(s); setStatus('Loaded!'); setTimeout(()=>setStatus(''),2000); };
-            const deleteSave = async (id) => { if (!user || !_fbDB) return; try { await _fbDB.collection('ripple-backups').doc(user.uid).collection('saves').doc(id).delete(); await fetchSaves(user); } catch(e) {} };
+            const deleteSave = async (id) => {
+                if (!user || !_fbDB) return;
+                try { await _fbDB.collection('ripple-backups').doc(user.uid).collection('saves').doc(id).delete(); await fetchSaves(user); } catch(e) {}
+            };
+
+            const inputStyle = {width:'100%',background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,padding:'8px 10px',color:'inherit',fontFamily:'inherit',fontSize:13,marginBottom:8,boxSizing:'border-box'};
+
             return (
                 <div className="section-card" style={{marginTop:12}}>
                     <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><CloudIcon /><span className="step-label" style={{marginBottom:0}}>Cloud Backup</span></div>
                     {!user ? (
                         <div>
-                            <p style={{fontSize:13,color:'rgba(255,255,255,0.45)',marginBottom:12}}>Sign in with Google to save and restore drafts across devices (max 10 saves).</p>
-                            <button className="btn-sm" onClick={signIn}>Sign in with Google</button>
+                            <div style={{display:'flex',gap:0,marginBottom:12,background:'rgba(255,255,255,0.05)',borderRadius:8,padding:2}}>
+                                <button onClick={()=>{setMode('signin');setStatus('');}} style={{flex:1,padding:'6px 0',borderRadius:6,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:'none',background:mode==='signin'?'rgba(255,255,255,0.12)':'transparent',color:mode==='signin'?'#fff':'rgba(255,255,255,0.45)',transition:'all .15s'}}>Sign In</button>
+                                <button onClick={()=>{setMode('register');setStatus('');}} style={{flex:1,padding:'6px 0',borderRadius:6,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',border:'none',background:mode==='register'?'rgba(255,255,255,0.12)':'transparent',color:mode==='register'?'#fff':'rgba(255,255,255,0.45)',transition:'all .15s'}}>Create Account</button>
+                            </div>
+                            <input style={inputStyle} type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(mode==='signin'?signIn():register())} />
+                            <input style={inputStyle} type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(mode==='signin'?signIn():register())} />
+                            {status && <div style={{fontSize:12,color:'#f87171',marginBottom:8}}>{status}</div>}
+                            <button className="btn-sm" onClick={mode==='signin'?signIn:register} disabled={authLoading||!email||!password}>
+                                {authLoading ? (mode==='signin'?'Signing in…':'Creating account…') : (mode==='signin'?'Sign In':'Create Account')}
+                            </button>
                         </div>
                     ) : (
                         <div>
