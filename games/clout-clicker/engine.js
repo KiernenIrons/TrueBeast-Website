@@ -412,6 +412,8 @@ function restoreFromBackup(data) {
 async function fullSave(silent) {
     saveToLocalStorage();
     await saveToFirebase();
+    // Refresh leaderboard table if it's currently open
+    window.GameUI && window.GameUI.refreshLeaderboard && window.GameUI.refreshLeaderboard();
     if (!silent) {
         window.GameUI && window.GameUI.showToast('save', '💾 Saved', 'Progress saved successfully.');
     }

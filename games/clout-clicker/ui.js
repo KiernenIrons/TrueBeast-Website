@@ -586,24 +586,20 @@ function showPrestigeModal() {
 }
 
 /* ── Leaderboard modal ───────────────────────────────────── */
-async function showLeaderboardModal() {
+let _lbRefreshInterval = null;
+
+async function _refreshLeaderboardTable() {
     const overlay = document.getElementById('modal-leaderboard');
-    if (!overlay) return;
-    overlay.classList.add('open');
-
+    if (!overlay || !overlay.classList.contains('open')) return;
     const tbody = overlay.querySelector('#lb-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">Loading...</td></tr>';
-
     const ge = window.GameEngine;
-    if (!ge) return;
+    if (!ge || !tbody) return;
     const rows = await ge.fetchLeaderboard();
-
-    if (!tbody) return;
+    if (!overlay.classList.contains('open')) return; // closed while fetching
     if (rows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">No leaderboard data yet. Be the first!</td></tr>';
         return;
     }
-
     tbody.innerHTML = rows.map((r, i) => {
         const rank      = i + 1;
         const rankClass = rank <= 3 ? `r${rank}` : '';
@@ -626,11 +622,31 @@ async function showLeaderboardModal() {
             </tr>
         `;
     }).join('');
-
-    // Sparkle particles on viral rows
     setTimeout(() => {
         tbody.querySelectorAll('.lb-row-viral').forEach(row => _spawnLbSparkles(row));
     }, 80);
+}
+
+async function showLeaderboardModal() {
+    const overlay = document.getElementById('modal-leaderboard');
+    if (!overlay) return;
+    overlay.classList.add('open');
+
+    const tbody = overlay.querySelector('#lb-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="lb-empty">Loading...</td></tr>';
+
+    await _refreshLeaderboardTable();
+
+    // Auto-refresh every 30s while open; stop when closed
+    clearInterval(_lbRefreshInterval);
+    _lbRefreshInterval = setInterval(() => {
+        if (!overlay.classList.contains('open')) {
+            clearInterval(_lbRefreshInterval);
+            _lbRefreshInterval = null;
+        } else {
+            _refreshLeaderboardTable();
+        }
+    }, 30000);
 }
 
 function _spawnLbSparkles(row) {
@@ -1445,6 +1461,7 @@ window.GameUI = {
     showAchievementModal,
     showPrestigeModal,
     showLeaderboardModal,
+    refreshLeaderboard: _refreshLeaderboardTable,
     showAchievementShower,
     fullRender,
     tickUpdate,
