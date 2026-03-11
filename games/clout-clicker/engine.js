@@ -219,18 +219,29 @@ function deserializeState(data) {
     recalculate();
 }
 
+/* ── Save comparison ──────────────────────────────────────── */
+// Returns true if save A is strictly better than save B.
+// Primary key: prestigeLevel (more virals = further progress).
+// Secondary key: allTimeCloutEver (cumulative across all prestiges).
+function _saveIsBetter(a, b) {
+    const aP = a ? (a.prestigeLevel || 0) : 0;
+    const bP = b ? (b.prestigeLevel || 0) : 0;
+    if (aP !== bP) return aP > bP;
+    const aS = a ? (a.allTimeCloutEver || a.totalCloutEver || 0) : 0;
+    const bS = b ? (b.allTimeCloutEver || b.totalCloutEver || 0) : 0;
+    return aS > bS;
+}
+
 function saveToLocalStorage() {
     try {
         const data = serializeState();
         const encoded = btoa(JSON.stringify(data));
         localStorage.setItem('clout-clicker-save', encoded);
 
-        // Update local peak (never goes down) — use allTimeCloutEver so prestige progress isn't reverted
+        // Update local peak only when current save is strictly better (prestige-aware)
         const peakRaw = localStorage.getItem('clout-clicker-peak');
         const peak = peakRaw ? JSON.parse(atob(peakRaw)) : null;
-        const curScore  = data.allTimeCloutEver  || data.totalCloutEver  || 0;
-        const peakScore = peak ? (peak.allTimeCloutEver || peak.totalCloutEver || 0) : 0;
-        if (!peak || curScore > peakScore) {
+        if (!peak || _saveIsBetter(data, peak)) {
             localStorage.setItem('clout-clicker-peak', encoded);
         }
 
@@ -293,8 +304,6 @@ async function saveToFirebase() {
     if (!fbDb || !fbAuth || !fbAuth.currentUser) return;
     const uid  = fbAuth.currentUser.uid;
     const data = serializeState();
-    // allTimeCloutEver is the true cumulative score — never resets on prestige
-    const currentScore = data.allTimeCloutEver || data.totalCloutEver || 0;
     const now  = firebase.firestore.FieldValue.serverTimestamp();
 
     // 1. Main save — always
@@ -302,12 +311,11 @@ async function saveToFirebase() {
         await fbDb.collection('clout-clicker-saves').doc(uid).set(data);
     } catch(e) { console.warn('Firebase main save failed:', e); }
 
-    // 2. Peak doc — only written when allTimeCloutEver is a new high (never goes down)
+    // 2. Peak doc — only written when current save is strictly better (prestige-aware)
     try {
         const peakRef = fbDb.collection('clout-clicker-peak').doc(uid);
         const peakDoc = await peakRef.get();
-        const peakScore = peakDoc.exists ? (peakDoc.data().allTimeCloutEver || peakDoc.data().totalCloutEver || 0) : 0;
-        if (!peakDoc.exists || currentScore > peakScore) {
+        if (!peakDoc.exists || _saveIsBetter(data, peakDoc.data())) {
             await peakRef.set({ ...data, peakedAt: now });
         }
     } catch(e) { console.warn('Firebase peak save failed:', e); }
@@ -359,13 +367,9 @@ async function loadFromFirebase() {
         const mainData = mainDoc.exists ? mainDoc.data() : null;
         const peakData = peakDoc.exists ? peakDoc.data() : null;
 
-        // Use allTimeCloutEver so post-prestige saves (totalCloutEver=0) aren't overridden by pre-prestige peak
-        const mainScore = mainData ? (mainData.allTimeCloutEver || mainData.totalCloutEver || 0) : 0;
-        const peakScore = peakData ? (peakData.allTimeCloutEver || peakData.totalCloutEver || 0) : 0;
-
-        // Always load whichever cloud source has the highest score
-        if (peakScore > mainScore) {
-            console.log(`[Save] Peak (${peakScore}) > Main (${mainScore}) — loading peak, repairing main save`);
+        // Load whichever is further along: more prestiges wins, then higher allTimeCloutEver
+        if (_saveIsBetter(peakData, mainData)) {
+            console.log(`[Save] Peak save is better — loading peak, repairing main save`);
             deserializeState(peakData);
             saveToFirebase().catch(() => {}); // repair the main save
         } else if (mainData) {
