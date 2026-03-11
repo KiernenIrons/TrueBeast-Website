@@ -21,6 +21,7 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js"></script>
     <script src="../../js/config.js?v=6"></script>
     <script src="../../js/analytics.js"></script>
     <link rel="stylesheet" href="../../css/shared.css">
@@ -626,8 +627,59 @@
         const TrashIcon = () => (<svg style={{width:12,height:12}} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>);
         const CloudIcon = () => (<svg style={{width:16,height:16}} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>);
 
+        function EmojiPickerPopover({ onSelect, onClose, anchor }) {
+            const pickerRef = React.useRef(null);
+            const wrapRef = React.useRef(null);
+            const [pos, setPos] = React.useState({ top: -9999, left: 0 });
+            React.useLayoutEffect(() => {
+                if (!anchor) return;
+                const rect = anchor.getBoundingClientRect();
+                const pickerW = 370, pickerH = 430;
+                let top = rect.bottom + 6, left = rect.left;
+                if (left + pickerW > window.innerWidth - 8) left = window.innerWidth - pickerW - 8;
+                if (left < 8) left = 8;
+                if (top + pickerH > window.innerHeight - 8) top = rect.top - pickerH - 6;
+                setPos({ top, left });
+            }, [anchor]);
+            React.useEffect(() => {
+                const el = pickerRef.current;
+                if (!el) return;
+                const handler = (e) => { if (e.detail && e.detail.emoji) onSelect(e.detail.emoji.unicode); };
+                el.addEventListener('emoji-click', handler);
+                const outside = (ev) => { if (wrapRef.current && !wrapRef.current.contains(ev.target) && anchor && !anchor.contains(ev.target)) onClose(); };
+                setTimeout(() => document.addEventListener('mousedown', outside), 50);
+                return () => { el.removeEventListener('emoji-click', handler); document.removeEventListener('mousedown', outside); };
+            }, []);
+            const isDark = !document.documentElement.classList.contains('light');
+            return ReactDOM.createPortal(
+                React.createElement('div', { ref: wrapRef, style: { position: 'fixed', top: pos.top, left: pos.left, zIndex: 99999, boxShadow: '0 8px 40px rgba(0,0,0,0.6)', borderRadius: 12, overflow: 'hidden' } },
+                    React.createElement('emoji-picker', { ref: pickerRef, class: isDark ? 'dark' : 'light' })
+                ),
+                document.body
+            );
+        }
+
+        function EmojiPickerBtn({ value, onChange }) {
+            const [open, setOpen] = React.useState(false);
+            const btnRef = React.useRef(null);
+            return (
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <button ref={btnRef} type="button" title={value ? 'Change emoji' : 'Add emoji'} onClick={() => setOpen(o => !o)}
+                        style={{ width: 40, height: 36, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, cursor: 'pointer', fontSize: value ? 18 : 13, display: 'flex', alignItems: 'center', justifyContent: 'center', color: value ? 'inherit' : 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+                        {value || '☺'}
+                    </button>
+                    {value && <button type="button" onClick={() => onChange('')} style={{ position: 'absolute', top: -4, right: -4, background: '#2a2a3a', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '50%', width: 15, height: 15, cursor: 'pointer', fontSize: 9, color: '#aaa', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 1 }}>×</button>}
+                    {open && <EmojiPickerPopover onSelect={e => { onChange(e); setOpen(false); }} onClose={() => setOpen(false)} anchor={btnRef.current} />}
+                </div>
+            );
+        }
+
         function EmbedEditor({ embed, onChange, onRemove, onSyncFromCore }) {
             const [open, setOpen] = React.useState(true);
+            const [emojiFor, setEmojiFor] = React.useState(null);
+            const selRef = React.useRef({ start: 0, end: 0 });
+            const titleRef = React.useRef(null);
+            const descRef = React.useRef(null);
             const upd = (k, v) => onChange({ ...embed, [k]: v });
             const updAuthor = (k, v) => onChange({ ...embed, author: { ...embed.author, [k]: v } });
             const updFooter = (k, v) => onChange({ ...embed, footer: { ...embed.footer, [k]: v } });
@@ -635,6 +687,20 @@
             const updField = (idx, k, v) => { const f = embed.fields.map((x,i) => i===idx ? {...x,[k]:v} : x); onChange({...embed, fields:f}); };
             const removeField = (idx) => onChange({ ...embed, fields: embed.fields.filter((_,i) => i !== idx) });
             const title = (embed.title || embed.description || 'Embed').slice(0, 30);
+            const saveSel = (e) => { selRef.current = { start: e.target.selectionStart, end: e.target.selectionEnd }; };
+            const openEmoji = (field, e) => {
+                const ref = field === 'title' ? titleRef : descRef;
+                if (ref.current) selRef.current = { start: ref.current.selectionStart || 0, end: ref.current.selectionEnd || 0 };
+                setEmojiFor({ field, anchor: e.currentTarget });
+            };
+            const onEmojiPick = (emoji) => {
+                const { start, end } = selRef.current;
+                const cur = embed[emojiFor.field] || '';
+                upd(emojiFor.field, cur.slice(0, start) + emoji + cur.slice(end));
+                selRef.current = { start: start + emoji.length, end: start + emoji.length };
+                setEmojiFor(null);
+            };
+            const emojiSmallBtn = { background: 'none', border: 'none', cursor: 'pointer', opacity: 0.55, fontSize: 14, padding: '0 2px', color: 'inherit', lineHeight: 1 };
             return (
                 <div className="embed-card">
                     <div className="embed-header" onClick={() => setOpen(o => !o)}>
@@ -652,7 +718,10 @@
                                 <span style={{fontSize:12,opacity:0.5}}>{embed.color}</span>
                             </div>
                             <div className="dc-g2">
-                                <div><label className="field-label">Title</label><input className="field-input" value={embed.title} onChange={e=>upd('title',e.target.value)} placeholder="Embed title" /></div>
+                                <div>
+                                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2}}><label className="field-label" style={{marginBottom:0}}>Title</label><button type="button" style={emojiSmallBtn} title="Insert emoji" onClick={e=>openEmoji('title',e)}>😊</button></div>
+                                    <input ref={titleRef} className="field-input" value={embed.title} onChange={e=>upd('title',e.target.value)} onSelect={saveSel} onKeyUp={saveSel} placeholder="Embed title" />
+                                </div>
                                 <div><label className="field-label">Title URL</label><input className="field-input" value={embed.url} onChange={e=>upd('url',e.target.value)} placeholder="https://..." /></div>
                             </div>
                             <div className="embed-section-label">Author</div>
@@ -660,7 +729,10 @@
                                 <div><label className="field-label">Name</label><input className="field-input" value={embed.author.name} onChange={e=>updAuthor('name',e.target.value)} placeholder="Author name" /></div>
                                 <div><label className="field-label">Icon URL</label><input className="field-input" value={embed.author.icon_url} onChange={e=>updAuthor('icon_url',e.target.value)} placeholder="https://..." /></div>
                             </div>
-                            <div style={{marginBottom:8}}><label className="field-label">Description</label><textarea className="field-input" rows={4} value={embed.description} onChange={e=>upd('description',e.target.value)} placeholder="Embed body text..." /></div>
+                            <div style={{marginBottom:8}}>
+                                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2}}><label className="field-label" style={{marginBottom:0}}>Description</label><button type="button" style={emojiSmallBtn} title="Insert emoji" onClick={e=>openEmoji('description',e)}>😊</button></div>
+                                <textarea ref={descRef} className="field-input" rows={4} value={embed.description} onChange={e=>upd('description',e.target.value)} onSelect={saveSel} onKeyUp={saveSel} placeholder="Embed body text..." />
+                            </div>
                             <div className="embed-section-label">Fields</div>
                             {embed.fields.map((f,i) => (
                                 <div key={f.id} className="field-row">
@@ -686,6 +758,7 @@
                                 <div><label className="field-label">Footer Icon URL</label><input className="field-input" value={embed.footer.icon_url} onChange={e=>updFooter('icon_url',e.target.value)} placeholder="https://..." /></div>
                             </div>
                             <div><label className="field-label">Timestamp</label><input className="field-input" type="datetime-local" value={embed.footer.timestamp} onChange={e=>updFooter('timestamp',e.target.value)} /></div>
+                            {emojiFor && <EmojiPickerPopover onSelect={onEmojiPick} onClose={()=>setEmojiFor(null)} anchor={emojiFor.anchor} />}
                         </div>
                     )}
                 </div>
@@ -708,7 +781,7 @@
                             </div>
                             {row.map((btn, bi) => (
                                 <div key={bi} style={{display:'flex',gap:4,marginBottom:4,alignItems:'center'}}>
-                                    <input className="field-input" style={{width:40,padding:'5px 6px',textAlign:'center'}} value={btn.emoji} onChange={e=>updBtn(ri,bi,'emoji',e.target.value)} placeholder="emoji" />
+                                    <EmojiPickerBtn value={btn.emoji} onChange={v=>updBtn(ri,bi,'emoji',v)} />
                                     <input className="field-input" style={{flex:1}} value={btn.label} onChange={e=>updBtn(ri,bi,'label',e.target.value)} placeholder="Button label" />
                                     <input className="field-input" style={{flex:1.5}} value={btn.url} onChange={e=>updBtn(ri,bi,'url',e.target.value)} placeholder="https://..." />
                                     <button className="btn-icon-sm" onClick={()=>removeBtn(ri,bi)}><TrashIcon /></button>
@@ -1058,6 +1131,7 @@
             const [email, setEmail] = React.useState('');
             const [password, setPassword] = React.useState('');
             const [authLoading, setAuthLoading] = React.useState(false);
+            const [saveName, setSaveName] = React.useState('');
 
             React.useEffect(() => {
                 initFirebase();
@@ -1106,8 +1180,8 @@
                     const col = _fbDB.collection('ripple-backups').doc(user.uid).collection('saves');
                     const snap = await col.orderBy('savedAt','desc').get();
                     if (snap.size >= 10) await snap.docs[snap.size-1].ref.delete();
-                    await col.add({ stateJson: JSON.stringify(state), savedAt: firebase.firestore.FieldValue.serverTimestamp(), label: state.msg.title || new Date().toLocaleString() });
-                    setStatus('Saved!'); await fetchSaves(user);
+                    await col.add({ stateJson: JSON.stringify(state), savedAt: firebase.firestore.FieldValue.serverTimestamp(), label: saveName.trim() || state.msg.title || new Date().toLocaleString() });
+                    setSaveName(''); setStatus('Saved!'); await fetchSaves(user);
                 } catch(e) { setStatus('Save failed: ' + e.message); }
                 finally { setLoading(false); setTimeout(()=>setStatus(''),3000); }
             };
@@ -1122,7 +1196,7 @@
 
             return (
                 <div className="section-card" style={{marginTop:12}}>
-                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><CloudIcon /><span className="step-label" style={{marginBottom:0}}>Cloud Backup</span></div>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><CloudIcon /><span className="step-label" style={{marginBottom:0}}>Save Templates</span></div>
                     {!user ? (
                         <div>
                             <div style={{display:'flex',gap:0,marginBottom:12,background:'rgba(255,255,255,0.05)',borderRadius:8,padding:2}}>
@@ -1138,9 +1212,13 @@
                         </div>
                     ) : (
                         <div>
-                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:8}}>
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,flexWrap:'wrap',gap:8}}>
                                 <span style={{fontSize:13,color:'rgba(255,255,255,0.55)'}}>{user.email}</span>
-                                <div style={{display:'flex',gap:6}}><button className="btn-sm" onClick={saveNow} disabled={loading}>{loading?'Saving...':'Save Draft'}</button><button className="btn-xs" onClick={signOut}>Sign out</button></div>
+                                <button className="btn-xs" onClick={signOut}>Sign out</button>
+                            </div>
+                            <div style={{display:'flex',gap:6,marginBottom:10}}>
+                                <input style={{...inputStyle,marginBottom:0,flex:1}} placeholder="Template name..." value={saveName} onChange={e=>setSaveName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&saveNow()} />
+                                <button className="btn-sm" onClick={saveNow} disabled={loading} style={{flexShrink:0}}>{loading?'Saving...':'Save'}</button>
                             </div>
                             {status && <div style={{fontSize:12,color:'#4ade80',marginBottom:8}}>{status}</div>}
                             {saves.length === 0 ? <p style={{fontSize:13,color:'rgba(255,255,255,0.3)'}}>No saves yet.</p> : saves.map(s => (
