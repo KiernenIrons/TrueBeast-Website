@@ -437,7 +437,7 @@
             return html;
         }
 
-        function buildDiscordPreviewHtml(content, embeds, buttons, displayName) {
+        function buildDiscordPreviewHtml(content, embeds, buttons, displayName, avatarUrl) {
             const hasContent = content && content.trim();
             const hasEmbeds = embeds && embeds.length > 0;
             const hasButtons = buttons && buttons.length > 0 && buttons.some(row => row.some(b => b.label));
@@ -452,7 +452,10 @@
             if (hasContent) {
                 const pName = displayName || 'TrueBeast';
                 const pInitials = pName.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-                html += '<div class="dc-avatar-row"><div class="dc-avatar">' + pInitials + '</div><div><div class="dc-username">' + esc(pName) + '</div><div class="dc-timestamp">Today at ' + hours + ':' + mins + ' ' + ampm + '</div></div></div>';
+                const avatarHtml = avatarUrl
+                    ? '<img src="' + esc(avatarUrl) + '" onerror="this.style.display=\'none\'" style="width:40px;height:40px;border-radius:50%;object-fit:cover" />'
+                    : '<div class="dc-avatar">' + pInitials + '</div>';
+                html += '<div class="dc-avatar-row">' + avatarHtml + '<div><div class="dc-username">' + esc(pName) + '</div><div class="dc-timestamp">Today at ' + hours + ':' + mins + ' ' + ampm + '</div></div></div>';
                 html += '<div class="dc-msg">' + dcMarkdown(content) + '</div>';
             }
             if (hasEmbeds) {
@@ -551,7 +554,7 @@
         function newButton() { return { emoji: '', label: '', url: '' }; }
         function newButtonRow() { return [newButton()]; }
 
-        async function sendDiscord(webhookUrl, content, embeds, buttons, displayName) {
+        async function sendDiscord(webhookUrl, content, embeds, buttons, displayName, avatarUrl) {
             const filteredEmbeds = (embeds || [])
                 .filter(e => e.title || e.description || (e.author && e.author.name) || (e.fields && e.fields.length > 0))
                 .map(e => {
@@ -577,6 +580,7 @@
                 .map(row => ({ type: 1, components: row.filter(b => b.label).map(b => { const btn = { type: 2, style: 5, label: b.label, url: b.url || 'https://truebeast.io' }; if (b.emoji) btn.emoji = { name: b.emoji }; return btn; }) }));
             const payload = {};
             if (displayName) payload.username = displayName;
+            if (avatarUrl) payload.avatar_url = avatarUrl;
             if (content) payload.content = content;
             if (filteredEmbeds.length > 0) payload.embeds = filteredEmbeds;
             if (filteredComponents.length > 0) payload.components = filteredComponents;
@@ -732,6 +736,10 @@
                     </div>
                     {enabled && (
                         <div>
+                            <div className="dc-g2" style={{marginBottom:12}}>
+                                <div><label className="field-label">Display Name</label><input className="field-input" value={dc.displayName||''} onChange={e=>upd('displayName',e.target.value)} placeholder="TrueBeast Announcements" /></div>
+                                <div><label className="field-label">Icon URL</label><input className="field-input" value={dc.avatarUrl||''} onChange={e=>upd('avatarUrl',e.target.value)} placeholder="https://..." /></div>
+                            </div>
                             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
                                 <label className="field-label" style={{marginBottom:0}}>Message Content</label>
                                 <button className="btn-xs" onClick={syncFromCore}>Sync from Core</button>
@@ -850,9 +858,9 @@
             );
         }
 
-        function DiscordPreview({ dc, enabled, displayName }) {
+        function DiscordPreview({ dc, enabled }) {
             if (!enabled) return React.createElement('div', {style:{color:'rgba(255,255,255,0.3)',fontSize:13,textAlign:'center',padding:'24px 0'}}, 'Discord is disabled');
-            const html = buildDiscordPreviewHtml(dc.content||'', dc.embeds||[], dc.buttons||[], displayName);
+            const html = buildDiscordPreviewHtml(dc.content||'', dc.embeds||[], dc.buttons||[], dc.displayName, dc.avatarUrl);
             return (
                 <div className="dc-preview">
                     <div className="dc-preview-lbl">Discord Preview</div>
@@ -917,7 +925,7 @@
 
         function SettingsModal({ creds, onSave, onClose }) {
             const [form, setForm] = React.useState({
-                discord: { webhookUrl: (creds.discord||{}).webhookUrl || '', displayName: (creds.discord||{}).displayName || '' },
+                discord: { webhookUrl: (creds.discord||{}).webhookUrl || '' },
                 telegram: { botToken: (creds.telegram||{}).botToken || '', chatId: (creds.telegram||{}).chatId || '' },
                 bluesky: { handle: (creds.bluesky||{}).handle || '', appPassword: (creds.bluesky||{}).appPassword || '' },
             });
@@ -932,8 +940,7 @@
                         </div>
                         <p style={{fontSize:12,color:'rgba(255,255,255,0.4)',marginBottom:20,background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:8,padding:'8px 12px'}}>Stored in this browser only - never leaves your device.</p>
                         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><DiscordIcon /><span style={{fontSize:15,fontWeight:700}}>Discord</span></div>
-                        <div style={{marginBottom:8}}><label className="field-label">Webhook URL</label><input className="field-input" type="password" value={form.discord.webhookUrl} onChange={e=>upd('discord','webhookUrl',e.target.value)} placeholder="https://discord.com/api/webhooks/..." /></div>
-                        <div style={{marginBottom:16}}><label className="field-label">Display Name <span style={{opacity:0.45,fontWeight:400,fontSize:11}}>(optional — overrides the webhook's default name)</span></label><input className="field-input" value={form.discord.displayName} onChange={e=>upd('discord','displayName',e.target.value)} placeholder="TrueBeast Announcements" /></div>
+                        <div style={{marginBottom:16}}><label className="field-label">Webhook URL</label><input className="field-input" type="password" value={form.discord.webhookUrl} onChange={e=>upd('discord','webhookUrl',e.target.value)} placeholder="https://discord.com/api/webhooks/..." /></div>
                         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}><TelegramIcon /><span style={{fontSize:15,fontWeight:700}}>Telegram</span></div>
                         <div className="dc-g2" style={{marginBottom:16}}>
                             <div><label className="field-label">Bot Token</label><input className="field-input" type="password" value={form.telegram.botToken} onChange={e=>upd('telegram','botToken',e.target.value)} placeholder="1234567890:ABC..." /></div>
@@ -1210,7 +1217,7 @@
             const doSend = async () => {
                 setSending(true); setResults(null);
                 const jobs = [];
-                if (enabled.discord) { if (creds.discord&&creds.discord.webhookUrl) { jobs.push({ platform:'Discord', promise:sendDiscord(creds.discord.webhookUrl,dc.content,dc.embeds,dc.buttons,creds.discord.displayName) }); } else { jobs.push({ platform:'Discord', promise:Promise.reject(new Error('No webhook URL - open Settings')) }); } }
+                if (enabled.discord) { if (creds.discord&&creds.discord.webhookUrl) { jobs.push({ platform:'Discord', promise:sendDiscord(creds.discord.webhookUrl,dc.content,dc.embeds,dc.buttons,dc.displayName,dc.avatarUrl) }); } else { jobs.push({ platform:'Discord', promise:Promise.reject(new Error('No webhook URL - open Settings')) }); } }
                 if (enabled.telegram&&tg.text) { if (creds.telegram&&creds.telegram.botToken) { jobs.push({ platform:'Telegram', promise:sendTelegram(creds.telegram.botToken,creds.telegram.chatId,tg.text,tg.imageUrl,tg.silent,tg.disablePreview) }); } else { jobs.push({ platform:'Telegram', promise:Promise.reject(new Error('No bot token - open Settings')) }); } }
                 if (enabled.bluesky&&bs.text) { if (creds.bluesky&&creds.bluesky.handle) { jobs.push({ platform:'Bluesky', promise:sendBluesky(creds.bluesky.handle,creds.bluesky.appPassword,bs.text) }); } else { jobs.push({ platform:'Bluesky', promise:Promise.reject(new Error('No credentials - open Settings')) }); } }
                 if (!jobs.length) { setSending(false); return; }
@@ -1281,7 +1288,7 @@
                                             </button>
                                         ))}
                                     </div>
-                                    {activeTab==='discord' && <DiscordPreview dc={dc} enabled={enabled.discord} displayName={creds.discord&&creds.discord.displayName} />}
+                                    {activeTab==='discord' && <DiscordPreview dc={dc} enabled={enabled.discord} />}
                                     {activeTab==='telegram' && <TelegramPreview tg={tg} enabled={enabled.telegram} />}
                                     {activeTab==='bluesky' && <BlueskyPreview bs={bs} creds={creds} enabled={enabled.bluesky} />}
                                 </div>
