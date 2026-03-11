@@ -140,6 +140,7 @@ const SITE_CONFIG = {
         { name: 'REVO Uninstaller', description: 'Free, basic tool for uninstalling software and removing any left-over files on your Windows PC.', url: 'https://www.revouninstaller.com/revo-uninstaller-free-download/', category: 'Utilities', emoji: '🗑️' },
         { name: 'WinDirStat', description: 'Free tool for finding what folders are taking up the most space on your Windows PC.', url: 'https://windirstat.net/download.html', category: 'Utilities', emoji: '📂' },
         { name: 'Youtube Video Downloader', description: 'Free, browser-based tool for downloading videos from YouTube.', url: 'https://cnvmp3.com/v53', category: 'Utilities', emoji: '💾' },
+        { name: 'RGB Controller Software', description: 'Free, open-source software for controlling ALL RGB lighting on your PC.', url: 'https://signalrgb.com/', category: 'Utilities', emoji: '🎨' },
     ],
 
     // -----------------------------------------------------------------------
