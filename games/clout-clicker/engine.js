@@ -1059,6 +1059,27 @@ async function init() {
         if (window.GameState.isLoggedIn) saveToFirebase();
     });
 
+    // Mobile: save when tab is backgrounded / phone is locked.
+    // visibilitychange fires reliably on Android; pagehide covers iOS Safari.
+    let _wasHidden = false;
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            _wasHidden = true;
+            saveToLocalStorage();
+            if (window.GameState.isLoggedIn) saveToFirebase();
+        } else if (document.visibilityState === 'visible' && _wasHidden) {
+            _wasHidden = false;
+            // Re-sync lastTickTime so the loop doesn't award a huge dt spike
+            lastTickTime = Date.now();
+            applyOfflineIncome();
+            window.GameUI && window.GameUI.fullRender();
+        }
+    });
+    window.addEventListener('pagehide', () => {
+        saveToLocalStorage();
+        if (window.GameState.isLoggedIn) saveToFirebase();
+    });
+
     // Schedule first golden clout
     scheduleNextGolden();
 
