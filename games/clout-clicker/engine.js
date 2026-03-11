@@ -225,10 +225,12 @@ function saveToLocalStorage() {
         const encoded = btoa(JSON.stringify(data));
         localStorage.setItem('clout-clicker-save', encoded);
 
-        // Update local peak (never goes down)
+        // Update local peak (never goes down) — use allTimeCloutEver so prestige progress isn't reverted
         const peakRaw = localStorage.getItem('clout-clicker-peak');
         const peak = peakRaw ? JSON.parse(atob(peakRaw)) : null;
-        if (!peak || data.totalCloutEver > (peak.totalCloutEver || 0)) {
+        const curScore  = data.allTimeCloutEver  || data.totalCloutEver  || 0;
+        const peakScore = peak ? (peak.allTimeCloutEver || peak.totalCloutEver || 0) : 0;
+        if (!peak || curScore > peakScore) {
             localStorage.setItem('clout-clicker-peak', encoded);
         }
 
@@ -291,7 +293,8 @@ async function saveToFirebase() {
     if (!fbDb || !fbAuth || !fbAuth.currentUser) return;
     const uid  = fbAuth.currentUser.uid;
     const data = serializeState();
-    const currentTotal = data.totalCloutEver || 0;
+    // allTimeCloutEver is the true cumulative score — never resets on prestige
+    const currentScore = data.allTimeCloutEver || data.totalCloutEver || 0;
     const now  = firebase.firestore.FieldValue.serverTimestamp();
 
     // 1. Main save — always
@@ -299,11 +302,12 @@ async function saveToFirebase() {
         await fbDb.collection('clout-clicker-saves').doc(uid).set(data);
     } catch(e) { console.warn('Firebase main save failed:', e); }
 
-    // 2. Peak doc — only written when totalCloutEver is a new high (never goes down)
+    // 2. Peak doc — only written when allTimeCloutEver is a new high (never goes down)
     try {
         const peakRef = fbDb.collection('clout-clicker-peak').doc(uid);
         const peakDoc = await peakRef.get();
-        if (!peakDoc.exists || currentTotal > (peakDoc.data().totalCloutEver || 0)) {
+        const peakScore = peakDoc.exists ? (peakDoc.data().allTimeCloutEver || peakDoc.data().totalCloutEver || 0) : 0;
+        if (!peakDoc.exists || currentScore > peakScore) {
             await peakRef.set({ ...data, peakedAt: now });
         }
     } catch(e) { console.warn('Firebase peak save failed:', e); }
@@ -355,12 +359,13 @@ async function loadFromFirebase() {
         const mainData = mainDoc.exists ? mainDoc.data() : null;
         const peakData = peakDoc.exists ? peakDoc.data() : null;
 
-        const mainTotal = mainData ? (mainData.totalCloutEver || 0) : 0;
-        const peakTotal = peakData ? (peakData.totalCloutEver || 0) : 0;
+        // Use allTimeCloutEver so post-prestige saves (totalCloutEver=0) aren't overridden by pre-prestige peak
+        const mainScore = mainData ? (mainData.allTimeCloutEver || mainData.totalCloutEver || 0) : 0;
+        const peakScore = peakData ? (peakData.allTimeCloutEver || peakData.totalCloutEver || 0) : 0;
 
         // Always load whichever cloud source has the highest score
-        if (peakTotal > mainTotal) {
-            console.log(`[Save] Peak (${peakTotal}) > Main (${mainTotal}) — loading peak, repairing main save`);
+        if (peakScore > mainScore) {
+            console.log(`[Save] Peak (${peakScore}) > Main (${mainScore}) — loading peak, repairing main save`);
             deserializeState(peakData);
             saveToFirebase().catch(() => {}); // repair the main save
         } else if (mainData) {
