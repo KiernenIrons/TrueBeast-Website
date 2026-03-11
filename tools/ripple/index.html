@@ -570,9 +570,10 @@
                     }
                     return obj;
                 });
+            let _btnIdx = 0;
             const filteredComponents = (buttons || [])
                 .filter(row => row.some(b => b.label))
-                .map(row => ({ type: 1, components: row.filter(b => b.label).map(b => { const btn = { type: 2, style: 5, label: b.label, url: b.url || 'https://example.com' }; if (b.emoji) btn.emoji = { name: b.emoji }; return btn; }) }));
+                .map(row => ({ type: 1, components: row.filter(b => b.label).map(b => { const btn = { type: 2, style: 5, label: b.label, url: b.url || 'https://example.com', custom_id: 'p_' + (++_btnIdx) }; if (b.emoji) btn.emoji = { name: b.emoji }; return btn; }) }));
             const payload = {};
             if (content) payload.content = content;
             if (filteredEmbeds.length > 0) payload.embeds = filteredEmbeds;
