@@ -954,12 +954,16 @@
             if (_fbAuth) return;
             try {
                 const cfg = window.SITE_CONFIG && window.SITE_CONFIG.firebase;
-                if (!cfg) return;
-                const app = firebase.initializeApp(cfg, 'ripple');
+                if (!cfg) { console.warn('Ripple: SITE_CONFIG.firebase not found'); return; }
+                const existing = firebase.apps.find(a => a.name === 'ripple');
+                const app = existing || firebase.initializeApp(cfg, 'ripple');
                 _fbAuth = firebase.auth(app);
                 _fbDB = firebase.firestore(app);
-            } catch(e) { console.warn('Firebase init failed:', e); }
+                console.log('Ripple: Firebase ready');
+            } catch(e) { console.warn('Ripple: Firebase init failed:', e); }
         }
+        // Init eagerly so _fbAuth is ready before any component mounts
+        initFirebase();
 
         function ThemeToggle() {
             const [light, setLight] = React.useState(() => document.documentElement.classList.contains('light'));
