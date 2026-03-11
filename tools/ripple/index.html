@@ -739,13 +739,7 @@
                                 {(dc.embeds||[]).length < 10 && <button className="btn-xs" onClick={addEmbed}><PlusIcon /> Add Embed</button>}
                             </div>
                             {(dc.embeds||[]).map((emb,i) => <EmbedEditor key={emb.id} embed={emb} onChange={e=>updEmbed(i,e)} onRemove={()=>removeEmbed(i)} onSyncFromCore={()=>updEmbed(i,{...emb,title:coreMsg.title,description:coreMsg.body,url:coreMsg.linkUrl,image:coreMsg.imageUrl||emb.image})} />)}
-                            <div style={{marginTop:12}}>
-                                <div style={{display:'flex',alignItems:'baseline',gap:8,marginBottom:6}}>
-                                    <label className="field-label" style={{marginBottom:0}}>Link Buttons</label>
-                                    <span style={{fontSize:11,color:'#f59e0b'}}>⚠ Standard webhooks don't support buttons — they won't appear in Discord</span>
-                                </div>
-                                <ButtonsEditor buttons={dc.buttons||[]} onChange={b=>upd('buttons',b)} />
-                            </div>
+                            <div style={{marginTop:12}}><label className="field-label" style={{marginBottom:6}}>Link Buttons</label><ButtonsEditor buttons={dc.buttons||[]} onChange={b=>upd('buttons',b)} /></div>
                         </div>
                     )}
                 </div>
