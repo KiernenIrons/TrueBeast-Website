@@ -43,6 +43,7 @@ body {
     top: 0; left: 0;
     width: 100%; height: 100%;
     z-index: -2;
+    overflow: hidden;
     background:
         radial-gradient(ellipse at 15% 20%, rgba(34, 197, 94, 0.24) 0%, transparent 52%),
         radial-gradient(ellipse at 85% 75%, rgba(57, 255, 20,  0.16) 0%, transparent 50%),
@@ -53,8 +54,8 @@ body {
 .gradient-bg::after {
     content: '';
     position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
+    top: -5%; left: -5%;
+    width: 110%; height: 110%;
     background: radial-gradient(ellipse at 72% 18%, rgba(74, 222, 128, 0.14) 0%, transparent 48%);
     animation: gradientShift 18s ease-in-out infinite;
     will-change: transform;
