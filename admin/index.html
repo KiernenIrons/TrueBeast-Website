@@ -1239,12 +1239,14 @@
             var respData = await res.json().catch(function() { return {}; });
             if (!res.ok) {
                 dcShowToast('Discord error ' + res.status + ': ' + (respData.message || JSON.stringify(respData).slice(0, 200)), 'red');
-            } else if (respData._reactionErrors && respData._reactionErrors.length) {
-                var rErrMsg = respData._reactionErrors.map(function(e) { return e.emoji + ' (' + e.status + ')'; }).join(', ');
-                dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg, 'red');
             } else {
-                dcShowToast('Sent! ✓', 'green');
-                /* ── Track announcement ── */
+                if (respData._reactionErrors && respData._reactionErrors.length) {
+                    var rErrMsg = respData._reactionErrors.map(function(e) { return e.emoji + ' (' + e.status + ')'; }).join(', ');
+                    dcShowToast('Sent ✓ but reactions failed: ' + rErrMsg, 'red');
+                } else {
+                    dcShowToast('Sent! ✓', 'green');
+                }
+                /* ── Track announcement (runs for all successful sends) ── */
                 try {
                     var _user = firebase.auth().currentUser;
                     var _chanName = (function() {
