@@ -1262,7 +1262,7 @@
                             footer: em.footer ? em.footer.text : null
                         };
                     });
-                    FirebaseDB.db.collection('analytics').add({
+                    firebase.firestore().collection('analytics').add({
                         type: 'announcement_sent',
                         page: '/admin/',
                         sessionId: 'admin',
