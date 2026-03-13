@@ -1252,6 +1252,16 @@
                         return sel ? (sel.options[sel.selectedIndex] || {}).text || channelId : channelId;
                     })();
                     var _preview = (payload.content || (payload.embeds && payload.embeds[0] && payload.embeds[0].description) || '').slice(0, 80);
+                    var _embedSnap = (payload.embeds || []).map(function(em) {
+                        return {
+                            color: em.color,
+                            title: (em.title || '').slice(0, 256),
+                            description: (em.description || '').slice(0, 400),
+                            image: em.image ? em.image.url : null,
+                            thumbnail: em.thumbnail ? em.thumbnail.url : null,
+                            footer: em.footer ? em.footer.text : null
+                        };
+                    });
                     FirebaseDB.db.collection('analytics').add({
                         type: 'announcement_sent',
                         page: '/admin/',
@@ -1260,6 +1270,14 @@
                         admin:   _user ? _user.email : 'unknown',
                         channel: _chanName,
                         preview: _preview,
+                        embeds:  _embedSnap,
+                    }).catch(function(){});
+                    /* Save full announcement for homepage display */
+                    FirebaseDB.saveAnnouncement({
+                        content: payload.content || '',
+                        embeds: _embedSnap,
+                        channel: _chanName,
+                        admin: _user ? _user.email : 'unknown',
                     }).catch(function(){});
                     /* Invalidate cached analytics so next load is fresh */
                     _analyticsLoaded = false;
@@ -1483,15 +1501,28 @@
                 }).join('') + '</div>';
         }
         if (!announcements.length) {
-            aHtml = '<p class="text-gray-600 text-sm">No announcements tracked yet — they appear here after being sent via the Discord tab.</p>';
+            aHtml = '<p class="text-gray-600 text-sm">No announcements tracked yet — they appear here after being sent via the Announcements tab.</p>';
         } else {
-            aHtml += '<div class="space-y-2 max-h-60 overflow-y-auto">' +
+            aHtml += '<div class="space-y-2 max-h-80 overflow-y-auto">' +
                 announcements.slice(0,25).map(function(e){
                     var d = new Date(e.ts);
-                    return '<div class="ap-row flex-col items-start gap-0.5">' +
-                        '<div class="text-sm text-gray-300">' + (e.preview || 'Announcement sent') + '</div>' +
-                        '<div class="text-xs text-gray-600">' + (e.admin||'?') + ' · #' + (e.channel||'?') + ' · ' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString() + '</div>' +
+                    var row = '<div class="ap-row flex-col items-start gap-1">' +
+                        '<div class="text-sm text-gray-300">' + (e.preview || 'Announcement sent') + '</div>';
+                    if (e.embeds && e.embeds.length) {
+                        e.embeds.forEach(function(em) {
+                            var c = em.color ? '#' + ('000000' + em.color.toString(16)).slice(-6) : '#5865F2';
+                            row += '<div style="display:flex;border-radius:4px;overflow:hidden;background:#2b2d31;max-width:360px;margin-top:4px">' +
+                                '<div style="width:4px;flex-shrink:0;background:' + c + '"></div>' +
+                                '<div style="padding:6px 10px;font-size:12px;min-width:0">';
+                            if (em.title) row += '<div style="color:#fff;font-weight:600;margin-bottom:2px">' + esc(em.title) + '</div>';
+                            if (em.description) row += '<div style="color:#b5bac1;line-height:1.4">' + esc(em.description.slice(0, 120)) + (em.description.length > 120 ? '…' : '') + '</div>';
+                            if (em.image) row += '<img src="' + esc(em.image) + '" style="max-width:100%;border-radius:4px;margin-top:4px;max-height:80px;object-fit:cover" onerror="this.style.display=\'none\'">';
+                            row += '</div></div>';
+                        });
+                    }
+                    row += '<div class="text-xs text-gray-600">' + (e.admin||'?') + ' · #' + (e.channel||'?') + ' · ' + d.toLocaleDateString() + ' ' + d.toLocaleTimeString() + '</div>' +
                         '</div>';
+                    return row;
                 }).join('') + '</div>';
         }
         document.getElementById('ap-announcements').innerHTML = aHtml;
@@ -2294,6 +2325,26 @@
                 });
                 h += '</div>';
             });
+        }
+
+        // Reactions preview
+        var previewReactions = ds.reactions || [];
+        if (previewReactions.length) {
+            h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px">';
+            previewReactions.forEach(function(r) {
+                var rHtml;
+                var cm = r.match(/^(\w+):(\d+)$/);
+                if (cm) {
+                    var fe = dcBotEmojis.find(function(x) { return x.id === cm[2]; });
+                    var ext = (fe && fe.animated) ? 'gif' : 'png';
+                    rHtml = '<img src="https://cdn.discordapp.com/emojis/' + cm[2] + '.' + ext + '?size=32" style="width:16px;height:16px;vertical-align:middle;object-fit:contain" onerror="this.style.opacity=\'0.3\'">';
+                } else {
+                    rHtml = '<span style="font-size:14px;line-height:1">' + esc(r) + '</span>';
+                }
+                h += '<div style="display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:2px 8px 2px 6px;font-size:12px;color:#b5bac1">' +
+                    rHtml + '<span style="font-size:11px;color:#b5bac1;margin-left:1px">1</span></div>';
+            });
+            h += '</div>';
         }
 
         if (!h) h = '<p style="color:#6b7280;font-size:13px;text-align:center;padding:20px 0">Fill in the editor to see a preview</p>';

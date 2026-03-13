@@ -328,6 +328,40 @@ const FirebaseDB = {
     },
 
     // -----------------------------------------------------------------------
+    // Announcements  (public-read for homepage latest announcement)
+    // -----------------------------------------------------------------------
+
+    async saveAnnouncement(announcement) {
+        _ensureApp();
+        if (!_isConfigured()) throw new Error('Firebase not configured');
+        const id = 'ann-' + Date.now();
+        const doc = { ...announcement, id, createdAt: new Date().toISOString() };
+        await _withTimeout(
+            firebase.firestore().collection('announcements').doc(id).set(doc),
+            8000
+        );
+        return doc;
+    },
+
+    async getLatestAnnouncement() {
+        _ensureApp();
+        if (!_isConfigured()) return null;
+        try {
+            const snap = await _withTimeout(
+                firebase.firestore().collection('announcements')
+                    .orderBy('createdAt', 'desc').limit(1).get(),
+                8000
+            );
+            if (snap.empty) return null;
+            const d = snap.docs[0];
+            return { id: d.id, ...d.data() };
+        } catch (err) {
+            console.warn('FirebaseDB.getLatestAnnouncement error:', err.message);
+            return null;
+        }
+    },
+
+    // -----------------------------------------------------------------------
     // Admin Roles  (RBAC)
     // -----------------------------------------------------------------------
 
