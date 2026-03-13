@@ -1257,8 +1257,8 @@
                     var _embedSnap = (payload.embeds || []).map(function(em) {
                         return {
                             color: em.color,
-                            title: (em.title || '').slice(0, 256),
-                            description: (em.description || '').slice(0, 400),
+                            title: em.title || '',
+                            description: em.description || '',
                             image: em.image ? em.image.url : null,
                             thumbnail: em.thumbnail ? em.thumbnail.url : null,
                             footer: em.footer ? em.footer.text : null

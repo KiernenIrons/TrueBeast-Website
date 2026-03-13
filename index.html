@@ -575,6 +575,74 @@
             );
         };
         
+        // ── Discord Markdown Parser ──────────────────────────────────────────
+        const parseDiscordMarkdown = (text) => {
+            if (!text) return null;
+            // Escape HTML first
+            let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Custom emojis: <:name:id> or <a:name:id>
+            html = html.replace(/&lt;(a?):(\w+):(\d+)&gt;/g, (_, anim, name, id) => {
+                const ext = anim ? 'gif' : 'png';
+                return `<img src="https://cdn.discordapp.com/emojis/${id}.${ext}?size=48" alt=":${name}:" title=":${name}:" style="display:inline;width:20px;height:20px;vertical-align:middle;margin:0 1px;object-fit:contain">`;
+            });
+
+            // Role mentions: <@&id> → styled pill
+            html = html.replace(/&lt;@&amp;(\d+)&gt;/g, '<span style="background:rgba(88,101,242,0.2);color:#c4b5fd;padding:0 4px;border-radius:4px;font-size:0.85em">@role</span>');
+
+            // User mentions: <@id> or <@!id> → styled pill
+            html = html.replace(/&lt;@!?(\d+)&gt;/g, '<span style="background:rgba(88,101,242,0.2);color:#c4b5fd;padding:0 4px;border-radius:4px;font-size:0.85em">@user</span>');
+
+            // Channel mentions: <#id> → styled pill
+            html = html.replace(/&lt;#(\d+)&gt;/g, '<span style="background:rgba(88,101,242,0.2);color:#c4b5fd;padding:0 4px;border-radius:4px;font-size:0.85em">#channel</span>');
+
+            // Timestamps: <t:unix:style> → readable date
+            html = html.replace(/&lt;t:(\d+)(?::([tTdDfFR]))?&gt;/g, (_, ts, style) => {
+                const d = new Date(parseInt(ts) * 1000);
+                const fmt = style === 'R' ? 'relative' : style === 't' ? 'short-time' : style === 'T' ? 'long-time' : style === 'd' ? 'short-date' : 'full';
+                if (fmt === 'relative') {
+                    const diff = Date.now() - d.getTime();
+                    const mins = Math.floor(Math.abs(diff) / 60000);
+                    if (mins < 60) return `<span style="background:rgba(88,101,242,0.15);padding:0 4px;border-radius:4px">${mins}m ${diff > 0 ? 'ago' : 'from now'}</span>`;
+                    const hrs = Math.floor(mins / 60);
+                    if (hrs < 24) return `<span style="background:rgba(88,101,242,0.15);padding:0 4px;border-radius:4px">${hrs}h ${diff > 0 ? 'ago' : 'from now'}</span>`;
+                    return `<span style="background:rgba(88,101,242,0.15);padding:0 4px;border-radius:4px">${d.toLocaleDateString()}</span>`;
+                }
+                return `<span style="background:rgba(88,101,242,0.15);padding:0 4px;border-radius:4px">${d.toLocaleDateString()} ${d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</span>`;
+            });
+
+            // Code blocks: ```lang\ncode``` → pre block
+            html = html.replace(/```(?:\w*\n)?([\s\S]*?)```/g, '<pre style="background:rgba(0,0,0,0.3);border-radius:6px;padding:8px 12px;font-size:12px;overflow-x:auto;margin:6px 0;color:#e5e7eb">$1</pre>');
+
+            // Inline code
+            html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px;font-size:0.9em">$1</code>');
+
+            // Headings: # ## ###
+            html = html.replace(/^### (.+)$/gm, '<div style="font-size:1em;font-weight:700;color:#fff;margin:8px 0 4px">$1</div>');
+            html = html.replace(/^## (.+)$/gm, '<div style="font-size:1.15em;font-weight:700;color:#fff;margin:10px 0 4px">$1</div>');
+            html = html.replace(/^# (.+)$/gm, '<div style="font-size:1.3em;font-weight:700;color:#fff;margin:12px 0 4px">$1</div>');
+
+            // Block quotes: > text (multiline)
+            html = html.replace(/^&gt; (.+)$/gm, '<div style="border-left:3px solid rgba(255,255,255,0.2);padding-left:10px;margin:4px 0;color:#b5bac1">$1</div>');
+
+            // Bold + italic: ***text***
+            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            // Bold: **text**
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong style="color:#e5e7eb">$1</strong>');
+            // Italic: *text* or _text_
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+            // Strikethrough: ~~text~~
+            html = html.replace(/~~(.+?)~~/g, '<del>$1</del>');
+            // Spoiler: ||text||
+            html = html.replace(/\|\|(.+?)\|\|/g, '<span style="background:#4e4e4e;color:#4e4e4e;border-radius:3px;padding:0 3px;cursor:pointer" onclick="this.style.color=\'#e5e7eb\'">$1</span>');
+
+            // Line breaks
+            html = html.replace(/\n/g, '<br>');
+
+            return html;
+        };
+
         // ── Latest Announcement Section ──────────────────────────────────────
         const LatestAnnouncementSection = () => {
             const [announcement, setAnnouncement] = React.useState(null);
@@ -615,6 +683,10 @@
                 return d.toLocaleDateString();
             })();
 
+            const contentHtml = parseDiscordMarkdown(announcement.content);
+            const titleHtml = embed ? parseDiscordMarkdown(embed.title) : null;
+            const descHtml = embed ? parseDiscordMarkdown(embed.description) : null;
+
             return (
                 <section className="px-6 pb-12">
                     <div className="max-w-3xl mx-auto">
@@ -625,20 +697,23 @@
                             </div>
                             <div className="liquid-glass-strong rounded-2xl overflow-hidden" style={{borderLeft: `4px solid ${color}`}}>
                                 <div className="p-5 md:p-6">
-                                    {announcement.content && (
-                                        <p className="text-gray-300 text-sm leading-relaxed mb-3 whitespace-pre-wrap">{announcement.content}</p>
+                                    {contentHtml && (
+                                        <div className="text-gray-300 text-sm leading-relaxed mb-3"
+                                             dangerouslySetInnerHTML={{__html: contentHtml}} />
                                     )}
                                     {embed && (
                                         <div className="rounded-lg overflow-hidden" style={{background: 'rgba(0,0,0,0.25)'}}>
                                             <div className="p-4">
-                                                {embed.title && (
-                                                    <h4 className="text-white font-semibold text-base mb-1">{embed.title}</h4>
+                                                {titleHtml && (
+                                                    <div className="text-white font-semibold text-base mb-1"
+                                                         dangerouslySetInnerHTML={{__html: titleHtml}} />
                                                 )}
-                                                {embed.description && (
-                                                    <p className="text-gray-400 text-sm leading-relaxed">{embed.description}</p>
+                                                {descHtml && (
+                                                    <div className="text-gray-400 text-sm leading-relaxed"
+                                                         dangerouslySetInnerHTML={{__html: descHtml}} />
                                                 )}
                                                 {embed.image && (
-                                                    <img src={embed.image} alt="" className="mt-3 rounded-lg w-full max-h-48 object-cover" onError={e => e.target.style.display = 'none'} />
+                                                    <img src={embed.image} alt="" className="mt-3 rounded-lg w-full object-cover" onError={e => e.target.style.display = 'none'} />
                                                 )}
                                             </div>
                                         </div>
