@@ -117,9 +117,17 @@ async function handleDiscordSend(request, env, corsHeaders) {
     // After successful send, add reactions if requested, collect results
     const reactionResults = [];
     if (res.ok && data.id && Array.isArray(reactions) && reactions.length) {
-        for (const emoji of reactions) {
+        for (let i = 0; i < reactions.length; i++) {
+            const emoji = reactions[i];
+            if (i > 0) await new Promise(r => setTimeout(r, 350));
             const url = 'https://discord.com/api/v10/channels/' + channelId + '/messages/' + data.id + '/reactions/' + encodeURIComponent(emoji) + '/@me';
-            const rRes = await fetch(url, { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } });
+            let rRes = await fetch(url, { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } });
+            if (rRes.status === 429) {
+                const retryBody = await rRes.json().catch(() => ({}));
+                const retryAfter = (retryBody.retry_after || 1) * 1000;
+                await new Promise(r => setTimeout(r, retryAfter));
+                rRes = await fetch(url, { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } });
+            }
             const rBody = rRes.status === 204 ? null : await rRes.json().catch(() => null);
             reactionResults.push({ emoji, encodedEmoji: encodeURIComponent(emoji), status: rRes.status, ok: rRes.ok, discordResponse: rBody });
         }

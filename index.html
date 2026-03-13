@@ -581,14 +581,21 @@
             const [loading, setLoading] = React.useState(true);
 
             React.useEffect(() => {
-                if (typeof FirebaseDB !== 'undefined' && FirebaseDB.isConfigured()) {
-                    FirebaseDB.getLatestAnnouncement().then(a => {
-                        setAnnouncement(a);
-                        setLoading(false);
-                    }).catch(() => setLoading(false));
-                } else {
-                    setLoading(false);
-                }
+                let cancelled = false;
+                const tryLoad = (attempts) => {
+                    if (cancelled) return;
+                    if (typeof FirebaseDB !== 'undefined' && typeof firebase !== 'undefined' && FirebaseDB.isConfigured()) {
+                        FirebaseDB.getLatestAnnouncement().then(a => {
+                            if (!cancelled) { setAnnouncement(a); setLoading(false); }
+                        }).catch(() => { if (!cancelled) setLoading(false); });
+                    } else if (attempts < 20) {
+                        setTimeout(() => tryLoad(attempts + 1), 300);
+                    } else {
+                        if (!cancelled) setLoading(false);
+                    }
+                };
+                tryLoad(0);
+                return () => { cancelled = true; };
             }, []);
 
             if (loading || !announcement) return null;
