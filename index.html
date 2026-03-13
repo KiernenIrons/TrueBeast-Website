@@ -627,21 +627,21 @@
             });
 
             // -# small subtext (Discord subheading)
-            html = html.replace(/^-# (.+)$/gm, '<div style="font-size:0.75em;color:#72767d;margin:2px 0">$1</div>');
+            html = html.replace(/^-# (.+)$/gm, '<div style="font-size:0.75em;color:#72767d;margin:1px 0">$1</div>');
 
             // Headings: # ## ###
-            html = html.replace(/^### (.+)$/gm, '<div style="font-size:1em;font-weight:700;color:#fff;margin:8px 0 4px">$1</div>');
-            html = html.replace(/^## (.+)$/gm, '<div style="font-size:1.15em;font-weight:700;color:#fff;margin:10px 0 4px">$1</div>');
-            html = html.replace(/^# (.+)$/gm, '<div style="font-size:1.3em;font-weight:700;color:#fff;margin:12px 0 4px">$1</div>');
+            html = html.replace(/^### (.+)$/gm, '<div style="font-size:1em;font-weight:700;color:#fff;margin:6px 0 2px">$1</div>');
+            html = html.replace(/^## (.+)$/gm, '<div style="font-size:1.15em;font-weight:700;color:#fff;margin:8px 0 2px">$1</div>');
+            html = html.replace(/^# (.+)$/gm, '<div style="font-size:1.3em;font-weight:700;color:#fff;margin:8px 0 2px">$1</div>');
 
             // Block quotes: > text
-            html = html.replace(/^&gt; (.+)$/gm, '<div style="border-left:3px solid rgba(255,255,255,0.2);padding-left:10px;margin:4px 0;color:#b5bac1">$1</div>');
+            html = html.replace(/^&gt; (.+)$/gm, '<div style="border-left:3px solid rgba(255,255,255,0.2);padding-left:10px;margin:2px 0;color:#b5bac1">$1</div>');
 
             // Unordered lists
-            html = html.replace(/^(\s*)[-•] (.+)$/gm, '<div style="padding-left:16px;margin:2px 0">• $2</div>');
+            html = html.replace(/^(\s*)[-•] (.+)$/gm, '<div style="padding-left:16px;margin:1px 0">• $2</div>');
 
             // Ordered lists: 1. 2. etc
-            html = html.replace(/^(\s*)(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:2px 0">$2. $3</div>');
+            html = html.replace(/^(\s*)(\d+)\. (.+)$/gm, '<div style="padding-left:16px;margin:1px 0">$2. $3</div>');
 
             // Bold + italic: ***text***
             html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -664,8 +664,8 @@
             codeBlocks.forEach((block, i) => { html = html.replace(`%%CODEBLOCK${i}%%`, block); });
             inlineCodes.forEach((code, i) => { html = html.replace(`%%INLINECODE${i}%%`, code); });
 
-            // Clean up: remove leading <br> from role mention removal leaving empty lines
-            html = html.replace(/^(<br>)+/, '').replace(/(<br>){3,}/g, '<br><br>');
+            // Clean up: collapse excessive line breaks, strip leading breaks
+            html = html.replace(/^(<br>)+/, '').replace(/(<br>){2,}/g, '<br>');
 
             return html;
         };
