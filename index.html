@@ -604,7 +604,7 @@
             // Role mentions: <@&id> → remove entirely (irrelevant to website visitors)
             html = html.replace(/&lt;@&amp;(\d+)&gt;/g, '');
 
-            // User mentions: <@id> or <@!id> → styled mention pill
+            // User mentions: <@id> or <@!id> → styled mention pill (fallback for unresolved)
             html = html.replace(/&lt;@!?(\d+)&gt;/g, '<span style="background:rgba(88,101,242,0.25);color:#c4b5fd;padding:1px 6px;border-radius:4px;font-size:0.9em;font-weight:500">@member</span>');
 
             // Channel mentions: <#id> → styled pill

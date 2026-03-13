@@ -1254,11 +1254,29 @@
                         return sel ? (sel.options[sel.selectedIndex] || {}).text || channelId : channelId;
                     })();
                     var _preview = (payload.content || (payload.embeds && payload.embeds[0] && payload.embeds[0].description) || '').slice(0, 80);
+                    var _resolveMentions = function(txt) {
+                        if (!txt) return txt;
+                        // Resolve user mentions: <@id> or <@!id> → @DisplayName
+                        txt = txt.replace(/<@!?(\d+)>/g, function(_, id) {
+                            return '@' + (dcBotMembers[id] || 'member');
+                        });
+                        // Resolve role mentions: <@&id> → @RoleName
+                        txt = txt.replace(/<@&(\d+)>/g, function(_, id) {
+                            var role = dcBotRoles.find(function(r) { return r.id === id; });
+                            return '@' + (role ? role.name : 'role');
+                        });
+                        // Resolve channel mentions: <#id> → #ChannelName
+                        txt = txt.replace(/<#(\d+)>/g, function(_, id) {
+                            var ch = dcBotChannels.find(function(c) { return c.id === id; });
+                            return '#' + (ch ? ch.name : 'channel');
+                        });
+                        return txt;
+                    };
                     var _embedSnap = (payload.embeds || []).map(function(em) {
                         return {
                             color: em.color,
-                            title: em.title || '',
-                            description: em.description || '',
+                            title: _resolveMentions(em.title || ''),
+                            description: _resolveMentions(em.description || ''),
                             image: em.image ? em.image.url : null,
                             thumbnail: em.thumbnail ? em.thumbnail.url : null,
                             footer: em.footer ? em.footer.text : null,
@@ -1266,6 +1284,7 @@
                             timestamp: em.timestamp || null
                         };
                     });
+                    var _resolvedContent = _resolveMentions(payload.content || '');
                     firebase.firestore().collection('analytics').add({
                         type: 'announcement_sent',
                         page: '/admin/',
@@ -1278,7 +1297,7 @@
                     }).catch(function(){});
                     /* Save full announcement for homepage display */
                     FirebaseDB.saveAnnouncement({
-                        content: payload.content || '',
+                        content: _resolvedContent,
                         embeds: _embedSnap,
                         channel: _chanName,
                         admin: _user ? _user.email : 'unknown',
