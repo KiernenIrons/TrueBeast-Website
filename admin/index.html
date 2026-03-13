@@ -1261,7 +1261,9 @@
                             description: em.description || '',
                             image: em.image ? em.image.url : null,
                             thumbnail: em.thumbnail ? em.thumbnail.url : null,
-                            footer: em.footer ? em.footer.text : null
+                            footer: em.footer ? em.footer.text : null,
+                            footerIcon: em.footer ? em.footer.icon_url || null : null,
+                            timestamp: em.timestamp || null
                         };
                     });
                     firebase.firestore().collection('analytics').add({
