@@ -1178,9 +1178,11 @@
             if (fields.length) em.fields = fields.map(function(f) { return { name: f.name, value: f.value, inline: !!f.inline }; });
             if (e.image.trim())     em.image     = { url: e.image.trim() };
             if (e.thumbnail.trim()) em.thumbnail = { url: e.thumbnail.trim() };
-            if (e.footer.text.trim()) {
-                em.footer = { text: e.footer.text.trim() };
-                if (e.footer.icon_url.trim()) em.footer.icon_url = e.footer.icon_url.trim();
+            if (e.footer.text.trim() || e.footer.timestamp) {
+                if (e.footer.text.trim()) {
+                    em.footer = { text: e.footer.text.trim() };
+                    if (e.footer.icon_url.trim()) em.footer.icon_url = e.footer.icon_url.trim();
+                }
                 if (e.footer.timestamp) em.timestamp = new Date(e.footer.timestamp).toISOString();
             }
             return Object.keys(em).filter(function(k) { return k !== 'color'; }).length ? em : null;

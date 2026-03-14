@@ -87,9 +87,17 @@ async function handleDiscordReact(request, env, corsHeaders) {
         return jsonResponse({ error: 'channelId, messageId, and reactions required', received: { channelId, messageId, reactionsType: typeof reactions } }, 400, corsHeaders);
     }
     const results = [];
-    for (const emoji of reactions) {
+    for (let i = 0; i < reactions.length; i++) {
+        const emoji = reactions[i];
+        if (i > 0) await new Promise(r => setTimeout(r, 750));
         const url = `https://discord.com/api/v10/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`;
-        const r = await fetch(url, { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
+        let r = await fetch(url, { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
+        for (let retry = 0; retry < 3 && r.status === 429; retry++) {
+            const retryBody = await r.json().catch(() => ({}));
+            const retryAfter = Math.ceil((retryBody.retry_after || 1.5) * 1000);
+            await new Promise(resolve => setTimeout(resolve, retryAfter + 250));
+            r = await fetch(url, { method: 'PUT', headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
+        }
         const body204 = r.status === 204 ? null : await r.json().catch(() => null);
         results.push({ emoji, encodedEmoji: encodeURIComponent(emoji), status: r.status, ok: r.ok, discordResponse: body204 });
     }
@@ -119,13 +127,14 @@ async function handleDiscordSend(request, env, corsHeaders) {
     if (res.ok && data.id && Array.isArray(reactions) && reactions.length) {
         for (let i = 0; i < reactions.length; i++) {
             const emoji = reactions[i];
-            if (i > 0) await new Promise(r => setTimeout(r, 350));
+            if (i > 0) await new Promise(r => setTimeout(r, 750));
             const url = 'https://discord.com/api/v10/channels/' + channelId + '/messages/' + data.id + '/reactions/' + encodeURIComponent(emoji) + '/@me';
             let rRes = await fetch(url, { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } });
-            if (rRes.status === 429) {
+            // Retry up to 3 times on rate limit
+            for (let retry = 0; retry < 3 && rRes.status === 429; retry++) {
                 const retryBody = await rRes.json().catch(() => ({}));
-                const retryAfter = (retryBody.retry_after || 1) * 1000;
-                await new Promise(r => setTimeout(r, retryAfter));
+                const retryAfter = Math.ceil((retryBody.retry_after || 1.5) * 1000);
+                await new Promise(r => setTimeout(r, retryAfter + 250));
                 rRes = await fetch(url, { method: 'PUT', headers: { Authorization: 'Bot ' + env.DISCORD_BOT_TOKEN } });
             }
             const rBody = rRes.status === 204 ? null : await rRes.json().catch(() => null);
