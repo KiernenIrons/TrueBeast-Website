@@ -121,7 +121,8 @@ You will receive a question and a casual answer from Kiernen (TrueBeast). Your j
 - Write in third person about Kiernen (e.g. "Kiernen wears..." not "I wear...")
 - Keep it concise and factual
 - Fix any typos or grammar
-- Return ONLY the formatted content, no extra commentary`,
+- Do NOT include a heading, title, or markdown # — just the plain answer text
+- Return ONLY the formatted answer text, nothing else`,
             messages: [{
                 role: 'user',
                 content: `Question: ${question}\nKiernen's answer: ${rawAnswer}`,
@@ -402,6 +403,7 @@ client.on('messageCreate', async (message) => {
                         const originalMsg = await channel.messages.fetch(pending.messageId);
                         await originalMsg.reply(
                             `<@${pending.askerId}> Kiernen got back to you! 👀\n\n` +
+                            `**Question:** ${pending.question}\n` +
                             `**Answer:** ${pending.answer}`
                         );
                         console.log(`[BeastBot] Replied to original message for ${pending.askerTag}`);
