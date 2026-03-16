@@ -18,7 +18,7 @@
 
 require('dotenv').config();
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -35,6 +35,10 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
     console.error('[BeastBot] ❌  Missing required env vars.');
     process.exit(1);
 }
+
+// ── In-memory state for DM-based KB updates ───────────────────────────────────
+// Map of dmChannelId -> { state: 'awaiting_answer' | 'awaiting_confirm', question, answer? }
+const pendingAnswers = new Map();
 
 // ── Firestore ────────────────────────────────────────────────────────────────
 
@@ -76,18 +80,39 @@ async function saveUnansweredQuestion(question, author, channelName) {
         console.error('[BeastBot] Failed to save unanswered question:', e.message);
     }
 
-    // DM Kiernen
+    // DM Kiernen and track pending state for KB update
     try {
         const owner = await client.users.fetch(OWNER_DISCORD_ID);
-        await owner.send(
+        const dmChannel = await owner.createDM();
+        await dmChannel.send(
             `❓ **Unanswered question**\n` +
             `**From:** ${author.tag}\n` +
             `**Channel:** #${channelName}\n` +
-            `**Question:** ${question}`
+            `**Question:** ${question}\n\n` +
+            `_Reply with the answer if you want to save it to the knowledge base._`
         );
+        pendingAnswers.set(dmChannel.id, { state: 'awaiting_answer', question });
+        console.log(`[BeastBot] DM sent to owner, awaiting answer for: "${question.slice(0, 60)}"`);
     } catch (e) {
         console.error('[BeastBot] Failed to DM owner:', e.message);
     }
+}
+
+async function saveToKnowledgeBase(question, answer) {
+    const id = `user-answer-${Date.now()}`;
+    const topic = question.length > 80 ? question.slice(0, 80) + '…' : question;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase/${id}?key=${FIREBASE_API_KEY}`;
+    const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            fields: {
+                topic:   { stringValue: topic },
+                content: { stringValue: answer },
+            },
+        }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 }
 
 // ── Discord live context ──────────────────────────────────────────────────────
@@ -288,7 +313,9 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildScheduledEvents,
+        GatewayIntentBits.DirectMessages,
     ],
+    partials: [Partials.Channel],
 });
 
 client.once('ready', () => {
@@ -299,6 +326,46 @@ client.once('ready', () => {
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+
+    // ── Handle owner DMs for KB updates ──────────────────────────────────────
+    if (message.channel.type === ChannelType.DM && message.author.id === OWNER_DISCORD_ID) {
+        const pending = pendingAnswers.get(message.channel.id);
+        if (!pending) return;
+
+        if (pending.state === 'awaiting_answer') {
+            pending.answer = message.content.trim();
+            pending.state  = 'awaiting_confirm';
+            pendingAnswers.set(message.channel.id, pending);
+            await message.reply(
+                `Got it! Here's what I'll save to the knowledge base:\n\n` +
+                `**Q:** ${pending.question}\n` +
+                `**A:** ${pending.answer}\n\n` +
+                `Reply **yes** to confirm or **no** to cancel.`
+            );
+            return;
+        }
+
+        if (pending.state === 'awaiting_confirm') {
+            const reply = message.content.trim().toLowerCase();
+            if (['yes', 'yeah', 'y', 'yep', 'yup', 'confirm'].includes(reply)) {
+                try {
+                    await saveToKnowledgeBase(pending.question, pending.answer);
+                    await message.reply('✅ Saved! Beast Bot will use that answer from now on.');
+                    console.log(`[BeastBot] KB updated by owner: "${pending.question.slice(0, 60)}"`);
+                } catch (e) {
+                    await message.reply(`❌ Failed to save: ${e.message}`);
+                }
+            } else {
+                await message.reply('👍 Cancelled — nothing was saved.');
+            }
+            pendingAnswers.delete(message.channel.id);
+            return;
+        }
+
+        return;
+    }
+
+    // ── Handle support channel messages ──────────────────────────────────────
     if (!CHANNEL_IDS.includes(message.channelId)) return;
 
     const question = message.content.trim();
@@ -328,7 +395,7 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // Unknown question — save to Firestore for Kiernen to review
+    // Unknown question — save to Firestore and DM owner
     if (!result.known) {
         console.log(`[BeastBot] Unknown question from ${message.author.tag} — saving to Firestore`);
         await saveUnansweredQuestion(question, message.author, message.channel.name);
