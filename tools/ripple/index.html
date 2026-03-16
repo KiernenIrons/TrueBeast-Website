@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="../../css/glass.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        #root { opacity: 0; transition: opacity 0.15s ease; }
         /* ── Page gradient: violet/indigo broadcasting theme ── */
         .gradient-bg {
             background:
@@ -1378,6 +1379,9 @@
         }
 
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            document.getElementById('root').style.opacity = '1';
+        }));
     </script>
 </body>
 </html>
