@@ -23,6 +23,8 @@
     <link rel="preconnect" href="https://www.gstatic.com">
     <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <!-- CSS first — render-critical, loads in parallel with deferred scripts -->
+    <!-- Hide #root until Tailwind has generated CSS for React-rendered classes (prevents colour flash) -->
+    <style>#root { opacity: 0; transition: opacity 0.15s ease; }</style>
     <link rel="stylesheet" href="css/shared.css">
     <link rel="stylesheet" href="css/glass.css?v=5">
     <link rel="stylesheet" href="css/index.css?v=3">
@@ -1455,6 +1457,11 @@
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+        // Double rAF: first lets React flush DOM changes, second lets Tailwind's
+        // MutationObserver fire and inject CSS — then we reveal the page.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            document.getElementById('root').style.opacity = '1';
+        }));
     </script>
 
     <script>
