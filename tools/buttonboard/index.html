@@ -18,6 +18,18 @@
     <style>
         #root { opacity: 0; transition: opacity 0.15s ease; }
 
+        /* ── Blue gradient background ── */
+        .gradient-bg {
+            background:
+                radial-gradient(ellipse at 10% 15%, rgba(29,  78,  216, 0.28) 0%, transparent 50%),
+                radial-gradient(ellipse at 88% 80%, rgba(6,   182, 212, 0.18) 0%, transparent 48%),
+                radial-gradient(ellipse at 50% 50%, rgba(99,  102, 241, 0.12) 0%, transparent 65%),
+                #090d18;
+        }
+        .gradient-bg::after {
+            background: radial-gradient(ellipse at 70% 15%, rgba(56, 189, 248, 0.14) 0%, transparent 46%);
+        }
+
         /* Grid slot */
         .slot {
             aspect-ratio: 1;
@@ -166,6 +178,7 @@
     </style>
 </head>
 <body>
+<div class="gradient-bg"></div>
 <div id="root"></div>
 
 <script type="text/babel">
