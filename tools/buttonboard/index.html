@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ButtonBoard Builder | TrueBeast Tools</title>
+    <link rel="icon" href="../../favicon.ico">
+    <script src="../../js/theme.js"></script>
+    <link rel="stylesheet" href="../../css/shared.css">
+    <link rel="stylesheet" href="../../css/glass.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="../../js/config.js?v=6"></script>
+    <script src="../../js/analytics.js"></script>
+    <style>
+        #root { opacity: 0; transition: opacity 0.15s ease; }
+
+        /* Grid slot */
+        .slot {
+            aspect-ratio: 1;
+            border-radius: 14px;
+            border: 2px solid rgba(255,255,255,0.08);
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 4px; overflow: hidden;
+            background: rgba(255,255,255,0.03);
+        }
+        .slot:hover  { border-color: rgba(124,58,237,0.5); background: rgba(124,58,237,0.06); }
+        .slot.selected { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,0.25); }
+        .slot-icon  { font-size: clamp(1.2rem, 3vw, 2rem); line-height: 1; }
+        .slot-label { font-size: 0.65rem; font-weight: 600; text-align: center; padding: 0 4px; line-height: 1.2; color: rgba(255,255,255,0.85); }
+
+        /* Preset chip */
+        .preset-chip {
+            padding: 6px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 600;
+            border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
+            cursor: pointer; transition: all 0.15s; white-space: nowrap;
+            color: rgba(255,255,255,0.8);
+        }
+        .preset-chip:hover { border-color: #7c3aed; background: rgba(124,58,237,0.15); color: #fff; }
+        .preset-chip:active { transform: scale(0.95); }
+
+        /* Field styles */
+        .bb-input {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px; padding: 10px 14px;
+            font-size: 0.9rem; color: #fff; outline: none;
+            transition: border-color 0.15s; font-family: 'Outfit', sans-serif;
+        }
+        .bb-input:focus { border-color: #7c3aed; }
+        .bb-input::placeholder { color: rgba(255,255,255,0.3); }
+
+        .bb-select {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px; padding: 10px 14px;
+            font-size: 0.9rem; color: #fff; outline: none;
+            cursor: pointer; font-family: 'Outfit', sans-serif;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+        .bb-select:focus { border-color: #7c3aed; }
+        .bb-select option { background: #1a1a2e; color: #fff; }
+
+        /* Color swatch row */
+        .color-swatch {
+            width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+            border: 2px solid transparent; transition: all 0.15s; flex-shrink: 0;
+        }
+        .color-swatch.active { border-color: #fff; transform: scale(1.15); }
+
+        /* Section card */
+        .section-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 20px;
+        }
+
+        /* Step label */
+        .step-label {
+            font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+            text-transform: uppercase; color: rgba(124,58,237,0.9);
+            margin-bottom: 12px;
+        }
+
+        /* Generate button */
+        .gen-btn {
+            width: 100%; padding: 14px;
+            background: linear-gradient(135deg, #7c3aed, #6d28d9);
+            border: none; border-radius: 12px; font-size: 1rem;
+            font-weight: 700; color: #fff; cursor: pointer;
+            transition: all 0.15s; font-family: 'Outfit', sans-serif;
+        }
+        .gen-btn:hover  { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+        .gen-btn:active { transform: scale(0.98); }
+
+        /* URL box */
+        .url-box {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 10px 14px;
+            font-size: 0.72rem; font-family: monospace;
+            color: rgba(255,255,255,0.6); word-break: break-all;
+            line-height: 1.5;
+        }
+
+        /* Copy btn */
+        .copy-btn {
+            padding: 8px 16px; border-radius: 8px; font-size: 0.82rem;
+            font-weight: 600; border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.07); color: #fff;
+            cursor: pointer; transition: all 0.15s; font-family: 'Outfit', sans-serif;
+            white-space: nowrap;
+        }
+        .copy-btn:hover { background: rgba(255,255,255,0.12); }
+
+        /* Download btn */
+        .dl-btn {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 12px 20px; border-radius: 12px; font-size: 0.88rem;
+            font-weight: 600; text-decoration: none; color: #fff;
+            transition: all 0.15s; border: 1px solid rgba(255,255,255,0.12);
+            cursor: pointer;
+        }
+        .dl-btn-win { background: rgba(0, 120, 212, 0.2); border-color: rgba(0, 120, 212, 0.4); }
+        .dl-btn-win:hover { background: rgba(0, 120, 212, 0.35); }
+        .dl-btn-mac { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.15); }
+        .dl-btn-mac:hover { background: rgba(255,255,255,0.12); }
+
+        /* Accordion */
+        .accordion-header {
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; padding: 14px 0; user-select: none;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .accordion-body { overflow: hidden; transition: max-height 0.3s ease; max-height: 0; }
+        .accordion-body.open { max-height: 600px; }
+
+        /* Sizing chips */
+        .size-chip {
+            padding: 6px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+            border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04);
+            cursor: pointer; transition: all 0.15s; color: rgba(255,255,255,0.7);
+        }
+        .size-chip.active { background: rgba(124,58,237,0.2); border-color: #7c3aed; color: #fff; }
+        .size-chip:hover:not(.active) { border-color: rgba(124,58,237,0.4); }
+
+        /* Light mode */
+        html.light .bb-input,
+        html.light .bb-select { color: #111; background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.15); }
+        html.light .bb-select option { background: #fff; color: #111; }
+        html.light .slot-label { color: rgba(0,0,0,0.85); }
+        html.light .url-box { color: rgba(0,0,0,0.6); }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+const GRID_SIZES = [
+    { label: '2×2', cols: 2, rows: 2 },
+    { label: '3×3', cols: 3, rows: 3 },
+    { label: '3×4', cols: 3, rows: 4 },
+    { label: '4×4', cols: 4, rows: 4 },
+    { label: '4×5', cols: 4, rows: 5 },
+];
+
+const COLOR_PALETTE = [
+    '#1a1a2e', '#0f3460', '#1e3a2f', '#3a1a1a', '#1a2a1a',
+    '#2d1b1b', '#1a1a3e', '#5865f2', '#7c3aed', '#0f766e',
+    '#b45309', '#991b1b', '#1d4ed8', '#166534', '#6b21a8',
+];
+
+const MEDIA_KEYS = [
+    { label: 'Volume Up',   key: 'volumeup'    },
+    { label: 'Volume Down', key: 'volumedown'  },
+    { label: 'Mute',        key: 'volumemute'  },
+    { label: 'Play / Pause',key: 'playpause'   },
+    { label: 'Next Track',  key: 'nexttrack'   },
+    { label: 'Prev Track',  key: 'prevtrack'   },
+];
+
+const PRESETS = [
+    { label: 'Minimize All',    icon: '🗕', color: '#1e3a2f', action: { type: 'shortcut', keys: ['win', 'd'] } },
+    { label: 'Lock PC',         icon: '🔒', color: '#1a1a2e', action: { type: 'shortcut', keys: ['win', 'l'] } },
+    { label: 'Discord Mute',    icon: '🎤', color: '#5865f2', action: { type: 'shortcut', keys: ['ctrl', 'shift', 'm'] } },
+    { label: 'Discord Deafen',  icon: '🎧', color: '#5865f2', action: { type: 'shortcut', keys: ['ctrl', 'shift', 'd'] } },
+    { label: 'Volume Up',       icon: '🔊', color: '#0f3460', action: { type: 'media', key: 'volumeup' } },
+    { label: 'Volume Down',     icon: '🔉', color: '#0f3460', action: { type: 'media', key: 'volumedown' } },
+    { label: 'Mute Audio',      icon: '🔇', color: '#2d1b1b', action: { type: 'media', key: 'volumemute' } },
+    { label: 'Play / Pause',    icon: '⏯',  color: '#1a2a1a', action: { type: 'media', key: 'playpause' } },
+    { label: 'Next Track',      icon: '⏭',  color: '#1a2a1a', action: { type: 'media', key: 'nexttrack' } },
+    { label: 'Prev Track',      icon: '⏮',  color: '#1a2a1a', action: { type: 'media', key: 'prevtrack' } },
+    { label: 'Screenshot',      icon: '📷', color: '#1a1a2e', action: { type: 'shortcut', keys: ['win', 'shift', 's'] } },
+    { label: 'Close Window',    icon: '✖',  color: '#3a1a1a', action: { type: 'shortcut', keys: ['alt', 'f4'] } },
+    { label: 'Snap Left',       icon: '◧',  color: '#1a1a2e', action: { type: 'shortcut', keys: ['win', 'left'] } },
+    { label: 'Snap Right',      icon: '◨',  color: '#1a1a2e', action: { type: 'shortcut', keys: ['win', 'right'] } },
+    { label: 'Task Manager',    icon: '📊', color: '#0f3460', action: { type: 'shortcut', keys: ['ctrl', 'shift', 'escape'] } },
+];
+
+const EMPTY_BTN = { label: '', icon: '⬜', color: '#1a1a2e', action: { type: 'shortcut', keys: [] } };
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function encodeConfig(cfg) {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
+}
+
+function keysToString(keys) {
+    return (keys || []).join('+');
+}
+function stringToKeys(str) {
+    return str.split('+').map(k => k.trim().toLowerCase()).filter(Boolean);
+}
+
+// ── Components ─────────────────────────────────────────────────────────────────
+
+function Nav() {
+    const [light, setLight] = useState(() => document.documentElement.classList.contains('light'));
+    useEffect(() => {
+        const h = e => setLight(e.detail.light);
+        window.addEventListener('tb-theme-change', h);
+        return () => window.removeEventListener('tb-theme-change', h);
+    }, []);
+    const discordUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social?.discord) || 'https://discord.gg/Nk8vekY';
+    return (
+        <nav className="fixed top-0 left-0 right-0 z-50 py-4 px-6">
+            <div className="max-w-6xl mx-auto">
+                <div className="liquid-glass rounded-2xl px-5 py-3 flex items-center justify-between">
+                    <a href="../../index.html" className="flex items-center gap-2 group">
+                        <img src="../../assets/logos/logo.png" alt="TrueBeast" className="w-8 h-8 rounded-full object-contain" />
+                        <span className="font-display font-bold text-lg">TrueBeast</span>
+                    </a>
+                    <div className="flex items-center gap-3">
+                        <a href="../index.html" className="text-sm text-white/60 hover:text-white transition-colors">← Toolkit</a>
+                        <button
+                            onClick={() => window.TBTheme?.toggle()}
+                            className="liquid-glass p-2 rounded-xl text-sm"
+                            title={light ? 'Switch to dark mode' : 'Switch to light mode'}>
+                            {light ? '🌙' : '☀️'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    );
+}
+
+function GridSizePicker({ value, onChange }) {
+    return (
+        <div className="section-card">
+            <div className="step-label">Step 1 — Grid Size</div>
+            <div className="flex flex-wrap gap-2">
+                {GRID_SIZES.map(s => (
+                    <button
+                        key={s.label}
+                        className={`size-chip ${value.cols === s.cols && value.rows === s.rows ? 'active' : ''}`}
+                        onClick={() => onChange(s)}>
+                        {s.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ButtonGrid({ grid, buttons, selectedSlot, onSelectSlot }) {
+    const totalSlots = grid.cols * grid.rows;
+    return (
+        <div className="section-card">
+            <div className="step-label">Step 2 — Click a slot to edit</div>
+            <div
+                style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${grid.cols}, 1fr)`,
+                    gap: '8px',
+                    maxWidth: '360px',
+                }}>
+                {Array.from({ length: totalSlots }, (_, i) => {
+                    const b = buttons[i];
+                    return (
+                        <div
+                            key={i}
+                            className={`slot ${selectedSlot === i ? 'selected' : ''}`}
+                            style={b ? { background: b.color, borderColor: selectedSlot === i ? '#7c3aed' : 'transparent' } : {}}
+                            onClick={() => onSelectSlot(i)}>
+                            <div className="slot-icon">{b ? b.icon : '+'}</div>
+                            {b?.label && <div className="slot-label">{b.label}</div>}
+                        </div>
+                    );
+                })}
+            </div>
+            <p className="text-xs mt-3" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                Click any slot to configure it. Empty slots are invisible on the board.
+            </p>
+        </div>
+    );
+}
+
+function PresetChips({ selectedSlot, onApply }) {
+    if (selectedSlot === null) return null;
+    return (
+        <div className="section-card">
+            <div className="step-label">Quick presets — click to fill slot {selectedSlot + 1}</div>
+            <div className="flex flex-wrap gap-2">
+                {PRESETS.map(p => (
+                    <button
+                        key={p.label}
+                        className="preset-chip"
+                        onClick={() => onApply({ ...p, id: selectedSlot })}>
+                        {p.icon} {p.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ButtonEditor({ slotIndex, button, onChange, onClear }) {
+    const btn = button || EMPTY_BTN;
+    const actionType = btn.action?.type || 'shortcut';
+
+    const update = (patch) => onChange({ ...btn, ...patch });
+    const updateAction = (patch) => update({ action: { ...btn.action, ...patch } });
+
+    return (
+        <div className="section-card">
+            <div className="flex items-center justify-between mb-3">
+                <div className="step-label mb-0">Step 3 — Editing slot {slotIndex + 1}</div>
+                {button && (
+                    <button
+                        onClick={onClear}
+                        className="text-xs px-3 py-1 rounded-lg transition-colors"
+                        style={{ color: 'rgba(239,68,68,0.8)', border: '1px solid rgba(239,68,68,0.25)', background: 'rgba(239,68,68,0.07)' }}>
+                        Clear slot
+                    </button>
+                )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+                {/* Label */}
+                <div>
+                    <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Label</label>
+                    <input
+                        className="bb-input"
+                        value={btn.label}
+                        onChange={e => update({ label: e.target.value })}
+                        placeholder="e.g. Mute"
+                        maxLength={20}
+                    />
+                </div>
+                {/* Icon */}
+                <div>
+                    <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Icon (emoji)</label>
+                    <input
+                        className="bb-input"
+                        value={btn.icon}
+                        onChange={e => update({ icon: e.target.value })}
+                        placeholder="🎤"
+                    />
+                </div>
+            </div>
+
+            {/* Color */}
+            <div className="mb-3">
+                <label className="text-xs mb-2 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Background colour</label>
+                <div className="flex flex-wrap gap-2 items-center">
+                    {COLOR_PALETTE.map(c => (
+                        <div
+                            key={c}
+                            className={`color-swatch ${btn.color === c ? 'active' : ''}`}
+                            style={{ background: c }}
+                            onClick={() => update({ color: c })}
+                        />
+                    ))}
+                    <input
+                        type="color"
+                        value={btn.color || '#1a1a2e'}
+                        onChange={e => update({ color: e.target.value })}
+                        title="Custom colour"
+                        style={{ width: 28, height: 28, padding: 2, borderRadius: 8, border: '2px solid rgba(255,255,255,0.15)', background: 'none', cursor: 'pointer' }}
+                    />
+                </div>
+            </div>
+
+            {/* Action type */}
+            <div className="mb-3">
+                <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Action type</label>
+                <select
+                    className="bb-select"
+                    value={actionType}
+                    onChange={e => updateAction({ type: e.target.value, keys: [], key: '', path: '', text: '' })}>
+                    <option value="shortcut">Keyboard shortcut</option>
+                    <option value="media">Media key</option>
+                    <option value="open">Open app / file</option>
+                    <option value="text">Type text</option>
+                </select>
+            </div>
+
+            {/* Action params */}
+            {actionType === 'shortcut' && (
+                <div>
+                    <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                        Keys <span style={{ color: 'rgba(255,255,255,0.3)' }}>(separated by +)</span>
+                    </label>
+                    <input
+                        className="bb-input"
+                        value={keysToString(btn.action?.keys)}
+                        onChange={e => updateAction({ keys: stringToKeys(e.target.value) })}
+                        placeholder="e.g. ctrl+shift+m  or  win+d"
+                    />
+                    <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                        Common keys: ctrl, alt, shift, win, tab, enter, f1–f12, left, right, up, down, space, escape
+                    </p>
+                </div>
+            )}
+            {actionType === 'media' && (
+                <div>
+                    <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Media key</label>
+                    <select
+                        className="bb-select"
+                        value={btn.action?.key || 'playpause'}
+                        onChange={e => updateAction({ key: e.target.value })}>
+                        {MEDIA_KEYS.map(m => (
+                            <option key={m.key} value={m.key}>{m.label}</option>
+                        ))}
+                    </select>
+                </div>
+            )}
+            {actionType === 'open' && (
+                <div>
+                    <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Executable / file path</label>
+                    <input
+                        className="bb-input"
+                        value={btn.action?.path || ''}
+                        onChange={e => updateAction({ path: e.target.value })}
+                        placeholder='e.g. C:\Program Files\Discord\Discord.exe'
+                    />
+                    <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                        Windows path or Mac application path. App must be installed on the PC running ButtonBoard.
+                    </p>
+                </div>
+            )}
+            {actionType === 'text' && (
+                <div>
+                    <label className="text-xs mb-1 block" style={{ color: 'rgba(255,255,255,0.5)' }}>Text to type</label>
+                    <input
+                        className="bb-input"
+                        value={btn.action?.text || ''}
+                        onChange={e => updateAction({ text: e.target.value })}
+                        placeholder="e.g. !commands"
+                    />
+                </div>
+            )}
+        </div>
+    );
+}
+
+function GenerateSection({ cfg, onGenerate, generated }) {
+    const [copied, setCopied] = useState(false);
+    const qrRef = useRef(null);
+
+    useEffect(() => {
+        if (!generated) return;
+        if (!window.QRCode) return;
+        qrRef.current.innerHTML = '';
+        new QRCode(qrRef.current, {
+            text: generated.url,
+            width: 180, height: 180,
+            colorDark: '#ffffff',
+            colorLight: '#0a0a0f',
+        });
+    }, [generated]);
+
+    const copy = () => {
+        if (!generated) return;
+        navigator.clipboard?.writeText(generated.url).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    };
+
+    return (
+        <div className="section-card">
+            <div className="step-label">Step 4 — Generate your board</div>
+            <button className="gen-btn" onClick={onGenerate}>
+                🎛️ Generate Board URL + QR Code
+            </button>
+
+            {generated && (
+                <div className="mt-4 space-y-4">
+                    {/* QR code */}
+                    <div className="flex flex-col items-center gap-3">
+                        <div ref={qrRef} style={{ borderRadius: 12, overflow: 'hidden', background: '#0a0a0f', padding: 4 }} />
+                        <p className="text-xs text-center" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                            Scan with your tablet's camera to open the board
+                        </p>
+                    </div>
+                    {/* URL */}
+                    <div className="url-box">{generated.url}</div>
+                    <button className="copy-btn w-full" onClick={copy}>
+                        {copied ? '✓ Copied!' : 'Copy URL'}
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function DownloadSection() {
+    const base = 'https://github.com/KiernenIrons/TrueBeast-Website/releases/latest/download';
+    return (
+        <div className="section-card">
+            <div className="step-label">Step 5 — Download companion for your PC / Mac</div>
+            <p className="text-sm mb-4" style={{ color: 'rgba(255,255,255,0.55)', lineHeight: 1.6 }}>
+                Run this on your PC or Mac. It sits in the background (system tray),
+                receives button taps from your tablet over WiFi, and executes the actions.
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <a href={`${base}/ButtonBoard-windows.zip`} className="dl-btn dl-btn-win" download>
+                    <span style={{ fontSize: '1.2rem' }}>🪟</span>
+                    <div>
+                        <div style={{ fontWeight: 700 }}>Windows</div>
+                        <div style={{ fontSize: '0.72rem', opacity: 0.7 }}>ButtonBoard-windows.zip</div>
+                    </div>
+                </a>
+                <a href={`${base}/ButtonBoard-mac.zip`} className="dl-btn dl-btn-mac" download>
+                    <span style={{ fontSize: '1.2rem' }}>🍎</span>
+                    <div>
+                        <div style={{ fontWeight: 700 }}>Mac</div>
+                        <div style={{ fontSize: '0.72rem', opacity: 0.7 }}>ButtonBoard-mac.zip</div>
+                    </div>
+                </a>
+            </div>
+            <p className="text-xs mt-3" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                Unzip and double-click to run. No installer required. Use the tray icon to enable "Start with Windows/Mac".
+            </p>
+        </div>
+    );
+}
+
+function SetupGuide() {
+    const [open, setOpen] = useState(false);
+    const steps = [
+        { n: '1', title: 'Download & run the companion', body: 'Download the companion app above for your OS. Unzip and double-click ButtonBoard.exe (Windows) or ButtonBoard (Mac). A purple icon will appear in your system tray or menu bar.' },
+        { n: '2', title: 'Note your PC\'s IP address', body: 'Click the tray icon — it shows your local IP address (e.g. 192.168.1.5). You\'ll enter this on your tablet. Your PC and tablet must be on the same WiFi network.' },
+        { n: '3', title: 'Enable start at boot (optional)', body: 'Right-click the tray icon and toggle "Start with Windows" or "Start with Mac" so ButtonBoard runs automatically in the background whenever your PC starts.' },
+        { n: '4', title: 'Build your board & scan QR', body: 'Design your button layout using steps 1–4 above. Click Generate, then scan the QR code with your tablet\'s camera. The board opens in your browser — no app install needed.' },
+        { n: '5', title: 'Enter IP on tablet', body: 'The first time you open the board, it will ask for your PC\'s IP address. Enter it and tap Connect. It\'s saved forever — you won\'t need to enter it again.' },
+        { n: '6', title: 'Use Bluetooth (optional, Android Chrome only)', body: 'On the board page, tap the Bluetooth toggle. It will scan for ButtonBoard and connect directly — no IP needed, no WiFi required. Note: Bluetooth is NOT supported on iOS or Safari.' },
+    ];
+    return (
+        <div className="section-card">
+            <div className="accordion-header" onClick={() => setOpen(o => !o)}>
+                <span className="font-semibold text-sm">📖 Setup Guide</span>
+                <span style={{ color: 'rgba(255,255,255,0.4)', transition: 'transform 0.2s', transform: open ? 'rotate(180deg)' : 'none' }}>▾</span>
+            </div>
+            <div className={`accordion-body ${open ? 'open' : ''}`}>
+                <div className="pt-4 space-y-4">
+                    {steps.map(s => (
+                        <div key={s.n} className="flex gap-3">
+                            <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                                 style={{ background: 'rgba(124,58,237,0.25)', color: '#a78bfa' }}>
+                                {s.n}
+                            </div>
+                            <div>
+                                <div className="text-sm font-semibold mb-1">{s.title}</div>
+                                <div className="text-xs" style={{ color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>{s.body}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ── App ────────────────────────────────────────────────────────────────────────
+function App() {
+    const [grid, setGrid]         = useState({ cols: 3, rows: 3 });
+    const [buttons, setButtons]   = useState({});       // { [slotIndex]: buttonObj }
+    const [selectedSlot, setSelected] = useState(null);
+    const [generated, setGenerated]   = useState(null);
+    const [qrLoaded, setQrLoaded]     = useState(false);
+
+    // Load QRCode library lazily
+    const loadQR = useCallback(() => {
+        if (window.QRCode || qrLoaded) return Promise.resolve();
+        return new Promise(res => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+            s.onload = () => { setQrLoaded(true); res(); };
+            document.head.appendChild(s);
+        });
+    }, [qrLoaded]);
+
+    const handleGridChange = (s) => {
+        setGrid({ cols: s.cols, rows: s.rows });
+        setSelected(null);
+        setGenerated(null);
+    };
+
+    const handleSelectSlot = (i) => setSelected(s => s === i ? null : i);
+
+    const handleButtonChange = (updated) => {
+        setButtons(prev => ({ ...prev, [selectedSlot]: updated }));
+        setGenerated(null);
+    };
+
+    const handleClearSlot = () => {
+        setButtons(prev => {
+            const next = { ...prev };
+            delete next[selectedSlot];
+            return next;
+        });
+        setGenerated(null);
+    };
+
+    const handlePresetApply = (preset) => {
+        setButtons(prev => ({
+            ...prev,
+            [selectedSlot]: {
+                id: selectedSlot,
+                label: preset.label,
+                icon: preset.icon,
+                color: preset.color,
+                action: preset.action,
+            },
+        }));
+        setGenerated(null);
+    };
+
+    const handleGenerate = async () => {
+        await loadQR();
+        const cfg = {
+            grid,
+            buttons: Object.entries(buttons).map(([id, b]) => ({ ...b, id: parseInt(id) })),
+        };
+        const encoded = encodeConfig(cfg);
+        const base = window.location.href.replace(/\/[^/]*$/, '');
+        const url = `${base}/board.html?c=${encoded}`;
+        setGenerated({ url });
+    };
+
+    const totalSlots = grid.cols * grid.rows;
+    const selectedBtn = selectedSlot !== null ? buttons[selectedSlot] || null : null;
+    const hasButtons = Object.keys(buttons).length > 0;
+
+    return (
+        <div className="min-h-screen pt-20 pb-12 px-4">
+            <div className="max-w-6xl mx-auto">
+
+                {/* Hero */}
+                <div className="text-center mb-10">
+                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🎛️</div>
+                    <h1 className="font-display font-bold text-3xl md:text-4xl mb-3">ButtonBoard</h1>
+                    <p className="text-base max-w-xl mx-auto" style={{ color: 'rgba(255,255,255,0.55)', lineHeight: 1.7 }}>
+                        Turn any phone or tablet into a free Stream Deck.
+                        Design your layout, scan a QR code, and control your PC or Mac from any browser.
+                        <br />
+                        <span style={{ color: '#a78bfa' }}>No apps. No subscriptions. Always free.</span>
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2 mt-4">
+                        {['Works on Android & iPad', 'WiFi + Bluetooth', 'Windows & Mac companion', 'Free forever'].map(t => (
+                            <span key={t} className="text-xs px-3 py-1 rounded-full"
+                                  style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)', color: '#c4b5fd' }}>
+                                {t}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Two-column layout */}
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+
+                    {/* Left — builder (3/5) */}
+                    <div className="lg:col-span-3 space-y-4">
+                        <GridSizePicker value={grid} onChange={handleGridChange} />
+                        <ButtonGrid
+                            grid={grid}
+                            buttons={buttons}
+                            selectedSlot={selectedSlot}
+                            onSelectSlot={handleSelectSlot}
+                        />
+                        {selectedSlot !== null && (
+                            <PresetChips selectedSlot={selectedSlot} onApply={handlePresetApply} />
+                        )}
+                        {selectedSlot !== null && (
+                            <ButtonEditor
+                                slotIndex={selectedSlot}
+                                button={selectedBtn}
+                                onChange={handleButtonChange}
+                                onClear={handleClearSlot}
+                            />
+                        )}
+                        {selectedSlot === null && !hasButtons && (
+                            <div className="section-card text-center py-8" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                                <div style={{ fontSize: '2rem', marginBottom: 8 }}>☝️</div>
+                                <p className="text-sm">Click any slot in the grid above to start adding buttons</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right — generate + download (2/5) */}
+                    <div className="lg:col-span-2 space-y-4">
+                        <GenerateSection
+                            cfg={{ grid, buttons }}
+                            onGenerate={handleGenerate}
+                            generated={generated}
+                        />
+                        <DownloadSection />
+                        <SetupGuide />
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ── Mount ──────────────────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<><Nav /><App /></>);
+requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.getElementById('root').style.opacity = '1';
+}));
+</script>
+</body>
+</html>

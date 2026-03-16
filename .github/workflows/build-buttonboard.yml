@@ -1,0 +1,121 @@
+name: Build ButtonBoard Companion
+
+on:
+  push:
+    paths:
+      - 'tools/buttonboard/companion/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller flask flask-cors pyautogui pystray pillow bless
+        working-directory: tools/buttonboard/companion
+
+      - name: Build Windows executable
+        run: |
+          pyinstaller --onefile --noconsole --name ButtonBoard `
+            --hidden-import bless `
+            --hidden-import bless.backends.winrt `
+            --hidden-import flask `
+            --hidden-import flask_cors `
+            --hidden-import pyautogui `
+            --hidden-import pystray `
+            --hidden-import PIL `
+            main.py
+        working-directory: tools/buttonboard/companion
+
+      - name: Zip executable
+        run: Compress-Archive -Path dist\ButtonBoard.exe -DestinationPath ButtonBoard-windows.zip
+        working-directory: tools/buttonboard/companion
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ButtonBoard-windows
+          path: tools/buttonboard/companion/ButtonBoard-windows.zip
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller flask flask-cors pyautogui pystray pillow bless
+        working-directory: tools/buttonboard/companion
+
+      - name: Build Mac executable
+        run: |
+          pyinstaller --onefile --noconsole --name ButtonBoard \
+            --hidden-import bless \
+            --hidden-import bless.backends.corebluetooth \
+            --hidden-import flask \
+            --hidden-import flask_cors \
+            --hidden-import pyautogui \
+            --hidden-import pystray \
+            --hidden-import PIL \
+            main.py
+        working-directory: tools/buttonboard/companion
+
+      - name: Zip executable
+        run: zip -j ButtonBoard-mac.zip dist/ButtonBoard
+        working-directory: tools/buttonboard/companion
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ButtonBoard-mac
+          path: tools/buttonboard/companion/ButtonBoard-mac.zip
+
+  release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ButtonBoard-windows
+          path: ./artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ButtonBoard-mac
+          path: ./artifacts
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: buttonboard-latest
+          name: ButtonBoard Companion (latest)
+          body: |
+            ## ButtonBoard Companion
+
+            Download the companion app for your OS, unzip, and run it.
+            It runs in your system tray and receives button taps from your tablet over WiFi or Bluetooth.
+
+            **Setup:**
+            1. Download and unzip for your OS
+            2. Run `ButtonBoard.exe` (Windows) or `ButtonBoard` (Mac)
+            3. Look for the purple 🎛️ icon in your system tray
+            4. Build your board at https://truebeast.io/tools/buttonboard/
+
+            **Note for Mac:** You may need to allow the app in System Settings → Privacy & Security.
+            Also grant Accessibility access for keyboard shortcuts to work.
+          files: |
+            ./artifacts/ButtonBoard-windows.zip
+            ./artifacts/ButtonBoard-mac.zip
+          make_latest: true

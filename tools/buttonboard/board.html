@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ButtonBoard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        html, body {
+            width: 100%; height: 100%;
+            background: #0a0a0f;
+            color: #fff;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+        }
+
+        /* ── Overlay (IP setup / BT instructions) ── */
+        #overlay {
+            position: fixed; inset: 0; z-index: 100;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(12px);
+            display: flex; align-items: center; justify-content: center;
+            padding: 24px;
+        }
+        #overlay.hidden { display: none; }
+
+        .overlay-card {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+            padding: 32px;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+        }
+        .overlay-card h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; }
+        .overlay-card p  { font-size: 0.9rem; color: rgba(255,255,255,0.6); margin-bottom: 24px; line-height: 1.5; }
+
+        .overlay-input {
+            width: 100%;
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 14px 16px;
+            font-size: 1.1rem;
+            color: #fff;
+            outline: none;
+            text-align: center;
+            letter-spacing: 0.05em;
+            margin-bottom: 16px;
+        }
+        .overlay-input:focus { border-color: #7c3aed; }
+        .overlay-input::placeholder { color: rgba(255,255,255,0.3); }
+
+        .overlay-btn {
+            width: 100%;
+            background: #7c3aed;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .overlay-btn:active { background: #6d28d9; }
+
+        .overlay-note {
+            margin-top: 14px;
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.4);
+        }
+
+        /* ── Top bar ── */
+        #topbar {
+            position: fixed; top: 0; left: 0; right: 0;
+            height: 44px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 16px;
+            background: rgba(10,10,15,0.8);
+            backdrop-filter: blur(8px);
+            z-index: 10;
+        }
+
+        #settings-btn {
+            background: none; border: none; cursor: pointer;
+            color: rgba(255,255,255,0.5); font-size: 18px;
+            padding: 6px; border-radius: 8px;
+            transition: color 0.15s;
+        }
+        #settings-btn:active { color: #fff; }
+
+        #topbar-right {
+            display: flex; align-items: center; gap: 10px;
+        }
+
+        /* WiFi / BT mode toggle */
+        #mode-toggle {
+            display: flex;
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            overflow: hidden;
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+        .mode-btn {
+            padding: 5px 11px;
+            border: none; background: none; color: rgba(255,255,255,0.5);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .mode-btn.active {
+            background: #7c3aed; color: #fff;
+        }
+
+        /* Status dot */
+        #status-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            transition: background 0.3s;
+            flex-shrink: 0;
+        }
+        #status-dot.ok  { background: #22c55e; }
+        #status-dot.err { background: #ef4444; }
+        #status-dot.connecting { background: #f59e0b; animation: pulse-dot 1s infinite; }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.3; }
+        }
+
+        /* ── Grid ── */
+        #grid-wrap {
+            position: fixed;
+            top: 44px; bottom: 0; left: 0; right: 0;
+            padding: 10px;
+            display: flex; align-items: stretch;
+        }
+
+        #grid {
+            flex: 1;
+            display: grid;
+            gap: 10px;
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: transform 0.1s, filter 0.1s;
+            touch-action: manipulation;
+            overflow: hidden;
+            position: relative;
+        }
+        .btn:active { transform: scale(0.93); filter: brightness(1.25); }
+
+        .btn.empty {
+            background: rgba(255,255,255,0.03);
+            border-color: rgba(255,255,255,0.05);
+            cursor: default;
+            pointer-events: none;
+        }
+
+        .btn-icon  { font-size: clamp(1.6rem, 4vw, 2.8rem); line-height: 1; }
+        .btn-label { font-size: clamp(0.6rem, 1.5vw, 0.9rem); font-weight: 600; text-align: center; padding: 0 8px; line-height: 1.2; }
+
+        /* Ripple effect on tap */
+        .btn .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.25);
+            transform: scale(0);
+            animation: ripple-anim 0.4s linear;
+            pointer-events: none;
+        }
+        @keyframes ripple-anim {
+            to { transform: scale(4); opacity: 0; }
+        }
+
+        /* ── BT warning notice ── */
+        #bt-notice {
+            position: fixed;
+            bottom: 12px; left: 50%; transform: translateX(-50%);
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            color: #fcd34d;
+            border-radius: 10px;
+            padding: 8px 16px;
+            font-size: 0.75rem;
+            text-align: center;
+            max-width: 340px;
+            display: none;
+            z-index: 20;
+        }
+
+        /* ── No config screen ── */
+        #no-config {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 12px; padding: 24px; text-align: center;
+            display: none;
+        }
+        #no-config h2 { font-size: 1.3rem; }
+        #no-config p  { color: rgba(255,255,255,0.5); font-size: 0.9rem; line-height: 1.5; }
+        #no-config a  { color: #a78bfa; }
+    </style>
+</head>
+<body>
+
+<!-- IP Setup Overlay -->
+<div id="overlay">
+    <div class="overlay-card">
+        <h2>🎛️ ButtonBoard</h2>
+        <p>Enter your PC or Mac's local IP address.<br>Find it in the ButtonBoard tray icon tooltip.</p>
+        <input id="ip-input" class="overlay-input" type="text"
+               placeholder="e.g. 192.168.1.5" autocomplete="off"
+               inputmode="decimal" />
+        <button class="overlay-btn" id="connect-btn">Connect</button>
+        <p class="overlay-note">Your IP is saved locally and never sent anywhere.</p>
+    </div>
+</div>
+
+<!-- No config screen -->
+<div id="no-config">
+    <div style="font-size:3rem">🎛️</div>
+    <h2>No board configured</h2>
+    <p>Build your button layout at <a href="./index.html">truebeast.io/tools/buttonboard/</a> and scan the QR code to get here.</p>
+</div>
+
+<!-- Top bar -->
+<div id="topbar">
+    <button id="settings-btn" title="Change IP / settings">⚙️</button>
+    <div id="topbar-right">
+        <div id="mode-toggle">
+            <button class="mode-btn active" id="btn-wifi">WiFi</button>
+            <button class="mode-btn" id="btn-bt">Bluetooth</button>
+        </div>
+        <div id="status-dot" title="Connection status"></div>
+    </div>
+</div>
+
+<!-- Button grid -->
+<div id="grid-wrap"><div id="grid"></div></div>
+
+<!-- Bluetooth notice -->
+<div id="bt-notice">⚠️ Bluetooth requires Chrome on Android — not supported on iOS or Safari.</div>
+
+<script>
+// ── Config decode ──────────────────────────────────────────────────────────────
+function decodeConfig(raw) {
+    try {
+        return JSON.parse(decodeURIComponent(escape(atob(raw))));
+    } catch {
+        return null;
+    }
+}
+
+const params = new URLSearchParams(location.search);
+const cfg    = decodeConfig(params.get('c'));
+
+if (!cfg) {
+    document.getElementById('no-config').style.display = 'flex';
+    document.getElementById('overlay').classList.add('hidden');
+    document.getElementById('topbar').style.display = 'none';
+    document.getElementById('grid-wrap').style.display = 'none';
+} else {
+    init(cfg);
+}
+
+function init(cfg) {
+    // ── State ──────────────────────────────────────────────────────────────────
+    let pcIP      = localStorage.getItem('bb-ip') || '';
+    let mode      = localStorage.getItem('bb-mode') || 'wifi'; // 'wifi' | 'bt'
+    let btDevice  = null;
+    let btChar    = null;
+
+    const BT_SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb';
+    const BT_CHAR    = '0000ffe1-0000-1000-8000-00805f9b34fb';
+
+    // ── Overlay / IP ──────────────────────────────────────────────────────────
+    const overlay    = document.getElementById('overlay');
+    const ipInput    = document.getElementById('ip-input');
+    const connectBtn = document.getElementById('connect-btn');
+    const settingsBtn= document.getElementById('settings-btn');
+
+    if (pcIP) overlay.classList.add('hidden');
+    ipInput.value = pcIP;
+
+    connectBtn.addEventListener('click', saveIP);
+    ipInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveIP(); });
+    settingsBtn.addEventListener('click', () => {
+        overlay.classList.remove('hidden');
+        ipInput.focus();
+    });
+
+    function saveIP() {
+        const val = ipInput.value.trim();
+        if (!val) return;
+        pcIP = val;
+        localStorage.setItem('bb-ip', val);
+        overlay.classList.add('hidden');
+    }
+
+    // ── Mode toggle ────────────────────────────────────────────────────────────
+    const btnWifi = document.getElementById('btn-wifi');
+    const btnBT   = document.getElementById('btn-bt');
+    const btNotice= document.getElementById('bt-notice');
+
+    function setMode(m) {
+        mode = m;
+        localStorage.setItem('bb-mode', m);
+        btnWifi.classList.toggle('active', m === 'wifi');
+        btnBT.classList.toggle('active',   m === 'bt');
+        btNotice.style.display = m === 'bt' ? 'block' : 'none';
+        if (m === 'bt') connectBluetooth();
+    }
+
+    btnWifi.addEventListener('click', () => setMode('wifi'));
+    btnBT.addEventListener('click',   () => setMode('bt'));
+
+    // Restore mode
+    if (mode === 'bt') {
+        btnWifi.classList.remove('active');
+        btnBT.classList.add('active');
+        btNotice.style.display = 'block';
+    }
+
+    // ── Status dot ─────────────────────────────────────────────────────────────
+    const dot = document.getElementById('status-dot');
+    function setStatus(s) { // 'ok' | 'err' | 'connecting' | ''
+        dot.className = s ? `connecting ok err`.includes(s) ? s : '' : '';
+        if (s) dot.classList.add(s);
+    }
+
+    // ── Bluetooth connection ───────────────────────────────────────────────────
+    async function connectBluetooth() {
+        if (!navigator.bluetooth) {
+            btNotice.textContent = '⚠️ Web Bluetooth not supported — use Chrome on Android.';
+            return;
+        }
+        setStatus('connecting');
+        try {
+            btDevice = await navigator.bluetooth.requestDevice({
+                filters: [
+                    { name: 'ButtonBoard' },
+                    { services: [BT_SERVICE] },
+                ],
+                optionalServices: [BT_SERVICE],
+            });
+            btDevice.addEventListener('gattserverdisconnected', () => {
+                btChar = null;
+                setStatus('err');
+            });
+            const server  = await btDevice.gatt.connect();
+            const service = await server.getPrimaryService(BT_SERVICE);
+            btChar = await service.getCharacteristic(BT_CHAR);
+            setStatus('ok');
+        } catch (e) {
+            setStatus('err');
+            if (e.name !== 'NotFoundError') {
+                console.warn('BT connect error:', e);
+            }
+        }
+    }
+
+    // ── Send action ───────────────────────────────────────────────────────────
+    async function sendAction(action) {
+        if (mode === 'bt') {
+            if (!btChar) { setStatus('err'); return; }
+            try {
+                const enc = new TextEncoder().encode(JSON.stringify(action));
+                await btChar.writeValue(enc);
+                flashStatus();
+            } catch (e) {
+                setStatus('err');
+                btChar = null;
+            }
+        } else {
+            if (!pcIP) { overlay.classList.remove('hidden'); return; }
+            try {
+                const res = await fetch(`http://${pcIP}:7474/action`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(action),
+                });
+                if (res.ok) flashStatus();
+                else setStatus('err');
+            } catch {
+                setStatus('err');
+            }
+        }
+    }
+
+    let flashTimer;
+    function flashStatus() {
+        clearTimeout(flashTimer);
+        setStatus('ok');
+        flashTimer = setTimeout(() => setStatus(''), 800);
+    }
+
+    // ── Build grid ─────────────────────────────────────────────────────────────
+    const { cols, rows } = cfg.grid;
+    const grid = document.getElementById('grid');
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+
+    const totalSlots = cols * rows;
+    const btnMap = {};
+    (cfg.buttons || []).forEach(b => { btnMap[b.id] = b; });
+
+    for (let i = 0; i < totalSlots; i++) {
+        const b   = btnMap[i];
+        const el  = document.createElement('div');
+        el.className = b ? 'btn' : 'btn empty';
+
+        if (b) {
+            el.style.background = b.color || '#1a1a2e';
+
+            const icon  = document.createElement('div');
+            icon.className = 'btn-icon';
+            icon.textContent = b.icon || '⬜';
+
+            const label = document.createElement('div');
+            label.className = 'btn-label';
+            label.textContent = b.label || '';
+
+            el.appendChild(icon);
+            if (b.label) el.appendChild(label);
+
+            el.addEventListener('pointerdown', e => {
+                // Ripple
+                const rect = el.getBoundingClientRect();
+                const ripple = document.createElement('span');
+                ripple.className = 'ripple';
+                const size = Math.max(rect.width, rect.height);
+                ripple.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - rect.left - size/2}px;top:${e.clientY - rect.top - size/2}px`;
+                el.appendChild(ripple);
+                ripple.addEventListener('animationend', () => ripple.remove());
+                // Send
+                sendAction(b.action);
+            });
+        }
+
+        grid.appendChild(el);
+    }
+}
+</script>
+</body>
+</html>
