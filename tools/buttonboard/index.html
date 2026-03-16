@@ -579,7 +579,7 @@ function SetupGuide() {
         { n: '2', title: 'Note your PC\'s IP address', body: 'Click the tray icon — it shows your local IP address (e.g. 192.168.1.5). You\'ll enter this on your tablet. Your PC and tablet must be on the same WiFi network.' },
         { n: '3', title: 'Enable start at boot (optional)', body: 'Right-click the tray icon and toggle "Start with Windows" or "Start with Mac" so ButtonBoard runs automatically in the background whenever your PC starts.' },
         { n: '4', title: 'Build your board & scan QR', body: 'Design your button layout using steps 1–4 above. Click Generate, then scan the QR code with your tablet\'s camera. The board opens in your browser — no app install needed.' },
-        { n: '5', title: 'Enter IP on tablet', body: 'The first time you open the board, it will ask for your PC\'s IP address. Enter it and tap Connect. It\'s saved forever — you won\'t need to enter it again.' },
+        { n: '5', title: 'Enter IP on tablet → opens companion board', body: 'When you scan the QR code and open the board, you\'ll see "Open via Companion". Enter your PC\'s IP (from the tray icon) and tap the button. You\'ll be redirected to http://[IP]:7474/board — served directly from your companion over HTTP, so button taps work instantly. Your IP is saved, so you only do this once per device.' },
         { n: '6', title: 'Use Bluetooth (optional, Android Chrome only)', body: 'On the board page, tap the Bluetooth toggle. It will scan for ButtonBoard and connect directly — no IP needed, no WiFi required. Note: Bluetooth is NOT supported on iOS or Safari.' },
     ];
     return (

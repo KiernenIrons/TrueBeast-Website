@@ -97,6 +97,14 @@
         }
         #settings-btn:active { color: #fff; }
 
+        #fullscreen-btn {
+            background: none; border: none; cursor: pointer;
+            color: rgba(255,255,255,0.5); font-size: 20px;
+            padding: 4px 6px; border-radius: 8px;
+            transition: color 0.15s; line-height: 1;
+        }
+        #fullscreen-btn:active { color: #fff; }
+
         #topbar-right {
             display: flex; align-items: center; gap: 10px;
         }
@@ -218,6 +226,16 @@
         #no-config h2 { font-size: 1.3rem; }
         #no-config p  { color: rgba(255,255,255,0.5); font-size: 0.9rem; line-height: 1.5; }
         #no-config a  { color: #a78bfa; }
+
+        /* ── Landscape mode ── */
+        @media (orientation: landscape) and (max-height: 500px) {
+            #topbar { height: 36px; }
+            #grid-wrap { top: 36px; padding: 6px; }
+            #grid { gap: 6px; }
+            .btn { border-radius: 10px; gap: 4px; }
+            .btn-icon { font-size: clamp(1rem, 4vh, 1.8rem); }
+            .btn-label { font-size: clamp(0.45rem, 1.5vh, 0.75rem); }
+        }
     </style>
 </head>
 <body>
@@ -253,6 +271,7 @@
 <div id="topbar">
     <button id="settings-btn" title="Change IP / settings">⚙️</button>
     <div id="topbar-right">
+        <button id="fullscreen-btn" title="Toggle fullscreen">⛶</button>
         <div id="mode-toggle">
             <button class="mode-btn active" id="btn-wifi">WiFi</button>
             <button class="mode-btn" id="btn-bt">Bluetooth</button>
@@ -336,8 +355,18 @@ function init(cfg) {
     const connectBtn = document.getElementById('connect-btn');
     const settingsBtn= document.getElementById('settings-btn');
 
-    if (pcIP) overlay.classList.add('hidden');
+    const isHttps = location.protocol === 'https:';
+    if (pcIP && !isHttps) overlay.classList.add('hidden');
     ipInput.value = pcIP;
+
+    // On HTTPS, fetch('http://...') is blocked as mixed content.
+    // Repurpose the overlay to redirect the user to the companion's HTTP URL.
+    if (isHttps && boardId) {
+        document.querySelector('.overlay-card h2').textContent = '🎛️ Open via Companion';
+        document.querySelector('.overlay-card p').textContent =
+            "WiFi buttons are blocked when opened from truebeast.io (HTTPS). Enter your PC\u2019s IP to open this board directly through your companion app.";
+        document.getElementById('connect-btn').textContent = 'Open Companion Board \u2192';
+    }
 
     connectBtn.addEventListener('click', saveIP);
     ipInput.addEventListener('keydown', e => { if (e.key === 'Enter') saveIP(); });
@@ -351,6 +380,10 @@ function init(cfg) {
         if (!val) return;
         pcIP = val;
         localStorage.setItem('bb-ip', val);
+        if (isHttps && boardId) {
+            window.location.href = 'http://' + pcIP + ':7474/board?id=' + boardId;
+            return;
+        }
         overlay.classList.add('hidden');
     }
 
@@ -377,6 +410,15 @@ function init(cfg) {
         btnBT.classList.add('active');
         btNotice.style.display = 'block';
     }
+
+    // ── Fullscreen ─────────────────────────────────────────────────────────────
+    document.getElementById('fullscreen-btn').addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+            document.exitFullscreen();
+        }
+    });
 
     // ── Status dot ─────────────────────────────────────────────────────────────
     const dot = document.getElementById('status-dot');
