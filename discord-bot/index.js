@@ -59,7 +59,7 @@ async function fetchKnowledge() {
     }
 }
 
-async function saveUnansweredQuestion(question, author, channelName) {
+async function saveUnansweredQuestion(question, author, channelName, channelId) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/unansweredQuestions?key=${FIREBASE_API_KEY}`;
     try {
         await fetch(url, {
@@ -80,7 +80,7 @@ async function saveUnansweredQuestion(question, author, channelName) {
         console.error('[BeastBot] Failed to save unanswered question:', e.message);
     }
 
-    // DM Kiernen and track pending state for KB update
+    // DM Kiernen and track pending state for KB update + asker notification
     try {
         const owner = await client.users.fetch(OWNER_DISCORD_ID);
         const dmChannel = await owner.createDM();
@@ -91,7 +91,13 @@ async function saveUnansweredQuestion(question, author, channelName) {
             `**Question:** ${question}\n\n` +
             `_Reply with the answer if you want to save it to the knowledge base._`
         );
-        pendingAnswers.set(dmChannel.id, { state: 'awaiting_answer', question });
+        pendingAnswers.set(dmChannel.id, {
+            state:     'awaiting_answer',
+            question,
+            askerId:   author.id,
+            askerTag:  author.tag,
+            channelId: channelId,
+        });
         console.log(`[BeastBot] DM sent to owner, awaiting answer for: "${question.slice(0, 60)}"`);
     } catch (e) {
         console.error('[BeastBot] Failed to DM owner:', e.message);
@@ -380,8 +386,22 @@ client.on('messageCreate', async (message) => {
             if (['yes', 'yeah', 'y', 'yep', 'yup', 'confirm'].includes(reply)) {
                 try {
                     await saveToKnowledgeBase(pending.question, pending.answer);
-                    await message.reply('✅ Saved! Beast Bot will use that answer from now on.');
                     console.log(`[BeastBot] KB updated by owner: "${pending.question.slice(0, 60)}"`);
+
+                    // Notify the original asker
+                    try {
+                        const asker = await client.users.fetch(pending.askerId);
+                        await asker.send(
+                            `Hey! You asked a question in <#${pending.channelId}> and Kiernen got back to you 👀\n\n` +
+                            `**Your question:** ${pending.question}\n` +
+                            `**Answer:** ${pending.answer}`
+                        );
+                        console.log(`[BeastBot] Notified ${pending.askerTag} with answer`);
+                    } catch (e) {
+                        console.error('[BeastBot] Failed to notify asker:', e.message);
+                    }
+
+                    await message.reply('✅ Saved! Beast Bot will use that answer from now on, and I\'ve DMed them the answer too.');
                 } catch (e) {
                     await message.reply(`❌ Failed to save: ${e.message}`);
                 }
@@ -428,7 +448,7 @@ client.on('messageCreate', async (message) => {
     // Unknown question — save to Firestore and DM owner
     if (!result.known) {
         console.log(`[BeastBot] Unknown question from ${message.author.tag} — saving to Firestore`);
-        await saveUnansweredQuestion(question, message.author, message.channel.name);
+        await saveUnansweredQuestion(question, message.author, message.channel.name, message.channelId);
     }
 
     const answer = result.response;
