@@ -1,0 +1,18 @@
+# Fly.io config for TrueBeast Beast Bot
+# Deploy with: fly deploy (from the discord-bot/ directory)
+# Secrets:     fly secrets set DISCORD_BOT_TOKEN=... SUPPORT_CHANNEL_ID=... etc.
+
+app = 'truebeast-beast-bot'
+primary_region = 'ord'
+
+[build]
+
+[env]
+  NODE_ENV = 'production'
+
+# No HTTP service — headless Discord bot, runs continuously via WebSocket.
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
