@@ -42,12 +42,43 @@ SYSTEM          = platform.system()   # 'Windows' or 'Darwin'
 
 pyautogui.FAILSAFE = False
 
+# ── Mac key name translation ────────────────────────────────────────────────────
+# pyautogui on Mac uses 'command'/'option' not 'win'/'meta'
+_MAC_KEY_MAP = {
+    'win': 'command', 'windows': 'command', 'super': 'command', 'meta': 'command',
+    'lwin': 'command', 'rwin': 'command',
+}
+
+def _translate_keys(keys: list) -> list:
+    if SYSTEM == "Darwin":
+        return [_MAC_KEY_MAP.get(k.lower(), k) for k in keys]
+    return keys
+
+# ── Accessibility check (Mac only) ────────────────────────────────────────────
+def check_accessibility():
+    if SYSTEM != "Darwin":
+        return
+    try:
+        import ctypes
+        ax = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+        )
+        if not ax.AXIsProcessTrusted():
+            print("\n  ⚠️  ACCESSIBILITY PERMISSION REQUIRED")
+            print("  Keystrokes won't work without it. Fix:")
+            print("  1. Open  System Settings → Privacy & Security → Accessibility")
+            print("  2. Click the + button and add your Terminal app")
+            print("     (Terminal, iTerm2, or whichever you're using)")
+            print("  3. Toggle it ON, then restart ButtonBoard\n")
+    except Exception:
+        pass
+
 # ── Action executor ────────────────────────────────────────────────────────────
 def execute_action(data: dict) -> bool:
     t = data.get("type")
     try:
         if t == "shortcut":
-            keys = data.get("keys", [])
+            keys = _translate_keys(data.get("keys", []))
             if keys:
                 pyautogui.hotkey(*keys)
         elif t == "media":
@@ -481,6 +512,7 @@ def create_tray_icon():
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    check_accessibility()
     ip = get_local_ip()
     print(f"\n  ButtonBoard is running!")
     print(f"  Open on your tablet: http://{ip}:{PORT}/board?id=YOUR_BOARD_ID")
