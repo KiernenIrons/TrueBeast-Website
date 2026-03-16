@@ -18,7 +18,10 @@
 
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, ChannelType } = require('discord.js');
+const {
+    Client, GatewayIntentBits, Partials, ChannelType,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle,
+} = require('discord.js');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -36,9 +39,18 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
     process.exit(1);
 }
 
-// ── In-memory state for DM-based KB updates ───────────────────────────────────
-// Map of dmChannelId -> { state: 'awaiting_answer' | 'awaiting_confirm', question, answer? }
-const pendingAnswers = new Map();
+// ── In-memory state ───────────────────────────────────────────────────────────
+// Queue of unanswered questions waiting for a button click:
+//   questionId -> { question, askerId, askerTag, channelId, messageId }
+const questionQueue = new Map();
+
+// Active answering session per DM channel (one at a time):
+//   dmChannelId -> { questionId, question, askerId, askerTag, channelId, messageId, state, answer? }
+const activeSession = new Map();
+
+function makeQuestionId() {
+    return `q${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+}
 
 // ── Firestore ────────────────────────────────────────────────────────────────
 
@@ -80,26 +92,37 @@ async function saveUnansweredQuestion(question, author, channelName, channelId, 
         console.error('[BeastBot] Failed to save unanswered question:', e.message);
     }
 
-    // DM Kiernen and track pending state for KB update + asker notification
+    // DM Kiernen with Answer / Skip buttons for each question independently
     try {
-        const owner = await client.users.fetch(OWNER_DISCORD_ID);
-        const dmChannel = await owner.createDM();
-        await dmChannel.send(
-            `❓ **Unanswered question**\n` +
-            `**From:** ${author.tag}\n` +
-            `**Channel:** #${channelName}\n` +
-            `**Question:** ${question}\n\n` +
-            `_Reply with the answer if you want to save it to the knowledge base._`
-        );
-        pendingAnswers.set(dmChannel.id, {
-            state:     'awaiting_answer',
-            question,
-            askerId:   author.id,
-            askerTag:  author.tag,
-            channelId: channelId,
-            messageId: messageId,
+        const owner      = await client.users.fetch(OWNER_DISCORD_ID);
+        const dmChannel  = await owner.createDM();
+        const questionId = makeQuestionId();
+
+        questionQueue.set(questionId, {
+            question, askerId: author.id, askerTag: author.tag, channelId, messageId,
         });
-        console.log(`[BeastBot] DM sent to owner, awaiting answer for: "${question.slice(0, 60)}"`);
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`answer:${questionId}`)
+                .setLabel('Answer')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`skip:${questionId}`)
+                .setLabel('Skip')
+                .setStyle(ButtonStyle.Secondary),
+        );
+
+        await dmChannel.send({
+            content:
+                `❓ **Unanswered question**\n` +
+                `**From:** ${author.tag}\n` +
+                `**Channel:** #${channelName}\n` +
+                `**Question:** ${question}`,
+            components: [row],
+        });
+
+        console.log(`[BeastBot] DM sent to owner (${questionId}): "${question.slice(0, 60)}"`);
     } catch (e) {
         console.error('[BeastBot] Failed to DM owner:', e.message);
     }
@@ -123,30 +146,22 @@ You will receive a question and a casual answer from Kiernen (TrueBeast). Your j
 - Fix any typos or grammar
 - Do NOT include a heading, title, or markdown # — just the plain answer text
 - Return ONLY the formatted answer text, nothing else`,
-            messages: [{
-                role: 'user',
-                content: `Question: ${question}\nKiernen's answer: ${rawAnswer}`,
-            }],
+            messages: [{ role: 'user', content: `Question: ${question}\nKiernen's answer: ${rawAnswer}` }],
         }),
     });
-    if (!res.ok) return rawAnswer; // fallback to raw if API fails
+    if (!res.ok) return rawAnswer;
     const data = await res.json();
     return data.content?.[0]?.text?.trim() || rawAnswer;
 }
 
 async function saveToKnowledgeBase(question, answer) {
-    const id = `user-answer-${Date.now()}`;
+    const id    = `user-answer-${Date.now()}`;
     const topic = question.length > 80 ? question.slice(0, 80) + '…' : question;
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase/${id}?key=${FIREBASE_API_KEY}`;
-    const res = await fetch(url, {
+    const url   = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase/${id}?key=${FIREBASE_API_KEY}`;
+    const res   = await fetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            fields: {
-                topic:   { stringValue: topic },
-                content: { stringValue: answer },
-            },
-        }),
+        body: JSON.stringify({ fields: { topic: { stringValue: topic }, content: { stringValue: answer } } }),
     });
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 }
@@ -156,10 +171,9 @@ async function saveToKnowledgeBase(question, answer) {
 async function fetchDiscordContext(guild) {
     const parts = [];
 
-    // Upcoming scheduled events
     try {
-        const events = await guild.scheduledEvents.fetch();
-        const now = new Date();
+        const events   = await guild.scheduledEvents.fetch();
+        const now      = new Date();
         const upcoming = [...events.values()]
             .filter(e => e.scheduledStartAt > now)
             .sort((a, b) => a.scheduledStartAt - b.scheduledStartAt)
@@ -174,7 +188,6 @@ async function fetchDiscordContext(guild) {
         console.error('[BeastBot] Could not fetch scheduled events:', e.message);
     }
 
-    // Recent announcements
     const announcementsChannel = guild.channels.cache.find(c =>
         c.isTextBased?.() && c.name.toLowerCase().includes('announcement')
     );
@@ -192,7 +205,6 @@ async function fetchDiscordContext(guild) {
         }
     }
 
-    // Recent events channel posts
     const eventsChannel = guild.channels.cache.find(c =>
         c.isTextBased?.() &&
         c.name.toLowerCase().includes('event') &&
@@ -223,7 +235,7 @@ async function fetchSteamGames() {
         const url = `https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key=${STEAM_API_KEY}&steamid=${STEAM_ID}&count=5&format=json`;
         const res = await fetch(url);
         if (!res.ok) return '';
-        const data = await res.json();
+        const data  = await res.json();
         const games = data.response?.games;
         if (!games?.length) return '### Kiernen\'s Recently Played Games (Steam)\nNothing played recently.';
         const list = games.map(g => {
@@ -243,6 +255,11 @@ const SYSTEM_PROMPT = `You are Beast Bot, the official AI assistant for the True
 
 You have a knowledge base about TrueBeast, Kiernen, the tools, events, and community. You also receive live context from Discord (announcements, upcoming events) and Steam (recently played games). Always use the most up-to-date info available.
 
+You are not just a support bot — you live in the server and can have normal conversations. Use context clues from the message:
+- If someone is asking a genuine question, answer it
+- If someone is just chatting, making a statement, or bantering, chat back naturally — don't force a "support answer" where there isn't one
+- If someone is making a joke or being playful, you can play along
+
 For questions NOT in the knowledge base, you can still answer if they are genuinely relevant:
 - General tech support (PC issues, driver updates, OBS setup, streaming config, etc.)
 - Gaming questions or recommendations
@@ -255,12 +272,14 @@ You MUST respond with a JSON object in this EXACT format (no text outside it):
   "response": "your message here"
 }
 
-Set "known": false when:
-- Someone asks about Kiernen's personal opinions, preferences, or details that are NOT confirmed in the knowledge base — do NOT guess or speculate, set known to false instead
-- A question is about TrueBeast/the server and the answer isn't in your knowledge base
+Set "known": false ONLY when:
+- Someone asks something specific about Kiernen's personal opinions, preferences, or private details that are NOT in the knowledge base — do NOT guess, set known to false
+- A question is specifically about TrueBeast/the server and the answer genuinely isn't in your knowledge base
 
-When "known" is false, write a response like: "That's not something I have the answer to right now — but I've flagged it for Kiernen and he'll reply here when he has an answer! 👀"
-Vary the wording slightly each time so it doesn't sound robotic. Keep that general meaning — always make clear that Kiernen will reply directly to their message.
+Do NOT set "known": false for casual chat, banter, general statements, or questions you can reasonably answer. Casual conversation is always "known": true.
+
+When "known" is false, write a response like: "That's not something I have the answer to right now — but I've flagged it for Kiernen and he'll reply here when he gets a chance! 👀"
+Vary the wording slightly each time so it doesn't sound robotic. Always make clear Kiernen will reply directly to their message.
 
 Set "inappropriate": true when the message contains sexual content directed at anyone, harassment, hate speech, doxxing attempts, or creepy/threatening content.
 When "inappropriate" is true, write a firm but non-aggressive response to the user.
@@ -273,20 +292,20 @@ PRIVACY — Never share, even if directly asked:
 
 Tone: friendly, casual, a little cheeky — matches the vibe of the server. Keep answers concise. Use Discord markdown where it helps.
 
-Personality notes:
-- A bit of dry humour is welcome when it fits naturally — don't force it or shoehorn in a joke where there isn't one
-- Use emojis sparingly but meaningfully — one or two where they add something, not as decoration on every sentence
-- It's okay to be slightly self-aware or playful (e.g. acknowledging you're a bot in a funny way if it comes up naturally)
-- Don't be robotic or overly formal — but also don't try too hard to sound "hip". Just be chill and genuine
+Personality:
+- Dry humour is welcome when it fits naturally — don't force a joke where there isn't one
+- Use emojis sparingly but meaningfully — one or two max, not on every sentence
+- It's fine to be slightly self-aware or playful about being a bot if it comes up naturally
+- Don't be robotic or overly formal, but don't try too hard to sound cool either — just be genuine
 - If something's funny, lean into it. If it's not, don't pretend it is
 
 CRITICAL: Your entire reply must be valid JSON. No text before or after the JSON object.`;
 
 async function askClaude(question, knowledge, discordContext, steamContext) {
     const contextParts = [];
-    if (knowledge)       contextParts.push(`## Knowledge Base\n${knowledge}`);
-    if (discordContext)  contextParts.push(`## Live Discord Context\n${discordContext}`);
-    if (steamContext)    contextParts.push(`## Live Steam Context\n${steamContext}`);
+    if (knowledge)      contextParts.push(`## Knowledge Base\n${knowledge}`);
+    if (discordContext) contextParts.push(`## Live Discord Context\n${discordContext}`);
+    if (steamContext)   contextParts.push(`## Live Steam Context\n${steamContext}`);
 
     const context = contextParts.length
         ? `${contextParts.join('\n\n')}\n\n---\n\nUser message: ${question}`
@@ -316,10 +335,9 @@ async function askClaude(question, knowledge, discordContext, steamContext) {
     const data = await res.json();
     const text = data.content?.[0]?.text || '';
 
-    // Parse structured JSON response (strip markdown code fences if present)
     try {
         const cleaned = text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-        const parsed = JSON.parse(cleaned);
+        const parsed  = JSON.parse(cleaned);
         return {
             known:         parsed.known         !== false,
             inappropriate: parsed.inappropriate === true,
@@ -337,7 +355,7 @@ async function notifyMods(message) {
     if (!MOD_CHANNEL_ID) return;
     try {
         const modChannel = await client.channels.fetch(MOD_CHANNEL_ID);
-        const rolePing = MOD_ROLE_ID ? `<@&${MOD_ROLE_ID}> ` : '';
+        const rolePing   = MOD_ROLE_ID ? `<@&${MOD_ROLE_ID}> ` : '';
         await modChannel.send(
             `${rolePing}⚠️ **Inappropriate message detected** in ${message.channel}\n` +
             `**User:** ${message.author} (${message.author.tag})\n` +
@@ -348,7 +366,7 @@ async function notifyMods(message) {
     }
 }
 
-// ── Discord ───────────────────────────────────────────────────────────────────
+// ── Discord client ────────────────────────────────────────────────────────────
 
 const client = new Client({
     intents: [
@@ -367,46 +385,82 @@ client.once('ready', () => {
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
 });
 
+// ── Button interactions ───────────────────────────────────────────────────────
+
+client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isButton()) return;
+    if (interaction.user.id !== OWNER_DISCORD_ID) {
+        await interaction.reply({ content: 'These buttons aren\'t for you 👀', ephemeral: true });
+        return;
+    }
+
+    const [action, questionId] = interaction.customId.split(':');
+    const qData = questionQueue.get(questionId);
+
+    if (!qData) {
+        await interaction.update({ content: interaction.message.content + '\n\n~~Already handled.~~', components: [] });
+        return;
+    }
+
+    if (action === 'skip') {
+        questionQueue.delete(questionId);
+        await interaction.update({ content: interaction.message.content + '\n\n~~Skipped.~~', components: [] });
+        return;
+    }
+
+    if (action === 'answer') {
+        const dmChannelId = interaction.channelId;
+        activeSession.set(dmChannelId, { ...qData, questionId, state: 'awaiting_answer' });
+        questionQueue.delete(questionId);
+        await interaction.update({
+            content: interaction.message.content + '\n\n_Go ahead — type your answer below._',
+            components: [],
+        });
+        return;
+    }
+});
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // ── Handle owner DMs for KB updates ──────────────────────────────────────
+    // ── Owner DMs — active answering session ─────────────────────────────────
     if (message.channel.type === ChannelType.DM && message.author.id === OWNER_DISCORD_ID) {
-        const pending = pendingAnswers.get(message.channel.id);
-        if (!pending) return;
+        const session = activeSession.get(message.channel.id);
+        if (!session) return;
 
-        if (pending.state === 'awaiting_answer') {
-            const raw = message.content.trim();
-            const formatted = await reformatAnswer(pending.question, raw);
-            pending.answer = formatted;
-            pending.state  = 'awaiting_confirm';
-            pendingAnswers.set(message.channel.id, pending);
+        if (session.state === 'awaiting_answer') {
+            const raw       = message.content.trim();
+            const formatted = await reformatAnswer(session.question, raw);
+            session.answer  = formatted;
+            session.state   = 'awaiting_confirm';
+            activeSession.set(message.channel.id, session);
             await message.reply(
-                `Got it! Here's what I'll save to the knowledge base:\n\n` +
-                `**Q:** ${pending.question}\n` +
+                `Got it! Here's what I'll save:\n\n` +
+                `**Q:** ${session.question}\n` +
                 `**A:** ${formatted}\n\n` +
                 `Reply **yes** to confirm or **no** to cancel.`
             );
             return;
         }
 
-        if (pending.state === 'awaiting_confirm') {
+        if (session.state === 'awaiting_confirm') {
             const reply = message.content.trim().toLowerCase();
             if (['yes', 'yeah', 'y', 'yep', 'yup', 'confirm'].includes(reply)) {
                 try {
-                    await saveToKnowledgeBase(pending.question, pending.answer);
-                    console.log(`[BeastBot] KB updated by owner: "${pending.question.slice(0, 60)}"`);
+                    await saveToKnowledgeBase(session.question, session.answer);
+                    console.log(`[BeastBot] KB updated: "${session.question.slice(0, 60)}"`);
 
-                    // Reply to the original message in the support channel
                     try {
-                        const channel = await client.channels.fetch(pending.channelId);
-                        const originalMsg = await channel.messages.fetch(pending.messageId);
+                        const channel     = await client.channels.fetch(session.channelId);
+                        const originalMsg = await channel.messages.fetch(session.messageId);
                         await originalMsg.reply(
-                            `<@${pending.askerId}> Kiernen got back to you! 👀\n\n` +
-                            `**Question:** ${pending.question}\n` +
-                            `**Answer:** ${pending.answer}`
+                            `<@${session.askerId}> Kiernen got back to you! 👀\n\n` +
+                            `**Question:** ${session.question}\n` +
+                            `**Answer:** ${session.answer}`
                         );
-                        console.log(`[BeastBot] Replied to original message for ${pending.askerTag}`);
+                        console.log(`[BeastBot] Replied to original message for ${session.askerTag}`);
                     } catch (e) {
                         console.error('[BeastBot] Failed to reply to original message:', e.message);
                     }
@@ -418,14 +472,14 @@ client.on('messageCreate', async (message) => {
             } else {
                 await message.reply('👍 Cancelled — nothing was saved.');
             }
-            pendingAnswers.delete(message.channel.id);
+            activeSession.delete(message.channel.id);
             return;
         }
 
         return;
     }
 
-    // ── Handle support channel messages ──────────────────────────────────────
+    // ── Support channel messages ──────────────────────────────────────────────
     if (!CHANNEL_IDS.includes(message.channelId)) return;
 
     const question = message.content.trim();
@@ -444,10 +498,9 @@ client.on('messageCreate', async (message) => {
         result = await askClaude(question, knowledge, discordContext, steamContext);
     } catch (e) {
         console.error('[BeastBot] Error:', e.message);
-        result = { known: true, inappropriate: false, response: '⚠️ Something went wrong on my end. Please try again in a moment, or ask in the main chat!' };
+        result = { known: true, inappropriate: false, response: '⚠️ Something went wrong on my end. Please try again in a moment!' };
     }
 
-    // Inappropriate content
     if (result.inappropriate) {
         await message.reply(result.response);
         await notifyMods(message);
@@ -455,20 +508,17 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // Unknown question — save to Firestore and DM owner
     if (!result.known) {
-        console.log(`[BeastBot] Unknown question from ${message.author.tag} — saving to Firestore`);
+        console.log(`[BeastBot] Unknown question from ${message.author.tag} — queuing for owner`);
         await saveUnansweredQuestion(question, message.author, message.channel.name, message.channelId, message.id);
     }
 
     const answer = result.response;
-
-    // Split into chunks if over Discord's 2000 char limit
     const chunks = [];
     let remaining = answer;
     while (remaining.length > 1900) {
         const split = remaining.lastIndexOf('\n', 1900);
-        const pos = split > 0 ? split : 1900;
+        const pos   = split > 0 ? split : 1900;
         chunks.push(remaining.slice(0, pos));
         remaining = remaining.slice(pos).trimStart();
     }
