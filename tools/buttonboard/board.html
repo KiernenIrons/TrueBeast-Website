@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>ButtonBoard</title>
+    <script src="../../js/config.js?v=6"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -219,6 +222,13 @@
 </head>
 <body>
 
+<!-- Loading overlay (fetching config from Firebase) -->
+<div id="loading-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:#090d18;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
+    <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.1);border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+    <p style="color:rgba(255,255,255,0.5);font-size:0.9rem;">Loading board...</p>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
+
 <!-- IP Setup Overlay -->
 <div id="overlay">
     <div class="overlay-card">
@@ -267,16 +277,47 @@ function decodeConfig(raw) {
     }
 }
 
-const params = new URLSearchParams(location.search);
-const cfg    = decodeConfig(params.get('c'));
-
-if (!cfg) {
+function showNoConfig() {
     document.getElementById('no-config').style.display = 'flex';
     document.getElementById('overlay').classList.add('hidden');
     document.getElementById('topbar').style.display = 'none';
     document.getElementById('grid-wrap').style.display = 'none';
+}
+
+function initFirebase() {
+    try {
+        if (typeof firebase === 'undefined') return false;
+        if (typeof SITE_CONFIG === 'undefined' || !SITE_CONFIG.firebase?.apiKey) return false;
+        try { firebase.app(); } catch { firebase.initializeApp(SITE_CONFIG.firebase); }
+        return true;
+    } catch { return false; }
+}
+
+const params = new URLSearchParams(location.search);
+const boardId = params.get('id');
+const rawC    = params.get('c');
+
+if (boardId) {
+    // Short ID — fetch config from Firestore
+    const loadingEl = document.getElementById('loading-overlay');
+    loadingEl.style.display = 'flex';
+
+    const ready = initFirebase();
+    if (!ready) { loadingEl.style.display = 'none'; showNoConfig(); }
+    else {
+        firebase.firestore().collection('buttonboards').doc(boardId).get()
+            .then(snap => {
+                loadingEl.style.display = 'none';
+                if (snap.exists) init(snap.data());
+                else showNoConfig();
+            })
+            .catch(() => { loadingEl.style.display = 'none'; showNoConfig(); });
+    }
 } else {
-    init(cfg);
+    // Legacy long URL (?c=...)
+    const cfg = decodeConfig(rawC);
+    if (!cfg) showNoConfig();
+    else init(cfg);
 }
 
 function init(cfg) {
