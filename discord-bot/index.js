@@ -248,16 +248,17 @@ async function askClaude(question, knowledge, discordContext, steamContext) {
     const data = await res.json();
     const text = data.content?.[0]?.text || '';
 
-    // Parse structured JSON response
+    // Parse structured JSON response (strip markdown code fences if present)
     try {
-        const parsed = JSON.parse(text);
+        const cleaned = text.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+        const parsed = JSON.parse(cleaned);
         return {
-            known:        parsed.known        !== false,
+            known:         parsed.known         !== false,
             inappropriate: parsed.inappropriate === true,
-            response:     parsed.response || 'Sorry, I couldn\'t generate a response.',
+            response:      parsed.response || 'Sorry, I couldn\'t generate a response.',
         };
     } catch (e) {
-        console.warn('[BeastBot] Claude returned non-JSON, falling back:', text.slice(0, 100));
+        console.warn('[BeastBot] Claude returned non-JSON, falling back. Raw:', text.slice(0, 200));
         return { known: true, inappropriate: false, response: text || 'Sorry, I couldn\'t generate a response.' };
     }
 }
