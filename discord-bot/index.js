@@ -98,6 +98,34 @@ async function saveUnansweredQuestion(question, author, channelName) {
     }
 }
 
+async function reformatAnswer(question, rawAnswer) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'x-api-key': ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 300,
+            system: `You are formatting a knowledge base entry for Beast Bot, an AI assistant for the TrueBeast Discord server.
+You will receive a question and a casual answer from Kiernen (TrueBeast). Your job is to rewrite the answer as a clean, well-written knowledge base entry.
+- Write in third person about Kiernen (e.g. "Kiernen wears..." not "I wear...")
+- Keep it concise and factual
+- Fix any typos or grammar
+- Return ONLY the formatted content, no extra commentary`,
+            messages: [{
+                role: 'user',
+                content: `Question: ${question}\nKiernen's answer: ${rawAnswer}`,
+            }],
+        }),
+    });
+    if (!res.ok) return rawAnswer; // fallback to raw if API fails
+    const data = await res.json();
+    return data.content?.[0]?.text?.trim() || rawAnswer;
+}
+
 async function saveToKnowledgeBase(question, answer) {
     const id = `user-answer-${Date.now()}`;
     const topic = question.length > 80 ? question.slice(0, 80) + '…' : question;
@@ -333,13 +361,15 @@ client.on('messageCreate', async (message) => {
         if (!pending) return;
 
         if (pending.state === 'awaiting_answer') {
-            pending.answer = message.content.trim();
+            const raw = message.content.trim();
+            const formatted = await reformatAnswer(pending.question, raw);
+            pending.answer = formatted;
             pending.state  = 'awaiting_confirm';
             pendingAnswers.set(message.channel.id, pending);
             await message.reply(
                 `Got it! Here's what I'll save to the knowledge base:\n\n` +
                 `**Q:** ${pending.question}\n` +
-                `**A:** ${pending.answer}\n\n` +
+                `**A:** ${formatted}\n\n` +
                 `Reply **yes** to confirm or **no** to cancel.`
             );
             return;
