@@ -45,7 +45,7 @@ Target audience: gamers, people into other people's lives, fans of game/movie ni
     {
         id: 'streaming-schedule',
         topic: 'Streaming Schedule',
-        content: `There's no fixed streaming schedule — Kiernen streams when he feels like it. If he's planning to go live, he'll post in the #announcements or #events channel in Discord first. If there's a notification there, you can bet he's live.
+        content: `There's no fixed streaming schedule — Kiernen streams when he feels like it. If he's planning to go live, he'll post in <#1324878590101159957> or <#1465840284415037633> in Discord first. If there's a notification there, you can bet he's live.
 
 He streams on YouTube (@realtruebeast).`,
     },
@@ -55,7 +55,7 @@ He streams on YouTube (@realtruebeast).`,
         content: `**Game Night:** Every Friday at 7pm
 **Movie Night:** Every Saturday at 7pm
 
-For more details on upcoming events — what game is being played, what movie is being watched — check the **Events tab** in the Discord server. Details are posted there ahead of time.`,
+For more details on upcoming events — what game is being played, what movie is being watched — check <#1465840284415037633> in the Discord server. Details are posted there ahead of time.`,
     },
     {
         id: 'discord-server',
@@ -64,7 +64,7 @@ For more details on upcoming events — what game is being played, what movie is
 
 **Join here:** discord.gg/Nk8vekY
 
-Game nights are Fridays at 7pm, movie nights are Saturdays at 7pm. Check the Events tab for what's on.`,
+Game nights are Fridays at 7pm, movie nights are Saturdays at 7pm. Check <#1465840284415037633> for what's on.`,
     },
     {
         id: 'server-rules',

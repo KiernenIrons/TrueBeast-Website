@@ -49,7 +49,7 @@ The list will keep growing over time as he finds more tools worth recommending.`
     {
         id: 'streaming-plans',
         topic: 'Future Plans & Streaming',
-        content: `No big announcements right now. Kiernen wants to keep making videos and streaming — he's just lazy (his words). When he does go live or drop something new, he'll post in the #announcements or #events channel in Discord first. That's your best bet for staying in the loop.`,
+        content: `No big announcements right now. Kiernen wants to keep making videos and streaming — he's just lazy (his words). When he does go live or drop something new, he'll post in <#1324878590101159957> or <#1465840284415037633> first. That's your best bet for staying in the loop.`,
     },
 ];
 
