@@ -187,14 +187,22 @@ For questions NOT in the knowledge base, you can still answer if they are genuin
 - Gaming questions or recommendations
 - General streaming tips
 
-UNKNOWN questions: Use this when:
-- Someone asks about Kiernen's personal opinions, preferences, or details that are NOT confirmed in the knowledge base (do NOT guess or speculate)
-- A question is specific to TrueBeast/the server and the answer isn't in your knowledge base
+You MUST respond with a JSON object in this EXACT format (no text outside it):
+{
+  "known": true,
+  "inappropriate": false,
+  "response": "your message here"
+}
 
-Start your response with exactly:
-UNKNOWN:
-Then on the next line, write something like: "That's not something I have the answer to right now — but I've personally passed the question on to Kiernen and he'll try to get it sorted for next time! 👀"
-Vary the wording slightly each time so it doesn't sound robotic, but keep that general meaning.
+Set "known": false when:
+- Someone asks about Kiernen's personal opinions, preferences, or details that are NOT confirmed in the knowledge base — do NOT guess or speculate, set known to false instead
+- A question is about TrueBeast/the server and the answer isn't in your knowledge base
+
+When "known" is false, write a response like: "That's not something I have the answer to right now — but I've personally passed the question on to Kiernen and he'll try to get it sorted for next time! 👀"
+Vary the wording slightly each time so it doesn't sound robotic. Keep that general meaning.
+
+Set "inappropriate": true when the message contains sexual content directed at anyone, harassment, hate speech, doxxing attempts, or creepy/threatening content.
+When "inappropriate" is true, write a firm but non-aggressive response to the user.
 
 PRIVACY — Never share, even if directly asked:
 - Kiernen's home city or exact location
@@ -202,11 +210,9 @@ PRIVACY — Never share, even if directly asked:
 - His family members' names
 - Any personal addresses or private contact info
 
-INAPPROPRIATE content: If a message contains sexual content directed at anyone, harassment, hate speech, doxxing attempts, or creepy/threatening content — start your response with exactly:
-MODalert:
-Then write a firm but non-aggressive message to the user.
+Tone: friendly, casual, a little cheeky — matches the vibe of the server. Keep answers concise. Use Discord markdown where it helps.
 
-Tone: friendly, casual, a little cheeky — matches the vibe of the server. Keep answers concise. Use Discord markdown where it helps.`;
+CRITICAL: Your entire reply must be valid JSON. No text before or after the JSON object.`;
 
 async function askClaude(question, knowledge, discordContext, steamContext) {
     const contextParts = [];
@@ -240,7 +246,20 @@ async function askClaude(question, knowledge, discordContext, steamContext) {
     }
 
     const data = await res.json();
-    return data.content?.[0]?.text || 'Sorry, I couldn\'t generate a response.';
+    const text = data.content?.[0]?.text || '';
+
+    // Parse structured JSON response
+    try {
+        const parsed = JSON.parse(text);
+        return {
+            known:        parsed.known        !== false,
+            inappropriate: parsed.inappropriate === true,
+            response:     parsed.response || 'Sorry, I couldn\'t generate a response.',
+        };
+    } catch (e) {
+        console.warn('[BeastBot] Claude returned non-JSON, falling back:', text.slice(0, 100));
+        return { known: true, inappropriate: false, response: text || 'Sorry, I couldn\'t generate a response.' };
+    }
 }
 
 // ── Mod alert ────────────────────────────────────────────────────────────────
@@ -287,33 +306,34 @@ client.on('messageCreate', async (message) => {
     console.log(`[BeastBot] Message from ${message.author.tag}: ${question.slice(0, 80)}`);
     await message.channel.sendTyping();
 
-    let answer;
+    let result;
     try {
         const [knowledge, discordContext, steamContext] = await Promise.all([
             fetchKnowledge(),
             fetchDiscordContext(message.guild),
             fetchSteamGames(),
         ]);
-        answer = await askClaude(question, knowledge, discordContext, steamContext);
+        result = await askClaude(question, knowledge, discordContext, steamContext);
     } catch (e) {
         console.error('[BeastBot] Error:', e.message);
-        answer = '⚠️ Something went wrong on my end. Please try again in a moment, or ask in the main chat!';
+        result = { known: true, inappropriate: false, response: '⚠️ Something went wrong on my end. Please try again in a moment, or ask in the main chat!' };
     }
 
     // Inappropriate content
-    if (answer.startsWith('MODalert:')) {
-        const userReply = answer.replace('MODalert:', '').trim();
-        await message.reply(userReply);
+    if (result.inappropriate) {
+        await message.reply(result.response);
         await notifyMods(message);
         console.log(`[BeastBot] ⚠️  Mod alerted — inappropriate message from ${message.author.tag}`);
         return;
     }
 
     // Unknown question — save to Firestore for Kiernen to review
-    if (answer.startsWith('UNKNOWN:')) {
-        answer = answer.replace('UNKNOWN:', '').trim();
+    if (!result.known) {
+        console.log(`[BeastBot] Unknown question from ${message.author.tag} — saving to Firestore`);
         await saveUnansweredQuestion(question, message.author, message.channel.name);
     }
+
+    const answer = result.response;
 
     // Split into chunks if over Discord's 2000 char limit
     const chunks = [];
