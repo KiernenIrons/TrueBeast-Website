@@ -431,7 +431,12 @@ client.on('messageCreate', async (message) => {
         if (!session) return;
 
         if (session.state === 'awaiting_answer') {
-            const raw       = message.content.trim();
+            const raw = message.content.trim();
+            if (['skip', 'cancel', 'drop'].includes(raw.toLowerCase())) {
+                activeSession.delete(message.channel.id);
+                await message.reply('👍 Dropped — moving on.');
+                return;
+            }
             const formatted = await reformatAnswer(session.question, raw);
             session.answer  = formatted;
             session.state   = 'awaiting_confirm';
@@ -470,7 +475,11 @@ client.on('messageCreate', async (message) => {
                     await message.reply(`❌ Failed to save: ${e.message}`);
                 }
             } else {
-                await message.reply('👍 Cancelled — nothing was saved.');
+                session.state = 'awaiting_answer';
+                session.answer = undefined;
+                activeSession.set(message.channel.id, session);
+                await message.reply('👍 Cancelled — nothing was saved.\n\n_Go ahead — type your answer again below, or reply **skip** to drop this question._');
+                return;
             }
             activeSession.delete(message.channel.id);
             return;
