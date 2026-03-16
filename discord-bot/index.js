@@ -29,6 +29,7 @@ const FIREBASE_PROJECT  = process.env.FIREBASE_PROJECT_ID;
 const FIREBASE_API_KEY  = process.env.FIREBASE_API_KEY;
 const STEAM_API_KEY     = process.env.STEAM_API_KEY;
 const STEAM_ID          = process.env.STEAM_ID || '76561198254213878';
+const OWNER_DISCORD_ID  = '392450364340830208';
 
 if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CHANNEL_IDS.length === 0) {
     console.error('[BeastBot] ❌  Missing required env vars.');
@@ -73,6 +74,19 @@ async function saveUnansweredQuestion(question, author, channelName) {
         console.log(`[BeastBot] Saved unanswered question from ${author.tag}`);
     } catch (e) {
         console.error('[BeastBot] Failed to save unanswered question:', e.message);
+    }
+
+    // DM Kiernen
+    try {
+        const owner = await client.users.fetch(OWNER_DISCORD_ID);
+        await owner.send(
+            `❓ **Unanswered question**\n` +
+            `**From:** ${author.tag}\n` +
+            `**Channel:** #${channelName}\n` +
+            `**Question:** ${question}`
+        );
+    } catch (e) {
+        console.error('[BeastBot] Failed to DM owner:', e.message);
     }
 }
 
@@ -173,9 +187,14 @@ For questions NOT in the knowledge base, you can still answer if they are genuin
 - Gaming questions or recommendations
 - General streaming tips
 
-UNKNOWN questions: If you genuinely cannot answer something and it's not a general knowledge question either, start your response with exactly:
+UNKNOWN questions: Use this when:
+- Someone asks about Kiernen's personal opinions, preferences, or details that are NOT confirmed in the knowledge base (do NOT guess or speculate)
+- A question is specific to TrueBeast/the server and the answer isn't in your knowledge base
+
+Start your response with exactly:
 UNKNOWN:
-Then on the next line, write a friendly message letting the user know you've noted their question and Kiernen will try to get back to them.
+Then on the next line, write something like: "That's not something I have the answer to right now — but I've personally passed the question on to Kiernen and he'll try to get it sorted for next time! 👀"
+Vary the wording slightly each time so it doesn't sound robotic, but keep that general meaning.
 
 PRIVACY — Never share, even if directly asked:
 - Kiernen's home city or exact location
