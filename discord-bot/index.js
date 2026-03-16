@@ -59,7 +59,7 @@ async function fetchKnowledge() {
     }
 }
 
-async function saveUnansweredQuestion(question, author, channelName, channelId) {
+async function saveUnansweredQuestion(question, author, channelName, channelId, messageId) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/unansweredQuestions?key=${FIREBASE_API_KEY}`;
     try {
         await fetch(url, {
@@ -97,6 +97,7 @@ async function saveUnansweredQuestion(question, author, channelName, channelId) 
             askerId:   author.id,
             askerTag:  author.tag,
             channelId: channelId,
+            messageId: messageId,
         });
         console.log(`[BeastBot] DM sent to owner, awaiting answer for: "${question.slice(0, 60)}"`);
     } catch (e) {
@@ -257,8 +258,8 @@ Set "known": false when:
 - Someone asks about Kiernen's personal opinions, preferences, or details that are NOT confirmed in the knowledge base — do NOT guess or speculate, set known to false instead
 - A question is about TrueBeast/the server and the answer isn't in your knowledge base
 
-When "known" is false, write a response like: "That's not something I have the answer to right now — but I've personally passed the question on to Kiernen and he'll try to get it sorted for next time! 👀"
-Vary the wording slightly each time so it doesn't sound robotic. Keep that general meaning.
+When "known" is false, write a response like: "That's not something I have the answer to right now — but I've flagged it for Kiernen and he'll reply here when he has an answer! 👀"
+Vary the wording slightly each time so it doesn't sound robotic. Keep that general meaning — always make clear that Kiernen will reply directly to their message.
 
 Set "inappropriate": true when the message contains sexual content directed at anyone, harassment, hate speech, doxxing attempts, or creepy/threatening content.
 When "inappropriate" is true, write a firm but non-aggressive response to the user.
@@ -388,20 +389,20 @@ client.on('messageCreate', async (message) => {
                     await saveToKnowledgeBase(pending.question, pending.answer);
                     console.log(`[BeastBot] KB updated by owner: "${pending.question.slice(0, 60)}"`);
 
-                    // Notify the original asker
+                    // Reply to the original message in the support channel
                     try {
-                        const asker = await client.users.fetch(pending.askerId);
-                        await asker.send(
-                            `Hey! You asked a question in <#${pending.channelId}> and Kiernen got back to you 👀\n\n` +
-                            `**Your question:** ${pending.question}\n` +
+                        const channel = await client.channels.fetch(pending.channelId);
+                        const originalMsg = await channel.messages.fetch(pending.messageId);
+                        await originalMsg.reply(
+                            `<@${pending.askerId}> Kiernen got back to you! 👀\n\n` +
                             `**Answer:** ${pending.answer}`
                         );
-                        console.log(`[BeastBot] Notified ${pending.askerTag} with answer`);
+                        console.log(`[BeastBot] Replied to original message for ${pending.askerTag}`);
                     } catch (e) {
-                        console.error('[BeastBot] Failed to notify asker:', e.message);
+                        console.error('[BeastBot] Failed to reply to original message:', e.message);
                     }
 
-                    await message.reply('✅ Saved! Beast Bot will use that answer from now on, and I\'ve DMed them the answer too.');
+                    await message.reply('✅ Saved! I\'ve replied to their message in the channel.');
                 } catch (e) {
                     await message.reply(`❌ Failed to save: ${e.message}`);
                 }
@@ -448,7 +449,7 @@ client.on('messageCreate', async (message) => {
     // Unknown question — save to Firestore and DM owner
     if (!result.known) {
         console.log(`[BeastBot] Unknown question from ${message.author.tag} — saving to Firestore`);
-        await saveUnansweredQuestion(question, message.author, message.channel.name, message.channelId);
+        await saveUnansweredQuestion(question, message.author, message.channel.name, message.channelId, message.id);
     }
 
     const answer = result.response;
