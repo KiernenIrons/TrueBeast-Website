@@ -7,6 +7,8 @@
  * Env vars:
  *   DISCORD_BOT_TOKEN    — bot token from Discord Developer Portal
  *   SUPPORT_CHANNEL_ID   — channel ID(s) to monitor, comma-separated
+ *   MOD_CHANNEL_ID       — channel ID for mod notifications
+ *   MOD_ROLE_ID          — role ID to ping for mod notifications
  *   ANTHROPIC_API_KEY    — Claude API key (console.anthropic.com)
  *   FIREBASE_PROJECT_ID  — e.g. "truebeast-support"
  *   FIREBASE_API_KEY     — public web API key from Firebase project settings
@@ -18,6 +20,8 @@ const { Client, GatewayIntentBits } = require('discord.js');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
+const MOD_CHANNEL_ID    = process.env.MOD_CHANNEL_ID;
+const MOD_ROLE_ID       = process.env.MOD_ROLE_ID;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const FIREBASE_PROJECT  = process.env.FIREBASE_PROJECT_ID;
 const FIREBASE_API_KEY  = process.env.FIREBASE_API_KEY;
@@ -50,18 +54,28 @@ async function fetchKnowledge() {
 
 // ── Claude ───────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are Beast Bot, the official AI assistant for the TrueBeast Discord server. \
-TrueBeast is a streaming content creator who builds free tools for streamers.
+const SYSTEM_PROMPT = `You are Beast Bot, the official AI assistant for the TrueBeast Discord server run by Kiernen Irons.
 
-Answer questions using only the provided knowledge base. Be helpful, friendly, and concise. \
-Use Discord markdown formatting where it helps readability (bold for key terms, code blocks for commands/URLs). \
-If the answer is not in the knowledge base, say so clearly and suggest the member ask in the main chat or reach out to TrueBeast directly. \
-Do not make up information.`;
+You have a knowledge base about TrueBeast, Kiernen, the tools, events, and community. Always check the knowledge base first.
+
+For questions NOT in the knowledge base, you can still answer if they are genuinely relevant:
+- General tech support (PC issues, driver updates, OBS setup, streaming config, etc.)
+- Gaming questions or recommendations
+- General streaming tips
+
+For completely off-topic questions, politely redirect them to the right place.
+
+Tone: friendly, casual, a little cheeky — matches the vibe of the server. Keep answers concise. Use Discord markdown (bold, bullet points) where it helps.
+
+IMPORTANT — Inappropriate content:
+If a message contains sexual content directed at anyone, harassment, hate speech, doxxing attempts, or genuinely creepy/threatening content — start your entire response with exactly:
+MODalert:
+Then on the next line write a firm but non-aggressive message to the user explaining that behaviour is not acceptable in this server.`;
 
 async function askClaude(question, knowledge) {
     const context = knowledge
-        ? `Here is the TrueBeast knowledge base:\n\n${knowledge}\n\n---\n\nUser question: ${question}`
-        : `User question: ${question}\n\n(Note: The knowledge base is currently empty. Let the user know and suggest they ask in main chat.)`;
+        ? `Here is the TrueBeast knowledge base:\n\n${knowledge}\n\n---\n\nUser message: ${question}`
+        : `User message: ${question}\n\n(The knowledge base is currently empty.)`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -72,7 +86,7 @@ async function askClaude(question, knowledge) {
         },
         body: JSON.stringify({
             model: 'claude-haiku-4-5-20251001',
-            max_tokens: 600,
+            max_tokens: 700,
             system: SYSTEM_PROMPT,
             messages: [{ role: 'user', content: context }],
         }),
@@ -86,6 +100,23 @@ async function askClaude(question, knowledge) {
 
     const data = await res.json();
     return data.content?.[0]?.text || 'Sorry, I couldn\'t generate a response.';
+}
+
+// ── Mod alert ────────────────────────────────────────────────────────────────
+
+async function notifyMods(message, userReply) {
+    if (!MOD_CHANNEL_ID) return;
+    try {
+        const modChannel = await client.channels.fetch(MOD_CHANNEL_ID);
+        const rolePing = MOD_ROLE_ID ? `<@&${MOD_ROLE_ID}> ` : '';
+        await modChannel.send(
+            `${rolePing}⚠️ **Inappropriate message detected** in ${message.channel}\n` +
+            `**User:** ${message.author} (${message.author.tag})\n` +
+            `**Message:** ${message.content.slice(0, 500)}`
+        );
+    } catch (err) {
+        console.error('[BeastBot] Failed to notify mods:', err.message);
+    }
 }
 
 // ── Discord ──────────────────────────────────────────────────────────────────
@@ -104,16 +135,14 @@ client.once('ready', () => {
 });
 
 client.on('messageCreate', async (message) => {
-    // Ignore bots and messages outside monitored channels
     if (message.author.bot) return;
     if (!CHANNEL_IDS.includes(message.channelId)) return;
 
     const question = message.content.trim();
     if (!question) return;
 
-    console.log(`[BeastBot] Question from ${message.author.tag}: ${question.slice(0, 80)}...`);
+    console.log(`[BeastBot] Message from ${message.author.tag}: ${question.slice(0, 80)}`);
 
-    // Show typing indicator
     await message.channel.sendTyping();
 
     let answer;
@@ -123,6 +152,15 @@ client.on('messageCreate', async (message) => {
     } catch (err) {
         console.error('[BeastBot] Error:', err.message);
         answer = '⚠️ Something went wrong on my end. Please try again in a moment, or ask in the main chat!';
+    }
+
+    // Handle inappropriate content
+    if (answer.startsWith('MODalert:')) {
+        const userReply = answer.replace('MODalert:', '').trim();
+        await message.reply(userReply);
+        await notifyMods(message, userReply);
+        console.log(`[BeastBot] ⚠️  Mod alerted — inappropriate message from ${message.author.tag}`);
+        return;
     }
 
     // Split into chunks if over Discord's 2000 char limit
