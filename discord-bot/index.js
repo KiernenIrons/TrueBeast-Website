@@ -1039,6 +1039,13 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
+    // ── Owner command: !posttasks ─────────────────────────────────────────────
+    if (message.author.id === OWNER_DISCORD_ID && message.content.trim().toLowerCase() === '!posttasks') {
+        await message.reply('Posting daily tasks now...');
+        await postDailyTasks();
+        return;
+    }
+
     // ── Owner command: !giveaway list ──────────────────────────────────────────
     if (message.author.id === OWNER_DISCORD_ID && message.content.trim().toLowerCase() === '!giveaway list') {
         try {
