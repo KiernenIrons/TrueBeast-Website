@@ -19,7 +19,6 @@
  *   GENERAL_CHANNEL_ID        — #general (auto-task: say hi)
  *   GAMING_CHANNEL_ID         — #gaming (auto-task: post there)
  *   ANNOUNCEMENTS_CHANNEL_ID  — #announcements (auto-task: react there)
- *   GRINDERS_ROLE_ID          — role assigned at 7-day streak
  */
 
 require('dotenv').config();
@@ -47,7 +46,6 @@ const DAILY_TASKS_CHANNEL_ID  = process.env.DAILY_TASKS_CHANNEL_ID;
 const GENERAL_CHANNEL_ID      = process.env.GENERAL_CHANNEL_ID;
 const GAMING_CHANNEL_ID       = process.env.GAMING_CHANNEL_ID;
 const ANNOUNCEMENTS_CHANNEL_ID = process.env.ANNOUNCEMENTS_CHANNEL_ID;
-const GRINDERS_ROLE_ID        = process.env.GRINDERS_ROLE_ID;
 
 if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CHANNEL_IDS.length === 0) {
     console.error('[BeastBot] ❌  Missing required env vars.');
@@ -566,14 +564,6 @@ async function handleStreakMilestone(userId, username, member, currentStreak) {
         }
     }
 
-    // Grinder role at day 7
-    if (GRINDERS_ROLE_ID && member) {
-        try {
-            if (currentStreak >= 7) await member.roles.add(GRINDERS_ROLE_ID);
-            else                    await member.roles.remove(GRINDERS_ROLE_ID);
-        } catch (_) {}
-    }
-
     // 30-day announcement
     if (currentStreak === 30 && GENERAL_CHANNEL_ID) {
         try {
@@ -906,7 +896,7 @@ async function handleDailyInteraction(interaction) {
             ];
 
             if (effectStreak < 7) {
-                lines.push(``, `_Streak bonus (+2 entries/day) + Grinders Club unlock at day 7 🏆_`);
+                lines.push(``, `_Streak bonus unlocks at day 7: +2 entries/day 🔥_`);
             }
 
             await interaction.editReply(lines.join('\n'));
