@@ -457,19 +457,24 @@ function scheduleBumpReminder() {
         try {
             const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
             await channel.send('⏰ Time to bump! Run `/bump` to keep the server visible on Disboard.');
-            console.log('[BeastBot] 🔔 Sent bump reminder');
+            console.log('[BeastBot] 🔔 Sent Disboard bump reminder');
         } catch (e) {
             console.error('[BeastBot] Failed to send bump reminder:', e.message);
         }
     }, BUMP_INTERVAL);
-    console.log(`[BeastBot] Bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toLocaleTimeString()}`);
+    console.log(`[BeastBot] Disboard bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toUTCString()}`);
 }
 
 client.once('ready', () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
-    scheduleBumpReminder();
+    // Disboard: timer only starts after a bump is detected — post a one-time prompt on startup
+    try {
+        const ch = await client.channels.fetch(BUMP_CHANNEL_ID);
+        await ch.send('🤖 Bot restarted. Run `/bump` on Disboard when ready — I\'ll remind you 2 hours after each bump.');
+    } catch (_) {}
+
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder();
 });
