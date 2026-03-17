@@ -19,6 +19,7 @@
  *   GENERAL_CHANNEL_ID        — #general (auto-task: say hi)
  *   GAMING_CHANNEL_ID         — #gaming (auto-task: post there)
  *   ANNOUNCEMENTS_CHANNEL_ID  — #announcements (auto-task: react there)
+ *   EVENTS_CHANNEL_ID         — #events (also counts for the react task)
  */
 
 require('dotenv').config();
@@ -46,6 +47,7 @@ const DAILY_TASKS_CHANNEL_ID  = process.env.DAILY_TASKS_CHANNEL_ID;
 const GENERAL_CHANNEL_ID      = process.env.GENERAL_CHANNEL_ID;
 const GAMING_CHANNEL_ID       = process.env.GAMING_CHANNEL_ID;
 const ANNOUNCEMENTS_CHANNEL_ID = process.env.ANNOUNCEMENTS_CHANNEL_ID;
+const EVENTS_CHANNEL_ID        = process.env.EVENTS_CHANNEL_ID;
 
 if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CHANNEL_IDS.length === 0) {
     console.error('[BeastBot] ❌  Missing required env vars.');
@@ -680,7 +682,10 @@ async function postDailyTasks() {
 
         const genMention = GENERAL_CHANNEL_ID       ? `<#${GENERAL_CHANNEL_ID}>`       : '#general';
         const gamMention = GAMING_CHANNEL_ID         ? `<#${GAMING_CHANNEL_ID}>`         : '#gaming';
-        const annMention = ANNOUNCEMENTS_CHANNEL_ID  ? `<#${ANNOUNCEMENTS_CHANNEL_ID}>` : '#announcements';
+        const annMention = [
+            ANNOUNCEMENTS_CHANNEL_ID ? `<#${ANNOUNCEMENTS_CHANNEL_ID}>` : null,
+            EVENTS_CHANNEL_ID        ? `<#${EVENTS_CHANNEL_ID}>`        : null,
+        ].filter(Boolean).join(' or ') || '#announcements';
 
         const lines = [
             `━━━━━━━━━━━━━━━━━━━━━━`,
@@ -869,7 +874,10 @@ async function handleDailyInteraction(interaction) {
 
             const genMention = GENERAL_CHANNEL_ID       ? `<#${GENERAL_CHANNEL_ID}>`       : '#general';
             const gamMention = GAMING_CHANNEL_ID         ? `<#${GAMING_CHANNEL_ID}>`         : '#gaming';
-            const annMention = ANNOUNCEMENTS_CHANNEL_ID  ? `<#${ANNOUNCEMENTS_CHANNEL_ID}>` : '#announcements';
+            const annMention = [
+                ANNOUNCEMENTS_CHANNEL_ID ? `<#${ANNOUNCEMENTS_CHANNEL_ID}>` : null,
+                EVENTS_CHANNEL_ID        ? `<#${EVENTS_CHANNEL_ID}>`        : null,
+            ].filter(Boolean).join(' or ') || '#announcements';
 
             const tasks = [
                 { id: 'say_hi',      label: `Say hi in ${genMention}` },
@@ -1124,7 +1132,6 @@ client.on('messageCreate', async (message) => {
 
 client.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
-    if (!ANNOUNCEMENTS_CHANNEL_ID) return;
 
     // Fetch partial reactions/messages if needed
     if (reaction.partial) {
@@ -1134,7 +1141,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
         try { await reaction.message.fetch(); } catch (e) { return; }
     }
 
-    if (reaction.message.channelId !== ANNOUNCEMENTS_CHANNEL_ID) return;
+    const reactChannels = [ANNOUNCEMENTS_CHANNEL_ID, EVENTS_CHANNEL_ID].filter(Boolean);
+    if (!reactChannels.includes(reaction.message.channelId)) return;
 
     const guild  = reaction.message.guild;
     if (!guild) return;
