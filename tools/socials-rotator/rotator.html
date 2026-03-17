@@ -158,8 +158,7 @@
             logoSize, duration,
             popupMode = false, popupInterval = 10,
             useLogo = false,
-            textStyle = 'normal', text3dDepth = 4,
-            text3dAngle = 45, text3dShine = 50,
+            textStyle = 'normal', text3dDepth = 4, text3dAngle = 45,
         } = cfg;
 
         /* ── Compute text shadow ── */
@@ -196,14 +195,9 @@
                 }).join(', ');
                 const castDist = d + 2;
                 const castShadow = `${(castDist*dx).toFixed(1)}px ${(castDist*dy).toFixed(1)}px ${d*2}px rgba(0,0,0,0.65)`;
-                const gloss = text3dShine;
-                const gOffset = Math.max(1, Math.round(gloss / 20));
-                const gBlur   = gOffset * 2 + 1;
-                const glossLayer = `0px -${gOffset}px ${gBlur}px rgba(255,255,255,${((gloss/100)*0.75).toFixed(2)})`;
-                const glossGlow  = gloss > 50 ? `, 0px 0px ${Math.round(gloss/10)}px rgba(255,255,255,${(gloss/400).toFixed(2)})` : '';
-                const parts = [glossLayer, layers, castShadow];
+                const parts = [layers, castShadow];
                 if (base !== 'none') parts.push(base);
-                return parts.join(', ') + glossGlow;
+                return parts.join(', ');
             }
             return base;
         }

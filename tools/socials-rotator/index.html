@@ -390,7 +390,7 @@
         };
 
         /* ── Live Preview ── */
-        const Preview = ({ platforms, effect, font, size, color, shadowType, shadowOpts, logoSize, useLogo, textStyle, text3dDepth, text3dAngle, text3dShine }) => {
+        const Preview = ({ platforms, effect, font, size, color, shadowType, shadowOpts, logoSize, useLogo, textStyle, text3dDepth, text3dAngle }) => {
             const validPlatforms = platforms.filter(p => p.username.trim());
             const [displayIdx, setDisplayIdx] = useState(0);
             const [phase, setPhase] = useState('visible');
@@ -451,10 +451,9 @@
                 : shadowType === 'glow' ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
                 : computeCustomShadow(shadowOpts);
 
-            /* 3D extrusion: multi-shade side faces + directional gloss */
+            /* 3D extrusion: multi-shade side faces */
             let textShadow;
             if (textStyle === '3d') {
-                /* Fix: parse properly — `|| 255` breaks on 0-valued channels */
                 const hex = (color || '#ffffff').replace(/^#/, '').padEnd(6, '0');
                 const cr = parseInt(hex.slice(0, 2), 16);
                 const cg = parseInt(hex.slice(2, 4), 16);
@@ -463,7 +462,6 @@
                 const rad = ((text3dAngle != null ? text3dAngle : 45) * Math.PI) / 180;
                 const dx = Math.cos(rad);
                 const dy = Math.sin(rad);
-                /* Gradient shading: mid-tone near face → near-black at depth */
                 const layers = Array.from({ length: d }, (_, i) => {
                     const progress = i / Math.max(d - 1, 1);
                     const bright = 0.58 - progress * 0.42;
@@ -471,16 +469,9 @@
                 }).join(', ');
                 const castDist = d + 2;
                 const castShadow = `${(castDist*dx).toFixed(1)}px ${(castDist*dy).toFixed(1)}px ${d*2}px rgba(0,0,0,0.65)`;
-                /* Gloss = specular highlight on the face of the letters (light from above) */
-                const gloss = text3dShine != null ? text3dShine : 50;
-                const gOffset = Math.max(1, Math.round(gloss / 20));
-                const gBlur   = gOffset * 2 + 1;
-                const gOpacity = (gloss / 100) * 0.75;
-                const glossLayer = `0px -${gOffset}px ${gBlur}px rgba(255,255,255,${gOpacity.toFixed(2)})`;
-                const glossGlow  = gloss > 50 ? `, 0px 0px ${Math.round(gloss/10)}px rgba(255,255,255,${(gloss/400).toFixed(2)})` : '';
-                const parts = [glossLayer, layers, castShadow];
+                const parts = [layers, castShadow];
                 if (baseShadow !== 'none') parts.push(baseShadow);
-                textShadow = parts.join(', ') + glossGlow;
+                textShadow = parts.join(', ');
             } else {
                 textShadow = baseShadow;
             }
@@ -633,8 +624,7 @@
             const [useLogo, setUseLogo]           = useState(false);
             const [textStyle, setTextStyle]       = useState('normal');  // normal | 3d
             const [text3dDepth, setText3dDepth]   = useState(4);
-            const [text3dAngle, setText3dAngle]   = useState(45);   // degrees, direction of extrusion
-            const [text3dShine, setText3dShine]   = useState(50);   // 0–100
+            const [text3dAngle, setText3dAngle]   = useState(45);
             const [generatedUrl, setGenUrl]       = useState('');
             const [copied, setCopied]             = useState(false);
 
@@ -678,7 +668,6 @@
                     textStyle,
                     text3dDepth,
                     text3dAngle,
-                    text3dShine,
                 };
                 const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
                 const base = window.location.href.replace(/\/[^/]*$/, '');
@@ -991,14 +980,6 @@
                                                             <span className="val">{text3dAngle}°</span>
                                                         </div>
                                                     </div>
-                                                    {/* Gloss */}
-                                                    <div className="shadow-row" style={{ marginBottom: 0 }}>
-                                                        <label>Gloss</label>
-                                                        <input type="range" min="0" max="100" value={text3dShine}
-                                                            onChange={e => setText3dShine(Number(e.target.value))}
-                                                            className="flex-1" />
-                                                        <span className="val">{text3dShine}%</span>
-                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -1063,7 +1044,6 @@
                                             textStyle={textStyle}
                                             text3dDepth={text3dDepth}
                                             text3dAngle={text3dAngle}
-                                            text3dShine={text3dShine}
                                         />
                                         {popupMode && validCount > 0 && (
                                             <div className="mt-2 text-xs text-purple-400/70 text-center">
