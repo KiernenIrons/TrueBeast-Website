@@ -389,10 +389,12 @@ const client = new Client({
     partials: [Partials.Channel],
 });
 
-const BUMP_CHANNEL_ID = '1477361149862482053';
-const BUMP_INTERVAL   = 2 * 60 * 60 * 1000; // 2 hours
-const DISBOARD_BOT_ID = '302050872383242240';
-let bumpTimer = null;
+const BUMP_CHANNEL_ID    = '1477361149862482053';
+const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
+const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
+const DISBOARD_BOT_ID    = '302050872383242240';
+let bumpTimer     = null;
+let discadiaTimer = null;
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 function scheduleDiscordMeReminder() {
@@ -422,6 +424,33 @@ function scheduleDiscordMeReminder() {
     console.log(`[BeastBot] Discord.me bump reminder scheduled for ${next.toUTCString()}`);
 }
 
+// Discadia: posts a reminder with a confirm button; timer starts when button is clicked
+async function postDiscadiaReminder() {
+    try {
+        const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('discadia:bumped')
+                .setLabel('✅ I bumped it')
+                .setStyle(ButtonStyle.Success),
+        );
+        await channel.send({
+            content: '⏰ Time to bump on Discadia! <https://discadia.com/bump/truebeasts/>',
+            components: [row],
+        });
+        console.log('[BeastBot] 🔔 Sent Discadia bump reminder');
+    } catch (e) {
+        console.error('[BeastBot] Failed to send Discadia bump reminder:', e.message);
+    }
+}
+
+function scheduleDiscadiaReminder(delayMs = DISCADIA_INTERVAL) {
+    if (discadiaTimer) clearTimeout(discadiaTimer);
+    discadiaTimer = setTimeout(postDiscadiaReminder, delayMs);
+    const when = new Date(Date.now() + delayMs);
+    console.log(`[BeastBot] Discadia bump reminder scheduled for ${when.toUTCString()}`);
+}
+
 function scheduleBumpReminder() {
     if (bumpTimer) clearTimeout(bumpTimer);
     bumpTimer = setTimeout(async () => {
@@ -442,12 +471,29 @@ client.once('ready', () => {
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
     scheduleBumpReminder();
     scheduleDiscordMeReminder();
+    scheduleDiscadiaReminder();
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
+
+    // Discadia bump confirm — owner only
+    if (interaction.customId === 'discadia:bumped') {
+        if (interaction.user.id !== OWNER_DISCORD_ID) {
+            await interaction.reply({ content: 'Only Kiernen can confirm this one!', ephemeral: true });
+            return;
+        }
+        await interaction.update({
+            content: '✅ Discadia bumped! Next reminder in 24 hours.',
+            components: [],
+        });
+        scheduleDiscadiaReminder(DISCADIA_INTERVAL);
+        console.log('[BeastBot] Discadia bump confirmed — 24h timer started');
+        return;
+    }
+
     if (interaction.user.id !== OWNER_DISCORD_ID) {
         await interaction.reply({ content: 'These buttons aren\'t for you 👀', ephemeral: true });
         return;
