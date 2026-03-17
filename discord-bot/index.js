@@ -27,7 +27,7 @@ const cron = require('node-cron');
 
 const {
     Client, GatewayIntentBits, Partials, ChannelType,
-    ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
 } = require('discord.js');
 
 // ── Env vars ───────────────────────────────────────────────────────────────────
@@ -689,27 +689,25 @@ async function postDailyTasks() {
             EVENTS_CHANNEL_ID        ? `<#${EVENTS_CHANNEL_ID}>`        : null,
         ].filter(Boolean).join(' or ') || '#announcements';
 
-        const lines = [
-            `━━━━━━━━━━━━━━━━━━━━━━`,
-            `📋  **DAILY TASKS**  •  ${dayLabel}`,
-            `━━━━━━━━━━━━━━━━━━━━━━`,
-            `Complete all 4 tasks for a bonus entry 🎁`,
-            ``,
-            `💬  Say hi in ${genMention}  *(auto-counts when you post)*`,
-            `🎮  Post in ${gamMention}  *(auto-counts when you post)*`,
-            `👍  React in ${annMention}  *(auto-counts when you react)*`,
-            `🎲  **Daily challenge:** ${wildcard}`,
-        ];
+        const embed = new EmbedBuilder()
+            .setColor(0xF59E0B)
+            .setTitle(`📋  Daily Tasks  •  ${dayLabel}`)
+            .setDescription(`Complete all **4 tasks** today for a bonus entry 🎁`)
+            .addFields(
+                { name: `💬  Say hi in ${genMention}`,      value: `*Counts automatically when you post*`,       inline: false },
+                { name: `🎮  Post in ${gamMention}`,        value: `*Counts automatically when you post*`,       inline: false },
+                { name: `👍  React in ${annMention}`,       value: `*Counts automatically when you react*`,      inline: false },
+                { name: `🎲  Daily Challenge`,              value: wildcard,                                     inline: false },
+            );
 
         if (todayDow === 5) {
-            lines.push(``, `🎮  **Bonus:** Show up to Game Night tonight at 7pm  *(auto-counts when you join VC)*`);
+            embed.addFields({ name: `🎮  Bonus: Game Night`, value: `Show up tonight at 7pm — counts when you join the voice channel`, inline: false });
         } else if (todayDow === 6) {
-            lines.push(``, `🎬  **Bonus:** Show up to Movie Night tonight at 7pm  *(auto-counts when you join VC)*`);
+            embed.addFields({ name: `🎬  Bonus: Movie Night`, value: `Show up tonight at 7pm — counts when you join the voice channel`, inline: false });
         }
 
-        lines.push(``, `━━━━━━━━━━━━━━━━━━━━━━`);
-        lines.push(`🏆  **Top this month (so far):**`);
-        lines.push(leaderLines);
+        embed.addFields({ name: `🏆  Top This Month`, value: leaderLines, inline: false });
+        embed.setFooter({ text: `Entries reset the 1st of each month  •  Streak bonus: +2 entries/day at day 7 🔥` });
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -722,7 +720,7 @@ async function postDailyTasks() {
                 .setStyle(ButtonStyle.Secondary),
         );
 
-        const msg = await channel.send({ content: lines.join('\n'), components: [row] });
+        const msg = await channel.send({ embeds: [embed], components: [row] });
         dailyTasksMessageId = msg.id;
         await saveDailyTasksMsgId(msg.id);
         console.log(`[BeastBot] ✅ Daily tasks posted for ${dayLabel}`);
@@ -735,17 +733,14 @@ async function postWeeklyLeaderboard() {
     if (!DAILY_TASKS_CHANNEL_ID) return;
     try {
         const channel = await client.channels.fetch(DAILY_TASKS_CHANNEL_ID);
-        const top10   = await getMonthlyLeaderboard(10);
+        const top10 = await getMonthlyLeaderboard(10);
         if (!top10.length) return;
-        const lines = [
-            `━━━━━━━━━━━━━━━━━━━━━━`,
-            `🏆  **WEEKLY GIVEAWAY LEADERBOARD**`,
-            `━━━━━━━━━━━━━━━━━━━━━━`,
-            ...top10.map((e, i) => `${i + 1}. <@${e.userId}> — **${e.entries}** entries`),
-            ``,
-            `Keep completing daily tasks to climb! 🎁`,
-        ];
-        await channel.send(lines.join('\n'));
+        const embed = new EmbedBuilder()
+            .setColor(0xF59E0B)
+            .setTitle(`🏆  Weekly Giveaway Leaderboard`)
+            .setDescription(top10.map((e, i) => `**${i + 1}.** <@${e.userId}> — **${e.entries}** entries`).join('\n'))
+            .setFooter({ text: `Keep completing daily tasks to climb! 🎁` });
+        await channel.send({ embeds: [embed] });
     } catch (e) {
         console.error('[BeastBot] postWeeklyLeaderboard failed:', e.message);
     }
@@ -891,25 +886,28 @@ async function handleDailyInteraction(interaction) {
             if (todayDow === 5) tasks.push({ id: 'game_night',  label: 'Show up to Game Night' });
             if (todayDow === 6) tasks.push({ id: 'movie_night', label: 'Show up to Movie Night' });
 
-            const taskLines    = tasks.map(t => `${completion.completedTasks[t.id] ? '✅' : '☐'}  ${t.label}`).join('\n');
+            const taskLines    = tasks.map(t => `${completion.completedTasks[t.id] ? '✅' : '☐ '}  ${t.label}`).join('\n');
             const standardDone = STANDARD_TASK_IDS.filter(id => completion.completedTasks[id]).length;
             const effectStreak = getEffectiveStreak(streak);
             const streakText   = effectStreak > 0 ? `🔥 ${effectStreak}-day streak` : 'No active streak';
 
-            const lines = [
-                `📊  **Your Daily Tasks**  •  ${dateLabel}`,
-                ``,
-                taskLines,
-                ``,
-                `**${standardDone}/4 complete**  •  ${streakText}`,
-                `This month: **${entries}** entr${entries === 1 ? 'y' : 'ies'}`,
-            ];
+            const colour = standardDone === 4 ? 0x22C55E : standardDone > 0 ? 0xF59E0B : 0x6B7280;
+
+            const progressEmbed = new EmbedBuilder()
+                .setColor(colour)
+                .setTitle(`📊  Your Daily Tasks  •  ${dateLabel}`)
+                .setDescription(taskLines)
+                .addFields(
+                    { name: 'Progress',    value: `**${standardDone}/4** complete`, inline: true },
+                    { name: 'Streak',      value: streakText,                        inline: true },
+                    { name: 'This Month',  value: `**${entries}** entr${entries === 1 ? 'y' : 'ies'}`, inline: true },
+                );
 
             if (effectStreak < 7) {
-                lines.push(``, `_Streak bonus unlocks at day 7: +2 entries/day 🔥_`);
+                progressEmbed.setFooter({ text: `Streak bonus unlocks at day 7: +2 entries/day 🔥` });
             }
 
-            await interaction.editReply(lines.join('\n'));
+            await interaction.editReply({ embeds: [progressEmbed] });
         } catch (e) {
             console.error('[BeastBot] my_progress error:', e.message);
             await interaction.editReply('⚠️ Something went wrong. Try again in a moment.');
