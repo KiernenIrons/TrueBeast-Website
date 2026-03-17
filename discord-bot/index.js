@@ -394,6 +394,34 @@ const BUMP_INTERVAL   = 2 * 60 * 60 * 1000; // 2 hours
 const DISBOARD_BOT_ID = '302050872383242240';
 let bumpTimer = null;
 
+// Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
+function scheduleDiscordMeReminder() {
+    const now         = new Date();
+    const currentHour = now.getUTCHours();
+    const nextWindow  = [0, 6, 12, 18].find(h => h > currentHour);
+    const next        = new Date(now);
+
+    if (nextWindow !== undefined) {
+        next.setUTCHours(nextWindow, 0, 0, 0);
+    } else {
+        next.setUTCDate(next.getUTCDate() + 1);
+        next.setUTCHours(0, 0, 0, 0);
+    }
+
+    setTimeout(async () => {
+        try {
+            const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+            await channel.send('⏰ New bump window open! Head to <https://discord.me/dashboard#bumpModal> to bump the server on Discord.me.');
+            console.log('[BeastBot] 🔔 Sent Discord.me bump reminder');
+        } catch (e) {
+            console.error('[BeastBot] Failed to send Discord.me bump reminder:', e.message);
+        }
+        scheduleDiscordMeReminder();
+    }, next - now);
+
+    console.log(`[BeastBot] Discord.me bump reminder scheduled for ${next.toUTCString()}`);
+}
+
 function scheduleBumpReminder() {
     if (bumpTimer) clearTimeout(bumpTimer);
     bumpTimer = setTimeout(async () => {
@@ -413,6 +441,7 @@ client.once('ready', () => {
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
     scheduleBumpReminder();
+    scheduleDiscordMeReminder();
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
