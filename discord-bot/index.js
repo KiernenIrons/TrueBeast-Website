@@ -679,8 +679,8 @@ async function postDailyTasks() {
 
         const top3        = await getMonthlyLeaderboard(3);
         const leaderLines = top3.length
-            ? top3.map((e, i) => `  ${['🥇','🥈','🥉'][i]} <@${e.userId}> — ${e.entries} entries`).join('\n')
-            : '  No entries yet this month.';
+            ? top3.map((e, i) => `${['🥇','🥈','🥉'][i]} <@${e.userId}> — **${e.entries}** entries`).join('\n')
+            : '*No entries yet this month*';
 
         const genMention = GENERAL_CHANNEL_ID       ? `<#${GENERAL_CHANNEL_ID}>`       : '#general';
         const gamMention = GAMING_CHANNEL_ID         ? `<#${GAMING_CHANNEL_ID}>`         : '#gaming';
@@ -689,25 +689,26 @@ async function postDailyTasks() {
             EVENTS_CHANNEL_ID        ? `<#${EVENTS_CHANNEL_ID}>`        : null,
         ].filter(Boolean).join(' or ') || '#announcements';
 
+        const taskLines = [
+            `💬  Say hi in ${genMention}`,
+            `🎮  Post in ${gamMention}`,
+            `👍  React in ${annMention}`,
+            `🎲  **Daily Challenge —** ${wildcard}`,
+        ];
+
+        if (todayDow === 5) taskLines.push(``, `🎮  **Bonus —** Show up to Game Night tonight at 7pm`);
+        if (todayDow === 6) taskLines.push(``, `🎬  **Bonus —** Show up to Movie Night tonight at 7pm`);
+
         const embed = new EmbedBuilder()
             .setColor(0xF59E0B)
             .setTitle(`📋  Daily Tasks  •  ${dayLabel}`)
-            .setDescription(`Complete all **4 tasks** today for a bonus entry 🎁`)
-            .addFields(
-                { name: `💬  Say hi in ${genMention}`,      value: `*Counts automatically when you post*`,       inline: false },
-                { name: `🎮  Post in ${gamMention}`,        value: `*Counts automatically when you post*`,       inline: false },
-                { name: `👍  React in ${annMention}`,       value: `*Counts automatically when you react*`,      inline: false },
-                { name: `🎲  Daily Challenge`,              value: wildcard,                                     inline: false },
-            );
-
-        if (todayDow === 5) {
-            embed.addFields({ name: `🎮  Bonus: Game Night`, value: `Show up tonight at 7pm — counts when you join the voice channel`, inline: false });
-        } else if (todayDow === 6) {
-            embed.addFields({ name: `🎬  Bonus: Movie Night`, value: `Show up tonight at 7pm — counts when you join the voice channel`, inline: false });
-        }
-
-        embed.addFields({ name: `🏆  Top This Month`, value: leaderLines, inline: false });
-        embed.setFooter({ text: `Entries reset the 1st of each month  •  Streak bonus: +2 entries/day at day 7 🔥` });
+            .setDescription(
+                `Complete all **4 tasks** today for a bonus entry 🎁\n` +
+                `*The first 3 count automatically — just post or react normally*\n\n` +
+                taskLines.join('\n')
+            )
+            .addFields({ name: `🏆  Top This Month`, value: leaderLines, inline: false })
+            .setFooter({ text: `Entries reset the 1st of each month  •  Streak bonus: +2 entries/day at day 7 🔥` });
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
