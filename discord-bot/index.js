@@ -1,58 +1,185 @@
 /**
- * TrueBeast — Beast Bot (AI Support)
- * ====================================
+ * TrueBeast — Beast Bot (AI Support + Daily Tasks)
+ * =================================================
  * Monitors a dedicated support channel and answers questions using
  * Claude Haiku + a Firestore knowledge base + live Discord/Steam context.
+ * Also runs a daily tasks system with streak tracking and giveaway entries.
  *
  * Env vars:
- *   DISCORD_BOT_TOKEN    — bot token from Discord Developer Portal
- *   SUPPORT_CHANNEL_ID   — channel ID(s) to monitor, comma-separated
- *   MOD_CHANNEL_ID       — channel ID for mod notifications
- *   MOD_ROLE_ID          — role ID to ping for mod notifications
- *   ANTHROPIC_API_KEY    — Claude API key
- *   FIREBASE_PROJECT_ID  — e.g. "truebeast-support"
- *   FIREBASE_API_KEY     — public web API key from Firebase
- *   STEAM_API_KEY        — Steam Web API key (store.steampowered.com/dev/apikey)
- *   STEAM_ID             — Steam 64-bit ID
+ *   DISCORD_BOT_TOKEN         — bot token from Discord Developer Portal
+ *   SUPPORT_CHANNEL_ID        — channel ID(s) to monitor, comma-separated
+ *   MOD_CHANNEL_ID            — channel ID for mod notifications
+ *   MOD_ROLE_ID               — role ID to ping for mod notifications
+ *   ANTHROPIC_API_KEY         — Claude API key
+ *   FIREBASE_PROJECT_ID       — e.g. "truebeast-support"
+ *   FIREBASE_API_KEY          — public web API key from Firebase
+ *   STEAM_API_KEY             — Steam Web API key
+ *   STEAM_ID                  — Steam 64-bit ID
+ *   DAILY_TASKS_CHANNEL_ID    — #daily-tasks channel
+ *   GENERAL_CHANNEL_ID        — #general (auto-task: say hi)
+ *   GAMING_CHANNEL_ID         — #gaming (auto-task: post there)
+ *   ANNOUNCEMENTS_CHANNEL_ID  — #announcements (auto-task: react there)
+ *   GRINDERS_ROLE_ID          — role assigned at 7-day streak
  */
 
 require('dotenv').config();
+const cron = require('node-cron');
 
 const {
     Client, GatewayIntentBits, Partials, ChannelType,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
 } = require('discord.js');
 
-const TOKEN             = process.env.DISCORD_BOT_TOKEN;
-const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
-const MOD_CHANNEL_ID    = process.env.MOD_CHANNEL_ID;
-const MOD_ROLE_ID       = process.env.MOD_ROLE_ID;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const FIREBASE_PROJECT  = process.env.FIREBASE_PROJECT_ID;
-const FIREBASE_API_KEY  = process.env.FIREBASE_API_KEY;
-const STEAM_API_KEY     = process.env.STEAM_API_KEY;
-const STEAM_ID          = process.env.STEAM_ID || '76561198254213878';
-const OWNER_DISCORD_ID  = '392450364340830208';
+// ── Env vars ───────────────────────────────────────────────────────────────────
+
+const TOKEN                   = process.env.DISCORD_BOT_TOKEN;
+const CHANNEL_IDS             = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
+const MOD_CHANNEL_ID          = process.env.MOD_CHANNEL_ID;
+const MOD_ROLE_ID             = process.env.MOD_ROLE_ID;
+const ANTHROPIC_API_KEY       = process.env.ANTHROPIC_API_KEY;
+const FIREBASE_PROJECT        = process.env.FIREBASE_PROJECT_ID;
+const FIREBASE_API_KEY        = process.env.FIREBASE_API_KEY;
+const STEAM_API_KEY           = process.env.STEAM_API_KEY;
+const STEAM_ID                = process.env.STEAM_ID || '76561198254213878';
+const OWNER_DISCORD_ID        = '392450364340830208';
+
+const DAILY_TASKS_CHANNEL_ID  = process.env.DAILY_TASKS_CHANNEL_ID;
+const GENERAL_CHANNEL_ID      = process.env.GENERAL_CHANNEL_ID;
+const GAMING_CHANNEL_ID       = process.env.GAMING_CHANNEL_ID;
+const ANNOUNCEMENTS_CHANNEL_ID = process.env.ANNOUNCEMENTS_CHANNEL_ID;
+const GRINDERS_ROLE_ID        = process.env.GRINDERS_ROLE_ID;
 
 if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CHANNEL_IDS.length === 0) {
     console.error('[BeastBot] ❌  Missing required env vars.');
     process.exit(1);
 }
 
-// ── In-memory state ───────────────────────────────────────────────────────────
-// Queue of unanswered questions waiting for a button click:
-//   questionId -> { question, askerId, askerTag, channelId, messageId }
-const questionQueue = new Map();
+const FS_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents`;
 
-// Active answering session per DM channel (one at a time):
-//   dmChannelId -> { questionId, question, askerId, askerTag, channelId, messageId, state, answer? }
-const activeSession = new Map();
+// ── Task definitions ───────────────────────────────────────────────────────────
+
+// The 4 standard tasks that count toward streak + all-complete bonus
+const STANDARD_TASK_IDS = ['say_hi', 'post_gaming', 'react_ann', 'wildcard'];
+
+const TASKS = [
+    { id: 'say_hi',      emoji: '💬', title: 'Say hi in #general',      type: 'auto_message',  channelEnvKey: 'GENERAL_CHANNEL_ID'        },
+    { id: 'post_gaming', emoji: '🎮', title: 'Post in #gaming',         type: 'auto_message',  channelEnvKey: 'GAMING_CHANNEL_ID'         },
+    { id: 'react_ann',   emoji: '👍', title: 'React in #announcements', type: 'auto_reaction', channelEnvKey: 'ANNOUNCEMENTS_CHANNEL_ID'  },
+    { id: 'wildcard',    emoji: '🎲', title: '',                        type: 'manual'                                                    },
+    { id: 'game_night',  emoji: '🎮', title: 'Show up to Game Night',   type: 'auto_event',    days: [5]                                  },
+    { id: 'movie_night', emoji: '🎬', title: 'Show up to Movie Night',  type: 'auto_event',    days: [6]                                  },
+];
+
+const WILDCARD_POOL = [
+    'Share a game screenshot in #gaming',
+    'Recommend a game in #gaming',
+    'Welcome a new member in #general',
+    'Help someone in #tech-support',
+    'Share something that made you laugh today',
+    'Tell us what you\'re playing this week',
+];
+
+// ── In-memory state ────────────────────────────────────────────────────────────
+
+// Owner DM flow for answering support questions
+const questionQueue = new Map(); // questionId -> { question, askerId, askerTag, channelId, messageId }
+const activeSession = new Map(); // dmChannelId -> session object
+
+// Invite tracking
+const inviteCache = new Map(); // invite code -> uses count
+
+// Stored ID of the current daily tasks message (refreshed at midnight)
+let dailyTasksMessageId = null;
 
 function makeQuestionId() {
     return `q${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-// ── Firestore ────────────────────────────────────────────────────────────────
+// ── Date helpers ───────────────────────────────────────────────────────────────
+
+function getTodayStr() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function getYesterdayStr() {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+}
+
+function getMonthStr() {
+    return new Date().toISOString().slice(0, 7);
+}
+
+function getDayOfYear() {
+    const now   = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    return Math.floor((now - start) / 86400000);
+}
+
+function getWildcardTitle() {
+    return WILDCARD_POOL[getDayOfYear() % WILDCARD_POOL.length];
+}
+
+// Returns the display streak, accounting for broken streaks
+function getEffectiveStreak(streak) {
+    if (!streak?.lastCompleteDate) return 0;
+    const today     = getTodayStr();
+    const yesterday = getYesterdayStr();
+    return (streak.lastCompleteDate === today || streak.lastCompleteDate === yesterday)
+        ? (streak.currentStreak || 0)
+        : 0;
+}
+
+// ── Generic Firestore REST helpers ─────────────────────────────────────────────
+
+function parseFirestoreDoc(fields) {
+    const result = {};
+    for (const [key, val] of Object.entries(fields)) {
+        if      (val.stringValue  !== undefined) result[key] = val.stringValue;
+        else if (val.integerValue !== undefined) result[key] = parseInt(val.integerValue, 10);
+        else if (val.doubleValue  !== undefined) result[key] = val.doubleValue;
+        else if (val.booleanValue !== undefined) result[key] = val.booleanValue;
+        else if (val.nullValue    !== undefined) result[key] = null;
+        else if (val.mapValue)                   result[key] = parseFirestoreDoc(val.mapValue.fields || {});
+        else                                     result[key] = null;
+    }
+    return result;
+}
+
+function toFirestoreFields(obj) {
+    const fields = {};
+    for (const [key, val] of Object.entries(obj)) {
+        if      (typeof val === 'string')                          fields[key] = { stringValue: val };
+        else if (typeof val === 'number' && Number.isInteger(val)) fields[key] = { integerValue: String(val) };
+        else if (typeof val === 'number')                          fields[key] = { doubleValue: val };
+        else if (typeof val === 'boolean')                         fields[key] = { booleanValue: val };
+        else if (val === null || val === undefined)                 fields[key] = { nullValue: null };
+        else if (typeof val === 'object')                          fields[key] = { mapValue: { fields: toFirestoreFields(val) } };
+    }
+    return fields;
+}
+
+async function fsGet(collection, docId) {
+    const url = `${FS_BASE}/${collection}/${docId}?key=${FIREBASE_API_KEY}`;
+    const res = await fetch(url);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Firestore GET ${collection}/${docId}: ${res.status}`);
+    const data = await res.json();
+    return parseFirestoreDoc(data.fields || {});
+}
+
+async function fsPatch(collection, docId, plainObj) {
+    const url = `${FS_BASE}/${collection}/${docId}?key=${FIREBASE_API_KEY}`;
+    const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: toFirestoreFields(plainObj) }),
+    });
+    if (!res.ok) throw new Error(`Firestore PATCH ${collection}/${docId}: ${res.status} ${await res.text()}`);
+}
+
+// ── Firestore — knowledge base (existing) ─────────────────────────────────────
 
 async function fetchKnowledge() {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase?key=${FIREBASE_API_KEY}&pageSize=50`;
@@ -92,7 +219,6 @@ async function saveUnansweredQuestion(question, author, channelName, channelId, 
         console.error('[BeastBot] Failed to save unanswered question:', e.message);
     }
 
-    // DM Kiernen with Answer / Skip buttons for each question independently
     try {
         const owner      = await client.users.fetch(OWNER_DISCORD_ID);
         const dmChannel  = await owner.createDM();
@@ -166,7 +292,7 @@ async function saveToKnowledgeBase(question, answer) {
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 }
 
-// ── Discord live context ──────────────────────────────────────────────────────
+// ── Discord live context ───────────────────────────────────────────────────────
 
 async function fetchDiscordContext(guild) {
     const parts = [];
@@ -376,7 +502,259 @@ async function notifyMods(message) {
     }
 }
 
-// ── Discord client ────────────────────────────────────────────────────────────
+// ── Daily tasks — Firestore ops ────────────────────────────────────────────────
+
+async function getCompletion(userId, dateStr) {
+    const data = await fsGet('taskCompletions', `${userId}_${dateStr}`).catch(() => null);
+    return data || { completedTasks: {}, allComplete: false, bonusAwarded: false };
+}
+
+async function getStreak(userId) {
+    const data = await fsGet('userStreaks', userId).catch(() => null);
+    return data || { currentStreak: 0, longestStreak: 0, lastCompleteDate: null };
+}
+
+async function addEntries(userId, username, amount) {
+    const monthStr = getMonthStr();
+    const docId    = `${monthStr}_${userId}`;
+    const existing = await fsGet('giveawayEntries', docId).catch(() => null)
+        || { entries: 0, month: monthStr, userId, username };
+    existing.entries  = (existing.entries || 0) + amount;
+    existing.username = username;
+    await fsPatch('giveawayEntries', docId, existing);
+}
+
+async function getMonthlyEntries(userId) {
+    const data = await fsGet('giveawayEntries', `${getMonthStr()}_${userId}`).catch(() => null);
+    return data?.entries || 0;
+}
+
+async function getMonthlyLeaderboard(limit = 3) {
+    const monthStr = getMonthStr();
+    const url      = `${FS_BASE}/giveawayEntries?key=${FIREBASE_API_KEY}&pageSize=500`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (!data.documents?.length) return [];
+        return data.documents
+            .filter(doc => doc.name.split('/').pop().startsWith(monthStr + '_'))
+            .map(doc => {
+                const parsed = parseFirestoreDoc(doc.fields || {});
+                return { userId: parsed.userId || '', username: parsed.username || 'Unknown', entries: parsed.entries || 0 };
+            })
+            .filter(e => e.userId)
+            .sort((a, b) => b.entries - a.entries)
+            .slice(0, limit);
+    } catch (e) {
+        console.error('[BeastBot] Leaderboard fetch failed:', e.message);
+        return [];
+    }
+}
+
+async function handleStreakMilestone(userId, username, member, currentStreak) {
+    // Nickname badge (3+ days)
+    if (member) {
+        try {
+            const base    = (member.nickname || member.user.username).replace(/\s*\[🔥\d+\]$/, '').trimEnd();
+            const newNick = currentStreak >= 3 ? `${base} [🔥${currentStreak}]` : base;
+            const current = member.nickname || member.user.username;
+            if (newNick !== current) await member.setNickname(newNick || null);
+        } catch (e) {
+            if (e.code === 50013) console.warn(`[BeastBot] Cannot set nickname for ${userId} (server owner)`);
+            else console.error('[BeastBot] Nickname update failed:', e.message);
+        }
+    }
+
+    // Grinder role at day 7
+    if (GRINDERS_ROLE_ID && member) {
+        try {
+            if (currentStreak >= 7) await member.roles.add(GRINDERS_ROLE_ID);
+            else                    await member.roles.remove(GRINDERS_ROLE_ID);
+        } catch (_) {}
+    }
+
+    // 30-day announcement
+    if (currentStreak === 30 && GENERAL_CHANNEL_ID) {
+        try {
+            const ch = await client.channels.fetch(GENERAL_CHANNEL_ID);
+            await ch.send(
+                `🔥 **30-DAY STREAK ALERT!** 🔥\n` +
+                `<@${userId}> has completed daily tasks for **30 days in a row!** Absolutely unhinged. Big respect. 🏆\n` +
+                `+5 bonus giveaway entries awarded! 🎁`
+            );
+            await addEntries(userId, username, 5);
+        } catch (e) {
+            console.error('[BeastBot] 30-day announcement failed:', e.message);
+        }
+    }
+}
+
+async function updateStreak(userId, username, member, completedDate) {
+    const streak    = await getStreak(userId);
+    const yesterday = getYesterdayStr();
+
+    if (streak.lastCompleteDate === completedDate) return streak; // Already counted today
+
+    const prevStreak = streak.currentStreak || 0;
+
+    if (!streak.lastCompleteDate || streak.lastCompleteDate === yesterday) {
+        streak.currentStreak = prevStreak + 1;
+    } else {
+        streak.currentStreak = 1; // missed a day — reset
+    }
+
+    streak.longestStreak    = Math.max(streak.longestStreak || 0, streak.currentStreak);
+    streak.lastCompleteDate = completedDate;
+
+    // +2 bonus entries per day at 7+ streak
+    if (streak.currentStreak >= 7) {
+        await addEntries(userId, username, 2);
+    }
+
+    await fsPatch('userStreaks', userId, streak);
+    await handleStreakMilestone(userId, username, member, streak.currentStreak);
+
+    return streak;
+}
+
+// Mark a task complete for a user today. Returns { alreadyDone, allComplete, entriesAdded }
+async function markTask(userId, taskId, username, member) {
+    const dateStr    = getTodayStr();
+    const docId      = `${userId}_${dateStr}`;
+    const completion = await getCompletion(userId, dateStr);
+
+    if (completion.completedTasks[taskId]) {
+        return { alreadyDone: true, allComplete: completion.allComplete, entriesAdded: 0 };
+    }
+
+    completion.completedTasks[taskId] = true;
+    let entriesAdded = 1;
+    await addEntries(userId, username, 1);
+
+    // Check if all 4 standard tasks are done → trigger all-complete bonus + streak
+    const allStandardDone = STANDARD_TASK_IDS.every(id => completion.completedTasks[id]);
+    if (allStandardDone && !completion.allComplete) {
+        completion.allComplete = true;
+        if (!completion.bonusAwarded) {
+            completion.bonusAwarded = true;
+            await addEntries(userId, username, 1); // +1 bonus
+            entriesAdded++;
+        }
+        await updateStreak(userId, username, member, dateStr);
+    }
+
+    await fsPatch('taskCompletions', docId, completion);
+    return { alreadyDone: false, allComplete: completion.allComplete, entriesAdded };
+}
+
+// ── Daily tasks — channel posting ─────────────────────────────────────────────
+
+async function loadDailyTasksMsgId() {
+    try {
+        const data = await fsGet('botConfig', 'dailyTasksMsg');
+        return data?.msgId || null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function saveDailyTasksMsgId(msgId) {
+    await fsPatch('botConfig', 'dailyTasksMsg', { msgId, date: getTodayStr() }).catch(() => {});
+}
+
+async function postDailyTasks() {
+    if (!DAILY_TASKS_CHANNEL_ID) {
+        console.warn('[BeastBot] DAILY_TASKS_CHANNEL_ID not set — skipping daily tasks post');
+        return;
+    }
+    try {
+        const channel = await client.channels.fetch(DAILY_TASKS_CHANNEL_ID);
+
+        // Delete previous daily message
+        const prevId = dailyTasksMessageId || await loadDailyTasksMsgId();
+        if (prevId) {
+            try { const prev = await channel.messages.fetch(prevId); await prev.delete(); } catch (_) {}
+            dailyTasksMessageId = null;
+        }
+
+        const now      = new Date();
+        const dayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+        const todayDow = now.getUTCDay();
+        const wildcard = getWildcardTitle();
+
+        const top3        = await getMonthlyLeaderboard(3);
+        const leaderLines = top3.length
+            ? top3.map((e, i) => `  ${['🥇','🥈','🥉'][i]} <@${e.userId}> — ${e.entries} entries`).join('\n')
+            : '  No entries yet this month.';
+
+        const genMention = GENERAL_CHANNEL_ID       ? `<#${GENERAL_CHANNEL_ID}>`       : '#general';
+        const gamMention = GAMING_CHANNEL_ID         ? `<#${GAMING_CHANNEL_ID}>`         : '#gaming';
+        const annMention = ANNOUNCEMENTS_CHANNEL_ID  ? `<#${ANNOUNCEMENTS_CHANNEL_ID}>` : '#announcements';
+
+        const lines = [
+            `━━━━━━━━━━━━━━━━━━━━━━`,
+            `📋  **DAILY TASKS**  •  ${dayLabel}`,
+            `━━━━━━━━━━━━━━━━━━━━━━`,
+            `Complete all 4 tasks for a bonus entry 🎁`,
+            ``,
+            `💬  Say hi in ${genMention}  *(auto-counts when you post)*`,
+            `🎮  Post in ${gamMention}  *(auto-counts when you post)*`,
+            `👍  React in ${annMention}  *(auto-counts when you react)*`,
+            `🎲  **Daily challenge:** ${wildcard}`,
+        ];
+
+        if (todayDow === 5) {
+            lines.push(``, `🎮  **Bonus:** Show up to Game Night tonight at 7pm  *(auto-counts when you join VC)*`);
+        } else if (todayDow === 6) {
+            lines.push(``, `🎬  **Bonus:** Show up to Movie Night tonight at 7pm  *(auto-counts when you join VC)*`);
+        }
+
+        lines.push(``, `━━━━━━━━━━━━━━━━━━━━━━`);
+        lines.push(`🏆  **Top this month (so far):**`);
+        lines.push(leaderLines);
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('daily:challenge_done')
+                .setLabel('✅ Mark Challenge Done')
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId('daily:my_progress')
+                .setLabel('📊 My Progress')
+                .setStyle(ButtonStyle.Secondary),
+        );
+
+        const msg = await channel.send({ content: lines.join('\n'), components: [row] });
+        dailyTasksMessageId = msg.id;
+        await saveDailyTasksMsgId(msg.id);
+        console.log(`[BeastBot] ✅ Daily tasks posted for ${dayLabel}`);
+    } catch (e) {
+        console.error('[BeastBot] postDailyTasks failed:', e.message);
+    }
+}
+
+async function postWeeklyLeaderboard() {
+    if (!DAILY_TASKS_CHANNEL_ID) return;
+    try {
+        const channel = await client.channels.fetch(DAILY_TASKS_CHANNEL_ID);
+        const top10   = await getMonthlyLeaderboard(10);
+        if (!top10.length) return;
+        const lines = [
+            `━━━━━━━━━━━━━━━━━━━━━━`,
+            `🏆  **WEEKLY GIVEAWAY LEADERBOARD**`,
+            `━━━━━━━━━━━━━━━━━━━━━━`,
+            ...top10.map((e, i) => `${i + 1}. <@${e.userId}> — **${e.entries}** entries`),
+            ``,
+            `Keep completing daily tasks to climb! 🎁`,
+        ];
+        await channel.send(lines.join('\n'));
+    } catch (e) {
+        console.error('[BeastBot] postWeeklyLeaderboard failed:', e.message);
+    }
+}
+
+// ── Discord client ─────────────────────────────────────────────────────────────
 
 const client = new Client({
     intents: [
@@ -385,9 +763,21 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildScheduledEvents,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildInvites,
+        GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildMembers,
     ],
-    partials: [Partials.Channel],
+    partials: [
+        Partials.Channel,
+        Partials.Message,
+        Partials.Reaction,
+        Partials.User,
+        Partials.GuildMember,
+    ],
 });
+
+// ── Bump reminder ─────────────────────────────────────────────────────────────
 
 const BUMP_CHANNEL_ID = '1477361149862482053';
 const BUMP_INTERVAL   = 2 * 60 * 60 * 1000; // 2 hours
@@ -408,17 +798,138 @@ function scheduleBumpReminder() {
     console.log(`[BeastBot] Bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toLocaleTimeString()}`);
 }
 
-client.once('ready', () => {
+// ── Invite cache helper ────────────────────────────────────────────────────────
+
+async function cacheInvites(guild) {
+    try {
+        const invites = await guild.invites.fetch();
+        invites.forEach(inv => inviteCache.set(inv.code, inv.uses || 0));
+        console.log(`[BeastBot] Cached ${invites.size} invites for ${guild.name}`);
+    } catch (e) {
+        console.error('[BeastBot] Failed to cache invites:', e.message);
+    }
+}
+
+// ── Ready ─────────────────────────────────────────────────────────────────────
+
+client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
+    console.log(`[BeastBot] Daily tasks: ${DAILY_TASKS_CHANNEL_ID ? 'enabled' : 'DAILY_TASKS_CHANNEL_ID not set'}`);
+
+    // Cache invites for all guilds
+    for (const guild of client.guilds.cache.values()) {
+        await cacheInvites(guild);
+    }
+
+    // Restore stored daily tasks message ID
+    dailyTasksMessageId = await loadDailyTasksMsgId();
+
+    // Cron: midnight UTC — post new daily tasks
+    cron.schedule('0 0 * * *', postDailyTasks);
+
+    // Cron: Sunday midnight UTC — weekly leaderboard
+    cron.schedule('0 0 * * 0', postWeeklyLeaderboard);
+
+    console.log('[BeastBot] Cron jobs scheduled (midnight UTC daily + Sunday leaderboard)');
+
     scheduleBumpReminder();
 });
 
-// ── Button interactions ───────────────────────────────────────────────────────
+// ── Daily task button interactions ─────────────────────────────────────────────
+
+async function handleDailyInteraction(interaction) {
+    const userId   = interaction.user.id;
+    const member   = interaction.member;
+    const username = interaction.user.username;
+
+    if (interaction.customId === 'daily:challenge_done') {
+        await interaction.deferReply({ ephemeral: true });
+        try {
+            const result = await markTask(userId, 'wildcard', username, member);
+            if (result.alreadyDone) {
+                await interaction.editReply('✅ You already completed the daily challenge today!');
+                return;
+            }
+            let msg = `✅ **Daily challenge marked complete!** +${result.entriesAdded} giveaway entr${result.entriesAdded === 1 ? 'y' : 'ies'} earned.`;
+            if (result.allComplete) msg += `\n🎉 **All tasks done!** Streak updated and bonus entry added!`;
+            await interaction.editReply(msg);
+        } catch (e) {
+            console.error('[BeastBot] challenge_done error:', e.message);
+            await interaction.editReply('⚠️ Something went wrong. Try again in a moment.');
+        }
+        return;
+    }
+
+    if (interaction.customId === 'daily:my_progress') {
+        await interaction.deferReply({ ephemeral: true });
+        try {
+            const dateStr = getTodayStr();
+            const [completion, streak, entries] = await Promise.all([
+                getCompletion(userId, dateStr),
+                getStreak(userId),
+                getMonthlyEntries(userId),
+            ]);
+
+            const now       = new Date();
+            const dateLabel = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+            const wildcard  = getWildcardTitle();
+            const todayDow  = now.getUTCDay();
+
+            const genMention = GENERAL_CHANNEL_ID       ? `<#${GENERAL_CHANNEL_ID}>`       : '#general';
+            const gamMention = GAMING_CHANNEL_ID         ? `<#${GAMING_CHANNEL_ID}>`         : '#gaming';
+            const annMention = ANNOUNCEMENTS_CHANNEL_ID  ? `<#${ANNOUNCEMENTS_CHANNEL_ID}>` : '#announcements';
+
+            const tasks = [
+                { id: 'say_hi',      label: `Say hi in ${genMention}` },
+                { id: 'post_gaming', label: `Post in ${gamMention}` },
+                { id: 'react_ann',   label: `React in ${annMention}` },
+                { id: 'wildcard',    label: `Daily challenge: ${wildcard}` },
+            ];
+
+            if (todayDow === 5) tasks.push({ id: 'game_night',  label: 'Show up to Game Night' });
+            if (todayDow === 6) tasks.push({ id: 'movie_night', label: 'Show up to Movie Night' });
+
+            const taskLines    = tasks.map(t => `${completion.completedTasks[t.id] ? '✅' : '☐'}  ${t.label}`).join('\n');
+            const standardDone = STANDARD_TASK_IDS.filter(id => completion.completedTasks[id]).length;
+            const effectStreak = getEffectiveStreak(streak);
+            const streakText   = effectStreak > 0 ? `🔥 ${effectStreak}-day streak` : 'No active streak';
+
+            const lines = [
+                `📊  **Your Daily Tasks**  •  ${dateLabel}`,
+                ``,
+                taskLines,
+                ``,
+                `**${standardDone}/4 complete**  •  ${streakText}`,
+                `This month: **${entries}** entr${entries === 1 ? 'y' : 'ies'}`,
+            ];
+
+            if (effectStreak < 7) {
+                lines.push(``, `_Streak bonus (+2 entries/day) + Grinders Club unlock at day 7 🏆_`);
+            }
+
+            await interaction.editReply(lines.join('\n'));
+        } catch (e) {
+            console.error('[BeastBot] my_progress error:', e.message);
+            await interaction.editReply('⚠️ Something went wrong. Try again in a moment.');
+        }
+        return;
+    }
+}
+
+// ── Button interactions ────────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
+
+    // Daily task buttons — available to all users
+    if (interaction.customId.startsWith('daily:')) {
+        await handleDailyInteraction(interaction);
+        return;
+    }
+
+    // Owner-only buttons (answer/skip for support questions)
     if (interaction.user.id !== OWNER_DISCORD_ID) {
         await interaction.reply({ content: 'These buttons aren\'t for you 👀', ephemeral: true });
         return;
@@ -517,7 +1028,7 @@ client.on('messageCreate', async (message) => {
                     await message.reply(`❌ Failed to save: ${e.message}`);
                 }
             } else {
-                session.state = 'awaiting_answer';
+                session.state  = 'awaiting_answer';
                 session.answer = undefined;
                 activeSession.set(message.channel.id, session);
                 await message.reply('👍 Cancelled — nothing was saved.\n\n_Go ahead — type your answer again below, or reply **skip** to drop this question._');
@@ -528,6 +1039,45 @@ client.on('messageCreate', async (message) => {
         }
 
         return;
+    }
+
+    // ── Owner command: !giveaway list ──────────────────────────────────────────
+    if (message.author.id === OWNER_DISCORD_ID && message.content.trim().toLowerCase() === '!giveaway list') {
+        try {
+            const top20 = await getMonthlyLeaderboard(20);
+            if (!top20.length) {
+                await message.reply('No entries yet this month.');
+            } else {
+                const lines = top20.map((e, i) => `${i + 1}. **${e.username}** (<@${e.userId}>) — ${e.entries} entries`);
+                await message.reply(`**Giveaway Entries — ${getMonthStr()}**\n${lines.join('\n')}`);
+            }
+        } catch (e) {
+            await message.reply(`❌ Failed to fetch entries: ${e.message}`);
+        }
+        return;
+    }
+
+    // ── Auto-tasks: detect messages in #general and #gaming ───────────────────
+    if (GENERAL_CHANNEL_ID && message.channelId === GENERAL_CHANNEL_ID) {
+        markTask(message.author.id, 'say_hi', message.author.username, message.member)
+            .then(result => {
+                if (!result.alreadyDone) {
+                    console.log(`[BeastBot] ✅ say_hi completed by ${message.author.tag}`);
+                    message.react('✅').catch(() => {});
+                }
+            })
+            .catch(e => console.error('[BeastBot] markTask say_hi failed:', e.message));
+    }
+
+    if (GAMING_CHANNEL_ID && message.channelId === GAMING_CHANNEL_ID) {
+        markTask(message.author.id, 'post_gaming', message.author.username, message.member)
+            .then(result => {
+                if (!result.alreadyDone) {
+                    console.log(`[BeastBot] ✅ post_gaming completed by ${message.author.tag}`);
+                    message.react('✅').catch(() => {});
+                }
+            })
+            .catch(e => console.error('[BeastBot] markTask post_gaming failed:', e.message));
     }
 
     // ── Support channel messages ──────────────────────────────────────────────
@@ -579,6 +1129,140 @@ client.on('messageCreate', async (message) => {
         await message.reply(chunk);
     }
 });
+
+// ── Reactions — auto-task: react in #announcements ────────────────────────────
+
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+    if (!ANNOUNCEMENTS_CHANNEL_ID) return;
+
+    // Fetch partial reactions/messages if needed
+    if (reaction.partial) {
+        try { await reaction.fetch(); } catch (e) { return; }
+    }
+    if (reaction.message.partial) {
+        try { await reaction.message.fetch(); } catch (e) { return; }
+    }
+
+    if (reaction.message.channelId !== ANNOUNCEMENTS_CHANNEL_ID) return;
+
+    const guild  = reaction.message.guild;
+    if (!guild) return;
+    const member = await guild.members.fetch(user.id).catch(() => null);
+
+    markTask(user.id, 'react_ann', user.username, member)
+        .then(result => {
+            if (!result.alreadyDone) {
+                console.log(`[BeastBot] ✅ react_ann completed by ${user.tag}`);
+            }
+        })
+        .catch(e => console.error('[BeastBot] markTask react_ann failed:', e.message));
+});
+
+// ── Voice state — auto-task: join VC during game/movie night ─────────────────
+
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    // Only care about joining a VC (not leaving or switching)
+    if (!newState.channelId || newState.channelId === oldState.channelId) return;
+    if (newState.member?.user.bot) return;
+
+    const todayDow = new Date().getUTCDay();
+    if (todayDow !== 5 && todayDow !== 6) return; // Only Friday/Saturday
+
+    const taskId    = todayDow === 5 ? 'game_night' : 'movie_night';
+    const eventName = todayDow === 5 ? 'Game Night' : 'Movie Night';
+    const keyword   = todayDow === 5 ? 'game night' : 'movie night';
+
+    try {
+        const guild  = newState.guild;
+        const events = await guild.scheduledEvents.fetch();
+        const now    = new Date();
+
+        const relevant = [...events.values()].find(e => {
+            const nameMatch     = e.name.toLowerCase().includes(keyword);
+            const isActive      = e.status === 2; // GuildScheduledEventStatus.Active
+            const recentlyEnded = e.status === 3 && e.scheduledEndAt && (now - e.scheduledEndAt) < 3600000;
+            return nameMatch && (isActive || recentlyEnded);
+        });
+
+        if (!relevant) return;
+
+        const member = newState.member;
+        const result = await markTask(member.user.id, taskId, member.user.username, member);
+
+        if (!result.alreadyDone) {
+            console.log(`[BeastBot] ✅ ${taskId} completed by ${member.user.tag}`);
+            try {
+                await member.send(`✅ You joined **${eventName}**! +1 giveaway entry earned 🎁`);
+            } catch (_) {} // DMs may be closed
+        }
+    } catch (e) {
+        console.error(`[BeastBot] voiceStateUpdate (${taskId}) failed:`, e.message);
+    }
+});
+
+// ── Scheduled event RSVP — alternative trigger for game/movie night ───────────
+
+client.on('guildScheduledEventUserAdd', async (event, user) => {
+    if (user.bot) return;
+    const todayDow = new Date().getUTCDay();
+    const keyword  = todayDow === 5 ? 'game night' : todayDow === 6 ? 'movie night' : null;
+    if (!keyword || !event.name.toLowerCase().includes(keyword)) return;
+
+    const taskId = todayDow === 5 ? 'game_night' : 'movie_night';
+    const guild  = event.guild;
+    if (!guild) return;
+    const member = await guild.members.fetch(user.id).catch(() => null);
+
+    markTask(user.id, taskId, user.username, member)
+        .then(result => {
+            if (!result.alreadyDone) {
+                console.log(`[BeastBot] ✅ ${taskId} (RSVP) completed by ${user.tag}`);
+            }
+        })
+        .catch(e => console.error(`[BeastBot] markTask ${taskId} RSVP failed:`, e.message));
+});
+
+// ── Invite tracking ───────────────────────────────────────────────────────────
+
+client.on('inviteCreate', (invite) => {
+    inviteCache.set(invite.code, invite.uses || 0);
+    console.log(`[BeastBot] New invite cached: ${invite.code}`);
+});
+
+client.on('guildMemberAdd', async (member) => {
+    if (member.user.bot) return;
+    try {
+        const newInvites = await member.guild.invites.fetch();
+        let usedInvite   = null;
+
+        newInvites.forEach(inv => {
+            const cached = inviteCache.get(inv.code) || 0;
+            if (inv.uses > cached) usedInvite = inv;
+            inviteCache.set(inv.code, inv.uses);
+        });
+
+        if (!usedInvite?.inviterId) return;
+
+        const inviterId      = usedInvite.inviterId;
+        const inviterMember  = await member.guild.members.fetch(inviterId).catch(() => null);
+        const inviterUsername = inviterMember?.user.username || 'Unknown';
+
+        // +3 entries for inviting a friend
+        await addEntries(inviterId, inviterUsername, 3);
+        console.log(`[BeastBot] ✅ invite bonus: ${inviterUsername} +3 entries (new member: ${member.user.tag})`);
+
+        try {
+            await inviterMember?.send(
+                `🔗 **<@${member.user.id}> joined the server using your invite!** +3 giveaway entries earned 🎁`
+            );
+        } catch (_) {} // DMs may be closed
+    } catch (e) {
+        console.error('[BeastBot] guildMemberAdd invite tracking failed:', e.message);
+    }
+});
+
+// ── Error handler ─────────────────────────────────────────────────────────────
 
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
 
