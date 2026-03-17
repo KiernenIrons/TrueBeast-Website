@@ -379,10 +379,26 @@ const client = new Client({
     partials: [Partials.Channel],
 });
 
+const BUMP_CHANNEL_ID = '1477361149862482053';
+const BUMP_INTERVAL   = 2 * 60 * 60 * 1000; // 2 hours
+
 client.once('ready', () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
+
+    // Auto-bump every 2 hours
+    async function sendBump() {
+        try {
+            const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+            await channel.send('/bump');
+            console.log('[BeastBot] 🔔 Sent /bump');
+        } catch (e) {
+            console.error('[BeastBot] Failed to send /bump:', e.message);
+        }
+    }
+    sendBump();
+    setInterval(sendBump, BUMP_INTERVAL);
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
