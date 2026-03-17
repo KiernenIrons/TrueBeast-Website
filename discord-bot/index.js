@@ -381,24 +381,28 @@ const client = new Client({
 
 const BUMP_CHANNEL_ID = '1477361149862482053';
 const BUMP_INTERVAL   = 2 * 60 * 60 * 1000; // 2 hours
+const DISBOARD_BOT_ID = '302050872383242240';
+let bumpTimer = null;
+
+function scheduleBumpReminder() {
+    if (bumpTimer) clearTimeout(bumpTimer);
+    bumpTimer = setTimeout(async () => {
+        try {
+            const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+            await channel.send('⏰ Time to bump! Run `/bump` to keep the server visible on Disboard.');
+            console.log('[BeastBot] 🔔 Sent bump reminder');
+        } catch (e) {
+            console.error('[BeastBot] Failed to send bump reminder:', e.message);
+        }
+    }, BUMP_INTERVAL);
+    console.log(`[BeastBot] Bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toLocaleTimeString()}`);
+}
 
 client.once('ready', () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
-
-    // Auto-bump every 2 hours
-    async function sendBump() {
-        try {
-            const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
-            await channel.send('/bump');
-            console.log('[BeastBot] 🔔 Sent /bump');
-        } catch (e) {
-            console.error('[BeastBot] Failed to send /bump:', e.message);
-        }
-    }
-    sendBump();
-    setInterval(sendBump, BUMP_INTERVAL);
+    scheduleBumpReminder();
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
@@ -439,6 +443,18 @@ client.on('interactionCreate', async (interaction) => {
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 client.on('messageCreate', async (message) => {
+    // Detect Disboard bump success — reset the 2h reminder timer
+    if (message.author.id === DISBOARD_BOT_ID && message.channel.id === BUMP_CHANNEL_ID) {
+        const hasBumpDone = message.embeds?.some(e =>
+            (e.description || '').toLowerCase().includes('bump done')
+        );
+        if (hasBumpDone) {
+            console.log('[BeastBot] Disboard bump detected — resetting 2h timer');
+            scheduleBumpReminder();
+        }
+        return;
+    }
+
     if (message.author.bot) return;
 
     // ── Owner DMs — active answering session ─────────────────────────────────
