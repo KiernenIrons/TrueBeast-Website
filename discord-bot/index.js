@@ -465,7 +465,7 @@ function scheduleBumpReminder() {
     console.log(`[BeastBot] Disboard bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toUTCString()}`);
 }
 
-client.once('ready', () => {
+client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
