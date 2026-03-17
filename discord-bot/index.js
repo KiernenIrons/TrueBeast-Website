@@ -74,9 +74,11 @@ const WILDCARD_POOL = [
     'Share a game screenshot in #gaming',
     'Recommend a game in #gaming',
     'Welcome a new member in #general',
-    'Help someone in #tech-support',
     'Share something that made you laugh today',
     'Tell us what you\'re playing this week',
+    'Drop a fun fact in #general',
+    'Share a game you\'ve been enjoying lately in #gaming',
+    'Give someone a compliment in #general',
 ];
 
 // ── In-memory state ────────────────────────────────────────────────────────────
