@@ -391,7 +391,7 @@ const client = new Client({
 
 const BUMP_CHANNEL_ID    = '1477361149862482053';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
-const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
+const DISCADIA_INTERVAL  = 10 * 60 * 60 * 1000; // 10 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
 let bumpTimer     = null;
 let discadiaTimer = null;
