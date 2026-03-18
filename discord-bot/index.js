@@ -48,6 +48,25 @@ const questionQueue = new Map();
 //   dmChannelId -> { questionId, question, askerId, askerTag, channelId, messageId, state, answer? }
 const activeSession = new Map();
 
+// Conversation history per user (for context-aware replies):
+//   userId -> [{ role: 'user'|'assistant', content: string }, ...]
+const conversationHistory = new Map();
+const MAX_HISTORY_EXCHANGES = 6; // keep last 6 back-and-forths (12 messages)
+
+function getHistory(userId) {
+    return conversationHistory.get(userId) || [];
+}
+
+function appendHistory(userId, userMessage, assistantMessage) {
+    const history = getHistory(userId);
+    history.push({ role: 'user', content: userMessage });
+    history.push({ role: 'assistant', content: assistantMessage });
+    // Trim to last MAX_HISTORY_EXCHANGES exchanges
+    const maxMessages = MAX_HISTORY_EXCHANGES * 2;
+    if (history.length > maxMessages) history.splice(0, history.length - maxMessages);
+    conversationHistory.set(userId, history);
+}
+
 function makeQuestionId() {
     return `q${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 }
@@ -311,15 +330,21 @@ JOKES — When someone asks you for a joke, tell me a joke, make me laugh, etc.:
 
 CRITICAL: Your entire reply must be valid JSON. No text before or after the JSON object.`;
 
-async function askClaude(question, knowledge, discordContext, steamContext) {
+async function askClaude(question, knowledge, discordContext, steamContext, history = []) {
     const contextParts = [];
     if (knowledge)      contextParts.push(`## Knowledge Base\n${knowledge}`);
     if (discordContext) contextParts.push(`## Live Discord Context\n${discordContext}`);
     if (steamContext)   contextParts.push(`## Live Steam Context\n${steamContext}`);
 
-    const context = contextParts.length
+    const currentUserContent = contextParts.length
         ? `${contextParts.join('\n\n')}\n\n---\n\nUser message: ${question}`
         : `User message: ${question}`;
+
+    // Build messages array: prior history + current message
+    const messages = [
+        ...history,
+        { role: 'user', content: currentUserContent },
+    ];
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -332,7 +357,7 @@ async function askClaude(question, knowledge, discordContext, steamContext) {
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 700,
             system: SYSTEM_PROMPT,
-            messages: [{ role: 'user', content: context }],
+            messages,
         }),
     });
 
@@ -626,7 +651,8 @@ client.on('messageCreate', async (message) => {
             fetchDiscordContext(message.guild),
             fetchSteamGames(),
         ]);
-        result = await askClaude(question, knowledge, discordContext, steamContext);
+        const history = getHistory(message.author.id);
+        result = await askClaude(question, knowledge, discordContext, steamContext, history);
     } catch (e) {
         console.error('[BeastBot] Error:', e.message);
         result = { known: true, inappropriate: false, response: '⚠️ Something went wrong on my end. Please try again in a moment!' };
@@ -658,6 +684,9 @@ client.on('messageCreate', async (message) => {
     for (const chunk of chunks) {
         await message.reply(chunk);
     }
+
+    // Store this exchange so the next message has context
+    appendHistory(message.author.id, question, answer);
 });
 
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
