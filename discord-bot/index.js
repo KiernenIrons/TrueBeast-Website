@@ -720,9 +720,6 @@ client.once('ready', async () => {
                 .setName('rank')
                 .setDescription('Check your message count and rank')
                 .addUserOption(opt => opt.setName('user').setDescription('User to check (defaults to you)')),
-            new SlashCommandBuilder()
-                .setName('introduce')
-                .setDescription('Introduce yourself to the community!'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -775,54 +772,6 @@ client.on('interactionCreate', async (interaction) => {
                     timestamp: new Date().toISOString(),
                 }],
             });
-            return;
-        }
-
-        if (interaction.commandName === 'introduce') {
-            const modal = new ModalBuilder()
-                .setCustomId('intro:modal')
-                .setTitle('👋 Introduce Yourself!');
-
-            const fields = [
-                new TextInputBuilder()
-                    .setCustomId('intro_name')
-                    .setLabel('What should we call you?')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('e.g. Alex')
-                    .setRequired(true)
-                    .setMaxLength(50),
-                new TextInputBuilder()
-                    .setCustomId('intro_age_location')
-                    .setLabel('Age & where are you from?')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('e.g. 24, London, UK')
-                    .setRequired(true)
-                    .setMaxLength(100),
-                new TextInputBuilder()
-                    .setCustomId('intro_about')
-                    .setLabel('Tell us about yourself')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setPlaceholder('Who are you? What do you do? Job, streaming, content creation...')
-                    .setRequired(true)
-                    .setMaxLength(500),
-                new TextInputBuilder()
-                    .setCustomId('intro_hobbies')
-                    .setLabel('Hobbies & interests')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('e.g. Photography, football, cooking...')
-                    .setRequired(false)
-                    .setMaxLength(200),
-                new TextInputBuilder()
-                    .setCustomId('intro_games')
-                    .setLabel('Favourite games & streams')
-                    .setStyle(TextInputStyle.Short)
-                    .setPlaceholder('e.g. Valorant, Minecraft — Twitch: username')
-                    .setRequired(false)
-                    .setMaxLength(200),
-            ];
-
-            modal.addComponents(fields.map(f => new ActionRowBuilder().addComponents(f)));
-            await interaction.showModal(modal);
             return;
         }
 
@@ -890,9 +839,16 @@ client.on('interactionCreate', async (interaction) => {
             if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
 
             const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
+            const introRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('intro:start')
+                    .setLabel('📝 Make your own introduction')
+                    .setStyle(ButtonStyle.Success),
+            );
             await introChannel.send({
                 content: `Welcome to the server, <@${user.id}>! 🎉`,
                 embeds: [embed],
+                components: [introRow],
             });
             await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
             console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
@@ -1006,20 +962,6 @@ client.on('interactionCreate', async (interaction) => {
 
 // ── New member join — send intro prompt DM ────────────────────────────────────
 
-
-// ── New member join — brief auto-deleting intro reminder ─────────────────────
-
-client.on('guildMemberAdd', async (member) => {
-    if (member.user.bot || !INTRO_CHANNEL_ID) return;
-    if (await hasIntroduced(member.user.id)) return;
-    try {
-        const ch = await client.channels.fetch(INTRO_CHANNEL_ID);
-        const msg = await ch.send(`👋 Welcome <@${member.user.id}>! Check the pinned message above to introduce yourself to the community.`);
-        setTimeout(() => msg.delete().catch(() => {}), 60000); // auto-delete after 60s
-    } catch (e) {
-        console.error(`[BeastBot] Failed to send intro reminder for ${member.user.tag}:`, e.message);
-    }
-});
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
