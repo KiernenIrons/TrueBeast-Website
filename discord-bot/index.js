@@ -669,19 +669,23 @@ client.once('ready', async () => {
         await logCh.send(`🔄 **Beast Bot restarted** — ${new Date().toUTCString()}\nReason: deployment update`);
     } catch (_) {}
 
-    // Load message counts from Firestore for milestones
+    // Load ALL message counts from Firestore (paginated)
     try {
-        const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts?key=${FIREBASE_API_KEY}&pageSize=500`;
-        const res = await fetch(url);
-        if (res.ok) {
+        let nextPageToken = null;
+        do {
+            let url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const res = await fetch(url);
+            if (!res.ok) break;
             const data = await res.json();
             (data.documents || []).forEach(doc => {
                 const f = doc.fields || {};
                 const uid = doc.name.split('/').pop();
                 messageCounts.set(uid, parseInt(f.count?.integerValue || '0', 10));
             });
-            console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
-        }
+            nextPageToken = data.nextPageToken || null;
+        } while (nextPageToken);
+        console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
     } catch (_) {}
 
     // Check for anniversary milestones daily
