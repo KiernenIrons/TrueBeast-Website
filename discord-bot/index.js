@@ -21,6 +21,7 @@ require('dotenv').config();
 const {
     Client, GatewayIntentBits, Partials, ChannelType,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    SlashCommandBuilder, REST, Routes,
 } = require('discord.js');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
@@ -607,12 +608,13 @@ async function checkMessageMilestone(message) {
     const emoji = MILESTONE_EMOJIS[idx] || '🎉';
 
     try {
-        const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
-        await logCh.send({
+        const mileCh = await client.channels.fetch(BUMP_CHANNEL_ID);
+        await mileCh.send({
+            content: `<@${userId}>`,
             embeds: [{
                 color: 0x22c55e,
                 title: `${emoji} Message Milestone!`,
-                description: `**${message.member?.displayName || message.author.username}** just hit **${count.toLocaleString()} messages** in the server!`,
+                description: `**${message.member?.displayName || message.author.username}** just hit **${count.toLocaleString()} messages** in the server! Keep it up! 🎉`,
                 thumbnail: { url: message.author.displayAvatarURL({ dynamic: true, size: 128 }) },
                 timestamp: new Date().toISOString(),
             }],
@@ -686,6 +688,25 @@ client.once('ready', async () => {
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
     setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
 
+    // Register slash commands
+    try {
+        const rest = new REST({ version: '10' }).setToken(TOKEN);
+        const commands = [
+            new SlashCommandBuilder()
+                .setName('leaderboard')
+                .setDescription('Show the top 10 most active members in the server'),
+            new SlashCommandBuilder()
+                .setName('rank')
+                .setDescription('Check your message count and rank')
+                .addUserOption(opt => opt.setName('user').setDescription('User to check (defaults to you)')),
+        ].map(c => c.toJSON());
+
+        await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
+        console.log('[BeastBot] Slash commands registered');
+    } catch (e) {
+        console.error('[BeastBot] Failed to register slash commands:', e.message);
+    }
+
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
     scheduleSpotlight();
@@ -694,6 +715,67 @@ client.once('ready', async () => {
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
+    // ── Slash commands ───────────────────────────────────────────────────────
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'leaderboard') {
+            const sorted = [...messageCounts.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+            if (sorted.length === 0) {
+                await interaction.reply({ content: 'No message data yet!', ephemeral: true });
+                return;
+            }
+            const medals = ['🥇', '🥈', '🥉'];
+            const lines = await Promise.all(sorted.map(async ([userId, count], i) => {
+                const prefix = medals[i] || `**${i + 1}.**`;
+                try {
+                    const member = await interaction.guild.members.fetch(userId);
+                    return `${prefix} **${member.displayName}** — ${count.toLocaleString()} messages`;
+                } catch {
+                    return `${prefix} <@${userId}> — ${count.toLocaleString()} messages`;
+                }
+            }));
+            await interaction.reply({
+                embeds: [{
+                    color: 0x22c55e,
+                    title: '🏆 Message Leaderboard — Top 10',
+                    description: lines.join('\n'),
+                    footer: { text: `${messageCounts.size} members tracked` },
+                    timestamp: new Date().toISOString(),
+                }],
+            });
+            return;
+        }
+
+        if (interaction.commandName === 'rank') {
+            const target = interaction.options.getUser('user') || interaction.user;
+            const count  = messageCounts.get(target.id) || 0;
+            const sorted = [...messageCounts.entries()].sort((a, b) => b[1] - a[1]);
+            const rank   = sorted.findIndex(([id]) => id === target.id) + 1;
+            const nextMilestone = MILESTONE_THRESHOLDS.find(t => t > count);
+            const remaining     = nextMilestone ? nextMilestone - count : null;
+
+            let member;
+            try { member = await interaction.guild.members.fetch(target.id); } catch {}
+            const name = member?.displayName || target.username;
+
+            await interaction.reply({
+                embeds: [{
+                    color: 0x22c55e,
+                    title: `📊 ${name}'s Stats`,
+                    thumbnail: { url: target.displayAvatarURL({ dynamic: true, size: 128 }) },
+                    fields: [
+                        { name: '💬 Messages', value: count.toLocaleString(), inline: true },
+                        { name: '📈 Rank', value: rank > 0 ? `#${rank} of ${messageCounts.size}` : 'Unranked', inline: true },
+                        { name: '🎯 Next Milestone', value: remaining ? `${nextMilestone.toLocaleString()} (${remaining.toLocaleString()} to go)` : 'All milestones reached! 👑', inline: true },
+                    ],
+                    timestamp: new Date().toISOString(),
+                }],
+            });
+            return;
+        }
+    }
+
     if (!interaction.isButton()) return;
 
     // Discadia bump confirm — owner only
