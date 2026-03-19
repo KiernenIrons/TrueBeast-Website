@@ -713,86 +713,80 @@ function extractGleamLink(post) {
     return match ? match[0] : post.url;
 }
 
-async function fetchGleamGiveaways(windowMs = GIVEAWAY_WINDOW_MS) {
-    // Try OAuth first (if credentials set), fall back to RSS
-    if (REDDIT_CLIENT_ID && REDDIT_CLIENT_SECRET) {
-        try {
-            const token = await getRedditToken();
-            const url = `https://oauth.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new?limit=50`;
-            const res = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'TrueBeastBot/1.0' },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                const posts = data?.data?.children?.map(c => c.data) || [];
-                const cutoff = Date.now() - windowMs;
-                return posts.filter(p =>
-                    !postedGiveawayIds.has(p.id) &&
-                    (p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')) &&
-                    p.created_utc * 1000 > cutoff
-                );
-            }
-        } catch (_) {}
+async function fetchGleamGiveaways() {
+    try {
+        const res = await fetch('https://sweepsdb.com/', {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'text/html',
+            },
+        });
+        if (!res.ok) { console.error('[BeastBot] SweepsDB returned:', res.status); return []; }
+        const html = await res.text();
+
+        // Split into contest blocks by the contest_title anchor
+        const blocks = html.split('<a class="contest_title"');
+        const results = [];
+
+        for (let i = 1; i < blocks.length; i++) {
+            const block = blocks[i];
+
+            // Only keep Gleam platform giveaways
+            if (!block.includes("Platform: Gleam")) continue;
+
+            // Extract go/ ID and slug
+            const hrefMatch  = block.match(/href="go\/(\d+)"/);
+            const titleMatch = block.match(/^[^>]*>([^<]+)/);
+            if (!hrefMatch || !titleMatch) continue;
+
+            const id    = hrefMatch[1];
+            const title = titleMatch[1].trim().replace(/\s+/g, ' ');
+            if (!id || !title || postedGiveawayIds.has(id)) continue;
+
+            // Extract "ends in" text
+            const endsMatch = block.match(/Ends in <span[^>]*>([^<]+)<\/span>/);
+            const endsIn    = endsMatch ? endsMatch[1].trim() : null;
+
+            // Extract entry count
+            const entriesMatch = block.match(/<span class='text-color-tertiary'>(\d+)<\/span>/);
+            const entries      = entriesMatch ? parseInt(entriesMatch[1]) : null;
+
+            // Extract slug from contest/ link
+            const slugMatch = block.match(/href="contest\/([^"]+)"/);
+            const slug      = slugMatch ? slugMatch[1] : null;
+            const contestUrl = slug
+                ? `https://sweepsdb.com/contest/${slug}`
+                : `https://sweepsdb.com/go/${id}`;
+
+            results.push({ id, title, contestUrl, endsIn, entries });
+        }
+
+        return results;
+    } catch (e) {
+        console.error('[BeastBot] Failed to fetch from SweepsDB:', e.message);
+        return [];
     }
-
-    // RSS fallback — no auth required
-    const results = [];
-    const cutoff = Date.now() - windowMs;
-    for (const sub of ['giveaways', 'GameGiveaways', 'FreeGamesOnSteam']) {
-        try {
-            const res = await fetch(`https://www.reddit.com/r/${sub}/new/.rss?limit=25`, {
-                headers: { 'User-Agent': 'TrueBeastBot/1.0' },
-            });
-            if (!res.ok) continue;
-            const xml = await res.text();
-            // Extract entries from RSS XML
-            const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(m => m[1]);
-            for (const entry of entries) {
-                const id      = (entry.match(/<id>([^<]+)<\/id>/) || [])[1] || '';
-                const title   = (entry.match(/<title[^>]*>([^<]+)<\/title>/) || [])[1] || '';
-                const link    = (entry.match(/<link[^>]+href="([^"]+)"/) || [])[1] || '';
-                const content = (entry.match(/<content[^>]*>([\s\S]*?)<\/content>/) || [])[1] || '';
-                const updated = (entry.match(/<updated>([^<]+)<\/updated>/) || [])[1] || '';
-                const postId  = id.split('_').pop();
-                const createdMs = updated ? new Date(updated).getTime() : 0;
-
-                if (!postId || postedGiveawayIds.has(postId)) continue;
-                if (createdMs < cutoff) continue;
-                if (!link.includes('gleam.io') && !content.includes('gleam.io')) continue;
-
-                const gleamMatch = content.match(/https?:\/\/gleam\.io\/\S+"/);
-                const gleamUrl   = gleamMatch ? gleamMatch[0].replace(/"$/, '') : link;
-
-                results.push({ id: postId, title: title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'), url: gleamUrl, subreddit: sub, score: 0, created_utc: Math.floor(createdMs / 1000), selftext: '' });
-            }
-        } catch (_) {}
-    }
-    return results;
 }
 
-async function checkAndPostGiveaways(windowMs = GIVEAWAY_WINDOW_MS) {
-    const posts = await fetchGleamGiveaways(windowMs);
-    if (posts.length === 0) { console.log('[BeastBot] Giveaway check: no new Gleam posts found'); return; }
+async function checkAndPostGiveaways() {
+    const giveaways = await fetchGleamGiveaways();
+    if (giveaways.length === 0) { console.log('[BeastBot] Giveaway check: no new Gleam giveaways found'); return; }
 
-    const toPost = posts.slice(0, 5); // max 5 per check to avoid spam
+    const toPost = giveaways.slice(0, 5); // max 5 per check
     try {
         const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
-        for (const post of toPost) {
-            postedGiveawayIds.add(post.id);
-            const gleamUrl = extractGleamLink(post);
-            const desc     = post.selftext ? post.selftext.slice(0, 150).trim() + (post.selftext.length > 150 ? '…' : '') : null;
+        for (const g of toPost) {
+            postedGiveawayIds.add(g.id);
+            const fields = [];
+            if (g.endsIn)  fields.push({ name: '⏳ Ends',    value: g.endsIn,            inline: true });
+            if (g.entries) fields.push({ name: '🎟️ Entries', value: g.entries.toLocaleString(), inline: true });
             await channel.send({
                 embeds: [{
                     color: 0xfbbf24,
-                    title: post.title.slice(0, 256),
-                    url: gleamUrl,
-                    description: desc || undefined,
-                    fields: [
-                        { name: '📌 Subreddit', value: `r/${post.subreddit}`, inline: true },
-                        { name: '👍 Upvotes',   value: String(post.score),     inline: true },
-                        { name: '⏰ Posted',    value: `<t:${post.created_utc}:R>`, inline: true },
-                    ],
-                    footer: { text: 'Found on Reddit • Click the title to open the giveaway' },
+                    title: g.title.slice(0, 256),
+                    url: g.contestUrl,
+                    fields,
+                    footer: { text: 'Via SweepsDB • Click the title to enter the giveaway' },
                 }],
             });
         }
@@ -1267,15 +1261,15 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // !!checkgiveaways — manual giveaway pull (no time window restriction, owner only)
+        // !!checkgiveaways — manual giveaway pull from SweepsDB (owner only)
         if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply(`🔍 Fetching giveaways (${REDDIT_CLIENT_ID ? 'OAuth' : 'RSS'})...`);
+            await message.reply('🔍 Fetching Gleam giveaways from SweepsDB...');
             try {
-                const posts = await fetchGleamGiveaways(7 * 24 * 60 * 60 * 1000); // last 7 days
-                await message.reply(`📊 Found **${posts.length}** new Gleam giveaway(s) in the last 7 days`);
-                if (posts.length === 0) return;
-                await checkAndPostGiveaways(7 * 24 * 60 * 60 * 1000);
-                await message.reply(`✅ Posted to the giveaways channel!`);
+                const giveaways = await fetchGleamGiveaways();
+                await message.reply(`📊 Found **${giveaways.length}** new Gleam giveaway(s)`);
+                if (giveaways.length === 0) return;
+                await checkAndPostGiveaways();
+                await message.reply('✅ Posted to the giveaways channel!');
             } catch (e) {
                 await message.reply(`❌ Error: ${e.message}`);
             }
