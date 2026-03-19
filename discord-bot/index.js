@@ -1205,11 +1205,53 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // !!checkgiveaways — manually trigger giveaway check with 48h window (owner only)
+        // !!checkgiveaways — manual giveaway pull (no time window, debug output, owner only)
         if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply('🔍 Checking for Gleam giveaways (last 48h)...');
-            await checkAndPostGiveaways(48 * 60 * 60 * 1000);
-            await message.reply('✅ Done — check the giveaways channel!');
+            await message.reply('🔍 Fetching from Reddit...');
+            try {
+                const url = `https://www.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new.json?limit=50`;
+                const res = await fetch(url, { headers: { 'User-Agent': 'TrueBeastBot/1.0' } });
+                if (!res.ok) {
+                    await message.reply(`❌ Reddit returned HTTP ${res.status}`);
+                    return;
+                }
+                const data = await res.json();
+                const allPosts = data?.data?.children?.map(c => c.data) || [];
+                const gleamPosts = allPosts.filter(p =>
+                    p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')
+                );
+                const newPosts = gleamPosts.filter(p => !postedGiveawayIds.has(p.id));
+                await message.reply(
+                    `📊 Debug: **${allPosts.length}** total posts fetched, ` +
+                    `**${gleamPosts.length}** contain gleam.io, ` +
+                    `**${newPosts.length}** not yet posted`
+                );
+                if (newPosts.length === 0) { await message.reply('Nothing new to post.'); return; }
+                const toPost = newPosts.slice(0, 5);
+                const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
+                for (const post of toPost) {
+                    postedGiveawayIds.add(post.id);
+                    const gleamUrl = extractGleamLink(post);
+                    const desc = post.selftext ? post.selftext.slice(0, 150).trim() + (post.selftext.length > 150 ? '…' : '') : null;
+                    await channel.send({
+                        embeds: [{
+                            color: 0xfbbf24,
+                            title: post.title.slice(0, 256),
+                            url: gleamUrl,
+                            description: desc || undefined,
+                            fields: [
+                                { name: '📌 Subreddit', value: `r/${post.subreddit}`, inline: true },
+                                { name: '👍 Upvotes',   value: String(post.score),    inline: true },
+                                { name: '⏰ Posted',    value: `<t:${post.created_utc}:R>`, inline: true },
+                            ],
+                            footer: { text: 'Found on Reddit • Click the title to open the giveaway' },
+                        }],
+                    });
+                }
+                await message.reply(`✅ Posted ${toPost.length} giveaway(s) to the channel!`);
+            } catch (e) {
+                await message.reply(`❌ Error: ${e.message}`);
+            }
             return;
         }
 
