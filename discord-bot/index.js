@@ -885,10 +885,24 @@ async function checkAndPostGiveaways() {
 }
 
 function scheduleGiveawayCheck() {
-    setTimeout(async () => {
-        await checkAndPostGiveaways();
-        setInterval(checkAndPostGiveaways, GIVEAWAY_WINDOW_MS);
-    }, 30 * 1000); // first check 30s after ready
+    // Fire at 9:00 AM and 9:00 PM UTC daily
+    function msUntilNext9() {
+        const now = new Date();
+        const h = now.getUTCHours();
+        const next = new Date(now);
+        next.setUTCMinutes(0, 0, 0);
+        if (h < 9)       next.setUTCHours(9);
+        else if (h < 21)  next.setUTCHours(21);
+        else { next.setUTCDate(next.getUTCDate() + 1); next.setUTCHours(9); }
+        return next - now;
+    }
+    function tick() {
+        checkAndPostGiveaways();
+        setTimeout(tick, msUntilNext9());
+    }
+    const delay = msUntilNext9();
+    console.log(`[BeastBot] 🎁 Next giveaway check in ${Math.round(delay / 60000)}m`);
+    setTimeout(tick, delay);
 }
 
 client.once('ready', async () => {
