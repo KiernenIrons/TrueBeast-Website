@@ -714,28 +714,60 @@ function extractGleamLink(post) {
 }
 
 async function fetchGleamGiveaways(windowMs = GIVEAWAY_WINDOW_MS) {
-    const url = `https://oauth.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new?limit=50`;
-    try {
-        const token = await getRedditToken();
-        const res = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'User-Agent': 'TrueBeastBot/1.0',
-            },
-        });
-        if (!res.ok) { console.error('[BeastBot] Reddit API error:', res.status); return []; }
-        const data = await res.json();
-        const posts = data?.data?.children?.map(c => c.data) || [];
-        const cutoff = Date.now() - windowMs;
-        return posts.filter(p =>
-            !postedGiveawayIds.has(p.id) &&
-            (p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')) &&
-            p.created_utc * 1000 > cutoff
-        );
-    } catch (e) {
-        console.error('[BeastBot] Failed to fetch giveaways from Reddit:', e.message);
-        return [];
+    // Try OAuth first (if credentials set), fall back to RSS
+    if (REDDIT_CLIENT_ID && REDDIT_CLIENT_SECRET) {
+        try {
+            const token = await getRedditToken();
+            const url = `https://oauth.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new?limit=50`;
+            const res = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'TrueBeastBot/1.0' },
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const posts = data?.data?.children?.map(c => c.data) || [];
+                const cutoff = Date.now() - windowMs;
+                return posts.filter(p =>
+                    !postedGiveawayIds.has(p.id) &&
+                    (p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')) &&
+                    p.created_utc * 1000 > cutoff
+                );
+            }
+        } catch (_) {}
     }
+
+    // RSS fallback — no auth required
+    const results = [];
+    const cutoff = Date.now() - windowMs;
+    for (const sub of ['giveaways', 'GameGiveaways', 'FreeGamesOnSteam']) {
+        try {
+            const res = await fetch(`https://www.reddit.com/r/${sub}/new/.rss?limit=25`, {
+                headers: { 'User-Agent': 'TrueBeastBot/1.0' },
+            });
+            if (!res.ok) continue;
+            const xml = await res.text();
+            // Extract entries from RSS XML
+            const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(m => m[1]);
+            for (const entry of entries) {
+                const id      = (entry.match(/<id>([^<]+)<\/id>/) || [])[1] || '';
+                const title   = (entry.match(/<title[^>]*>([^<]+)<\/title>/) || [])[1] || '';
+                const link    = (entry.match(/<link[^>]+href="([^"]+)"/) || [])[1] || '';
+                const content = (entry.match(/<content[^>]*>([\s\S]*?)<\/content>/) || [])[1] || '';
+                const updated = (entry.match(/<updated>([^<]+)<\/updated>/) || [])[1] || '';
+                const postId  = id.split('_').pop();
+                const createdMs = updated ? new Date(updated).getTime() : 0;
+
+                if (!postId || postedGiveawayIds.has(postId)) continue;
+                if (createdMs < cutoff) continue;
+                if (!link.includes('gleam.io') && !content.includes('gleam.io')) continue;
+
+                const gleamMatch = content.match(/https?:\/\/gleam\.io\/\S+"/);
+                const gleamUrl   = gleamMatch ? gleamMatch[0].replace(/"$/, '') : link;
+
+                results.push({ id: postId, title: title.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'), url: gleamUrl, subreddit: sub, score: 0, created_utc: Math.floor(createdMs / 1000), selftext: '' });
+            }
+        } catch (_) {}
+    }
+    return results;
 }
 
 async function checkAndPostGiveaways(windowMs = GIVEAWAY_WINDOW_MS) {
@@ -1239,9 +1271,16 @@ client.on('messageCreate', async (message) => {
         if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
             await message.reply('🔍 Fetching from Reddit...');
             try {
-                const token = await getRedditToken();
-                const url = `https://oauth.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new?limit=50`;
-                const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'TrueBeastBot/1.0' } });
+                const usingOAuth = !!(REDDIT_CLIENT_ID && REDDIT_CLIENT_SECRET);
+                await message.reply(`🔑 Using ${usingOAuth ? 'OAuth' : 'RSS fallback'}...`);
+                const token = usingOAuth ? await getRedditToken() : null;
+                const url = usingOAuth
+                    ? `https://oauth.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new?limit=50`
+                    : `https://www.reddit.com/r/giveaways/new/.rss?limit=25`;
+                const headers = usingOAuth
+                    ? { 'Authorization': `Bearer ${token}`, 'User-Agent': 'TrueBeastBot/1.0' }
+                    : { 'User-Agent': 'TrueBeastBot/1.0' };
+                const res = await fetch(url, { headers });
                 if (!res.ok) {
                     await message.reply(`❌ Reddit returned HTTP ${res.status}`);
                     return;
