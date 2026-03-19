@@ -846,6 +846,10 @@ client.on('interactionCreate', async (interaction) => {
                     .setCustomId('intro:start')
                     .setLabel('📝 Make your own introduction')
                     .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`intro:delete:${user.id}`)
+                    .setLabel('🗑️ Delete this intro')
+                    .setStyle(ButtonStyle.Danger),
             );
             await introChannel.send({
                 content: `Welcome to the server, <@${user.id}>! 🎉`,
@@ -862,6 +866,20 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (!interaction.isButton()) return;
+
+    // Intro delete button — original poster or mod only
+    if (interaction.customId.startsWith('intro:delete:')) {
+        const originalUserId = interaction.customId.split(':')[2];
+        const isMod = MOD_ROLE_ID && interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+        const isOwner = interaction.user.id === originalUserId;
+        if (!isOwner && !isMod) {
+            await interaction.reply({ content: 'Only the person who posted this intro or a mod can delete it.', ephemeral: true });
+            return;
+        }
+        await interaction.message.delete();
+        await interaction.reply({ content: '🗑️ Introduction deleted.', ephemeral: true });
+        return;
+    }
 
     // Intro button — opens the modal, or tells them they've already done it
     if (interaction.customId === 'intro:start') {
