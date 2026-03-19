@@ -806,43 +806,10 @@ async function fetchGleamGiveaways() {
             results.push({ id, title, sweepsId: id, endsIn, entries });
         }
 
-        // Resolve direct Gleam URLs by following SweepsDB redirects
-        let resolved = 0;
+        // Set contest URLs (SweepsDB redirect — daily limit of 10 applies)
         for (const g of results) {
-            try {
-                const r = await fetch(`https://sweepsdb.com/go/${g.sweepsId}`, {
-                    redirect: 'manual',
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-                });
-                const loc = r.headers.get('location');
-                console.log(`[BeastBot] Gleam resolve ${g.sweepsId}: status=${r.status} location=${loc || 'none'}`);
-                if (loc && loc.includes('gleam.io')) {
-                    g.contestUrl = loc;
-                    resolved++;
-                } else {
-                    // Fallback: try scraping the contest detail page
-                    try {
-                        const detailRes = await fetch(`https://sweepsdb.com/contest/${g.sweepsId}`, {
-                            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
-                        });
-                        const detailHtml = await detailRes.text();
-                        const gleamMatch = detailHtml.match(/href="(https:\/\/gleam\.io\/[^"]+)"/);
-                        if (gleamMatch) {
-                            g.contestUrl = gleamMatch[1];
-                            resolved++;
-                        } else {
-                            g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
-                        }
-                    } catch {
-                        g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
-                    }
-                }
-            } catch (err) {
-                console.error(`[BeastBot] Gleam resolve failed for ${g.sweepsId}:`, err.message);
-                g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
-            }
+            g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
         }
-        console.log(`[BeastBot] Resolved ${resolved}/${results.length} direct Gleam URLs`);
 
         return results;
     } catch (e) {
@@ -907,7 +874,7 @@ async function checkAndPostGiveaways() {
                         color: cat.color,
                         title: `${cat.name} (${items.length})${chunks.length > 1 ? ` — part ${i + 1}` : ''}`,
                         description: chunks[i],
-                        footer: { text: 'Click any title to enter directly on Gleam' },
+                        footer: { text: '⚠️ SweepsDB has a daily limit of 10 links per person • Click wisely!' },
                     }],
                 });
                 totalEmbeds++;
