@@ -751,12 +751,7 @@ async function fetchGleamGiveaways() {
             const entriesMatch = block.match(/<span class='text-color-tertiary'>(\d+)<\/span>/);
             const entries      = entriesMatch ? parseInt(entriesMatch[1]) : null;
 
-            // Extract slug from contest/ link
-            const slugMatch = block.match(/href="contest\/([^"]+)"/);
-            const slug      = slugMatch ? slugMatch[1] : null;
-            const contestUrl = slug
-                ? `https://sweepsdb.com/contest/${slug}`
-                : `https://sweepsdb.com/go/${id}`;
+            const contestUrl = `https://sweepsdb.com/go/${id}`;
 
             results.push({ id, title, contestUrl, endsIn, entries });
         }
@@ -772,7 +767,7 @@ async function checkAndPostGiveaways() {
     const giveaways = await fetchGleamGiveaways();
     if (giveaways.length === 0) { console.log('[BeastBot] Giveaway check: no new Gleam giveaways found'); return; }
 
-    const toPost = giveaways.slice(0, 5); // max 5 per check
+    const toPost = giveaways;
     try {
         const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
         for (const g of toPost) {
