@@ -410,6 +410,9 @@ const client = new Client({
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildScheduledEvents,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences,
     ],
     partials: [Partials.Channel],
 });
@@ -420,6 +423,15 @@ const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
 let bumpTimer     = null;
 let discadiaTimer = null;
+
+// ── AFK system ────────────────────────────────────────────────────────────────
+// userId → { reason, originalNickname, timestamp }
+const afkUsers = new Map();
+
+// ── Member Spotlight ──────────────────────────────────────────────────────────
+const SPOTLIGHT_CHANNEL_ID = '1184769345138737182'; // test channel for now
+const SPOTLIGHT_INTERVAL   = 7 * 24 * 60 * 60 * 1000; // 1 week
+let spotlightTimer = null;
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 function scheduleDiscordMeReminder() {
@@ -490,6 +502,65 @@ function scheduleBumpReminder() {
     console.log(`[BeastBot] Disboard bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toUTCString()}`);
 }
 
+async function postMemberSpotlight() {
+    try {
+        const channel = await client.channels.fetch(SPOTLIGHT_CHANNEL_ID);
+        const guild   = channel.guild;
+        await guild.members.fetch();
+        const eligible = guild.members.cache.filter(m =>
+            !m.user.bot &&
+            m.id !== OWNER_DISCORD_ID &&
+            m.joinedTimestamp < Date.now() - 7 * 24 * 60 * 60 * 1000 // joined at least a week ago
+        );
+        if (eligible.size === 0) return;
+        const picked = eligible.random();
+        const roles  = picked.roles.cache
+            .filter(r => r.id !== guild.id) // exclude @everyone
+            .sort((a, b) => b.position - a.position)
+            .first(3)
+            .map(r => `<@&${r.id}>`)
+            .join(', ');
+        const joinDate   = `<t:${Math.floor(picked.joinedTimestamp / 1000)}:R>`;
+        const accountAge = `<t:${Math.floor(picked.user.createdTimestamp / 1000)}:R>`;
+
+        const embed = {
+            color: 0x22c55e,
+            author: {
+                name: '⭐ Member Spotlight',
+                icon_url: guild.iconURL({ dynamic: true }),
+            },
+            title: picked.displayName,
+            thumbnail: { url: picked.user.displayAvatarURL({ dynamic: true, size: 256 }) },
+            description:
+                `This week's spotlight is on **${picked.displayName}**! 🎉\n\n` +
+                `This is a chance for the community to get to know each other better. ` +
+                `${picked.displayName}, feel free to share a bit about yourself — what you're into, what games you play, ` +
+                `or anything you'd like people to know!`,
+            fields: [
+                { name: '🗓️ Joined Server', value: joinDate, inline: true },
+                { name: '📅 Account Created', value: accountAge, inline: true },
+                { name: '🏷️ Roles', value: roles || 'None yet!', inline: false },
+            ],
+            footer: { text: 'Member Spotlight — every week a new community member gets the stage' },
+            timestamp: new Date().toISOString(),
+        };
+
+        await channel.send({
+            content: `Hey ${picked}! You've been selected for this week's **Member Spotlight** 🌟`,
+            embeds: [embed],
+        });
+        console.log(`[BeastBot] 🌟 Member Spotlight: ${picked.user.tag}`);
+    } catch (e) {
+        console.error('[BeastBot] Member Spotlight failed:', e.message);
+    }
+}
+
+function scheduleSpotlight() {
+    if (spotlightTimer) clearInterval(spotlightTimer);
+    spotlightTimer = setInterval(postMemberSpotlight, SPOTLIGHT_INTERVAL);
+    console.log('[BeastBot] Member Spotlight scheduled (weekly)');
+}
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
@@ -502,6 +573,7 @@ client.once('ready', async () => {
 
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
+    scheduleSpotlight();
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
@@ -571,6 +643,63 @@ client.on('messageCreate', async (message) => {
     }
 
     if (message.author.bot) return;
+
+    // ── AFK system ───────────────────────────────────────────────────────────
+    if (message.guild) {
+        // Check if this user is AFK and just came back
+        const afkData = afkUsers.get(message.author.id);
+        if (afkData && !message.content.toLowerCase().startsWith('!!afk')) {
+            const member = message.member;
+            const voiceChannel = member?.voice?.channel;
+            if (voiceChannel) {
+                // Remove AFK
+                afkUsers.delete(message.author.id);
+                try {
+                    await member.setNickname(afkData.originalNickname);
+                } catch (e) {
+                    console.error('[BeastBot] Failed to restore nickname:', e.message);
+                }
+                // Find the text chat associated with the voice channel
+                // Voice channels have a built-in text chat (same channel ID)
+                try {
+                    const duration = Math.round((Date.now() - afkData.timestamp) / 60000);
+                    let timeStr;
+                    if (duration < 60) timeStr = `${duration}m`;
+                    else timeStr = `${Math.floor(duration / 60)}h ${duration % 60}m`;
+                    await voiceChannel.send(`👋 **${afkData.originalNickname}** is back! (was AFK for ${timeStr} — *${afkData.reason}*)`);
+                } catch (e) {
+                    console.error('[BeastBot] Failed to announce AFK return in VC text:', e.message);
+                }
+                console.log(`[BeastBot] AFK removed for ${message.author.tag}`);
+            }
+        }
+
+        // Set AFK
+        if (message.content.toLowerCase().startsWith('!!afk')) {
+            const member = message.member;
+            const voiceChannel = member?.voice?.channel;
+            if (!voiceChannel) {
+                await message.reply('You need to be in a voice channel to go AFK!');
+                return;
+            }
+            const reason = message.content.slice(5).trim() || 'No reason given';
+            const currentNick = member.displayName;
+            const afkNick = `[AFK] ${currentNick}`.slice(0, 32); // Discord 32 char limit
+            afkUsers.set(message.author.id, {
+                reason,
+                originalNickname: currentNick,
+                timestamp: Date.now(),
+            });
+            try {
+                await member.setNickname(afkNick);
+            } catch (e) {
+                console.error('[BeastBot] Failed to set AFK nickname:', e.message);
+            }
+            await message.reply(`✅ You're now AFK: *${reason}*\nI'll announce your return in the voice chat when you type a message.`);
+            console.log(`[BeastBot] AFK set for ${message.author.tag}: ${reason}`);
+            return;
+        }
+    }
 
     // ── Owner DMs — active answering session ─────────────────────────────────
     if (message.channel.type === ChannelType.DM && message.author.id === OWNER_DISCORD_ID) {
