@@ -430,8 +430,7 @@ let discadiaTimer = null;
 const afkUsers = new Map();
 
 // ── Member Spotlight ──────────────────────────────────────────────────────────
-const SPOTLIGHT_CHANNEL_ID = '1184769345138737182'; // test channel for now
-const SPOTLIGHT_INTERVAL   = 7 * 24 * 60 * 60 * 1000; // 1 week
+const SPOTLIGHT_CHANNEL_ID = '401913227166089238';
 let spotlightTimer = null;
 
 // ── Member Milestones ─────────────────────────────────────────────────────────
@@ -563,9 +562,23 @@ async function postMemberSpotlight() {
 }
 
 function scheduleSpotlight() {
-    if (spotlightTimer) clearInterval(spotlightTimer);
-    spotlightTimer = setInterval(postMemberSpotlight, SPOTLIGHT_INTERVAL);
-    console.log('[BeastBot] Member Spotlight scheduled (weekly)');
+    const now  = new Date();
+    const next = new Date(now);
+    // Find next Thursday at 12:00 UTC
+    const dayOfWeek = now.getUTCDay(); // 0=Sun, 4=Thu
+    let daysUntilThursday = (4 - dayOfWeek + 7) % 7;
+    // If it's Thursday but past noon, go to next week
+    if (daysUntilThursday === 0 && now.getUTCHours() >= 12) daysUntilThursday = 7;
+    next.setUTCDate(now.getUTCDate() + daysUntilThursday);
+    next.setUTCHours(12, 0, 0, 0);
+
+    const delay = next - now;
+    if (spotlightTimer) clearTimeout(spotlightTimer);
+    spotlightTimer = setTimeout(async () => {
+        await postMemberSpotlight();
+        scheduleSpotlight(); // re-schedule for next Thursday
+    }, delay);
+    console.log(`[BeastBot] Member Spotlight scheduled for ${next.toUTCString()}`);
 }
 
 // ── Member Milestones ─────────────────────────────────────────────────────────
