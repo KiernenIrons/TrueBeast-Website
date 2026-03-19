@@ -807,18 +807,42 @@ async function fetchGleamGiveaways() {
         }
 
         // Resolve direct Gleam URLs by following SweepsDB redirects
+        let resolved = 0;
         for (const g of results) {
             try {
                 const r = await fetch(`https://sweepsdb.com/go/${g.sweepsId}`, {
                     redirect: 'manual',
-                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BeastBot/1.0)' },
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
                 });
                 const loc = r.headers.get('location');
-                g.contestUrl = (loc && loc.includes('gleam.io')) ? loc : `https://sweepsdb.com/go/${g.sweepsId}`;
-            } catch {
+                console.log(`[BeastBot] Gleam resolve ${g.sweepsId}: status=${r.status} location=${loc || 'none'}`);
+                if (loc && loc.includes('gleam.io')) {
+                    g.contestUrl = loc;
+                    resolved++;
+                } else {
+                    // Fallback: try scraping the contest detail page
+                    try {
+                        const detailRes = await fetch(`https://sweepsdb.com/contest/${g.sweepsId}`, {
+                            headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
+                        });
+                        const detailHtml = await detailRes.text();
+                        const gleamMatch = detailHtml.match(/href="(https:\/\/gleam\.io\/[^"]+)"/);
+                        if (gleamMatch) {
+                            g.contestUrl = gleamMatch[1];
+                            resolved++;
+                        } else {
+                            g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
+                        }
+                    } catch {
+                        g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
+                    }
+                }
+            } catch (err) {
+                console.error(`[BeastBot] Gleam resolve failed for ${g.sweepsId}:`, err.message);
                 g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
             }
         }
+        console.log(`[BeastBot] Resolved ${resolved}/${results.length} direct Gleam URLs`);
 
         return results;
     } catch (e) {
