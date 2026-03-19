@@ -689,14 +689,14 @@ function extractGleamLink(post) {
     return match ? match[0] : post.url;
 }
 
-async function fetchGleamGiveaways() {
+async function fetchGleamGiveaways(windowMs = GIVEAWAY_WINDOW_MS) {
     const url = `https://www.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new.json?limit=50`;
     try {
         const res = await fetch(url, { headers: { 'User-Agent': 'TrueBeastBot/1.0' } });
         if (!res.ok) { console.error('[BeastBot] Reddit API error:', res.status); return []; }
         const data = await res.json();
         const posts = data?.data?.children?.map(c => c.data) || [];
-        const cutoff = Date.now() - GIVEAWAY_WINDOW_MS;
+        const cutoff = Date.now() - windowMs;
         return posts.filter(p =>
             !postedGiveawayIds.has(p.id) &&
             (p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')) &&
@@ -708,8 +708,8 @@ async function fetchGleamGiveaways() {
     }
 }
 
-async function checkAndPostGiveaways() {
-    const posts = await fetchGleamGiveaways();
+async function checkAndPostGiveaways(windowMs = GIVEAWAY_WINDOW_MS) {
+    const posts = await fetchGleamGiveaways(windowMs);
     if (posts.length === 0) { console.log('[BeastBot] Giveaway check: no new Gleam posts found'); return; }
 
     const toPost = posts.slice(0, 5); // max 5 per check to avoid spam
@@ -1205,10 +1205,10 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // !!checkgiveaways — manually trigger giveaway check (owner only)
+        // !!checkgiveaways — manually trigger giveaway check with 48h window (owner only)
         if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply('🔍 Checking for new Gleam giveaways...');
-            await checkAndPostGiveaways();
+            await message.reply('🔍 Checking for Gleam giveaways (last 48h)...');
+            await checkAndPostGiveaways(48 * 60 * 60 * 1000);
             await message.reply('✅ Done — check the giveaways channel!');
             return;
         }
