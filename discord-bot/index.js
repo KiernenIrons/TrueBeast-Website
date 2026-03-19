@@ -428,6 +428,7 @@ const REDDIT_CLIENT_SECRET = process.env.REDDIT_CLIENT_SECRET || '';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
+const DISCADIA_BOT_ID    = '1222548162741538938';
 let bumpTimer     = null;
 let discadiaTimer = null;
 
@@ -1239,6 +1240,15 @@ client.on('messageCreate', async (message) => {
         if (hasBumpDone) {
             console.log('[BeastBot] Disboard bump detected — resetting 2h timer');
             scheduleBumpReminder();
+        }
+        return;
+    }
+
+    // Detect Discadia bump success — reset the 24h reminder timer
+    if (message.author.id === DISCADIA_BOT_ID && message.channel.id === BUMP_CHANNEL_ID) {
+        if (message.content.toLowerCase().includes('has been successfully bumped')) {
+            console.log('[BeastBot] Discadia bump detected — resetting 24h timer');
+            scheduleDiscadiaReminder(DISCADIA_INTERVAL);
         }
         return;
     }
