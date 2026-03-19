@@ -432,6 +432,10 @@ let discadiaTimer = null;
 // userId → { reason, originalNickname, timestamp }
 const afkUsers = new Map();
 
+// ── Introductions ─────────────────────────────────────────────────────────────
+// userId → guildId (so DM-based modal submit knows which guild/channel to post to)
+const introPendingGuild = new Map();
+
 // ── Member Spotlight ──────────────────────────────────────────────────────────
 const SPOTLIGHT_CHANNEL_ID = '401913227166089238';
 let spotlightTimer = null;
@@ -873,12 +877,26 @@ client.on('interactionCreate', async (interaction) => {
 
         try {
             if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
+
+            // Resolve guild member for a display name (works from DM or guild)
+            const guildId = interaction.guildId || introPendingGuild.get(user.id);
+            if (guildId) {
+                try {
+                    const guild = await client.guilds.fetch(guildId);
+                    const guildMember = await guild.members.fetch(user.id);
+                    if (guildMember.displayName !== name) {
+                        embed.footer.text = `@${user.username} · ${guildMember.displayName}`;
+                    }
+                } catch (_) {}
+                introPendingGuild.delete(user.id);
+            }
+
             const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
             await introChannel.send({
-                content: `Welcome to the server, ${member || user}! 🎉`,
+                content: `Welcome to the server, <@${user.id}>! 🎉`,
                 embeds: [embed],
             });
-            await interaction.reply({ content: '✅ Your introduction has been posted!', ephemeral: true });
+            await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
             console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
         } catch (e) {
             console.error('[BeastBot] Failed to post introduction:', e.message);
@@ -888,6 +906,55 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (!interaction.isButton()) return;
+
+    // Intro prompt button — sent via DM when member joins
+    if (interaction.customId === 'intro:start') {
+        const modal = new ModalBuilder()
+            .setCustomId('intro:modal')
+            .setTitle('👋 Introduce Yourself!');
+
+        const fields = [
+            new TextInputBuilder()
+                .setCustomId('intro_name')
+                .setLabel('What should we call you?')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. Alex')
+                .setRequired(true)
+                .setMaxLength(50),
+            new TextInputBuilder()
+                .setCustomId('intro_age_location')
+                .setLabel('Age & where are you from?')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. 24, London, UK')
+                .setRequired(true)
+                .setMaxLength(100),
+            new TextInputBuilder()
+                .setCustomId('intro_about')
+                .setLabel('Tell us about yourself')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Who are you? What do you do? Job, streaming, content creation...')
+                .setRequired(true)
+                .setMaxLength(500),
+            new TextInputBuilder()
+                .setCustomId('intro_hobbies')
+                .setLabel('Hobbies & interests')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. Photography, football, cooking...')
+                .setRequired(false)
+                .setMaxLength(200),
+            new TextInputBuilder()
+                .setCustomId('intro_games')
+                .setLabel('Favourite games & streams')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. Valorant, Minecraft — Twitch: username')
+                .setRequired(false)
+                .setMaxLength(200),
+        ];
+
+        modal.addComponents(fields.map(f => new ActionRowBuilder().addComponents(f)));
+        await interaction.showModal(modal);
+        return;
+    }
 
     // Discadia bump confirm — owner only
     if (interaction.customId === 'discadia:bumped') {
@@ -932,6 +999,31 @@ client.on('interactionCreate', async (interaction) => {
             components: [],
         });
         return;
+    }
+});
+
+// ── New member join — send intro prompt DM ────────────────────────────────────
+
+client.on('guildMemberAdd', async (member) => {
+    if (member.user.bot) return;
+    try {
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('intro:start')
+                .setLabel('📝 Introduce yourself')
+                .setStyle(ButtonStyle.Primary),
+        );
+        const dm = await member.user.createDM();
+        await dm.send({
+            content:
+                `👋 Welcome to **${member.guild.name}**, ${member.user.username}!\n\n` +
+                `We'd love to get to know you — hit the button below to fill in a quick intro and we'll post it in the server for you!`,
+            components: [row],
+        });
+        introPendingGuild.set(member.user.id, member.guild.id);
+        console.log(`[BeastBot] Sent intro prompt DM to ${member.user.tag}`);
+    } catch (e) {
+        console.error(`[BeastBot] Could not DM intro prompt to ${member.user.tag}:`, e.message);
     }
 });
 
