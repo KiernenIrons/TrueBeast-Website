@@ -685,6 +685,57 @@ const postedGiveawayIds = new Set();
 const GIVEAWAY_SUBREDDITS = 'giveaways+GameGiveaways+FreeGamesOnSteam';
 const GIVEAWAY_WINDOW_MS  = 12 * 60 * 60 * 1000; // 12 hours
 
+// Categories in display order — first keyword match wins
+const GIVEAWAY_CATEGORIES = [
+    {
+        name: '🎮 Gaming',
+        color: 0x22c55e, // green
+        keywords: [
+            'game', 'steam', 'xbox', 'playstation', 'ps4', 'ps5', 'nintendo', 'switch',
+            'roblox', 'robux', 'gaming', 'gamer', 'valorant', 'minecraft', 'fortnite',
+            'csgo', 'dota', 'league of legends', 'esport', 'console', 'dlc', 'battle pass',
+            'twitch drops', 'pase batallas', // "pase batallas" = battle pass in Spanish
+        ],
+    },
+    {
+        name: '💻 Tech & Gadgets',
+        color: 0x3b82f6, // blue
+        keywords: [
+            'tech', 'gadget', 'gpu', 'cpu', 'monitor', 'keyboard', 'mouse', 'headset',
+            'headphones', 'phone', 'laptop', 'hardware', 'zotac', 'iphone', 'android',
+            'apple', 'samsung', '3d print', 'computer', 'printer', 'modular',
+        ],
+    },
+    {
+        name: '🎵 Music & Entertainment',
+        color: 0xa855f7, // purple
+        keywords: [
+            'music', 'guitar', 'album', 'podcast', 'movie', 'film', 'concert', 'vinyl',
+            'band', 'song', 'spotify', 'series', 'netflix', 'signed ', 'sherlock',
+            'resident evil', 'village of shadows', 'blueprints',
+        ],
+    },
+    {
+        name: '🛍️ Lifestyle & Prizes',
+        color: 0xf97316, // orange
+        keywords: [
+            'gift card', 'sofa', 'furniture', 'food', 'drink', 'coffee', 'tea', 'beauty',
+            'skincare', 'wellness', 'sleep', 'knife', 'paracord', 'supplement', 'fitness',
+            'sport', 'fashion', 'clothing', 'krispy kreme', 'cash', '$', '€', '£',
+        ],
+    },
+];
+
+const GIVEAWAY_OTHER = { name: '🎁 Other', color: 0xfbbf24 };
+
+function classifyGiveaway(title) {
+    const lower = title.toLowerCase();
+    for (const cat of GIVEAWAY_CATEGORIES) {
+        if (cat.keywords.some(k => lower.includes(k))) return cat;
+    }
+    return GIVEAWAY_OTHER;
+}
+
 let redditToken = null;
 let redditTokenExpiry = 0;
 
@@ -773,45 +824,60 @@ async function checkAndPostGiveaways() {
     try {
         const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
 
-        // Build one line per giveaway: linked title + meta on next line
-        const lines = giveaways.map(g => {
-            const meta = [
-                g.endsIn  ? `⏳ ${g.endsIn}`                       : null,
-                g.entries ? `🎟️ ${g.entries.toLocaleString()} entries` : null,
-            ].filter(Boolean).join('  •  ');
-            return `**[${g.title}](${g.contestUrl})**${meta ? `\n${meta}` : ''}`;
-        });
+        // Group by category, preserving display order
+        const groupMap = new Map();
+        for (const g of giveaways) {
+            const cat = classifyGiveaway(g.title);
+            if (!groupMap.has(cat.name)) groupMap.set(cat.name, { cat, items: [] });
+            groupMap.get(cat.name).items.push(g);
+        }
 
-        // Split into chunks that fit within the 4096-char embed description limit
+        // Post a header message, then one embed per category
+        await channel.send(
+            `🎁 **${giveaways.length} Active Gleam Giveaway${giveaways.length !== 1 ? 's' : ''}** — <t:${Math.floor(Date.now() / 1000)}:R>`
+        );
+
         const MAX_DESC = 4000;
-        const chunks = [];
-        let current = '';
-        for (const line of lines) {
-            const separator = current ? '\n\n' : '';
-            if (current.length + separator.length + line.length > MAX_DESC) {
-                chunks.push(current);
-                current = line;
-            } else {
-                current += separator + line;
+        let totalEmbeds = 0;
+
+        for (const { cat, items } of groupMap.values()) {
+            // Build lines for this category
+            const lines = items.map(g => {
+                const meta = [
+                    g.endsIn  ? `⏳ ${g.endsIn}`                          : null,
+                    g.entries ? `🎟️ ${g.entries.toLocaleString()} entries` : null,
+                ].filter(Boolean).join('  •  ');
+                return `**[${g.title}](${g.contestUrl})**${meta ? `\n${meta}` : ''}`;
+            });
+
+            // Split into chunks if needed
+            const chunks = [];
+            let current = '';
+            for (const line of lines) {
+                const sep = current ? '\n\n' : '';
+                if (current.length + sep.length + line.length > MAX_DESC) {
+                    chunks.push(current);
+                    current = line;
+                } else {
+                    current += sep + line;
+                }
+            }
+            if (current) chunks.push(current);
+
+            for (let i = 0; i < chunks.length; i++) {
+                await channel.send({
+                    embeds: [{
+                        color: cat.color,
+                        title: `${cat.name} (${items.length})${chunks.length > 1 ? ` — part ${i + 1}` : ''}`,
+                        description: chunks[i],
+                        footer: { text: 'Via SweepsDB • Click any title to enter' },
+                    }],
+                });
+                totalEmbeds++;
             }
         }
-        if (current) chunks.push(current);
 
-        for (let i = 0; i < chunks.length; i++) {
-            const isFirst = i === 0;
-            const isLast  = i === chunks.length - 1;
-            await channel.send({
-                embeds: [{
-                    color: 0xfbbf24,
-                    title: isFirst ? `🎁 ${giveaways.length} Active Gleam Giveaway${giveaways.length !== 1 ? 's' : ''}` : null,
-                    description: chunks[i],
-                    footer: isLast ? { text: 'Via SweepsDB • Click any title to enter • Updates every 12h' } : null,
-                    timestamp: isFirst ? new Date().toISOString() : null,
-                }],
-            });
-        }
-
-        console.log(`[BeastBot] 🎁 Posted ${giveaways.length} Gleam giveaway(s) in ${chunks.length} embed(s)`);
+        console.log(`[BeastBot] 🎁 Posted ${giveaways.length} Gleam giveaway(s) across ${totalEmbeds} embed(s)`);
     } catch (e) {
         console.error('[BeastBot] Failed to post giveaways:', e.message);
     }
