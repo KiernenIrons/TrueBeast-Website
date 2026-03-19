@@ -418,6 +418,7 @@ const client = new Client({
 });
 
 const BUMP_CHANNEL_ID    = '1477361149862482053';
+const LOG_CHANNEL_ID     = '1339916490744397896';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
@@ -432,6 +433,12 @@ const afkUsers = new Map();
 const SPOTLIGHT_CHANNEL_ID = '1184769345138737182'; // test channel for now
 const SPOTLIGHT_INTERVAL   = 7 * 24 * 60 * 60 * 1000; // 1 week
 let spotlightTimer = null;
+
+// ── Member Milestones ─────────────────────────────────────────────────────────
+// userId → message count (in-memory, resets on restart — persistent version could use Firestore)
+const messageCounts = new Map();
+const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
+const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 function scheduleDiscordMeReminder() {
@@ -561,15 +568,110 @@ function scheduleSpotlight() {
     console.log('[BeastBot] Member Spotlight scheduled (weekly)');
 }
 
+// ── Member Milestones ─────────────────────────────────────────────────────────
+
+async function saveMessageCount(userId, count) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { count: { integerValue: String(count) } } }),
+        });
+    } catch (_) {}
+}
+
+async function checkMessageMilestone(message) {
+    const userId = message.author.id;
+    const count  = (messageCounts.get(userId) || 0) + 1;
+    messageCounts.set(userId, count);
+
+    // Save every 10 messages to avoid hammering Firestore
+    if (count % 10 === 0) saveMessageCount(userId, count);
+
+    const idx = MILESTONE_THRESHOLDS.indexOf(count);
+    if (idx === -1) return;
+    const emoji = MILESTONE_EMOJIS[idx] || '🎉';
+
+    try {
+        const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
+        await logCh.send({
+            embeds: [{
+                color: 0x22c55e,
+                title: `${emoji} Message Milestone!`,
+                description: `**${message.member?.displayName || message.author.username}** just hit **${count.toLocaleString()} messages** in the server!`,
+                thumbnail: { url: message.author.displayAvatarURL({ dynamic: true, size: 128 }) },
+                timestamp: new Date().toISOString(),
+            }],
+        });
+    } catch (e) {
+        console.error('[BeastBot] Milestone post failed:', e.message);
+    }
+}
+
+async function checkAnniversaries() {
+    try {
+        const channel = await client.channels.fetch(LOG_CHANNEL_ID);
+        const guild   = channel.guild;
+        await guild.members.fetch();
+        const now   = new Date();
+        const today = `${now.getMonth()}-${now.getDate()}`;
+
+        guild.members.cache.forEach(async (member) => {
+            if (member.user.bot) return;
+            const joined = member.joinedAt;
+            if (!joined) return;
+            const joinDay = `${joined.getMonth()}-${joined.getDate()}`;
+            if (joinDay !== today) return;
+
+            const yearsInServer = now.getFullYear() - joined.getFullYear();
+            if (yearsInServer < 1) return;
+
+            try {
+                await channel.send({
+                    embeds: [{
+                        color: 0xfbbf24,
+                        title: '🎂 Server Anniversary!',
+                        description: `**${member.displayName}** has been in the server for **${yearsInServer} year${yearsInServer > 1 ? 's' : ''}** today!`,
+                        thumbnail: { url: member.user.displayAvatarURL({ dynamic: true, size: 128 }) },
+                        timestamp: new Date().toISOString(),
+                    }],
+                });
+            } catch (_) {}
+        });
+    } catch (e) {
+        console.error('[BeastBot] Anniversary check failed:', e.message);
+    }
+}
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
-    // Disboard: timer only starts after a bump is detected — post a one-time prompt on startup
+    // Log restart to logs channel instead of bump channel
     try {
-        const ch = await client.channels.fetch(BUMP_CHANNEL_ID);
-        await ch.send('🤖 Bot restarted. Run `/bump` on Disboard when ready — I\'ll remind you 2 hours after each bump.');
+        const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
+        await logCh.send(`🔄 **Beast Bot restarted** — ${new Date().toUTCString()}\nReason: deployment update`);
     } catch (_) {}
+
+    // Load message counts from Firestore for milestones
+    try {
+        const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts?key=${FIREBASE_API_KEY}&pageSize=500`;
+        const res = await fetch(url);
+        if (res.ok) {
+            const data = await res.json();
+            (data.documents || []).forEach(doc => {
+                const f = doc.fields || {};
+                const uid = doc.name.split('/').pop();
+                messageCounts.set(uid, parseInt(f.count?.integerValue || '0', 10));
+            });
+            console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
+        }
+    } catch (_) {}
+
+    // Check for anniversary milestones daily
+    setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
+    setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
 
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
@@ -699,6 +801,34 @@ client.on('messageCreate', async (message) => {
             console.log(`[BeastBot] AFK set for ${message.author.tag}: ${reason}`);
             return;
         }
+
+        // Check if anyone pinged or replied to an AFK user
+        const mentionedUsers = message.mentions.users;
+        const repliedUserId  = message.reference ? (await message.channel.messages.fetch(message.reference.messageId).catch(() => null))?.author?.id : null;
+        const pingedIds = [...mentionedUsers.keys()];
+        if (repliedUserId && !pingedIds.includes(repliedUserId)) pingedIds.push(repliedUserId);
+
+        for (const id of pingedIds) {
+            const afk = afkUsers.get(id);
+            if (afk) {
+                const duration = Math.round((Date.now() - afk.timestamp) / 60000);
+                let timeStr;
+                if (duration < 60) timeStr = `${duration}m`;
+                else timeStr = `${Math.floor(duration / 60)}h ${duration % 60}m`;
+                await message.reply(`💤 **${afk.originalNickname}** is currently AFK: *${afk.reason}* (${timeStr} ago)`);
+                break; // only notify once per message
+            }
+        }
+
+        // !!spotlight — owner test command
+        if (message.content.toLowerCase() === '!!spotlight' && message.author.id === OWNER_DISCORD_ID) {
+            await message.reply('🌟 Triggering spotlight...');
+            await postMemberSpotlight();
+            return;
+        }
+
+        // Track message count for milestones
+        await checkMessageMilestone(message);
     }
 
     // ── Owner DMs — active answering session ─────────────────────────────────
