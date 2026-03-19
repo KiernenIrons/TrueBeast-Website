@@ -21,6 +21,7 @@ require('dotenv').config();
 const {
     Client, GatewayIntentBits, Partials, ChannelType,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
+    ModalBuilder, TextInputBuilder, TextInputStyle,
     SlashCommandBuilder, REST, Routes,
 } = require('discord.js');
 
@@ -420,6 +421,7 @@ const client = new Client({
 
 const BUMP_CHANNEL_ID    = '1477361149862482053';
 const LOG_CHANNEL_ID     = '1339916490744397896';
+const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
@@ -703,6 +705,9 @@ client.once('ready', async () => {
                 .setName('rank')
                 .setDescription('Check your message count and rank')
                 .addUserOption(opt => opt.setName('user').setDescription('User to check (defaults to you)')),
+            new SlashCommandBuilder()
+                .setName('introduce')
+                .setDescription('Introduce yourself to the community!'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -758,6 +763,54 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        if (interaction.commandName === 'introduce') {
+            const modal = new ModalBuilder()
+                .setCustomId('intro:modal')
+                .setTitle('👋 Introduce Yourself!');
+
+            const fields = [
+                new TextInputBuilder()
+                    .setCustomId('intro_name')
+                    .setLabel('What should we call you?')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. Alex')
+                    .setRequired(true)
+                    .setMaxLength(50),
+                new TextInputBuilder()
+                    .setCustomId('intro_age_location')
+                    .setLabel('Age & where are you from?')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. 24, London, UK')
+                    .setRequired(true)
+                    .setMaxLength(100),
+                new TextInputBuilder()
+                    .setCustomId('intro_about')
+                    .setLabel('Tell us about yourself')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('Who are you? What do you do? Job, streaming, content creation...')
+                    .setRequired(true)
+                    .setMaxLength(500),
+                new TextInputBuilder()
+                    .setCustomId('intro_hobbies')
+                    .setLabel('Hobbies & interests')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. Photography, football, cooking...')
+                    .setRequired(false)
+                    .setMaxLength(200),
+                new TextInputBuilder()
+                    .setCustomId('intro_games')
+                    .setLabel('Favourite games & streams')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. Valorant, Minecraft — Twitch: username')
+                    .setRequired(false)
+                    .setMaxLength(200),
+            ];
+
+            modal.addComponents(fields.map(f => new ActionRowBuilder().addComponents(f)));
+            await interaction.showModal(modal);
+            return;
+        }
+
         if (interaction.commandName === 'rank') {
             const target = interaction.options.getUser('user') || interaction.user;
             const count  = messageCounts.get(target.id) || 0;
@@ -785,6 +838,53 @@ client.on('interactionCreate', async (interaction) => {
             });
             return;
         }
+    }
+
+    // ── Introduction modal submit ─────────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'intro:modal') {
+        const name        = interaction.fields.getTextInputValue('intro_name');
+        const ageLocation = interaction.fields.getTextInputValue('intro_age_location');
+        const about       = interaction.fields.getTextInputValue('intro_about');
+        const hobbies     = interaction.fields.getTextInputValue('intro_hobbies');
+        const games       = interaction.fields.getTextInputValue('intro_games');
+
+        const user   = interaction.user;
+        const member = interaction.member;
+
+        const embedFields = [
+            { name: '📍 Age & Location', value: ageLocation, inline: true },
+            { name: '👤 About', value: about, inline: false },
+        ];
+        if (hobbies) embedFields.push({ name: '🎯 Hobbies & Interests', value: hobbies, inline: false });
+        if (games)   embedFields.push({ name: '🎮 Games & Streams', value: games, inline: false });
+
+        const embed = {
+            color: 0x5865f2,
+            author: { name: '👋 New Introduction!' },
+            title: name,
+            thumbnail: { url: user.displayAvatarURL({ dynamic: true, size: 256 }) },
+            fields: embedFields,
+            footer: {
+                text: `@${user.username}`,
+                icon_url: user.displayAvatarURL({ dynamic: true }),
+            },
+            timestamp: new Date().toISOString(),
+        };
+
+        try {
+            if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
+            const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
+            await introChannel.send({
+                content: `Welcome to the server, ${member || user}! 🎉`,
+                embeds: [embed],
+            });
+            await interaction.reply({ content: '✅ Your introduction has been posted!', ephemeral: true });
+            console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
+        } catch (e) {
+            console.error('[BeastBot] Failed to post introduction:', e.message);
+            await interaction.reply({ content: '❌ Something went wrong posting your intro. Try again or let Kiernen know.', ephemeral: true });
+        }
+        return;
     }
 
     if (!interaction.isButton()) return;
