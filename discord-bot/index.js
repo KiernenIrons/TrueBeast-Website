@@ -840,6 +840,64 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
+        // !!backfill — crawl channel history to count all past messages (owner only, one-time)
+        if (message.content.toLowerCase() === '!!backfill' && message.author.id === OWNER_DISCORD_ID) {
+            await message.reply('📊 Starting message backfill — this will take a while. I\'ll update you as I go.');
+            const guild = message.guild;
+            const textChannels = guild.channels.cache.filter(c =>
+                c.isTextBased() && !c.isThread() && c.type !== ChannelType.DM
+            );
+            const counts = new Map();
+            let totalMessages = 0;
+            let channelsDone = 0;
+
+            for (const [, channel] of textChannels) {
+                try {
+                    let lastId = null;
+                    let channelCount = 0;
+                    while (true) {
+                        const opts = { limit: 100 };
+                        if (lastId) opts.before = lastId;
+                        const batch = await channel.messages.fetch(opts);
+                        if (batch.size === 0) break;
+                        batch.forEach(m => {
+                            if (!m.author.bot) {
+                                counts.set(m.author.id, (counts.get(m.author.id) || 0) + 1);
+                                totalMessages++;
+                                channelCount++;
+                            }
+                        });
+                        lastId = batch.last().id;
+                        if (batch.size < 100) break;
+                    }
+                    channelsDone++;
+                    if (channelsDone % 5 === 0) {
+                        await message.channel.send(`📊 Progress: ${channelsDone}/${textChannels.size} channels scanned, ${totalMessages.toLocaleString()} messages counted so far...`);
+                    }
+                } catch (e) {
+                    console.error(`[BeastBot] Backfill: couldn't read #${channel.name}: ${e.message}`);
+                }
+            }
+
+            // Merge with existing counts (take the higher value)
+            for (const [userId, count] of counts) {
+                const existing = messageCounts.get(userId) || 0;
+                const merged = Math.max(existing, count);
+                messageCounts.set(userId, merged);
+                await saveMessageCount(userId, merged);
+            }
+
+            await message.channel.send(
+                `✅ **Backfill complete!**\n` +
+                `- Scanned **${textChannels.size}** channels\n` +
+                `- Counted **${totalMessages.toLocaleString()}** messages\n` +
+                `- From **${counts.size}** unique members\n\n` +
+                `Milestones will now be based on these totals.`
+            );
+            console.log(`[BeastBot] Backfill done: ${totalMessages} messages from ${counts.size} users across ${textChannels.size} channels`);
+            return;
+        }
+
         // Track message count for milestones
         await checkMessageMilestone(message);
     }
