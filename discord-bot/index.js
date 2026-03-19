@@ -803,9 +803,21 @@ async function fetchGleamGiveaways() {
             const entriesMatch = block.match(/<span class='text-color-tertiary'>(\d+)<\/span>/);
             const entries      = entriesMatch ? parseInt(entriesMatch[1]) : null;
 
-            const contestUrl = `https://sweepsdb.com/go/${id}`;
+            results.push({ id, title, sweepsId: id, endsIn, entries });
+        }
 
-            results.push({ id, title, contestUrl, endsIn, entries });
+        // Resolve direct Gleam URLs by following SweepsDB redirects
+        for (const g of results) {
+            try {
+                const r = await fetch(`https://sweepsdb.com/go/${g.sweepsId}`, {
+                    redirect: 'manual',
+                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BeastBot/1.0)' },
+                });
+                const loc = r.headers.get('location');
+                g.contestUrl = (loc && loc.includes('gleam.io')) ? loc : `https://sweepsdb.com/go/${g.sweepsId}`;
+            } catch {
+                g.contestUrl = `https://sweepsdb.com/go/${g.sweepsId}`;
+            }
         }
 
         return results;
@@ -871,7 +883,7 @@ async function checkAndPostGiveaways() {
                         color: cat.color,
                         title: `${cat.name} (${items.length})${chunks.length > 1 ? ` — part ${i + 1}` : ''}`,
                         description: chunks[i],
-                        footer: { text: 'Via SweepsDB • Click any title to enter' },
+                        footer: { text: 'Click any title to enter directly on Gleam' },
                     }],
                 });
                 totalEmbeds++;
