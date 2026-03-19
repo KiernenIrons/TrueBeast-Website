@@ -815,12 +815,14 @@ client.on('interactionCreate', async (interaction) => {
         const user   = interaction.user;
         const member = interaction.member;
 
+        const q = s => `> ${s.split('\n').join('\n> ')}`;
+
         const embedFields = [
-            { name: '📍 Age & Location', value: ageLocation, inline: true },
-            { name: '👤 About', value: about, inline: false },
+            { name: '📍 Age & Location', value: q(ageLocation), inline: true },
+            { name: '👤 About', value: q(about), inline: false },
         ];
-        if (hobbies) embedFields.push({ name: '🎯 Hobbies & Interests', value: hobbies, inline: false });
-        if (games)   embedFields.push({ name: '🎮 Games & Streams', value: games, inline: false });
+        if (hobbies) embedFields.push({ name: '🎯 Hobbies & Interests', value: q(hobbies), inline: false });
+        if (games)   embedFields.push({ name: '🎮 Games & Streams', value: q(games), inline: false });
 
         const embed = {
             color: 0x5865f2,
