@@ -433,8 +433,8 @@ let discadiaTimer = null;
 const afkUsers = new Map();
 
 // ── Introductions ─────────────────────────────────────────────────────────────
-// userId → messageId of the pending intro prompt (so we can delete it when done/dismissed)
-const introPromptMessages = new Map();
+// Track who has already submitted an intro (in-memory; repopulated on startup from channel history)
+const introducedUsers = new Set();
 
 // ── Member Spotlight ──────────────────────────────────────────────────────────
 const SPOTLIGHT_CHANNEL_ID = '401913227166089238';
@@ -720,6 +720,22 @@ client.once('ready', async () => {
         console.error('[BeastBot] Failed to register slash commands:', e.message);
     }
 
+    // Populate introducedUsers from intro channel history
+    if (INTRO_CHANNEL_ID) {
+        try {
+            const introCh = await client.channels.fetch(INTRO_CHANNEL_ID);
+            const msgs = await introCh.messages.fetch({ limit: 100 });
+            msgs.forEach(m => {
+                if (m.author.id === client.user.id && m.embeds.length > 0) {
+                    // Extract user ID from the "Welcome, <@id>!" content
+                    const match = m.content?.match(/<@(\d+)>/);
+                    if (match) introducedUsers.add(match[1]);
+                }
+            });
+            console.log(`[BeastBot] Loaded ${introducedUsers.size} introduced users from intro channel`);
+        } catch (_) {}
+    }
+
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
     scheduleSpotlight();
@@ -879,18 +895,11 @@ client.on('interactionCreate', async (interaction) => {
             if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
 
             const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
-
-            // Delete the pending prompt message if there is one
-            const promptMsgId = introPromptMessages.get(user.id);
-            if (promptMsgId) {
-                await introChannel.messages.delete(promptMsgId).catch(() => {});
-                introPromptMessages.delete(user.id);
-            }
-
             await introChannel.send({
                 content: `Welcome to the server, <@${user.id}>! 🎉`,
                 embeds: [embed],
             });
+            introducedUsers.add(user.id);
             await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
             console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
         } catch (e) {
@@ -902,21 +911,12 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // Intro dismiss button
-    if (interaction.customId.startsWith('intro:dismiss:')) {
-        const targetUserId = interaction.customId.split(':')[2];
-        if (interaction.user.id !== targetUserId) {
-            await interaction.reply({ content: 'That prompt isn\'t for you!', ephemeral: true });
+    // Intro button — opens the modal, or tells them they've already done it
+    if (interaction.customId === 'intro:start') {
+        if (introducedUsers.has(interaction.user.id)) {
+            await interaction.reply({ content: 'You\'ve already introduced yourself — check the channel! 👀', ephemeral: true });
             return;
         }
-        await interaction.message.delete().catch(() => {});
-        introPromptMessages.delete(targetUserId);
-        await interaction.reply({ content: 'No worries — you can always use `/introduce` whenever you\'re ready!', ephemeral: true });
-        return;
-    }
-
-    // Intro prompt button — opens the intro modal
-    if (interaction.customId === 'intro:start') {
         const modal = new ModalBuilder()
             .setCustomId('intro:modal')
             .setTitle('👋 Introduce Yourself!');
@@ -1012,33 +1012,6 @@ client.on('interactionCreate', async (interaction) => {
 
 // ── New member join — send intro prompt DM ────────────────────────────────────
 
-client.on('guildMemberAdd', async (member) => {
-    if (member.user.bot) return;
-    if (!INTRO_CHANNEL_ID) return;
-    try {
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('intro:start')
-                .setLabel('📝 Introduce yourself')
-                .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
-                .setCustomId(`intro:dismiss:${member.user.id}`)
-                .setLabel('Maybe later')
-                .setStyle(ButtonStyle.Secondary),
-        );
-        const channel = await client.channels.fetch(INTRO_CHANNEL_ID);
-        const msg = await channel.send({
-            content:
-                `👋 Welcome, <@${member.user.id}>! We'd love to get to know you.\n` +
-                `Fill in a quick intro and we'll post it here for the community to see!`,
-            components: [row],
-        });
-        introPromptMessages.set(member.user.id, msg.id);
-        console.log(`[BeastBot] Posted intro prompt for ${member.user.tag}`);
-    } catch (e) {
-        console.error(`[BeastBot] Could not post intro prompt for ${member.user.tag}:`, e.message);
-    }
-});
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
@@ -1129,6 +1102,35 @@ client.on('messageCreate', async (message) => {
                 await message.reply(`💤 **${afk.originalNickname}** is currently AFK: *${afk.reason}* (${timeStr} ago)`);
                 break; // only notify once per message
             }
+        }
+
+        // !!postintro — post the persistent intro button message (owner only, pin it after)
+        if (message.content.toLowerCase() === '!!postintro' && message.author.id === OWNER_DISCORD_ID) {
+            try {
+                const ch = await client.channels.fetch(INTRO_CHANNEL_ID);
+                await ch.send({
+                    embeds: [{
+                        color: 0x5865f2,
+                        title: '👋 Introduce Yourself!',
+                        description:
+                            'New to the server? Let the community get to know you!\n\n' +
+                            'Click the button below to fill in a quick intro — it only takes a minute and gets posted right here.',
+                        footer: { text: 'You can only submit once — make it count! 😄' },
+                    }],
+                    components: [
+                        new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId('intro:start')
+                                .setLabel('📝 Introduce yourself')
+                                .setStyle(ButtonStyle.Primary),
+                        ),
+                    ],
+                });
+                await message.reply('✅ Done! Pin that message so it stays at the top.');
+            } catch (e) {
+                await message.reply(`❌ Failed: ${e.message}`);
+            }
+            return;
         }
 
         // !!spotlight — owner test command
