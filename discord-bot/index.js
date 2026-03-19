@@ -1267,58 +1267,15 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // !!checkgiveaways — manual giveaway pull (no time window, debug output, owner only)
+        // !!checkgiveaways — manual giveaway pull (no time window restriction, owner only)
         if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply('🔍 Fetching from Reddit...');
+            await message.reply(`🔍 Fetching giveaways (${REDDIT_CLIENT_ID ? 'OAuth' : 'RSS'})...`);
             try {
-                const usingOAuth = !!(REDDIT_CLIENT_ID && REDDIT_CLIENT_SECRET);
-                await message.reply(`🔑 Using ${usingOAuth ? 'OAuth' : 'RSS fallback'}...`);
-                const token = usingOAuth ? await getRedditToken() : null;
-                const url = usingOAuth
-                    ? `https://oauth.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new?limit=50`
-                    : `https://www.reddit.com/r/giveaways/new/.rss?limit=25`;
-                const headers = usingOAuth
-                    ? { 'Authorization': `Bearer ${token}`, 'User-Agent': 'TrueBeastBot/1.0' }
-                    : { 'User-Agent': 'TrueBeastBot/1.0' };
-                const res = await fetch(url, { headers });
-                if (!res.ok) {
-                    await message.reply(`❌ Reddit returned HTTP ${res.status}`);
-                    return;
-                }
-                const data = await res.json();
-                const allPosts = data?.data?.children?.map(c => c.data) || [];
-                const gleamPosts = allPosts.filter(p =>
-                    p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')
-                );
-                const newPosts = gleamPosts.filter(p => !postedGiveawayIds.has(p.id));
-                await message.reply(
-                    `📊 Debug: **${allPosts.length}** total posts fetched, ` +
-                    `**${gleamPosts.length}** contain gleam.io, ` +
-                    `**${newPosts.length}** not yet posted`
-                );
-                if (newPosts.length === 0) { await message.reply('Nothing new to post.'); return; }
-                const toPost = newPosts.slice(0, 5);
-                const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
-                for (const post of toPost) {
-                    postedGiveawayIds.add(post.id);
-                    const gleamUrl = extractGleamLink(post);
-                    const desc = post.selftext ? post.selftext.slice(0, 150).trim() + (post.selftext.length > 150 ? '…' : '') : null;
-                    await channel.send({
-                        embeds: [{
-                            color: 0xfbbf24,
-                            title: post.title.slice(0, 256),
-                            url: gleamUrl,
-                            description: desc || undefined,
-                            fields: [
-                                { name: '📌 Subreddit', value: `r/${post.subreddit}`, inline: true },
-                                { name: '👍 Upvotes',   value: String(post.score),    inline: true },
-                                { name: '⏰ Posted',    value: `<t:${post.created_utc}:R>`, inline: true },
-                            ],
-                            footer: { text: 'Found on Reddit • Click the title to open the giveaway' },
-                        }],
-                    });
-                }
-                await message.reply(`✅ Posted ${toPost.length} giveaway(s) to the channel!`);
+                const posts = await fetchGleamGiveaways(7 * 24 * 60 * 60 * 1000); // last 7 days
+                await message.reply(`📊 Found **${posts.length}** new Gleam giveaway(s) in the last 7 days`);
+                if (posts.length === 0) return;
+                await checkAndPostGiveaways(7 * 24 * 60 * 60 * 1000);
+                await message.reply(`✅ Posted to the giveaways channel!`);
             } catch (e) {
                 await message.reply(`❌ Error: ${e.message}`);
             }
