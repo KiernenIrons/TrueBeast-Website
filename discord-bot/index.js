@@ -433,8 +433,8 @@ let discadiaTimer = null;
 const afkUsers = new Map();
 
 // ── Introductions ─────────────────────────────────────────────────────────────
-// userId → guildId (so DM-based modal submit knows which guild/channel to post to)
-const introPendingGuild = new Map();
+// userId → messageId of the pending intro prompt (so we can delete it when done/dismissed)
+const introPromptMessages = new Map();
 
 // ── Member Spotlight ──────────────────────────────────────────────────────────
 const SPOTLIGHT_CHANNEL_ID = '401913227166089238';
@@ -878,20 +878,15 @@ client.on('interactionCreate', async (interaction) => {
         try {
             if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
 
-            // Resolve guild member for a display name (works from DM or guild)
-            const guildId = interaction.guildId || introPendingGuild.get(user.id);
-            if (guildId) {
-                try {
-                    const guild = await client.guilds.fetch(guildId);
-                    const guildMember = await guild.members.fetch(user.id);
-                    if (guildMember.displayName !== name) {
-                        embed.footer.text = `@${user.username} · ${guildMember.displayName}`;
-                    }
-                } catch (_) {}
-                introPendingGuild.delete(user.id);
+            const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
+
+            // Delete the pending prompt message if there is one
+            const promptMsgId = introPromptMessages.get(user.id);
+            if (promptMsgId) {
+                await introChannel.messages.delete(promptMsgId).catch(() => {});
+                introPromptMessages.delete(user.id);
             }
 
-            const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
             await introChannel.send({
                 content: `Welcome to the server, <@${user.id}>! 🎉`,
                 embeds: [embed],
@@ -907,7 +902,20 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // Intro prompt button — sent via DM when member joins
+    // Intro dismiss button
+    if (interaction.customId.startsWith('intro:dismiss:')) {
+        const targetUserId = interaction.customId.split(':')[2];
+        if (interaction.user.id !== targetUserId) {
+            await interaction.reply({ content: 'That prompt isn\'t for you!', ephemeral: true });
+            return;
+        }
+        await interaction.message.delete().catch(() => {});
+        introPromptMessages.delete(targetUserId);
+        await interaction.reply({ content: 'No worries — you can always use `/introduce` whenever you\'re ready!', ephemeral: true });
+        return;
+    }
+
+    // Intro prompt button — opens the intro modal
     if (interaction.customId === 'intro:start') {
         const modal = new ModalBuilder()
             .setCustomId('intro:modal')
@@ -1006,24 +1014,29 @@ client.on('interactionCreate', async (interaction) => {
 
 client.on('guildMemberAdd', async (member) => {
     if (member.user.bot) return;
+    if (!INTRO_CHANNEL_ID) return;
     try {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('intro:start')
                 .setLabel('📝 Introduce yourself')
                 .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`intro:dismiss:${member.user.id}`)
+                .setLabel('Maybe later')
+                .setStyle(ButtonStyle.Secondary),
         );
-        const dm = await member.user.createDM();
-        await dm.send({
+        const channel = await client.channels.fetch(INTRO_CHANNEL_ID);
+        const msg = await channel.send({
             content:
-                `👋 Welcome to **${member.guild.name}**, ${member.user.username}!\n\n` +
-                `We'd love to get to know you — hit the button below to fill in a quick intro and we'll post it in the server for you!`,
+                `👋 Welcome, <@${member.user.id}>! We'd love to get to know you.\n` +
+                `Fill in a quick intro and we'll post it here for the community to see!`,
             components: [row],
         });
-        introPendingGuild.set(member.user.id, member.guild.id);
-        console.log(`[BeastBot] Sent intro prompt DM to ${member.user.tag}`);
+        introPromptMessages.set(member.user.id, msg.id);
+        console.log(`[BeastBot] Posted intro prompt for ${member.user.tag}`);
     } catch (e) {
-        console.error(`[BeastBot] Could not DM intro prompt to ${member.user.tag}:`, e.message);
+        console.error(`[BeastBot] Could not post intro prompt for ${member.user.tag}:`, e.message);
     }
 });
 
