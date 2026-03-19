@@ -867,7 +867,7 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // Intro delete button — original poster or mod only
+    // Intro delete button — original poster or mod only; shows confirmation first
     if (interaction.customId.startsWith('intro:delete:')) {
         const originalUserId = interaction.customId.split(':')[2];
         const isMod = MOD_ROLE_ID && interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
@@ -876,8 +876,38 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: 'Only the person who posted this intro or a mod can delete it.', ephemeral: true });
             return;
         }
-        await interaction.message.delete();
-        await interaction.reply({ content: '🗑️ Introduction deleted.', ephemeral: true });
+        const confirmRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`intro:confirm_delete:${interaction.message.id}`)
+                .setLabel('Yes, delete it')
+                .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+                .setCustomId('intro:cancel_delete')
+                .setLabel('Cancel')
+                .setStyle(ButtonStyle.Secondary),
+        );
+        await interaction.reply({
+            content: '⚠️ Are you sure you want to delete this introduction? This can\'t be undone.',
+            components: [confirmRow],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    // Intro delete confirmed
+    if (interaction.customId.startsWith('intro:confirm_delete:')) {
+        const messageId = interaction.customId.split(':')[2];
+        try {
+            const msg = await interaction.channel.messages.fetch(messageId);
+            await msg.delete();
+        } catch (_) {}
+        await interaction.update({ content: '🗑️ Introduction deleted.', components: [] });
+        return;
+    }
+
+    // Intro delete cancelled
+    if (interaction.customId === 'intro:cancel_delete') {
+        await interaction.update({ content: '👍 Cancelled — nothing was deleted.', components: [] });
         return;
     }
 
