@@ -726,15 +726,22 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             const medals = ['🥇', '🥈', '🥉'];
-            const lines = await Promise.all(sorted.map(async ([userId, count], i) => {
-                const prefix = medals[i] || `**${i + 1}.**`;
+            // Filter to current server members only
+            const guild = interaction.guild;
+            const validEntries = [];
+            for (const [userId, count] of sorted) {
                 try {
-                    const member = await interaction.guild.members.fetch(userId);
-                    return `${prefix} **${member.displayName}** — ${count.toLocaleString()} messages`;
+                    const member = await guild.members.fetch(userId);
+                    validEntries.push({ member, count });
                 } catch {
-                    return `${prefix} <@${userId}> — ${count.toLocaleString()} messages`;
+                    // User left the server — skip
                 }
-            }));
+                if (validEntries.length >= 10) break;
+            }
+            const lines = validEntries.map(({ member, count }, i) => {
+                const prefix = medals[i] || `**${i + 1}.**`;
+                return `${prefix} **${member.displayName}** — ${count.toLocaleString()} messages`;
+            });
             await interaction.reply({
                 embeds: [{
                     color: 0x22c55e,
