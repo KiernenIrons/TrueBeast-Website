@@ -433,8 +433,19 @@ let discadiaTimer = null;
 const afkUsers = new Map();
 
 // ── Introductions ─────────────────────────────────────────────────────────────
-// Track who has already submitted an intro (in-memory; repopulated on startup from channel history)
-const introducedUsers = new Set();
+
+async function hasIntroduced(userId) {
+    if (!INTRO_CHANNEL_ID) return false;
+    try {
+        const ch = await client.channels.fetch(INTRO_CHANNEL_ID);
+        const msgs = await ch.messages.fetch({ limit: 100 });
+        return msgs.some(m =>
+            m.author.id === client.user.id &&
+            m.embeds.length > 0 &&
+            m.content?.includes(`<@${userId}>`)
+        );
+    } catch (_) { return false; }
+}
 
 // ── Member Spotlight ──────────────────────────────────────────────────────────
 const SPOTLIGHT_CHANNEL_ID = '401913227166089238';
@@ -720,22 +731,6 @@ client.once('ready', async () => {
         console.error('[BeastBot] Failed to register slash commands:', e.message);
     }
 
-    // Populate introducedUsers from intro channel history
-    if (INTRO_CHANNEL_ID) {
-        try {
-            const introCh = await client.channels.fetch(INTRO_CHANNEL_ID);
-            const msgs = await introCh.messages.fetch({ limit: 100 });
-            msgs.forEach(m => {
-                if (m.author.id === client.user.id && m.embeds.length > 0) {
-                    // Extract user ID from the "Welcome, <@id>!" content
-                    const match = m.content?.match(/<@(\d+)>/);
-                    if (match) introducedUsers.add(match[1]);
-                }
-            });
-            console.log(`[BeastBot] Loaded ${introducedUsers.size} introduced users from intro channel`);
-        } catch (_) {}
-    }
-
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
     scheduleSpotlight();
@@ -899,7 +894,6 @@ client.on('interactionCreate', async (interaction) => {
                 content: `Welcome to the server, <@${user.id}>! 🎉`,
                 embeds: [embed],
             });
-            introducedUsers.add(user.id);
             await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
             console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
         } catch (e) {
@@ -913,7 +907,7 @@ client.on('interactionCreate', async (interaction) => {
 
     // Intro button — opens the modal, or tells them they've already done it
     if (interaction.customId === 'intro:start') {
-        if (introducedUsers.has(interaction.user.id)) {
+        if (await hasIntroduced(interaction.user.id)) {
             await interaction.reply({ content: 'You\'ve already introduced yourself — check the channel! 👀', ephemeral: true });
             return;
         }
@@ -1012,6 +1006,20 @@ client.on('interactionCreate', async (interaction) => {
 
 // ── New member join — send intro prompt DM ────────────────────────────────────
 
+
+// ── New member join — brief auto-deleting intro reminder ─────────────────────
+
+client.on('guildMemberAdd', async (member) => {
+    if (member.user.bot || !INTRO_CHANNEL_ID) return;
+    if (await hasIntroduced(member.user.id)) return;
+    try {
+        const ch = await client.channels.fetch(INTRO_CHANNEL_ID);
+        const msg = await ch.send(`👋 Welcome <@${member.user.id}>! Check the pinned message above to introduce yourself to the community.`);
+        setTimeout(() => msg.delete().catch(() => {}), 60000); // auto-delete after 60s
+    } catch (e) {
+        console.error(`[BeastBot] Failed to send intro reminder for ${member.user.tag}:`, e.message);
+    }
+});
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
