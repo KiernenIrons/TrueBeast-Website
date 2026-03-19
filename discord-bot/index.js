@@ -422,6 +422,7 @@ const client = new Client({
 const BUMP_CHANNEL_ID    = '1477361149862482053';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
+const GIVEAWAY_CHANNEL_ID = '836728871356989491';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
@@ -676,6 +677,76 @@ async function checkAnniversaries() {
     }
 }
 
+// ── Gleam Giveaway Finder ─────────────────────────────────────────────────────
+
+const postedGiveawayIds = new Set();
+const GIVEAWAY_SUBREDDITS = 'giveaways+GameGiveaways+FreeGamesOnSteam';
+const GIVEAWAY_WINDOW_MS  = 12 * 60 * 60 * 1000; // 12 hours
+
+function extractGleamLink(post) {
+    if (post.url?.includes('gleam.io')) return post.url;
+    const match = (post.selftext || '').match(/https?:\/\/gleam\.io\/\S+/);
+    return match ? match[0] : post.url;
+}
+
+async function fetchGleamGiveaways() {
+    const url = `https://www.reddit.com/r/${GIVEAWAY_SUBREDDITS}/new.json?limit=50`;
+    try {
+        const res = await fetch(url, { headers: { 'User-Agent': 'TrueBeastBot/1.0' } });
+        if (!res.ok) { console.error('[BeastBot] Reddit API error:', res.status); return []; }
+        const data = await res.json();
+        const posts = data?.data?.children?.map(c => c.data) || [];
+        const cutoff = Date.now() - GIVEAWAY_WINDOW_MS;
+        return posts.filter(p =>
+            !postedGiveawayIds.has(p.id) &&
+            (p.url?.includes('gleam.io') || (p.selftext || '').includes('gleam.io')) &&
+            p.created_utc * 1000 > cutoff
+        );
+    } catch (e) {
+        console.error('[BeastBot] Failed to fetch giveaways from Reddit:', e.message);
+        return [];
+    }
+}
+
+async function checkAndPostGiveaways() {
+    const posts = await fetchGleamGiveaways();
+    if (posts.length === 0) { console.log('[BeastBot] Giveaway check: no new Gleam posts found'); return; }
+
+    const toPost = posts.slice(0, 5); // max 5 per check to avoid spam
+    try {
+        const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
+        for (const post of toPost) {
+            postedGiveawayIds.add(post.id);
+            const gleamUrl = extractGleamLink(post);
+            const desc     = post.selftext ? post.selftext.slice(0, 150).trim() + (post.selftext.length > 150 ? '…' : '') : null;
+            await channel.send({
+                embeds: [{
+                    color: 0xfbbf24,
+                    title: post.title.slice(0, 256),
+                    url: gleamUrl,
+                    description: desc || undefined,
+                    fields: [
+                        { name: '📌 Subreddit', value: `r/${post.subreddit}`, inline: true },
+                        { name: '👍 Upvotes',   value: String(post.score),     inline: true },
+                        { name: '⏰ Posted',    value: `<t:${post.created_utc}:R>`, inline: true },
+                    ],
+                    footer: { text: 'Found on Reddit • Click the title to open the giveaway' },
+                }],
+            });
+        }
+        console.log(`[BeastBot] 🎁 Posted ${toPost.length} new Gleam giveaway(s)`);
+    } catch (e) {
+        console.error('[BeastBot] Failed to post giveaways:', e.message);
+    }
+}
+
+function scheduleGiveawayCheck() {
+    setTimeout(async () => {
+        await checkAndPostGiveaways();
+        setInterval(checkAndPostGiveaways, GIVEAWAY_WINDOW_MS);
+    }, 30 * 1000); // first check 30s after ready
+}
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
@@ -731,6 +802,7 @@ client.once('ready', async () => {
     scheduleDiscordMeReminder();
     scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
     scheduleSpotlight();
+    scheduleGiveawayCheck();
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
@@ -1130,6 +1202,14 @@ client.on('messageCreate', async (message) => {
             } catch (e) {
                 await message.reply(`❌ Failed: ${e.message}`);
             }
+            return;
+        }
+
+        // !!checkgiveaways — manually trigger giveaway check (owner only)
+        if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
+            await message.reply('🔍 Checking for new Gleam giveaways...');
+            await checkAndPostGiveaways();
+            await message.reply('✅ Done — check the giveaways channel!');
             return;
         }
 
