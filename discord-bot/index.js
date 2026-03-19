@@ -767,25 +767,51 @@ async function checkAndPostGiveaways() {
     const giveaways = await fetchGleamGiveaways();
     if (giveaways.length === 0) { console.log('[BeastBot] Giveaway check: no new Gleam giveaways found'); return; }
 
-    const toPost = giveaways;
+    // Mark all as posted before sending
+    giveaways.forEach(g => postedGiveawayIds.add(g.id));
+
     try {
         const channel = await client.channels.fetch(GIVEAWAY_CHANNEL_ID);
-        for (const g of toPost) {
-            postedGiveawayIds.add(g.id);
-            const fields = [];
-            if (g.endsIn)  fields.push({ name: '⏳ Ends',    value: g.endsIn,            inline: true });
-            if (g.entries) fields.push({ name: '🎟️ Entries', value: g.entries.toLocaleString(), inline: true });
+
+        // Build one line per giveaway: linked title + meta on next line
+        const lines = giveaways.map(g => {
+            const meta = [
+                g.endsIn  ? `⏳ ${g.endsIn}`                       : null,
+                g.entries ? `🎟️ ${g.entries.toLocaleString()} entries` : null,
+            ].filter(Boolean).join('  •  ');
+            return `**[${g.title}](${g.contestUrl})**${meta ? `\n${meta}` : ''}`;
+        });
+
+        // Split into chunks that fit within the 4096-char embed description limit
+        const MAX_DESC = 4000;
+        const chunks = [];
+        let current = '';
+        for (const line of lines) {
+            const separator = current ? '\n\n' : '';
+            if (current.length + separator.length + line.length > MAX_DESC) {
+                chunks.push(current);
+                current = line;
+            } else {
+                current += separator + line;
+            }
+        }
+        if (current) chunks.push(current);
+
+        for (let i = 0; i < chunks.length; i++) {
+            const isFirst = i === 0;
+            const isLast  = i === chunks.length - 1;
             await channel.send({
                 embeds: [{
                     color: 0xfbbf24,
-                    title: g.title.slice(0, 256),
-                    url: g.contestUrl,
-                    fields,
-                    footer: { text: 'Via SweepsDB • Click the title to enter the giveaway' },
+                    title: isFirst ? `🎁 ${giveaways.length} Active Gleam Giveaway${giveaways.length !== 1 ? 's' : ''}` : null,
+                    description: chunks[i],
+                    footer: isLast ? { text: 'Via SweepsDB • Click any title to enter • Updates every 12h' } : null,
+                    timestamp: isFirst ? new Date().toISOString() : null,
                 }],
             });
         }
-        console.log(`[BeastBot] 🎁 Posted ${toPost.length} new Gleam giveaway(s)`);
+
+        console.log(`[BeastBot] 🎁 Posted ${giveaways.length} Gleam giveaway(s) in ${chunks.length} embed(s)`);
     } catch (e) {
         console.error('[BeastBot] Failed to post giveaways:', e.message);
     }
