@@ -1356,24 +1356,25 @@ async function exportPDF(previewRef, name) {
             onclone: (doc) => {
                 const el = doc.getElementById('resume-print');
                 if (!el) return;
-                // Remove Tailwind + other generated stylesheets that html2canvas can't parse
-                doc.querySelectorAll('style:not([data-keep])').forEach(s => s.remove());
-                doc.querySelectorAll('link[rel="stylesheet"]').forEach(s => s.remove());
-                // Add back only the minimal CSS the resume needs
+                // Remove only <style> tags (Tailwind generated CSS that html2canvas can't parse)
+                // Keep <link> tags (Google Fonts needed for correct text rendering)
+                doc.querySelectorAll('style').forEach(s => s.remove());
                 const style = doc.createElement('style');
                 style.textContent = '.a4-page{width:794px;background:white;color:#1a1a1a;overflow:visible;}' +
-                    '.a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0;}';
+                    '.a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0;}' +
+                    '*{margin:0;padding:0;box-sizing:border-box;}';
                 doc.head.appendChild(style);
-                // Walk up from element to body, resetting every ancestor
+                // Walk up from element to body, resetting layout so element is at x=0
                 let node = el.parentElement;
                 while (node && node !== doc.body) {
-                    node.style.transform = 'none';
-                    node.style.position = 'static';
-                    node.style.overflow = 'visible';
-                    node.style.maxHeight = 'none';
+                    Object.assign(node.style, {
+                        transform:'none', position:'static', overflow:'visible',
+                        maxHeight:'none', display:'block', justifyContent:'',
+                        alignItems:'', padding:'0', margin:'0'
+                    });
                     node = node.parentElement;
                 }
-                doc.body.style.overflow = 'hidden';
+                doc.body.style.cssText = 'margin:0;padding:0;overflow:hidden';
                 Object.assign(el.style, {
                     width:'794px', height:'auto', minHeight:'auto',
                     overflow:'visible', boxShadow:'none', transform:'none'
