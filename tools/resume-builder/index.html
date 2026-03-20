@@ -332,6 +332,11 @@ function resumeReducer(state, action) {
         case 'TOGGLE_SECTION': {
             const s = JSON.parse(JSON.stringify(state));
             const sec = action.section;
+            // Initialize missing section from defaults (e.g. resumes saved before this section existed)
+            if (!s.sections[sec]) {
+                const defaults = makeDefault().sections;
+                s.sections[sec] = defaults[sec] || { enabled: false, heading: sec, items: [] };
+            }
             s.sections[sec].enabled = !s.sections[sec].enabled;
             if (s.sections[sec].enabled && !s.sectionOrder.includes(sec)) {
                 s.sectionOrder.push(sec);
@@ -547,7 +552,7 @@ const SummaryEditor = ({ data, dispatch }) => (
                 {SUMMARY_TEMPLATES.map((t,i) => <option key={i} value={t.value}>{t.label}</option>)}
             </select>
         </div>
-        <TextArea label="Summary" value={data.text}
+        <TextArea label="Summary" value={data.data.text}
             onChange={val => dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:val })}
             placeholder="Experienced professional with a proven track record..." rows={4} />
     </div>
@@ -1343,10 +1348,12 @@ async function exportPDF(previewRef, name) {
     const origHeight = el.style.height;
     const origMinHeight = el.style.minHeight;
     const origOverflow = el.style.overflow;
-    // Temporarily remove fixed height for proper page break calculation
+    const origBoxShadow = el.style.boxShadow;
+    // Temporarily remove fixed height and decorative shadow for clean PDF export
     el.style.height = 'auto';
     el.style.minHeight = 'auto';
     el.style.overflow = 'visible';
+    el.style.boxShadow = 'none';
     try {
         await html2pdf().set({
             margin: 0,
@@ -1361,6 +1368,7 @@ async function exportPDF(previewRef, name) {
         el.style.height = origHeight;
         el.style.minHeight = origMinHeight;
         el.style.overflow = origOverflow;
+        el.style.boxShadow = origBoxShadow;
     }
 }
 
