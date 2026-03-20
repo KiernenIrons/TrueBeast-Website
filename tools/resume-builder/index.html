@@ -1499,8 +1499,8 @@ const App = () => {
     const handleExportPDF = async () => {
         setExporting(true);
         try { await exportPDF(previewRef, resume.name); showToast('PDF downloaded!'); }
-        catch { showToast('PDF export failed', true); }
-        setExporting(false);
+        catch(e) { console.error('PDF export error:', e); showToast('PDF export failed', true); }
+        finally { setExporting(false); }
     };
 
     const showToast = (msg, err=false) => { setToast({msg,err}); setTimeout(() => setToast(null), 3000); };
