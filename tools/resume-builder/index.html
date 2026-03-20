@@ -1348,43 +1348,50 @@ const PreviewPanel = ({ resume, previewRef }) => {
 // Fix #10: temporarily set height auto for PDF export
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
-    await html2pdf().set({
-        margin: 0,
-        filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
-        image: { type:'jpeg', quality:0.98 },
-        html2canvas: { scale:2, useCORS:true, logging:false,
-            onclone: (doc) => {
-                const el = doc.getElementById('resume-print');
-                if (!el) return;
-                // Remove only <style> tags (Tailwind generated CSS that html2canvas can't parse)
-                // Keep <link> tags (Google Fonts needed for correct text rendering)
-                doc.querySelectorAll('style').forEach(s => s.remove());
-                const style = doc.createElement('style');
-                style.textContent = '.a4-page{width:794px;background:white;color:#1a1a1a;overflow:visible;}' +
-                    '.a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0;}' +
-                    '*{margin:0;padding:0;box-sizing:border-box;}';
-                doc.head.appendChild(style);
-                // Walk up from element to body, resetting layout so element is at x=0
-                let node = el.parentElement;
-                while (node && node !== doc.body) {
-                    Object.assign(node.style, {
-                        transform:'none', position:'static', overflow:'visible',
-                        maxHeight:'none', display:'block', justifyContent:'',
-                        alignItems:'', padding:'0', margin:'0'
-                    });
-                    node = node.parentElement;
-                }
-                doc.body.style.cssText = 'margin:0;padding:0;overflow:hidden';
-                Object.assign(el.style, {
-                    width:'794px', height:'auto', minHeight:'auto',
-                    overflow:'visible', boxShadow:'none', transform:'none',
-                    marginLeft:'-2px'
+    const el = previewRef.current;
+    // Render to canvas manually for full control over positioning
+    const canvas = await html2canvas(el, {
+        scale: 2, useCORS: true, logging: false,
+        width: 794, scrollX: 0, scrollY: 0,
+        onclone: (doc) => {
+            const cloned = doc.getElementById('resume-print');
+            if (!cloned) return;
+            doc.querySelectorAll('style').forEach(s => s.remove());
+            const s = doc.createElement('style');
+            s.textContent = '*{margin:0;padding:0;box-sizing:border-box;}';
+            doc.head.appendChild(s);
+            let node = cloned.parentElement;
+            while (node && node !== doc.body) {
+                Object.assign(node.style, {
+                    transform:'none', position:'static', overflow:'visible',
+                    maxHeight:'none', display:'block', justifyContent:'',
+                    alignItems:'', padding:'0', margin:'0'
                 });
+                node = node.parentElement;
             }
-        },
-        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-        pagebreak: { mode:['css','legacy'] },
-    }).from(previewRef.current).save();
+            doc.body.style.cssText = 'margin:0;padding:0;overflow:hidden';
+            Object.assign(cloned.style, {
+                width:'794px', height:'auto', minHeight:'auto',
+                overflow:'visible', boxShadow:'none', transform:'none'
+            });
+        }
+    });
+    // Build PDF page by page from the canvas
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit:'px', format:'a4', orientation:'portrait', hotfixes:['px_scaling'] });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const imgW = pageW;
+    const imgH = (canvas.height * pageW) / canvas.width;
+    let y = 0;
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, imgW, imgH);
+    y += pageH;
+    while (y < imgH) {
+        pdf.addPage();
+        pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, -y, imgW, imgH);
+        y += pageH;
+    }
+    pdf.save(`${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`);
 }
 
 function printResume(previewRef) {
