@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TrueBeast">
+    <meta property="og:title" content="Resume Builder — TrueBeast Tools">
+    <meta property="og:description" content="Free resume builder with 8 professional templates, live preview, PDF export, and ATS optimization. No account, no watermarks, no limits.">
+    <meta property="og:url" content="https://truebeast.io/tools/resume-builder/">
+    <meta property="og:image" content="https://truebeast.io/assets/images/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <title>Resume Builder | TrueBeast Tools</title>
+    <link rel="icon" href="../../favicon.ico">
+    <script src="../../js/theme.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="../../js/config.js"></script>
+    <script src="../../js/analytics.js"></script>
+    <link rel="stylesheet" href="../../css/shared.css">
+    <link rel="stylesheet" href="../../css/glass.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&family=Roboto:wght@300;400;500;700&family=Lato:wght@300;400;700&family=Open+Sans:wght@300;400;600;700&family=Playfair+Display:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;600;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        #root { opacity: 0; transition: opacity 0.15s ease; }
+        :root {
+            --c-text-faint:rgba(255,255,255,0.22);--c-text-dim:rgba(255,255,255,0.32);
+            --c-text-muted:rgba(255,255,255,0.42);--c-text-label:rgba(255,255,255,0.52);
+            --c-text-medium:rgba(255,255,255,0.62);--c-text-strong:rgba(255,255,255,0.72);
+            --c-text-bolder:rgba(255,255,255,0.82);--c-border-sub:rgba(255,255,255,0.06);
+            --c-border:rgba(255,255,255,0.10);--c-surface:rgba(255,255,255,0.05);
+            --c-toggle-track:rgba(255,255,255,0.12);
+        }
+        html.light {
+            --c-text-faint:rgba(0,0,0,0.38);--c-text-dim:rgba(0,0,0,0.48);
+            --c-text-muted:rgba(0,0,0,0.56);--c-text-label:rgba(0,0,0,0.62);
+            --c-text-medium:rgba(0,0,0,0.70);--c-text-strong:rgba(0,0,0,0.76);
+            --c-text-bolder:rgba(0,0,0,0.85);--c-border-sub:rgba(0,0,0,0.08);
+            --c-border:rgba(0,0,0,0.12);--c-surface:rgba(255,255,255,0.65);
+            --c-toggle-track:rgba(0,0,0,0.18);
+        }
+        .gradient-bg {
+            position:fixed;top:0;left:0;width:100%;height:100%;z-index:-2;
+            background:
+                radial-gradient(ellipse at 15% 20%,rgba(6,182,212,0.22) 0%,transparent 52%),
+                radial-gradient(ellipse at 85% 75%,rgba(59,130,246,0.16) 0%,transparent 50%),
+                radial-gradient(ellipse at 50% 50%,rgba(8,145,178,0.10) 0%,transparent 65%),
+                #0b0b12;
+        }
+        html.light .gradient-bg {
+            background:
+                radial-gradient(ellipse at 15% 20%,rgba(6,182,212,0.15) 0%,transparent 52%),
+                radial-gradient(ellipse at 85% 75%,rgba(59,130,246,0.10) 0%,transparent 50%),
+                radial-gradient(ellipse at 50% 50%,rgba(8,145,178,0.06) 0%,transparent 65%),
+                #f0f4f0;
+        }
+        .inp{background:var(--c-surface);border:1px solid var(--c-border);color:var(--c-text-bolder);outline:none;transition:border-color .15s;border-radius:10px;padding:8px 12px;font-size:.875rem;width:100%;}
+        .inp:focus{border-color:rgba(6,182,212,0.5);}
+        .inp::placeholder{color:var(--c-text-muted);}
+        html.light .inp{background:rgba(255,255,255,0.7);color:#0e1a0e;}
+        select.inp{cursor:pointer;padding-right:28px;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
+        select.inp option{background:#111827;}
+        html.light select.inp option{background:#f0f4f0;color:#0e1a0e;}
+        .section-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;padding:16px;margin-bottom:10px;transition:border-color .15s;}
+        .section-card:hover{border-color:rgba(6,182,212,0.3);}
+        .drag-handle{cursor:grab;color:var(--c-text-muted);transition:color .15s;user-select:none;}
+        .drag-handle:hover{color:var(--c-text-strong);}
+        .drag-handle:active{cursor:grabbing;}
+        .pill-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;font-size:.75rem;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text-medium);}
+        .pill-btn:hover{border-color:rgba(6,182,212,0.4);color:var(--c-text-bolder);}
+        .pill-btn.active{background:rgba(6,182,212,0.15);border-color:rgba(6,182,212,0.4);color:#22d3ee;}
+        .pill-btn.danger{border-color:rgba(239,68,68,0.3);color:#ef4444;}
+        .pill-btn.danger:hover{background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.5);}
+        .primary-btn{padding:8px 16px;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;transition:all .15s;border:none;background:linear-gradient(135deg,#06b6d4,#3b82f6);color:white;}
+        .primary-btn:hover{opacity:0.9;transform:translateY(-1px);}
+        .primary-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
+        .ghost-btn{padding:6px 12px;border-radius:8px;font-size:.8rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:transparent;color:var(--c-text-medium);}
+        .ghost-btn:hover{border-color:rgba(6,182,212,0.4);color:var(--c-text-bolder);}
+        .collapse-btn{cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;color:var(--c-text-strong);font-weight:600;font-size:.9rem;padding:0;}
+        .collapse-btn:hover{color:var(--c-text-bolder);}
+        .template-thumb{width:100%;aspect-ratio:210/297;border:2px solid var(--c-border);border-radius:10px;cursor:pointer;overflow:hidden;transition:all .15s;background:white;position:relative;}
+        .template-thumb:hover{border-color:rgba(6,182,212,0.5);transform:translateY(-2px);}
+        .template-thumb.active{border-color:#06b6d4;box-shadow:0 0 0 2px rgba(6,182,212,0.3);}
+        .template-thumb .ats-badge{position:absolute;top:4px;right:4px;background:rgba(34,197,94,0.9);color:white;font-size:.55rem;padding:1px 5px;border-radius:4px;font-weight:600;}
+        .photo-shape-btn{width:36px;height:36px;border:2px solid var(--c-border);cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;background:var(--c-surface);}
+        .photo-shape-btn:hover{border-color:rgba(6,182,212,0.5);}
+        .photo-shape-btn.active{border-color:#06b6d4;background:rgba(6,182,212,0.15);}
+        .color-swatch{width:28px;height:28px;border-radius:7px;border:2px solid var(--c-border);cursor:pointer;flex-shrink:0;transition:transform .15s;}
+        .color-swatch:hover{transform:scale(1.15);}
+        .color-swatch.active{border-color:white;box-shadow:0 0 0 2px rgba(6,182,212,0.5);}
+        input[type="color"]{position:absolute;opacity:0;pointer-events:none;width:0;height:0;}
+        .a4-page{width:794px;height:1123px;background:white;color:#1a1a1a;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.3);}
+        @media print{
+            body *{visibility:hidden;}
+            #resume-print,#resume-print *{visibility:visible;}
+            #resume-print{position:absolute;left:0;top:0;width:210mm;transform:none!important;}
+            .gradient-bg,nav,.no-print{display:none!important;}
+        }
+        .dragging{opacity:0.5;}
+        .drag-over{border-color:#06b6d4!important;background:rgba(6,182,212,0.05);}
+        .mobile-tab{padding:10px 20px;border-radius:10px;font-weight:600;font-size:.9rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:transparent;color:var(--c-text-medium);}
+        .mobile-tab.active{background:rgba(6,182,212,0.15);border-color:rgba(6,182,212,0.4);color:#22d3ee;}
+    </style>
+</head>
+<body>
+<div class="gradient-bg"></div>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useReducer, useRef, useCallback, useMemo } = React;
+
+// ── Theme Toggle ──────────────────────────────────────────────────────────────
+const ThemeToggle = () => {
+    const [light, setLight] = useState(document.documentElement.classList.contains('light'));
+    useEffect(() => {
+        const h = () => setLight(document.documentElement.classList.contains('light'));
+        window.addEventListener('tb-theme-change', h);
+        return () => window.removeEventListener('tb-theme-change', h);
+    }, []);
+    return (
+        <button onClick={() => window.TBTheme && window.TBTheme.toggle()}
+            className="liquid-glass p-2 rounded-xl transition-all flex-shrink-0"
+            title={light ? 'Switch to dark mode' : 'Switch to light mode'}>
+            {light
+                ? <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                : <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            }
+        </button>
+    );
+};
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+const Navigation = () => {
+    const [scrolled, setScrolled] = useState(false);
+    const [mobileOpen, setMobileOpen] = useState(false);
+    const discordUrl = (typeof SITE_CONFIG !== 'undefined' && SITE_CONFIG.social?.discord) || 'https://discord.gg/Nk8vekY';
+    useEffect(() => {
+        const h = () => setScrolled(window.scrollY > 50);
+        window.addEventListener('scroll', h, { passive: true });
+        return () => window.removeEventListener('scroll', h);
+    }, []);
+    const btn = "border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 px-3.5 py-2 rounded-xl text-sm font-medium text-gray-200 hover:text-white transition-all";
+    return (
+        <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled ? 'py-3' : 'py-6'}`}>
+            <div className="max-w-7xl mx-auto px-6">
+                <div className={`liquid-glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl' : ''}`}>
+                    <div className="flex items-center justify-between">
+                        <a href="../../" className="flex items-center gap-3 group flex-shrink-0">
+                            <img src="../../assets/logos/logo.png" alt="TrueBeast" className="w-10 h-10 object-contain rounded-full pulse-glow flex-shrink-0" />
+                            <span className="font-display font-bold text-xl tracking-tight group-hover:text-green-400 transition-colors">TrueBeast</span>
+                        </a>
+                        <div className="hidden md:flex items-center gap-2">
+                            <a href="../../" className={btn}>Home</a>
+                            <a href="../../giveaways/" className={btn}>Giveaways</a>
+                            <a href="../../tools/" className={`${btn} text-white bg-white/10`}>Toolkit</a>
+                            <a href="../../tech-support/" className={btn}>Tech Support</a>
+                            <a href="../../games/" className={`${btn} text-green-400 hover:text-green-300`}>Games</a>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <ThemeToggle />
+                            <button onClick={() => setMobileOpen(!mobileOpen)} className="md:hidden liquid-glass p-2 rounded-xl">
+                                {mobileOpen
+                                    ? <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    : <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    {mobileOpen && (
+                        <div className="md:hidden mt-4 pt-4 border-t border-white/10">
+                            <div className="flex flex-col gap-1">
+                                <a href="../../" className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Home</a>
+                                <a href="../../giveaways/" className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Giveaways</a>
+                                <a href="../../tools/" className="px-3 py-2.5 rounded-xl text-white bg-white/5 transition-colors font-medium">Toolkit</a>
+                                <a href="../../tech-support/" className="px-3 py-2.5 rounded-xl text-gray-300 hover:text-white hover:bg-white/5 transition-colors font-medium">Tech Support</a>
+                                <a href="../../games/" className="px-3 py-2.5 rounded-xl text-green-400 hover:text-green-300 hover:bg-white/5 transition-colors font-medium">Games</a>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </nav>
+    );
+};
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+const FONTS = [
+    { id: 'Inter', label: 'Inter' },
+    { id: 'Roboto', label: 'Roboto' },
+    { id: 'Lato', label: 'Lato' },
+    { id: 'Open Sans', label: 'Open Sans' },
+    { id: 'Source Sans 3', label: 'Source Sans' },
+    { id: 'Raleway', label: 'Raleway' },
+    { id: 'Merriweather', label: 'Merriweather' },
+    { id: 'Playfair Display', label: 'Playfair' },
+];
+
+const ACCENT_COLORS = ['#2563eb','#06b6d4','#059669','#7c3aed','#dc2626','#ea580c','#ca8a04','#475569','#0f172a'];
+
+const SECTION_META = {
+    personal:       { label: 'Personal Info',           icon: '👤' },
+    summary:        { label: 'Professional Summary',    icon: '📋' },
+    experience:     { label: 'Work Experience',         icon: '💼' },
+    education:      { label: 'Education',               icon: '🎓' },
+    skills:         { label: 'Skills',                  icon: '⚡' },
+    certifications: { label: 'Certifications',          icon: '📜' },
+    languages:      { label: 'Languages',               icon: '🌍' },
+    projects:       { label: 'Projects',                icon: '🛠' },
+    awards:         { label: 'Awards',                  icon: '🏆' },
+    volunteer:      { label: 'Volunteer Work',          icon: '🤝' },
+    custom:         { label: 'Custom Section',          icon: '✏️' },
+};
+
+const PROFICIENCY_LEVELS = ['Beginner','Elementary','Intermediate','Upper Intermediate','Advanced','Native/Bilingual'];
+
+function makeDefault() {
+    return {
+        id: uid(),
+        name: 'Untitled Resume',
+        template: 'modern',
+        accentColor: '#2563eb',
+        fontFamily: 'Inter',
+        fontSize: 'medium',
+        lineSpacing: 'normal',
+        photo: { dataUrl: null, shape: 'circle' },
+        sectionOrder: ['personal','summary','experience','education','skills'],
+        sections: {
+            personal:       { enabled: true, data: { firstName:'', lastName:'', title:'', email:'', phone:'', location:'', website:'', linkedin:'' } },
+            summary:        { enabled: true, heading: 'Professional Summary', data: { text: '' } },
+            experience:     { enabled: true, heading: 'Work Experience', items: [{ id:uid(), company:'', title:'', location:'', startDate:'', endDate:'', current:false, bullets:[''] }] },
+            education:      { enabled: true, heading: 'Education', items: [{ id:uid(), school:'', degree:'', field:'', startDate:'', endDate:'', gpa:'', bullets:[''] }] },
+            skills:         { enabled: true, heading: 'Skills', displayMode: 'tags', items: [{ id:uid(), name:'', level:3, category:'' }] },
+            certifications: { enabled: false, heading: 'Certifications', items: [{ id:uid(), name:'', issuer:'', date:'', url:'' }] },
+            languages:      { enabled: false, heading: 'Languages', items: [{ id:uid(), name:'', proficiency:'Intermediate' }] },
+            projects:       { enabled: false, heading: 'Projects', items: [{ id:uid(), name:'', url:'', description:'', technologies:'', bullets:[''] }] },
+            awards:         { enabled: false, heading: 'Awards & Achievements', items: [{ id:uid(), title:'', issuer:'', date:'', description:'' }] },
+            volunteer:      { enabled: false, heading: 'Volunteer Experience', items: [{ id:uid(), organization:'', role:'', startDate:'', endDate:'', bullets:[''] }] },
+            custom:         { enabled: false, heading: 'Custom Section', items: [{ id:uid(), title:'', subtitle:'', description:'' }] },
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    };
+}
+
+// ── Reducer ───────────────────────────────────────────────────────────────────
+function resumeReducer(state, action) {
+    const now = new Date().toISOString();
+    switch (action.type) {
+        case 'SET_RESUME': return { ...action.resume, updatedAt: now };
+        case 'SET_FIELD': {
+            const keys = action.path.split('.');
+            const s = JSON.parse(JSON.stringify(state));
+            let obj = s;
+            for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]];
+            obj[keys[keys.length - 1]] = action.value;
+            s.updatedAt = now;
+            return s;
+        }
+        case 'SET_TEMPLATE': return { ...state, template: action.value, updatedAt: now };
+        case 'SET_ACCENT': return { ...state, accentColor: action.value, updatedAt: now };
+        case 'SET_FONT': return { ...state, fontFamily: action.value, updatedAt: now };
+        case 'SET_PHOTO': return { ...state, photo: { ...state.photo, ...action.value }, updatedAt: now };
+        case 'TOGGLE_SECTION': {
+            const s = JSON.parse(JSON.stringify(state));
+            const sec = action.section;
+            s.sections[sec].enabled = !s.sections[sec].enabled;
+            if (s.sections[sec].enabled && !s.sectionOrder.includes(sec)) {
+                s.sectionOrder.push(sec);
+            }
+            if (!s.sections[sec].enabled) {
+                s.sectionOrder = s.sectionOrder.filter(k => k !== sec);
+            }
+            s.updatedAt = now;
+            return s;
+        }
+        case 'REORDER_SECTIONS': return { ...state, sectionOrder: action.order, updatedAt: now };
+        case 'ADD_ITEM': {
+            const s = JSON.parse(JSON.stringify(state));
+            s.sections[action.section].items.push(action.item);
+            s.updatedAt = now;
+            return s;
+        }
+        case 'REMOVE_ITEM': {
+            const s = JSON.parse(JSON.stringify(state));
+            s.sections[action.section].items = s.sections[action.section].items.filter(i => i.id !== action.id);
+            s.updatedAt = now;
+            return s;
+        }
+        case 'UPDATE_ITEM': {
+            const s = JSON.parse(JSON.stringify(state));
+            const items = s.sections[action.section].items;
+            const idx = items.findIndex(i => i.id === action.id);
+            if (idx >= 0) items[idx] = { ...items[idx], ...action.data };
+            s.updatedAt = now;
+            return s;
+        }
+        case 'REORDER_ITEMS': {
+            const s = JSON.parse(JSON.stringify(state));
+            s.sections[action.section].items = action.items;
+            s.updatedAt = now;
+            return s;
+        }
+        case 'ADD_BULLET': {
+            const s = JSON.parse(JSON.stringify(state));
+            const item = s.sections[action.section].items.find(i => i.id === action.itemId);
+            if (item) item.bullets.push('');
+            s.updatedAt = now;
+            return s;
+        }
+        case 'REMOVE_BULLET': {
+            const s = JSON.parse(JSON.stringify(state));
+            const item = s.sections[action.section].items.find(i => i.id === action.itemId);
+            if (item && item.bullets.length > 1) item.bullets.splice(action.bulletIdx, 1);
+            s.updatedAt = now;
+            return s;
+        }
+        case 'UPDATE_BULLET': {
+            const s = JSON.parse(JSON.stringify(state));
+            const item = s.sections[action.section].items.find(i => i.id === action.itemId);
+            if (item) item.bullets[action.bulletIdx] = action.value;
+            s.updatedAt = now;
+            return s;
+        }
+        default: return state;
+    }
+}
+
+// ── Storage ───────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'tb_resumes';
+const ACTIVE_KEY  = 'tb_resume_active';
+
+function loadResumes() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; }
+}
+function saveResumes(resumes) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(resumes));
+}
+function getActiveId() { return localStorage.getItem(ACTIVE_KEY); }
+function setActiveId(id) { localStorage.setItem(ACTIVE_KEY, id); }
+
+// ── Drag Hook ─────────────────────────────────────────────────────────────────
+function useDragReorder(items, onReorder) {
+    const [dragIdx, setDragIdx] = useState(null);
+    const onDragStart = (e, idx) => { setDragIdx(idx); e.dataTransfer.effectAllowed = 'move'; };
+    const onDragOver = (e, idx) => {
+        e.preventDefault();
+        if (dragIdx === null || dragIdx === idx) return;
+        const next = [...items];
+        const [moved] = next.splice(dragIdx, 1);
+        next.splice(idx, 0, moved);
+        onReorder(next);
+        setDragIdx(idx);
+    };
+    const onDragEnd = () => setDragIdx(null);
+    return { dragIdx, onDragStart, onDragOver, onDragEnd };
+}
+
+// ── Field Components ──────────────────────────────────────────────────────────
+const Field = ({ label, value, onChange, placeholder, type='text', ...props }) => (
+    <div className="flex flex-col gap-1">
+        {label && <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>{label}</label>}
+        <input className="inp" type={type} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} {...props} />
+    </div>
+);
+
+const TextArea = ({ label, value, onChange, placeholder, rows=3 }) => (
+    <div className="flex flex-col gap-1">
+        {label && <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>{label}</label>}
+        <textarea className="inp" rows={rows} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{resize:'vertical',minHeight:'60px'}} />
+    </div>
+);
+
+// ── Section Editors ───────────────────────────────────────────────────────────
+const PersonalInfoEditor = ({ data, photo, dispatch }) => {
+    const f = (field) => (val) => dispatch({ type:'SET_FIELD', path:`sections.personal.data.${field}`, value:val });
+    const handlePhoto = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => dispatch({ type:'SET_PHOTO', value:{ dataUrl: ev.target.result } });
+        reader.readAsDataURL(file);
+    };
+    return (
+        <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+                <Field label="First Name" value={data.firstName} onChange={f('firstName')} placeholder="John" />
+                <Field label="Last Name" value={data.lastName} onChange={f('lastName')} placeholder="Doe" />
+            </div>
+            <Field label="Job Title" value={data.title} onChange={f('title')} placeholder="Software Engineer" />
+            <div className="grid grid-cols-2 gap-3">
+                <Field label="Email" value={data.email} onChange={f('email')} placeholder="john@example.com" type="email" />
+                <Field label="Phone" value={data.phone} onChange={f('phone')} placeholder="+1 234 567 890" />
+            </div>
+            <Field label="Location" value={data.location} onChange={f('location')} placeholder="New York, NY" />
+            <div className="grid grid-cols-2 gap-3">
+                <Field label="Website" value={data.website} onChange={f('website')} placeholder="yoursite.com" />
+                <Field label="LinkedIn" value={data.linkedin} onChange={f('linkedin')} placeholder="linkedin.com/in/you" />
+            </div>
+            {/* Photo */}
+            <div style={{borderTop:'1px solid var(--c-border)',paddingTop:12,marginTop:8}}>
+                <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500,display:'block',marginBottom:8}}>Photo (optional)</label>
+                <div className="flex items-center gap-3">
+                    {photo.dataUrl && (
+                        <div style={{width:56,height:56,overflow:'hidden',flexShrink:0,
+                            borderRadius: photo.shape==='circle'?'50%': photo.shape==='rounded'?'12px':'4px',
+                            border:'2px solid var(--c-border)'}}>
+                            <img src={photo.dataUrl} style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                        </div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                        <label className="ghost-btn" style={{cursor:'pointer'}}>
+                            {photo.dataUrl ? 'Change Photo' : 'Upload Photo'}
+                            <input type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}} />
+                        </label>
+                        {photo.dataUrl && (
+                            <button className="pill-btn danger" onClick={() => dispatch({ type:'SET_PHOTO', value:{ dataUrl:null } })}>Remove</button>
+                        )}
+                    </div>
+                </div>
+                {photo.dataUrl && (
+                    <div className="flex items-center gap-2 mt-2">
+                        <span style={{color:'var(--c-text-muted)',fontSize:'.75rem'}}>Shape:</span>
+                        {['circle','rounded','square'].map(s => (
+                            <button key={s} className={`photo-shape-btn ${photo.shape===s?'active':''}`}
+                                style={{borderRadius:s==='circle'?'50%':s==='rounded'?'8px':'4px'}}
+                                onClick={() => dispatch({ type:'SET_PHOTO', value:{ shape:s } })}>
+                                <div style={{width:16,height:16,background:'var(--c-text-medium)',borderRadius:s==='circle'?'50%':s==='rounded'?'4px':'2px'}} />
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const SummaryEditor = ({ data, dispatch }) => (
+    <TextArea label="Summary" value={data.text}
+        onChange={val => dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:val })}
+        placeholder="Experienced professional with a proven track record..." rows={4} />
+);
+
+const BulletEditor = ({ bullets, section, itemId, dispatch }) => (
+    <div className="space-y-2">
+        <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>Key Points</label>
+        {bullets.map((b, i) => (
+            <div key={i} className="flex items-start gap-2">
+                <span style={{color:'var(--c-text-muted)',marginTop:10,fontSize:'.8rem'}}>•</span>
+                <textarea className="inp" rows={1} value={b} style={{resize:'vertical',minHeight:'36px'}}
+                    onChange={e => dispatch({ type:'UPDATE_BULLET', section, itemId, bulletIdx:i, value:e.target.value })}
+                    placeholder="Describe your achievement..." />
+                {bullets.length > 1 && (
+                    <button className="pill-btn danger" style={{marginTop:6,flexShrink:0}}
+                        onClick={() => dispatch({ type:'REMOVE_BULLET', section, itemId, bulletIdx:i })}>×</button>
+                )}
+            </div>
+        ))}
+        <button className="pill-btn" onClick={() => dispatch({ type:'ADD_BULLET', section, itemId })}>+ Add Point</button>
+    </div>
+);
+
+const ItemEditor = ({ item, section, fields, dispatch, open, onToggle }) => {
+    const title = fields[0]?.getter(item) || 'New Entry';
+    return (
+        <div className="section-card" style={{padding:12}}>
+            <div className="flex items-center justify-between">
+                <button className="collapse-btn" onClick={onToggle} style={{fontSize:'.85rem'}}>
+                    <span style={{transition:'transform .15s',display:'inline-block',transform:open?'rotate(90deg)':'rotate(0)'}}>▶</span>
+                    <span style={{color:'var(--c-text-strong)'}}>{title || 'New Entry'}</span>
+                </button>
+                <button className="pill-btn danger" onClick={() => dispatch({ type:'REMOVE_ITEM', section, id:item.id })}>Delete</button>
+            </div>
+            {open && (
+                <div className="mt-3 space-y-3">
+                    {fields.map((f, i) => {
+                        if (f.type === 'bullets') return <BulletEditor key={i} bullets={item.bullets} section={section} itemId={item.id} dispatch={dispatch} />;
+                        if (f.type === 'checkbox') return (
+                            <label key={i} className="flex items-center gap-2 cursor-pointer" style={{color:'var(--c-text-medium)',fontSize:'.85rem'}}>
+                                <input type="checkbox" checked={f.getter(item)} onChange={e => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:e.target.checked} })} />
+                                {f.label}
+                            </label>
+                        );
+                        if (f.type === 'select') return (
+                            <div key={i} className="flex flex-col gap-1">
+                                <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>{f.label}</label>
+                                <select className="inp" value={f.getter(item)} onChange={e => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:e.target.value} })}>
+                                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                            </div>
+                        );
+                        if (f.type === 'textarea') return <TextArea key={i} label={f.label} value={f.getter(item)} onChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:val} })} placeholder={f.placeholder} />;
+                        return <Field key={i} label={f.label} value={f.getter(item)} onChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:val} })} placeholder={f.placeholder} type={f.inputType||'text'} />;
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const ListSectionEditor = ({ section, items, fields, newItem, dispatch, heading, onHeadingChange }) => {
+    const [openItems, setOpenItems] = useState({});
+    const toggle = (id) => setOpenItems(p => ({ ...p, [id]: !p[id] }));
+    return (
+        <div className="space-y-3">
+            <Field label="Section Heading" value={heading} onChange={onHeadingChange} placeholder="Section Title" />
+            {items.map((item, idx) => (
+                <ItemEditor key={item.id} item={item} section={section} fields={fields} dispatch={dispatch}
+                    open={!!openItems[item.id]} onToggle={() => toggle(item.id)} />
+            ))}
+            <button className="ghost-btn" onClick={() => dispatch({ type:'ADD_ITEM', section, item:{ ...newItem(), id:uid() } })}>+ Add Entry</button>
+        </div>
+    );
+};
+
+const ExperienceEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="experience" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.experience.heading', value:v })}
+        newItem={() => ({ company:'', title:'', location:'', startDate:'', endDate:'', current:false, bullets:[''] })}
+        fields={[
+            { label:'Job Title', field:'title', getter:i=>i.title, placeholder:'Software Engineer' },
+            { label:'Company', field:'company', getter:i=>i.company, placeholder:'Google' },
+            { label:'Location', field:'location', getter:i=>i.location, placeholder:'Mountain View, CA' },
+            { label:'Start Date', field:'startDate', getter:i=>i.startDate, placeholder:'Jan 2020' },
+            { label:'End Date', field:'endDate', getter:i=>i.endDate, placeholder:'Present' },
+            { label:'Currently working here', field:'current', getter:i=>i.current, type:'checkbox' },
+            { type:'bullets' },
+        ]} />
+);
+
+const EducationEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="education" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.education.heading', value:v })}
+        newItem={() => ({ school:'', degree:'', field:'', startDate:'', endDate:'', gpa:'', bullets:[''] })}
+        fields={[
+            { label:'School', field:'school', getter:i=>i.school, placeholder:'MIT' },
+            { label:'Degree', field:'degree', getter:i=>i.degree, placeholder:'Bachelor of Science' },
+            { label:'Field of Study', field:'field', getter:i=>i.field, placeholder:'Computer Science' },
+            { label:'Start Date', field:'startDate', getter:i=>i.startDate, placeholder:'2016' },
+            { label:'End Date', field:'endDate', getter:i=>i.endDate, placeholder:'2020' },
+            { label:'GPA', field:'gpa', getter:i=>i.gpa, placeholder:'3.8' },
+            { type:'bullets' },
+        ]} />
+);
+
+const SkillsEditor = ({ data, dispatch }) => {
+    const [newSkill, setNewSkill] = useState('');
+    const addSkill = () => {
+        if (!newSkill.trim()) return;
+        dispatch({ type:'ADD_ITEM', section:'skills', item:{ id:uid(), name:newSkill.trim(), level:3, category:'' } });
+        setNewSkill('');
+    };
+    return (
+        <div className="space-y-3">
+            <Field label="Section Heading" value={data.heading}
+                onChange={v => dispatch({ type:'SET_FIELD', path:'sections.skills.heading', value:v })} placeholder="Skills" />
+            <div className="flex gap-2">
+                <input className="inp" value={newSkill} onChange={e=>setNewSkill(e.target.value)}
+                    placeholder="Add a skill..." onKeyDown={e => e.key==='Enter' && addSkill()} />
+                <button className="ghost-btn" onClick={addSkill}>Add</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                {data.items.map(s => (
+                    <span key={s.id} className="pill-btn" style={{gap:6}}>
+                        {s.name}
+                        <button onClick={() => dispatch({ type:'REMOVE_ITEM', section:'skills', id:s.id })}
+                            style={{opacity:.6,cursor:'pointer',background:'none',border:'none',color:'inherit',fontSize:'1rem',lineHeight:1}}>×</button>
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const CertificationsEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="certifications" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.certifications.heading', value:v })}
+        newItem={() => ({ name:'', issuer:'', date:'', url:'' })}
+        fields={[
+            { label:'Certification', field:'name', getter:i=>i.name, placeholder:'AWS Solutions Architect' },
+            { label:'Issuer', field:'issuer', getter:i=>i.issuer, placeholder:'Amazon Web Services' },
+            { label:'Date', field:'date', getter:i=>i.date, placeholder:'March 2023' },
+            { label:'URL', field:'url', getter:i=>i.url, placeholder:'credential.net/...' },
+        ]} />
+);
+
+const LanguagesEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="languages" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.languages.heading', value:v })}
+        newItem={() => ({ name:'', proficiency:'Intermediate' })}
+        fields={[
+            { label:'Language', field:'name', getter:i=>i.name, placeholder:'Spanish' },
+            { label:'Proficiency', field:'proficiency', getter:i=>i.proficiency, type:'select', options:PROFICIENCY_LEVELS },
+        ]} />
+);
+
+const ProjectsEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="projects" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.projects.heading', value:v })}
+        newItem={() => ({ name:'', url:'', description:'', technologies:'', bullets:[''] })}
+        fields={[
+            { label:'Project Name', field:'name', getter:i=>i.name, placeholder:'My App' },
+            { label:'URL', field:'url', getter:i=>i.url, placeholder:'github.com/you/project' },
+            { label:'Technologies', field:'technologies', getter:i=>i.technologies, placeholder:'React, Node.js, PostgreSQL' },
+            { label:'Description', field:'description', getter:i=>i.description, placeholder:'A brief description...', type:'textarea' },
+            { type:'bullets' },
+        ]} />
+);
+
+const AwardsEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="awards" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.awards.heading', value:v })}
+        newItem={() => ({ title:'', issuer:'', date:'', description:'' })}
+        fields={[
+            { label:'Award Title', field:'title', getter:i=>i.title, placeholder:'Employee of the Year' },
+            { label:'Issuer', field:'issuer', getter:i=>i.issuer, placeholder:'Company Name' },
+            { label:'Date', field:'date', getter:i=>i.date, placeholder:'2023' },
+            { label:'Description', field:'description', getter:i=>i.description, placeholder:'Brief description...', type:'textarea' },
+        ]} />
+);
+
+const VolunteerEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="volunteer" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.volunteer.heading', value:v })}
+        newItem={() => ({ organization:'', role:'', startDate:'', endDate:'', bullets:[''] })}
+        fields={[
+            { label:'Organization', field:'organization', getter:i=>i.organization, placeholder:'Red Cross' },
+            { label:'Role', field:'role', getter:i=>i.role, placeholder:'Volunteer Coordinator' },
+            { label:'Start Date', field:'startDate', getter:i=>i.startDate, placeholder:'Jun 2021' },
+            { label:'End Date', field:'endDate', getter:i=>i.endDate, placeholder:'Present' },
+            { type:'bullets' },
+        ]} />
+);
+
+const CustomSectionEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="custom" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.custom.heading', value:v })}
+        newItem={() => ({ title:'', subtitle:'', description:'' })}
+        fields={[
+            { label:'Title', field:'title', getter:i=>i.title, placeholder:'Entry title' },
+            { label:'Subtitle', field:'subtitle', getter:i=>i.subtitle, placeholder:'Subtitle or date' },
+            { label:'Description', field:'description', getter:i=>i.description, placeholder:'Description...', type:'textarea' },
+        ]} />
+);
+
+const SECTION_EDITORS = {
+    personal: PersonalInfoEditor,
+    summary: SummaryEditor,
+    experience: ExperienceEditor,
+    education: EducationEditor,
+    skills: SkillsEditor,
+    certifications: CertificationsEditor,
+    languages: LanguagesEditor,
+    projects: ProjectsEditor,
+    awards: AwardsEditor,
+    volunteer: VolunteerEditor,
+    custom: CustomSectionEditor,
+};
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+const tfs = (fontSize) => ({ small: 0.85, medium: 1, large: 1.12 }[fontSize] || 1);
+const tls = (ls) => ({ compact: 1.3, normal: 1.5, relaxed: 1.7 }[ls] || 1.5);
+
+const ResumeHeader = ({ sections, photo, accentColor, fontFamily, fontSize, showPhoto=true }) => {
+    const p = sections.personal.data;
+    const fs = tfs(fontSize);
+    const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    const contacts = [p.email, p.phone, p.location, p.website, p.linkedin].filter(Boolean);
+    return (
+        <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:16}}>
+            {showPhoto && photo?.dataUrl && (
+                <img src={photo.dataUrl} style={{width:64*fs,height:64*fs,objectFit:'cover',flexShrink:0,
+                    borderRadius:photo.shape==='circle'?'50%':photo.shape==='rounded'?8:2}} />
+            )}
+            <div style={{flex:1}}>
+                {fullName && <div style={{fontSize:24*fs,fontWeight:700,fontFamily,color:'#1a1a1a',lineHeight:1.2}}>{fullName}</div>}
+                {p.title && <div style={{fontSize:14*fs,color:accentColor,fontWeight:500,marginTop:2,fontFamily}}>{p.title}</div>}
+                {contacts.length > 0 && (
+                    <div style={{fontSize:10*fs,color:'#666',marginTop:6,fontFamily,display:'flex',flexWrap:'wrap',gap:'4px 12px'}}>
+                        {contacts.map((c,i) => <span key={i}>{c}</span>)}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const SectionHeading = ({ text, accentColor, fontFamily, fontSize, style }) => (
+    <div style={{fontSize:13*tfs(fontSize),fontWeight:700,color:accentColor,textTransform:'uppercase',letterSpacing:1.2,
+        borderBottom:`2px solid ${accentColor}`,paddingBottom:4,marginBottom:8,marginTop:16,fontFamily,...style}}>{text}</div>
+);
+
+const ExpBlock = ({ item, fontFamily, fontSize }) => {
+    const fs = tfs(fontSize);
+    const dateStr = item.current ? `${item.startDate} — Present` : [item.startDate, item.endDate].filter(Boolean).join(' — ');
+    return (
+        <div style={{marginBottom:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:'#1a1a1a'}}>{item.title}{item.company ? ` at ${item.company}` : ''}</div>
+                {dateStr && <div style={{fontSize:10*fs,color:'#888',fontFamily,flexShrink:0}}>{dateStr}</div>}
+            </div>
+            {item.location && <div style={{fontSize:10*fs,color:'#888',fontFamily}}>{item.location}</div>}
+            {item.bullets?.filter(Boolean).length > 0 && (
+                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:'#333',fontFamily,lineHeight:1.5}}>
+                    {item.bullets.filter(Boolean).map((b,i) => <li key={i} style={{marginBottom:2}}>{b}</li>)}
+                </ul>
+            )}
+        </div>
+    );
+};
+
+const EduBlock = ({ item, fontFamily, fontSize }) => {
+    const fs = tfs(fontSize);
+    const dateStr = [item.startDate, item.endDate].filter(Boolean).join(' — ');
+    return (
+        <div style={{marginBottom:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:'#1a1a1a'}}>{item.degree}{item.field ? ` in ${item.field}` : ''}</div>
+                {dateStr && <div style={{fontSize:10*fs,color:'#888',fontFamily,flexShrink:0}}>{dateStr}</div>}
+            </div>
+            {item.school && <div style={{fontSize:11*fs,color:'#555',fontFamily}}>{item.school}</div>}
+            {item.gpa && <div style={{fontSize:10*fs,color:'#888',fontFamily}}>GPA: {item.gpa}</div>}
+            {item.bullets?.filter(Boolean).length > 0 && (
+                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:'#333',fontFamily,lineHeight:1.5}}>
+                    {item.bullets.filter(Boolean).map((b,i) => <li key={i} style={{marginBottom:2}}>{b}</li>)}
+                </ul>
+            )}
+        </div>
+    );
+};
+
+const SkillsTags = ({ items, accentColor, fontFamily, fontSize }) => {
+    const fs = tfs(fontSize);
+    return (
+        <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {items.filter(s=>s.name).map(s => (
+                <span key={s.id} style={{background:`${accentColor}15`,color:accentColor,padding:'2px 10px',borderRadius:4,fontSize:10*fs,fontFamily,fontWeight:500}}>{s.name}</span>
+            ))}
+        </div>
+    );
+};
+
+const GenericSection = ({ section, data, accentColor, fontFamily, fontSize }) => {
+    const fs = tfs(fontSize);
+    if (section === 'certifications') return data.items.filter(i=>i.name).map(i => (
+        <div key={i.id} style={{marginBottom:6}}>
+            <span style={{fontWeight:600,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.name}</span>
+            {i.issuer && <span style={{fontSize:10*fs,color:'#888',fontFamily}}> — {i.issuer}</span>}
+            {i.date && <span style={{fontSize:10*fs,color:'#aaa',fontFamily}}> ({i.date})</span>}
+        </div>
+    ));
+    if (section === 'languages') return data.items.filter(i=>i.name).map(i => (
+        <div key={i.id} style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontWeight:500,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.name}</span>
+            <span style={{fontSize:10*fs,color:'#888',fontFamily}}>{i.proficiency}</span>
+        </div>
+    ));
+    if (section === 'projects') return data.items.filter(i=>i.name).map(i => (
+        <div key={i.id} style={{marginBottom:10}}>
+            <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:'#1a1a1a'}}>{i.name}</div>
+            {i.technologies && <div style={{fontSize:10*fs,color:accentColor,fontFamily}}>{i.technologies}</div>}
+            {i.description && <div style={{fontSize:11*fs,color:'#555',fontFamily,marginTop:2}}>{i.description}</div>}
+            {i.bullets?.filter(Boolean).length > 0 && (
+                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:'#333',fontFamily,lineHeight:1.5}}>
+                    {i.bullets.filter(Boolean).map((b,idx) => <li key={idx}>{b}</li>)}
+                </ul>
+            )}
+        </div>
+    ));
+    if (section === 'awards') return data.items.filter(i=>i.title).map(i => (
+        <div key={i.id} style={{marginBottom:6}}>
+            <span style={{fontWeight:600,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.title}</span>
+            {i.issuer && <span style={{fontSize:10*fs,color:'#888',fontFamily}}> — {i.issuer}</span>}
+            {i.date && <span style={{fontSize:10*fs,color:'#aaa',fontFamily}}> ({i.date})</span>}
+            {i.description && <div style={{fontSize:11*fs,color:'#555',fontFamily,marginTop:2}}>{i.description}</div>}
+        </div>
+    ));
+    if (section === 'volunteer') return data.items.filter(i=>i.organization||i.role).map(i => (
+        <ExpBlock key={i.id} item={{...i, title:i.role, company:i.organization}} fontFamily={fontFamily} fontSize={fontSize} />
+    ));
+    if (section === 'custom') return data.items.filter(i=>i.title).map(i => (
+        <div key={i.id} style={{marginBottom:6}}>
+            <div style={{fontWeight:600,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.title}</div>
+            {i.subtitle && <div style={{fontSize:10*fs,color:'#888',fontFamily}}>{i.subtitle}</div>}
+            {i.description && <div style={{fontSize:11*fs,color:'#555',fontFamily,marginTop:2}}>{i.description}</div>}
+        </div>
+    ));
+    return null;
+};
+
+const renderSection = (key, props) => {
+    const { sections, accentColor, fontFamily, fontSize } = props;
+    const sec = sections[key];
+    if (!sec || !sec.enabled) return null;
+    if (key === 'personal') return null; // rendered as header
+    if (key === 'summary') {
+        if (!sec.data?.text) return null;
+        return (
+            <div key={key}>
+                <SectionHeading text={sec.heading||'Professional Summary'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+                <div style={{fontSize:11*tfs(fontSize),color:'#444',fontFamily,lineHeight:tls(props.lineSpacing)}}>{sec.data.text}</div>
+            </div>
+        );
+    }
+    if (key === 'experience') {
+        if (!sec.items?.some(i=>i.title||i.company)) return null;
+        return (
+            <div key={key}>
+                <SectionHeading text={sec.heading||'Work Experience'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+                {sec.items.filter(i=>i.title||i.company).map(i => <ExpBlock key={i.id} item={i} fontFamily={fontFamily} fontSize={fontSize} />)}
+            </div>
+        );
+    }
+    if (key === 'education') {
+        if (!sec.items?.some(i=>i.school||i.degree)) return null;
+        return (
+            <div key={key}>
+                <SectionHeading text={sec.heading||'Education'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+                {sec.items.filter(i=>i.school||i.degree).map(i => <EduBlock key={i.id} item={i} fontFamily={fontFamily} fontSize={fontSize} />)}
+            </div>
+        );
+    }
+    if (key === 'skills') {
+        if (!sec.items?.some(i=>i.name)) return null;
+        return (
+            <div key={key}>
+                <SectionHeading text={sec.heading||'Skills'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+                <SkillsTags items={sec.items} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+            </div>
+        );
+    }
+    // Generic sections
+    if (!sec.items?.length) return null;
+    return (
+        <div key={key}>
+            <SectionHeading text={sec.heading} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+            <GenericSection section={key} data={sec} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+        </div>
+    );
+};
+
+// Template: Classic (single column, traditional)
+const TemplateClassic = (props) => {
+    const { sectionOrder } = props;
+    return (
+        <div style={{padding:40,lineHeight:tls(props.lineSpacing)}}>
+            <ResumeHeader {...props} showPhoto={false} />
+            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
+        </div>
+    );
+};
+
+// Template: Modern (left accent bar)
+const TemplateModern = (props) => {
+    const { sectionOrder, accentColor } = props;
+    return (
+        <div style={{display:'flex',minHeight:'100%'}}>
+            <div style={{width:5,background:accentColor,flexShrink:0}} />
+            <div style={{flex:1,padding:'36px 36px 36px 32px',lineHeight:tls(props.lineSpacing)}}>
+                <ResumeHeader {...props} />
+                {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
+            </div>
+        </div>
+    );
+};
+
+// Template: Minimal
+const TemplateMinimal = (props) => {
+    const { sectionOrder } = props;
+    const fs = tfs(props.fontSize);
+    const p = props.sections.personal.data;
+    const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    const contacts = [p.email, p.phone, p.location, p.website, p.linkedin].filter(Boolean);
+    return (
+        <div style={{padding:'48px 44px',lineHeight:tls(props.lineSpacing)}}>
+            <div style={{textAlign:'center',marginBottom:20}}>
+                {props.photo?.dataUrl && <img src={props.photo.dataUrl} style={{width:56*fs,height:56*fs,objectFit:'cover',margin:'0 auto 10px',
+                    borderRadius:props.photo.shape==='circle'?'50%':props.photo.shape==='rounded'?8:2}} />}
+                {fullName && <div style={{fontSize:28*fs,fontWeight:300,fontFamily:props.fontFamily,color:'#1a1a1a',letterSpacing:2}}>{fullName}</div>}
+                {p.title && <div style={{fontSize:12*fs,color:'#999',marginTop:4,fontFamily:props.fontFamily,letterSpacing:1}}>{p.title}</div>}
+                {contacts.length > 0 && (
+                    <div style={{fontSize:9*fs,color:'#bbb',marginTop:8,fontFamily:props.fontFamily}}>{contacts.join('  |  ')}</div>
+                )}
+            </div>
+            <div style={{borderTop:'1px solid #e5e5e5',marginBottom:16}} />
+            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, {...props, accentColor:'#333'}))}
+        </div>
+    );
+};
+
+// Template: Professional
+const TemplateProfessional = (props) => {
+    const { sectionOrder, accentColor } = props;
+    return (
+        <div style={{padding:36,lineHeight:tls(props.lineSpacing)}}>
+            <div style={{background:accentColor,padding:'20px 24px',marginBottom:20,borderRadius:4}}>
+                <ResumeHeader {...props} />
+            </div>
+            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
+        </div>
+    );
+};
+
+// Override header colors for Professional template
+const ProfessionalWrapper = (props) => {
+    const headerProps = { ...props };
+    return (
+        <div style={{padding:36,lineHeight:tls(props.lineSpacing)}}>
+            <div style={{background:props.accentColor,padding:'20px 24px',marginBottom:20,borderRadius:4}}>
+                <div style={{display:'flex',alignItems:'center',gap:16}}>
+                    {props.photo?.dataUrl && (
+                        <img src={props.photo.dataUrl} style={{width:60,height:60,objectFit:'cover',flexShrink:0,
+                            borderRadius:props.photo.shape==='circle'?'50%':props.photo.shape==='rounded'?8:2,border:'2px solid rgba(255,255,255,0.3)'}} />
+                    )}
+                    <div>
+                        {(() => { const p = props.sections.personal.data; const name = [p.firstName,p.lastName].filter(Boolean).join(' ');
+                            return name ? <div style={{fontSize:22*tfs(props.fontSize),fontWeight:700,color:'white',fontFamily:props.fontFamily}}>{name}</div> : null;
+                        })()}
+                        {props.sections.personal.data.title && <div style={{fontSize:13*tfs(props.fontSize),color:'rgba(255,255,255,0.85)',fontFamily:props.fontFamily}}>{props.sections.personal.data.title}</div>}
+                        <div style={{fontSize:10*tfs(props.fontSize),color:'rgba(255,255,255,0.7)',marginTop:4,fontFamily:props.fontFamily,display:'flex',flexWrap:'wrap',gap:'4px 12px'}}>
+                            {[props.sections.personal.data.email,props.sections.personal.data.phone,props.sections.personal.data.location,props.sections.personal.data.website,props.sections.personal.data.linkedin].filter(Boolean).map((c,i) => <span key={i}>{c}</span>)}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {props.sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
+        </div>
+    );
+};
+
+// Template: Creative
+const TemplateCreative = (props) => {
+    const { sectionOrder, accentColor } = props;
+    const fs = tfs(props.fontSize);
+    const p = props.sections.personal.data;
+    const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    return (
+        <div style={{lineHeight:tls(props.lineSpacing)}}>
+            <div style={{background:`linear-gradient(135deg, ${accentColor}, ${accentColor}dd)`,padding:'32px 36px',color:'white'}}>
+                <div style={{display:'flex',alignItems:'center',gap:16}}>
+                    {props.photo?.dataUrl && <img src={props.photo.dataUrl} style={{width:72*fs,height:72*fs,objectFit:'cover',
+                        borderRadius:props.photo.shape==='circle'?'50%':props.photo.shape==='rounded'?10:4,border:'3px solid rgba(255,255,255,0.3)'}} />}
+                    <div>
+                        {fullName && <div style={{fontSize:28*fs,fontWeight:800,fontFamily:props.fontFamily}}>{fullName}</div>}
+                        {p.title && <div style={{fontSize:14*fs,opacity:.85,fontFamily:props.fontFamily,marginTop:2}}>{p.title}</div>}
+                    </div>
+                </div>
+                <div style={{fontSize:10*fs,opacity:.7,marginTop:10,fontFamily:props.fontFamily,display:'flex',flexWrap:'wrap',gap:'4px 14px'}}>
+                    {[p.email,p.phone,p.location,p.website,p.linkedin].filter(Boolean).map((c,i) => <span key={i}>{c}</span>)}
+                </div>
+            </div>
+            <div style={{padding:'20px 36px'}}>
+                {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
+            </div>
+        </div>
+    );
+};
+
+// Template: Two Column
+const TemplateTwoColumn = (props) => {
+    const { sectionOrder, accentColor } = props;
+    const fs = tfs(props.fontSize);
+    const p = props.sections.personal.data;
+    const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    const sidebar = ['skills','languages','certifications','awards'].filter(k => sectionOrder.includes(k));
+    const main = sectionOrder.filter(k => k !== 'personal' && !sidebar.includes(k));
+    return (
+        <div style={{display:'flex',minHeight:'100%',lineHeight:tls(props.lineSpacing)}}>
+            <div style={{width:220,background:'#f8f9fa',padding:'28px 20px',flexShrink:0}}>
+                {props.photo?.dataUrl && (
+                    <div style={{textAlign:'center',marginBottom:16}}>
+                        <img src={props.photo.dataUrl} style={{width:80*fs,height:80*fs,objectFit:'cover',margin:'0 auto',
+                            borderRadius:props.photo.shape==='circle'?'50%':props.photo.shape==='rounded'?10:4}} />
+                    </div>
+                )}
+                <div style={{fontSize:10*fs,color:'#666',fontFamily:props.fontFamily,marginBottom:20}}>
+                    {[p.email,p.phone,p.location,p.website,p.linkedin].filter(Boolean).map((c,i) => <div key={i} style={{marginBottom:4,wordBreak:'break-all'}}>{c}</div>)}
+                </div>
+                {sidebar.map(k => renderSection(k, props))}
+            </div>
+            <div style={{flex:1,padding:'28px 28px'}}>
+                <div style={{marginBottom:12}}>
+                    {fullName && <div style={{fontSize:24*fs,fontWeight:700,fontFamily:props.fontFamily,color:'#1a1a1a'}}>{fullName}</div>}
+                    {p.title && <div style={{fontSize:13*fs,color:accentColor,fontFamily:props.fontFamily,fontWeight:500}}>{p.title}</div>}
+                </div>
+                {main.map(k => renderSection(k, props))}
+            </div>
+        </div>
+    );
+};
+
+// Template: Executive (serif, elegant)
+const TemplateExecutive = (props) => {
+    const { sectionOrder, accentColor } = props;
+    const ff = props.fontFamily === 'Inter' ? 'Merriweather' : props.fontFamily;
+    const eProps = { ...props, fontFamily: ff };
+    return (
+        <div style={{padding:'44px 40px',lineHeight:tls(props.lineSpacing)}}>
+            <ResumeHeader {...eProps} />
+            <div style={{borderTop:`1px solid ${accentColor}`,borderBottom:`1px solid ${accentColor}`,height:0,marginBottom:8}} />
+            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, eProps))}
+        </div>
+    );
+};
+
+// Template: ATS Optimized
+const TemplateATS = (props) => {
+    const { sectionOrder } = props;
+    const fs = tfs(props.fontSize);
+    const p = props.sections.personal.data;
+    const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    const contacts = [p.email, p.phone, p.location, p.website, p.linkedin].filter(Boolean);
+    return (
+        <div style={{padding:'36px 40px',fontFamily:'Arial, sans-serif',lineHeight:tls(props.lineSpacing)}}>
+            {fullName && <div style={{fontSize:22*fs,fontWeight:700,color:'#000',marginBottom:2}}>{fullName}</div>}
+            {p.title && <div style={{fontSize:13*fs,color:'#333',marginBottom:4}}>{p.title}</div>}
+            {contacts.length > 0 && <div style={{fontSize:10*fs,color:'#555',marginBottom:12}}>{contacts.join(' | ')}</div>}
+            <hr style={{border:'none',borderTop:'1px solid #ccc',marginBottom:12}} />
+            {sectionOrder.filter(k=>k!=='personal').map(k => {
+                const sec = props.sections[k];
+                if (!sec?.enabled) return null;
+                // ATS uses simple styling
+                return renderSection(k, {...props, accentColor:'#000'});
+            })}
+        </div>
+    );
+};
+
+const TEMPLATES = {
+    classic:      { name:'Classic',       component:TemplateClassic,        ats:true,  desc:'Traditional single-column' },
+    modern:       { name:'Modern',        component:TemplateModern,         ats:true,  desc:'Clean with accent sidebar' },
+    minimal:      { name:'Minimal',       component:TemplateMinimal,        ats:true,  desc:'Ultra-clean, whitespace' },
+    professional: { name:'Professional',  component:ProfessionalWrapper,    ats:true,  desc:'Bold color header' },
+    creative:     { name:'Creative',      component:TemplateCreative,       ats:false, desc:'Gradient header, bold' },
+    twocolumn:    { name:'Two-Column',    component:TemplateTwoColumn,      ats:false, desc:'Sidebar + main content' },
+    executive:    { name:'Executive',     component:TemplateExecutive,      ats:true,  desc:'Serif, elegant borders' },
+    ats:          { name:'ATS Optimized', component:TemplateATS,            ats:true,  desc:'Maximum ATS compat' },
+};
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+const PreviewPanel = ({ resume, previewRef }) => {
+    const containerRef = useRef(null);
+    const [scale, setScale] = useState(0.5);
+
+    useEffect(() => {
+        const updateScale = () => {
+            if (!containerRef.current) return;
+            const w = containerRef.current.clientWidth - 32;
+            setScale(Math.min(w / 794, 0.75));
+        };
+        updateScale();
+        window.addEventListener('resize', updateScale);
+        return () => window.removeEventListener('resize', updateScale);
+    }, []);
+
+    const Template = TEMPLATES[resume.template]?.component || TemplateModern;
+    const templateProps = {
+        sections: resume.sections,
+        sectionOrder: resume.sectionOrder,
+        accentColor: resume.accentColor,
+        fontFamily: resume.fontFamily,
+        fontSize: resume.fontSize,
+        lineSpacing: resume.lineSpacing,
+        photo: resume.photo,
+    };
+
+    return (
+        <div ref={containerRef} style={{display:'flex',justifyContent:'center',paddingTop:16}}>
+            <div style={{transform:`scale(${scale})`,transformOrigin:'top center'}}>
+                <div ref={previewRef} id="resume-print" className="a4-page">
+                    <Template {...templateProps} />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ── Export Functions ───────────────────────────────────────────────────────────
+async function exportPDF(previewRef, name) {
+    if (!previewRef.current) return;
+    const el = previewRef.current;
+    await html2pdf().set({
+        margin: 0,
+        filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
+        image: { type:'jpeg', quality:0.98 },
+        html2canvas: { scale:2, useCORS:true, logging:false },
+        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
+        pagebreak: { mode:['avoid-all','css','legacy'] },
+    }).from(el).save();
+}
+
+function exportJSON(resume) {
+    const blob = new Blob([JSON.stringify(resume, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${resume.name || 'resume'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importJSON(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                data.id = uid();
+                data.updatedAt = new Date().toISOString();
+                resolve(data);
+            } catch { reject(new Error('Invalid JSON')); }
+        };
+        reader.readAsText(file);
+    });
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+const App = () => {
+    const [resumes, setResumes] = useState(() => {
+        const loaded = loadResumes();
+        return loaded.length > 0 ? loaded : [makeDefault()];
+    });
+    const [activeId, setActiveIdState] = useState(() => {
+        const saved = getActiveId();
+        const loaded = loadResumes();
+        if (saved && loaded.find(r => r.id === saved)) return saved;
+        return loaded[0]?.id || resumes[0].id;
+    });
+    const activeResume = resumes.find(r => r.id === activeId) || resumes[0];
+    const [resume, dispatch] = useReducer(resumeReducer, activeResume);
+    const previewRef = useRef(null);
+    const [mobileView, setMobileView] = useState('edit');
+    const [exporting, setExporting] = useState(false);
+    const [toast, setToast] = useState(null);
+    const saveTimerRef = useRef(null);
+
+    // Sync reducer state back to resumes list
+    useEffect(() => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            setResumes(prev => {
+                const next = prev.map(r => r.id === resume.id ? resume : r);
+                saveResumes(next);
+                return next;
+            });
+        }, 500);
+    }, [resume]);
+
+    const switchResume = (id) => {
+        const r = resumes.find(r => r.id === id);
+        if (r) { dispatch({ type:'SET_RESUME', resume:r }); setActiveIdState(id); setActiveId(id); }
+    };
+
+    const createResume = () => {
+        const r = makeDefault();
+        setResumes(prev => { const next = [...prev, r]; saveResumes(next); return next; });
+        dispatch({ type:'SET_RESUME', resume:r });
+        setActiveIdState(r.id);
+        setActiveId(r.id);
+    };
+
+    const duplicateResume = () => {
+        const r = { ...JSON.parse(JSON.stringify(resume)), id:uid(), name:resume.name+' (Copy)', createdAt:new Date().toISOString() };
+        setResumes(prev => { const next = [...prev, r]; saveResumes(next); return next; });
+        dispatch({ type:'SET_RESUME', resume:r });
+        setActiveIdState(r.id);
+        setActiveId(r.id);
+    };
+
+    const deleteResume = () => {
+        if (resumes.length <= 1) return;
+        const next = resumes.filter(r => r.id !== resume.id);
+        saveResumes(next);
+        setResumes(next);
+        dispatch({ type:'SET_RESUME', resume:next[0] });
+        setActiveIdState(next[0].id);
+        setActiveId(next[0].id);
+    };
+
+    const handleImport = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const r = await importJSON(file);
+            setResumes(prev => { const next = [...prev, r]; saveResumes(next); return next; });
+            dispatch({ type:'SET_RESUME', resume:r });
+            setActiveIdState(r.id);
+            setActiveId(r.id);
+            showToast('Resume imported!');
+        } catch { showToast('Invalid file', true); }
+        e.target.value = '';
+    };
+
+    const handleExportPDF = async () => {
+        setExporting(true);
+        try { await exportPDF(previewRef, resume.name); showToast('PDF downloaded!'); }
+        catch { showToast('PDF export failed', true); }
+        setExporting(false);
+    };
+
+    const showToast = (msg, err=false) => { setToast({msg,err}); setTimeout(() => setToast(null), 3000); };
+
+    // Section drag reorder
+    const { dragIdx: secDragIdx, onDragStart: secDragStart, onDragOver: secDragOver, onDragEnd: secDragEnd } =
+        useDragReorder(resume.sectionOrder, (order) => dispatch({ type:'REORDER_SECTIONS', order }));
+
+    // Disabled sections
+    const disabledSections = Object.keys(SECTION_META).filter(k => !resume.sections[k]?.enabled);
+
+    return (
+        <div style={{minHeight:'100vh',paddingTop:100}}>
+            <Navigation />
+
+            {/* Toast */}
+            {toast && (
+                <div style={{position:'fixed',top:90,left:'50%',transform:'translateX(-50%)',zIndex:100,
+                    background:toast.err?'#ef4444':'#22c55e',color:'white',padding:'8px 20px',borderRadius:10,fontWeight:600,fontSize:'.85rem',
+                    boxShadow:'0 4px 12px rgba(0,0,0,0.3)'}}>{toast.msg}</div>
+            )}
+
+            {/* Top Bar */}
+            <div className="max-w-7xl mx-auto px-4 mb-4 no-print">
+                <div className="liquid-glass rounded-2xl p-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                        {/* Resume Selector */}
+                        <select className="inp" style={{maxWidth:200}} value={resume.id} onChange={e => switchResume(e.target.value)}>
+                            {resumes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                        <input className="inp" style={{maxWidth:180}} value={resume.name}
+                            onChange={e => dispatch({ type:'SET_FIELD', path:'name', value:e.target.value })} placeholder="Resume name" />
+
+                        <button className="ghost-btn" onClick={createResume}>+ New</button>
+                        <button className="ghost-btn" onClick={duplicateResume}>Duplicate</button>
+                        {resumes.length > 1 && <button className="ghost-btn" style={{color:'#ef4444',borderColor:'rgba(239,68,68,0.3)'}} onClick={deleteResume}>Delete</button>}
+
+                        <div style={{flex:1}} />
+
+                        {/* Template Picker */}
+                        <select className="inp" style={{maxWidth:160}} value={resume.template} onChange={e => dispatch({ type:'SET_TEMPLATE', value:e.target.value })}>
+                            {Object.entries(TEMPLATES).map(([k,t]) => <option key={k} value={k}>{t.name}{t.ats?' (ATS)':''}</option>)}
+                        </select>
+
+                        {/* Font Picker */}
+                        <select className="inp" style={{maxWidth:140}} value={resume.fontFamily} onChange={e => dispatch({ type:'SET_FONT', value:e.target.value })}>
+                            {FONTS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        </select>
+
+                        {/* Accent Color */}
+                        <div className="flex items-center gap-1">
+                            {ACCENT_COLORS.slice(0,5).map(c => (
+                                <div key={c} className={`color-swatch ${resume.accentColor===c?'active':''}`}
+                                    style={{background:c}} onClick={() => dispatch({ type:'SET_ACCENT', value:c })} />
+                            ))}
+                            <div style={{position:'relative'}}>
+                                <div className="color-swatch" style={{background:`conic-gradient(red,yellow,lime,aqua,blue,magenta,red)`}}
+                                    onClick={() => document.getElementById('custom-color')?.click()} />
+                                <input type="color" id="custom-color" value={resume.accentColor}
+                                    onChange={e => dispatch({ type:'SET_ACCENT', value:e.target.value })} />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Export Row */}
+                    <div className="flex flex-wrap items-center gap-3 mt-3">
+                        <button className="primary-btn" onClick={handleExportPDF} disabled={exporting}>
+                            {exporting ? 'Generating...' : 'Download PDF'}
+                        </button>
+                        <button className="ghost-btn" onClick={() => exportJSON(resume)}>Export JSON</button>
+                        <label className="ghost-btn" style={{cursor:'pointer'}}>
+                            Import JSON
+                            <input type="file" accept=".json" onChange={handleImport} style={{display:'none'}} />
+                        </label>
+                        <button className="ghost-btn" onClick={() => window.print()}>Print</button>
+
+                        {/* Mobile view toggle */}
+                        <div className="flex md:hidden items-center gap-2 ml-auto">
+                            <button className={`mobile-tab ${mobileView==='edit'?'active':''}`} onClick={() => setMobileView('edit')}>Edit</button>
+                            <button className={`mobile-tab ${mobileView==='preview'?'active':''}`} onClick={() => setMobileView('preview')}>Preview</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Main Layout */}
+            <div className="max-w-7xl mx-auto px-4 pb-20 no-print">
+                <div className="flex gap-4" style={{alignItems:'flex-start'}}>
+                    {/* Editor Panel */}
+                    <div className={`flex-1 min-w-0 ${mobileView==='preview'?'hidden md:block':''}`} style={{maxWidth:560}}>
+                        {/* Section List */}
+                        {resume.sectionOrder.map((key, idx) => {
+                            if (!resume.sections[key]?.enabled) return null;
+                            const Editor = SECTION_EDITORS[key];
+                            if (!Editor) return null;
+                            const meta = SECTION_META[key];
+                            const editorProps = key === 'personal'
+                                ? { data:resume.sections.personal.data, photo:resume.photo, dispatch }
+                                : { data:resume.sections[key], dispatch };
+                            return (
+                                <div key={key} className={`section-card ${secDragIdx===idx?'dragging':''}`}
+                                    draggable onDragStart={e=>secDragStart(e,idx)} onDragOver={e=>secDragOver(e,idx)} onDragEnd={secDragEnd}>
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <span className="drag-handle" title="Drag to reorder">⠿</span>
+                                        <span>{meta.icon}</span>
+                                        <span style={{fontWeight:600,color:'var(--c-text-strong)',fontSize:'.9rem',flex:1}}>{meta.label}</span>
+                                        {key !== 'personal' && (
+                                            <button className="pill-btn danger" onClick={() => dispatch({ type:'TOGGLE_SECTION', section:key })}>Hide</button>
+                                        )}
+                                    </div>
+                                    <Editor {...editorProps} />
+                                </div>
+                            );
+                        })}
+
+                        {/* Add Section */}
+                        {disabledSections.length > 0 && (
+                            <div className="section-card">
+                                <div style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500,marginBottom:8}}>Add Section</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {disabledSections.map(k => (
+                                        <button key={k} className="pill-btn" onClick={() => dispatch({ type:'TOGGLE_SECTION', section:k })}>
+                                            {SECTION_META[k].icon} {SECTION_META[k].label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Preview Panel */}
+                    <div className={`flex-1 min-w-0 ${mobileView==='edit'?'hidden md:block':''}`}
+                        style={{position:'sticky',top:100,maxHeight:'calc(100vh - 120px)',overflow:'auto'}}>
+                        <PreviewPanel resume={resume} previewRef={previewRef} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ── Mount ─────────────────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+setTimeout(() => { document.getElementById('root').style.opacity = '1'; }, 100);
+</script>
+</body>
+</html>
