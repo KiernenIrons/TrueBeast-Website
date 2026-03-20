@@ -1377,7 +1377,8 @@ async function exportPDF(previewRef, name) {
                 doc.body.style.cssText = 'margin:0;padding:0;overflow:hidden';
                 Object.assign(el.style, {
                     width:'794px', height:'auto', minHeight:'auto',
-                    overflow:'visible', boxShadow:'none', transform:'none'
+                    overflow:'visible', boxShadow:'none', transform:'none',
+                    marginLeft:'-2px'
                 });
             }
         },
