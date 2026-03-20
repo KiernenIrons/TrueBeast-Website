@@ -58,19 +58,22 @@
                 radial-gradient(ellipse at 50% 50%,rgba(8,145,178,0.06) 0%,transparent 65%),
                 #f0f4f0;
         }
-        .inp{background:var(--c-surface);border:1px solid var(--c-border);color:var(--c-text-bolder);outline:none;transition:border-color .15s;border-radius:10px;padding:8px 12px;font-size:.875rem;width:100%;}
+        /* Fix #6: Everything bigger - inp padding, font-size */
+        .inp{background:var(--c-surface);border:1px solid var(--c-border);color:var(--c-text-bolder);outline:none;transition:border-color .15s;border-radius:10px;padding:10px 14px;font-size:1rem;width:100%;}
         .inp:focus{border-color:rgba(6,182,212,0.5);}
         .inp::placeholder{color:var(--c-text-muted);}
         html.light .inp{background:rgba(255,255,255,0.7);color:#0e1a0e;}
         select.inp{cursor:pointer;padding-right:28px;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
         select.inp option{background:#111827;}
         html.light select.inp option{background:#f0f4f0;color:#0e1a0e;}
-        .section-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;padding:16px;margin-bottom:10px;transition:border-color .15s;}
+        /* Fix #6: section-card padding bigger */
+        .section-card{background:var(--c-surface);border:1px solid var(--c-border);border-radius:14px;padding:20px;margin-bottom:10px;transition:all 0.2s ease;}
         .section-card:hover{border-color:rgba(6,182,212,0.3);}
         .drag-handle{cursor:grab;color:var(--c-text-muted);transition:color .15s;user-select:none;}
         .drag-handle:hover{color:var(--c-text-strong);}
         .drag-handle:active{cursor:grabbing;}
-        .pill-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;font-size:.75rem;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text-medium);}
+        /* Fix #6: pill-btn bigger */
+        .pill-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:8px;font-size:.85rem;font-weight:500;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:var(--c-surface);color:var(--c-text-medium);}
         .pill-btn:hover{border-color:rgba(6,182,212,0.4);color:var(--c-text-bolder);}
         .pill-btn.active{background:rgba(6,182,212,0.15);border-color:rgba(6,182,212,0.4);color:#22d3ee;}
         .pill-btn.danger{border-color:rgba(239,68,68,0.3);color:#ef4444;}
@@ -78,7 +81,8 @@
         .primary-btn{padding:8px 16px;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;transition:all .15s;border:none;background:linear-gradient(135deg,#06b6d4,#3b82f6);color:white;}
         .primary-btn:hover{opacity:0.9;transform:translateY(-1px);}
         .primary-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
-        .ghost-btn{padding:6px 12px;border-radius:8px;font-size:.8rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:transparent;color:var(--c-text-medium);}
+        /* Fix #6: ghost-btn bigger */
+        .ghost-btn{padding:6px 12px;border-radius:8px;font-size:.9rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:transparent;color:var(--c-text-medium);}
         .ghost-btn:hover{border-color:rgba(6,182,212,0.4);color:var(--c-text-bolder);}
         .collapse-btn{cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;color:var(--c-text-strong);font-weight:600;font-size:.9rem;padding:0;}
         .collapse-btn:hover{color:var(--c-text-bolder);}
@@ -93,22 +97,63 @@
         .color-swatch:hover{transform:scale(1.15);}
         .color-swatch.active{border-color:white;box-shadow:0 0 0 2px rgba(6,182,212,0.5);}
         input[type="color"]{position:absolute;opacity:0;pointer-events:none;width:0;height:0;}
-        .a4-page{width:794px;height:1123px;background:white;color:#1a1a1a;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.3);}
+        /* Fix #9: overflow visible for PDF, Fix #10: no fixed height constraint */
+        .a4-page{width:794px;min-height:1123px;background:white;color:#1a1a1a;overflow:visible;box-shadow:0 4px 20px rgba(0,0,0,0.3);}
+        /* Fix #11: dark mode resume */
+        .a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0;}
+        /* Fix #15: print CSS - correct selector */
         @media print{
             body *{visibility:hidden;}
             #resume-print,#resume-print *{visibility:visible;}
-            #resume-print{position:absolute;left:0;top:0;width:210mm;transform:none!important;}
+            #resume-print{position:absolute;left:0;top:0;width:210mm;min-height:auto;transform:none!important;overflow:visible!important;}
             .gradient-bg,nav,.no-print{display:none!important;}
         }
-        .dragging{opacity:0.5;}
+        /* Fix #14: smooth drag transitions */
+        .dragging{opacity:0.4;transform:scale(0.98);}
         .drag-over{border-color:#06b6d4!important;background:rgba(6,182,212,0.05);}
         .mobile-tab{padding:10px 20px;border-radius:10px;font-weight:600;font-size:.9rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:transparent;color:var(--c-text-medium);}
         .mobile-tab.active{background:rgba(6,182,212,0.15);border-color:rgba(6,182,212,0.4);color:#22d3ee;}
+        /* Fix #5: date validation warning */
+        .date-warning{color:#ef4444;font-size:.75rem;margin-top:2px;}
+        /* Template preview card grid */
+        .template-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+        .template-card{border:2px solid var(--c-border);border-radius:10px;padding:8px;cursor:pointer;transition:all .15s;text-align:center;position:relative;}
+        .template-card:hover{border-color:rgba(6,182,212,0.5);transform:translateY(-1px);}
+        .template-card.active{border-color:#06b6d4;box-shadow:0 0 0 2px rgba(6,182,212,0.3);}
+        .template-card .tpl-preview{width:100%;aspect-ratio:210/297;border-radius:6px;margin-bottom:4px;overflow:hidden;}
+        .template-card .tpl-name{font-size:.7rem;font-weight:600;color:var(--c-text-strong);}
+        .template-card .ats-badge{position:absolute;top:4px;right:4px;background:rgba(34,197,94,0.9);color:white;font-size:.5rem;padding:1px 4px;border-radius:3px;font-weight:600;}
+        /* Fix #11: dark mode toggle button */
+        .dark-toggle-btn{padding:6px 12px;border-radius:8px;font-size:.8rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-border);background:transparent;color:var(--c-text-medium);display:inline-flex;align-items:center;gap:4px;}
+        .dark-toggle-btn:hover{border-color:rgba(6,182,212,0.4);color:var(--c-text-bolder);}
+        .dark-toggle-btn.active{background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.4);color:#818cf8;}
     </style>
 </head>
 <body>
 <div class="gradient-bg"></div>
 <div id="root"></div>
+
+<!-- Fix #8: datalist for degree fields -->
+<datalist id="degree-list">
+    <option value="High School Diploma" />
+    <option value="Associate's Degree" />
+    <option value="Associate of Arts (A.A.)" />
+    <option value="Associate of Science (A.S.)" />
+    <option value="Bachelor of Arts (B.A.)" />
+    <option value="Bachelor of Science (B.S.)" />
+    <option value="Bachelor of Fine Arts (B.F.A.)" />
+    <option value="Bachelor of Business Administration (B.B.A.)" />
+    <option value="Master of Arts (M.A.)" />
+    <option value="Master of Science (M.S.)" />
+    <option value="Master of Business Administration (M.B.A.)" />
+    <option value="Master of Fine Arts (M.F.A.)" />
+    <option value="Doctor of Philosophy (Ph.D.)" />
+    <option value="Doctor of Medicine (M.D.)" />
+    <option value="Juris Doctor (J.D.)" />
+    <option value="Doctor of Education (Ed.D.)" />
+    <option value="GED" />
+</datalist>
+
 <script type="text/babel">
 const { useState, useEffect, useReducer, useRef, useCallback, useMemo } = React;
 
@@ -200,23 +245,39 @@ const FONTS = [
     { id: 'Playfair Display', label: 'Playfair' },
 ];
 
-const ACCENT_COLORS = ['#2563eb','#06b6d4','#059669','#7c3aed','#dc2626','#ea580c','#ca8a04','#475569','#0f172a'];
+// Fix #1 & #16: Show ALL colors including black options
+const ACCENT_COLORS = ['#000000','#0f172a','#2563eb','#06b6d4','#059669','#7c3aed','#dc2626','#ea580c','#ca8a04','#475569'];
 
+// Fix #13: Added references to SECTION_META
 const SECTION_META = {
-    personal:       { label: 'Personal Info',           icon: '👤' },
-    summary:        { label: 'Professional Summary',    icon: '📋' },
-    experience:     { label: 'Work Experience',         icon: '💼' },
-    education:      { label: 'Education',               icon: '🎓' },
-    skills:         { label: 'Skills',                  icon: '⚡' },
-    certifications: { label: 'Certifications',          icon: '📜' },
-    languages:      { label: 'Languages',               icon: '🌍' },
-    projects:       { label: 'Projects',                icon: '🛠' },
-    awards:         { label: 'Awards',                  icon: '🏆' },
-    volunteer:      { label: 'Volunteer Work',          icon: '🤝' },
-    custom:         { label: 'Custom Section',          icon: '✏️' },
+    personal:       { label: 'Personal Info',           icon: '\u{1F464}' },
+    summary:        { label: 'Professional Summary',    icon: '\u{1F4CB}' },
+    experience:     { label: 'Work Experience',         icon: '\u{1F4BC}' },
+    education:      { label: 'Education',               icon: '\u{1F393}' },
+    skills:         { label: 'Skills',                  icon: '\u26A1' },
+    certifications: { label: 'Certifications',          icon: '\u{1F4DC}' },
+    languages:      { label: 'Languages',               icon: '\u{1F30D}' },
+    projects:       { label: 'Projects',                icon: '\u{1F6E0}' },
+    awards:         { label: 'Awards',                  icon: '\u{1F3C6}' },
+    volunteer:      { label: 'Volunteer Work',          icon: '\u{1F91D}' },
+    references:     { label: 'References',              icon: '\u{1F4DE}' },
+    custom:         { label: 'Custom Section',          icon: '\u270F\uFE0F' },
 };
 
 const PROFICIENCY_LEVELS = ['Beginner','Elementary','Intermediate','Upper Intermediate','Advanced','Native/Bilingual'];
+
+// Fix #3: AI summary prompt templates
+const SUMMARY_TEMPLATES = [
+    { label: 'Select a template...', value: '' },
+    { label: 'Dynamic Professional', value: 'Dynamic professional with X years of experience in [industry]. Proven ability to lead cross-functional teams and deliver results that exceed expectations. Passionate about leveraging technology and innovation to drive business growth.' },
+    { label: 'Results-Driven', value: 'Results-driven [job title] with expertise in [skill area]. Demonstrated success in [key achievement]. Adept at [key skill] with a commitment to continuous improvement and excellence.' },
+    { label: 'Detail-Oriented', value: 'Detail-oriented professional with a strong background in [field]. Skilled in [skill 1], [skill 2], and [skill 3]. Known for delivering high-quality work under tight deadlines while maintaining exceptional attention to detail.' },
+    { label: 'Creative Problem Solver', value: 'Creative and innovative [job title] with a passion for solving complex problems. Experienced in [area of expertise] with a track record of developing solutions that improve efficiency and reduce costs.' },
+    { label: 'Leadership Focus', value: 'Accomplished leader with X+ years of experience managing teams of [size]. Expert in strategic planning, team development, and operational excellence. Committed to fostering collaborative environments that drive organizational success.' },
+    { label: 'Career Changer', value: 'Motivated professional transitioning from [previous field] to [new field]. Bringing transferable skills in [skill 1], [skill 2], and [skill 3], combined with a fresh perspective and eagerness to contribute to a dynamic team.' },
+    { label: 'Recent Graduate', value: 'Enthusiastic recent graduate with a [degree] in [field] from [university]. Eager to apply academic knowledge and internship experience in [area]. Strong foundation in [skill 1] and [skill 2] with excellent communication abilities.' },
+    { label: 'Technical Expert', value: 'Highly skilled [job title] with deep expertise in [technology/framework]. X years of hands-on experience building scalable, maintainable solutions. Passionate about clean code, best practices, and mentoring junior developers.' },
+];
 
 function makeDefault() {
     return {
@@ -227,6 +288,7 @@ function makeDefault() {
         fontFamily: 'Inter',
         fontSize: 'medium',
         lineSpacing: 'normal',
+        darkMode: false, // Fix #11
         photo: { dataUrl: null, shape: 'circle' },
         sectionOrder: ['personal','summary','experience','education','skills'],
         sections: {
@@ -237,9 +299,10 @@ function makeDefault() {
             skills:         { enabled: true, heading: 'Skills', displayMode: 'tags', items: [{ id:uid(), name:'', level:3, category:'' }] },
             certifications: { enabled: false, heading: 'Certifications', items: [{ id:uid(), name:'', issuer:'', date:'', url:'' }] },
             languages:      { enabled: false, heading: 'Languages', items: [{ id:uid(), name:'', proficiency:'Intermediate' }] },
-            projects:       { enabled: false, heading: 'Projects', items: [{ id:uid(), name:'', url:'', description:'', technologies:'', bullets:[''] }] },
+            projects:       { enabled: false, heading: 'Projects', items: [{ id:uid(), name:'', url:'', description:'', technologies:'', startDate:'', endDate:'', bullets:[''] }] },
             awards:         { enabled: false, heading: 'Awards & Achievements', items: [{ id:uid(), title:'', issuer:'', date:'', description:'' }] },
             volunteer:      { enabled: false, heading: 'Volunteer Experience', items: [{ id:uid(), organization:'', role:'', startDate:'', endDate:'', bullets:[''] }] },
+            references:     { enabled: false, heading: 'References', items: [{ id:uid(), name:'', title:'', company:'', email:'', phone:'', relationship:'' }] },
             custom:         { enabled: false, heading: 'Custom Section', items: [{ id:uid(), title:'', subtitle:'', description:'' }] },
         },
         createdAt: new Date().toISOString(),
@@ -265,6 +328,7 @@ function resumeReducer(state, action) {
         case 'SET_ACCENT': return { ...state, accentColor: action.value, updatedAt: now };
         case 'SET_FONT': return { ...state, fontFamily: action.value, updatedAt: now };
         case 'SET_PHOTO': return { ...state, photo: { ...state.photo, ...action.value }, updatedAt: now };
+        case 'TOGGLE_DARK_MODE': return { ...state, darkMode: !state.darkMode, updatedAt: now };
         case 'TOGGLE_SECTION': {
             const s = JSON.parse(JSON.stringify(state));
             const sec = action.section;
@@ -360,17 +424,50 @@ function useDragReorder(items, onReorder) {
     return { dragIdx, onDragStart, onDragOver, onDragEnd };
 }
 
+// Fix #5: Date validation helper
+function isEndBeforeStart(startDate, endDate) {
+    if (!startDate || !endDate) return false;
+    // Handle both month inputs (YYYY-MM) and free text
+    const s = new Date(startDate);
+    const e = new Date(endDate);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return false;
+    return e < s;
+}
+
 // ── Field Components ──────────────────────────────────────────────────────────
-const Field = ({ label, value, onChange, placeholder, type='text', ...props }) => (
+// Fix #6: label font-size bigger
+const Field = ({ label, value, onChange, placeholder, type='text', list, ...props }) => (
     <div className="flex flex-col gap-1">
-        {label && <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>{label}</label>}
-        <input className="inp" type={type} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} {...props} />
+        {label && <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>{label}</label>}
+        <input className="inp" type={type} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} list={list} {...props} />
     </div>
 );
 
+// Fix #4: Month field component for date inputs
+const MonthField = ({ label, value, onChange, placeholder }) => (
+    <div className="flex flex-col gap-1">
+        {label && <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>{label}</label>}
+        <input className="inp" type="month" value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} />
+    </div>
+);
+
+// Fix #5: Date pair with validation
+const DatePairFields = ({ startLabel, endLabel, startValue, endValue, onStartChange, onEndChange }) => {
+    const invalid = isEndBeforeStart(startValue, endValue);
+    return (
+        <div>
+            <div className="grid grid-cols-2 gap-3">
+                <MonthField label={startLabel || 'Start Date'} value={startValue} onChange={onStartChange} />
+                <MonthField label={endLabel || 'End Date'} value={endValue} onChange={onEndChange} />
+            </div>
+            {invalid && <div className="date-warning">End date is before start date</div>}
+        </div>
+    );
+};
+
 const TextArea = ({ label, value, onChange, placeholder, rows=3 }) => (
     <div className="flex flex-col gap-1">
-        {label && <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>{label}</label>}
+        {label && <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>{label}</label>}
         <textarea className="inp" rows={rows} value={value||''} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{resize:'vertical',minHeight:'60px'}} />
     </div>
 );
@@ -403,7 +500,7 @@ const PersonalInfoEditor = ({ data, photo, dispatch }) => {
             </div>
             {/* Photo */}
             <div style={{borderTop:'1px solid var(--c-border)',paddingTop:12,marginTop:8}}>
-                <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500,display:'block',marginBottom:8}}>Photo (optional)</label>
+                <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500,display:'block',marginBottom:8}}>Photo (optional)</label>
                 <div className="flex items-center gap-3">
                     {photo.dataUrl && (
                         <div style={{width:56,height:56,overflow:'hidden',flexShrink:0,
@@ -439,24 +536,35 @@ const PersonalInfoEditor = ({ data, photo, dispatch }) => {
     );
 };
 
+// Fix #3: Summary editor with template dropdown
 const SummaryEditor = ({ data, dispatch }) => (
-    <TextArea label="Summary" value={data.text}
-        onChange={val => dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:val })}
-        placeholder="Experienced professional with a proven track record..." rows={4} />
+    <div className="space-y-3">
+        <div className="flex flex-col gap-1">
+            <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>Quick-fill Template</label>
+            <select className="inp" value="" onChange={e => {
+                if (e.target.value) dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:e.target.value });
+            }}>
+                {SUMMARY_TEMPLATES.map((t,i) => <option key={i} value={t.value}>{t.label}</option>)}
+            </select>
+        </div>
+        <TextArea label="Summary" value={data.text}
+            onChange={val => dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:val })}
+            placeholder="Experienced professional with a proven track record..." rows={4} />
+    </div>
 );
 
 const BulletEditor = ({ bullets, section, itemId, dispatch }) => (
     <div className="space-y-2">
-        <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>Key Points</label>
+        <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>Key Points</label>
         {bullets.map((b, i) => (
             <div key={i} className="flex items-start gap-2">
-                <span style={{color:'var(--c-text-muted)',marginTop:10,fontSize:'.8rem'}}>•</span>
+                <span style={{color:'var(--c-text-muted)',marginTop:12,fontSize:'.8rem'}}>&#8226;</span>
                 <textarea className="inp" rows={1} value={b} style={{resize:'vertical',minHeight:'36px'}}
                     onChange={e => dispatch({ type:'UPDATE_BULLET', section, itemId, bulletIdx:i, value:e.target.value })}
                     placeholder="Describe your achievement..." />
                 {bullets.length > 1 && (
                     <button className="pill-btn danger" style={{marginTop:6,flexShrink:0}}
-                        onClick={() => dispatch({ type:'REMOVE_BULLET', section, itemId, bulletIdx:i })}>×</button>
+                        onClick={() => dispatch({ type:'REMOVE_BULLET', section, itemId, bulletIdx:i })}>&#215;</button>
                 )}
             </div>
         ))}
@@ -470,7 +578,7 @@ const ItemEditor = ({ item, section, fields, dispatch, open, onToggle }) => {
         <div className="section-card" style={{padding:12}}>
             <div className="flex items-center justify-between">
                 <button className="collapse-btn" onClick={onToggle} style={{fontSize:'.85rem'}}>
-                    <span style={{transition:'transform .15s',display:'inline-block',transform:open?'rotate(90deg)':'rotate(0)'}}>▶</span>
+                    <span style={{transition:'transform .15s',display:'inline-block',transform:open?'rotate(90deg)':'rotate(0)'}}>{'\u25B6'}</span>
                     <span style={{color:'var(--c-text-strong)'}}>{title || 'New Entry'}</span>
                 </button>
                 <button className="pill-btn danger" onClick={() => dispatch({ type:'REMOVE_ITEM', section, id:item.id })}>Delete</button>
@@ -487,14 +595,27 @@ const ItemEditor = ({ item, section, fields, dispatch, open, onToggle }) => {
                         );
                         if (f.type === 'select') return (
                             <div key={i} className="flex flex-col gap-1">
-                                <label style={{color:'var(--c-text-label)',fontSize:'.75rem',fontWeight:500}}>{f.label}</label>
+                                <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>{f.label}</label>
                                 <select className="inp" value={f.getter(item)} onChange={e => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:e.target.value} })}>
                                     {f.options.map(o => <option key={o} value={o}>{o}</option>)}
                                 </select>
                             </div>
                         );
+                        // Fix #4: month input type for date fields
+                        if (f.type === 'month') return (
+                            <MonthField key={i} label={f.label} value={f.getter(item)}
+                                onChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:val} })} />
+                        );
+                        // Fix #5: date pair with validation
+                        if (f.type === 'datepair') return (
+                            <DatePairFields key={i}
+                                startLabel={f.startLabel} endLabel={f.endLabel}
+                                startValue={item[f.startField]} endValue={item[f.endField]}
+                                onStartChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.startField]:val} })}
+                                onEndChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.endField]:val} })} />
+                        );
                         if (f.type === 'textarea') return <TextArea key={i} label={f.label} value={f.getter(item)} onChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:val} })} placeholder={f.placeholder} />;
-                        return <Field key={i} label={f.label} value={f.getter(item)} onChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:val} })} placeholder={f.placeholder} type={f.inputType||'text'} />;
+                        return <Field key={i} label={f.label} value={f.getter(item)} onChange={val => dispatch({ type:'UPDATE_ITEM', section, id:item.id, data:{[f.field]:val} })} placeholder={f.placeholder} type={f.inputType||'text'} list={f.list} />;
                     })}
                 </div>
             )}
@@ -517,6 +638,7 @@ const ListSectionEditor = ({ section, items, fields, newItem, dispatch, heading,
     );
 };
 
+// Fix #4: Experience uses month inputs + date pair validation
 const ExperienceEditor = ({ data, dispatch }) => (
     <ListSectionEditor section="experience" items={data.items} dispatch={dispatch}
         heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.experience.heading', value:v })}
@@ -525,23 +647,22 @@ const ExperienceEditor = ({ data, dispatch }) => (
             { label:'Job Title', field:'title', getter:i=>i.title, placeholder:'Software Engineer' },
             { label:'Company', field:'company', getter:i=>i.company, placeholder:'Google' },
             { label:'Location', field:'location', getter:i=>i.location, placeholder:'Mountain View, CA' },
-            { label:'Start Date', field:'startDate', getter:i=>i.startDate, placeholder:'Jan 2020' },
-            { label:'End Date', field:'endDate', getter:i=>i.endDate, placeholder:'Present' },
+            { type:'datepair', startField:'startDate', endField:'endDate', startLabel:'Start Date', endLabel:'End Date' },
             { label:'Currently working here', field:'current', getter:i=>i.current, type:'checkbox' },
             { type:'bullets' },
         ]} />
 );
 
+// Fix #4 & #8: Education uses month inputs + degree datalist
 const EducationEditor = ({ data, dispatch }) => (
     <ListSectionEditor section="education" items={data.items} dispatch={dispatch}
         heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.education.heading', value:v })}
         newItem={() => ({ school:'', degree:'', field:'', startDate:'', endDate:'', gpa:'', bullets:[''] })}
         fields={[
             { label:'School', field:'school', getter:i=>i.school, placeholder:'MIT' },
-            { label:'Degree', field:'degree', getter:i=>i.degree, placeholder:'Bachelor of Science' },
+            { label:'Degree', field:'degree', getter:i=>i.degree, placeholder:'Bachelor of Science', list:'degree-list' },
             { label:'Field of Study', field:'field', getter:i=>i.field, placeholder:'Computer Science' },
-            { label:'Start Date', field:'startDate', getter:i=>i.startDate, placeholder:'2016' },
-            { label:'End Date', field:'endDate', getter:i=>i.endDate, placeholder:'2020' },
+            { type:'datepair', startField:'startDate', endField:'endDate', startLabel:'Start Date', endLabel:'End Date' },
             { label:'GPA', field:'gpa', getter:i=>i.gpa, placeholder:'3.8' },
             { type:'bullets' },
         ]} />
@@ -568,7 +689,7 @@ const SkillsEditor = ({ data, dispatch }) => {
                     <span key={s.id} className="pill-btn" style={{gap:6}}>
                         {s.name}
                         <button onClick={() => dispatch({ type:'REMOVE_ITEM', section:'skills', id:s.id })}
-                            style={{opacity:.6,cursor:'pointer',background:'none',border:'none',color:'inherit',fontSize:'1rem',lineHeight:1}}>×</button>
+                            style={{opacity:.6,cursor:'pointer',background:'none',border:'none',color:'inherit',fontSize:'1rem',lineHeight:1}}>&#215;</button>
                     </span>
                 ))}
             </div>
@@ -598,14 +719,16 @@ const LanguagesEditor = ({ data, dispatch }) => (
         ]} />
 );
 
+// Fix #4: Projects uses month date inputs
 const ProjectsEditor = ({ data, dispatch }) => (
     <ListSectionEditor section="projects" items={data.items} dispatch={dispatch}
         heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.projects.heading', value:v })}
-        newItem={() => ({ name:'', url:'', description:'', technologies:'', bullets:[''] })}
+        newItem={() => ({ name:'', url:'', description:'', technologies:'', startDate:'', endDate:'', bullets:[''] })}
         fields={[
             { label:'Project Name', field:'name', getter:i=>i.name, placeholder:'My App' },
             { label:'URL', field:'url', getter:i=>i.url, placeholder:'github.com/you/project' },
             { label:'Technologies', field:'technologies', getter:i=>i.technologies, placeholder:'React, Node.js, PostgreSQL' },
+            { type:'datepair', startField:'startDate', endField:'endDate', startLabel:'Start Date', endLabel:'End Date' },
             { label:'Description', field:'description', getter:i=>i.description, placeholder:'A brief description...', type:'textarea' },
             { type:'bullets' },
         ]} />
@@ -623,6 +746,7 @@ const AwardsEditor = ({ data, dispatch }) => (
         ]} />
 );
 
+// Fix #4: Volunteer uses month date inputs
 const VolunteerEditor = ({ data, dispatch }) => (
     <ListSectionEditor section="volunteer" items={data.items} dispatch={dispatch}
         heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.volunteer.heading', value:v })}
@@ -630,9 +754,23 @@ const VolunteerEditor = ({ data, dispatch }) => (
         fields={[
             { label:'Organization', field:'organization', getter:i=>i.organization, placeholder:'Red Cross' },
             { label:'Role', field:'role', getter:i=>i.role, placeholder:'Volunteer Coordinator' },
-            { label:'Start Date', field:'startDate', getter:i=>i.startDate, placeholder:'Jun 2021' },
-            { label:'End Date', field:'endDate', getter:i=>i.endDate, placeholder:'Present' },
+            { type:'datepair', startField:'startDate', endField:'endDate', startLabel:'Start Date', endLabel:'End Date' },
             { type:'bullets' },
+        ]} />
+);
+
+// Fix #13: References editor
+const ReferencesEditor = ({ data, dispatch }) => (
+    <ListSectionEditor section="references" items={data.items} dispatch={dispatch}
+        heading={data.heading} onHeadingChange={v => dispatch({ type:'SET_FIELD', path:'sections.references.heading', value:v })}
+        newItem={() => ({ name:'', title:'', company:'', email:'', phone:'', relationship:'' })}
+        fields={[
+            { label:'Full Name', field:'name', getter:i=>i.name, placeholder:'Jane Smith' },
+            { label:'Job Title', field:'title', getter:i=>i.title, placeholder:'Senior Manager' },
+            { label:'Company', field:'company', getter:i=>i.company, placeholder:'Acme Corp' },
+            { label:'Email', field:'email', getter:i=>i.email, placeholder:'jane@example.com', inputType:'email' },
+            { label:'Phone', field:'phone', getter:i=>i.phone, placeholder:'+1 234 567 890' },
+            { label:'Relationship', field:'relationship', getter:i=>i.relationship, placeholder:'Direct supervisor for 3 years' },
         ]} />
 );
 
@@ -647,6 +785,7 @@ const CustomSectionEditor = ({ data, dispatch }) => (
         ]} />
 );
 
+// Fix #13: Added references editor
 const SECTION_EDITORS = {
     personal: PersonalInfoEditor,
     summary: SummaryEditor,
@@ -658,6 +797,7 @@ const SECTION_EDITORS = {
     projects: ProjectsEditor,
     awards: AwardsEditor,
     volunteer: VolunteerEditor,
+    references: ReferencesEditor,
     custom: CustomSectionEditor,
 };
 
@@ -665,7 +805,12 @@ const SECTION_EDITORS = {
 const tfs = (fontSize) => ({ small: 0.85, medium: 1, large: 1.12 }[fontSize] || 1);
 const tls = (ls) => ({ compact: 1.3, normal: 1.5, relaxed: 1.7 }[ls] || 1.5);
 
-const ResumeHeader = ({ sections, photo, accentColor, fontFamily, fontSize, showPhoto=true }) => {
+// Fix #11: dark mode color helpers
+const dmTextColor = (darkMode, light, dark) => darkMode ? (dark || '#e2e8f0') : (light || '#1a1a1a');
+const dmSubTextColor = (darkMode, light, dark) => darkMode ? (dark || '#94a3b8') : (light || '#666');
+const dmFaintColor = (darkMode, light, dark) => darkMode ? (dark || '#64748b') : (light || '#888');
+
+const ResumeHeader = ({ sections, photo, accentColor, fontFamily, fontSize, showPhoto=true, darkMode }) => {
     const p = sections.personal.data;
     const fs = tfs(fontSize);
     const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
@@ -677,10 +822,10 @@ const ResumeHeader = ({ sections, photo, accentColor, fontFamily, fontSize, show
                     borderRadius:photo.shape==='circle'?'50%':photo.shape==='rounded'?8:2}} />
             )}
             <div style={{flex:1}}>
-                {fullName && <div style={{fontSize:24*fs,fontWeight:700,fontFamily,color:'#1a1a1a',lineHeight:1.2}}>{fullName}</div>}
+                {fullName && <div style={{fontSize:24*fs,fontWeight:700,fontFamily,color:dmTextColor(darkMode),lineHeight:1.2}}>{fullName}</div>}
                 {p.title && <div style={{fontSize:14*fs,color:accentColor,fontWeight:500,marginTop:2,fontFamily}}>{p.title}</div>}
                 {contacts.length > 0 && (
-                    <div style={{fontSize:10*fs,color:'#666',marginTop:6,fontFamily,display:'flex',flexWrap:'wrap',gap:'4px 12px'}}>
+                    <div style={{fontSize:10*fs,color:dmSubTextColor(darkMode),marginTop:6,fontFamily,display:'flex',flexWrap:'wrap',gap:'4px 12px'}}>
                         {contacts.map((c,i) => <span key={i}>{c}</span>)}
                     </div>
                 )}
@@ -690,22 +835,23 @@ const ResumeHeader = ({ sections, photo, accentColor, fontFamily, fontSize, show
 };
 
 const SectionHeading = ({ text, accentColor, fontFamily, fontSize, style }) => (
-    <div style={{fontSize:13*tfs(fontSize),fontWeight:700,color:accentColor,textTransform:'uppercase',letterSpacing:1.2,
+    <div style={{fontSize:14*tfs(fontSize),fontWeight:700,color:accentColor,textTransform:'uppercase',letterSpacing:1.2,
         borderBottom:`2px solid ${accentColor}`,paddingBottom:4,marginBottom:8,marginTop:16,fontFamily,...style}}>{text}</div>
 );
 
-const ExpBlock = ({ item, fontFamily, fontSize }) => {
+// Fix #7: bullet list-style-type disc
+const ExpBlock = ({ item, fontFamily, fontSize, darkMode }) => {
     const fs = tfs(fontSize);
-    const dateStr = item.current ? `${item.startDate} — Present` : [item.startDate, item.endDate].filter(Boolean).join(' — ');
+    const dateStr = item.current ? `${item.startDate} \u2014 Present` : [item.startDate, item.endDate].filter(Boolean).join(' \u2014 ');
     return (
         <div style={{marginBottom:10}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-                <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:'#1a1a1a'}}>{item.title}{item.company ? ` at ${item.company}` : ''}</div>
-                {dateStr && <div style={{fontSize:10*fs,color:'#888',fontFamily,flexShrink:0}}>{dateStr}</div>}
+                <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:dmTextColor(darkMode)}}>{item.title}{item.company ? ` at ${item.company}` : ''}</div>
+                {dateStr && <div style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily,flexShrink:0}}>{dateStr}</div>}
             </div>
-            {item.location && <div style={{fontSize:10*fs,color:'#888',fontFamily}}>{item.location}</div>}
+            {item.location && <div style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily}}>{item.location}</div>}
             {item.bullets?.filter(Boolean).length > 0 && (
-                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:'#333',fontFamily,lineHeight:1.5}}>
+                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:dmSubTextColor(darkMode, '#333'),fontFamily,lineHeight:1.5,listStyleType:'disc'}}>
                     {item.bullets.filter(Boolean).map((b,i) => <li key={i} style={{marginBottom:2}}>{b}</li>)}
                 </ul>
             )}
@@ -713,19 +859,19 @@ const ExpBlock = ({ item, fontFamily, fontSize }) => {
     );
 };
 
-const EduBlock = ({ item, fontFamily, fontSize }) => {
+const EduBlock = ({ item, fontFamily, fontSize, darkMode }) => {
     const fs = tfs(fontSize);
-    const dateStr = [item.startDate, item.endDate].filter(Boolean).join(' — ');
+    const dateStr = [item.startDate, item.endDate].filter(Boolean).join(' \u2014 ');
     return (
         <div style={{marginBottom:10}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-                <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:'#1a1a1a'}}>{item.degree}{item.field ? ` in ${item.field}` : ''}</div>
-                {dateStr && <div style={{fontSize:10*fs,color:'#888',fontFamily,flexShrink:0}}>{dateStr}</div>}
+                <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:dmTextColor(darkMode)}}>{item.degree}{item.field ? ` in ${item.field}` : ''}</div>
+                {dateStr && <div style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily,flexShrink:0}}>{dateStr}</div>}
             </div>
-            {item.school && <div style={{fontSize:11*fs,color:'#555',fontFamily}}>{item.school}</div>}
-            {item.gpa && <div style={{fontSize:10*fs,color:'#888',fontFamily}}>GPA: {item.gpa}</div>}
+            {item.school && <div style={{fontSize:11*fs,color:dmSubTextColor(darkMode, '#555'),fontFamily}}>{item.school}</div>}
+            {item.gpa && <div style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily}}>GPA: {item.gpa}</div>}
             {item.bullets?.filter(Boolean).length > 0 && (
-                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:'#333',fontFamily,lineHeight:1.5}}>
+                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:dmSubTextColor(darkMode, '#333'),fontFamily,lineHeight:1.5,listStyleType:'disc'}}>
                     {item.bullets.filter(Boolean).map((b,i) => <li key={i} style={{marginBottom:2}}>{b}</li>)}
                 </ul>
             )}
@@ -733,7 +879,7 @@ const EduBlock = ({ item, fontFamily, fontSize }) => {
     );
 };
 
-const SkillsTags = ({ items, accentColor, fontFamily, fontSize }) => {
+const SkillsTags = ({ items, accentColor, fontFamily, fontSize, darkMode }) => {
     const fs = tfs(fontSize);
     return (
         <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
@@ -744,28 +890,29 @@ const SkillsTags = ({ items, accentColor, fontFamily, fontSize }) => {
     );
 };
 
-const GenericSection = ({ section, data, accentColor, fontFamily, fontSize }) => {
+// Fix #13: references rendering in GenericSection
+const GenericSection = ({ section, data, accentColor, fontFamily, fontSize, darkMode }) => {
     const fs = tfs(fontSize);
     if (section === 'certifications') return data.items.filter(i=>i.name).map(i => (
         <div key={i.id} style={{marginBottom:6}}>
-            <span style={{fontWeight:600,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.name}</span>
-            {i.issuer && <span style={{fontSize:10*fs,color:'#888',fontFamily}}> — {i.issuer}</span>}
-            {i.date && <span style={{fontSize:10*fs,color:'#aaa',fontFamily}}> ({i.date})</span>}
+            <span style={{fontWeight:600,fontSize:12*fs,fontFamily,color:dmTextColor(darkMode)}}>{i.name}</span>
+            {i.issuer && <span style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily}}> &mdash; {i.issuer}</span>}
+            {i.date && <span style={{fontSize:10*fs,color:dmFaintColor(darkMode, '#aaa', '#64748b'),fontFamily}}> ({i.date})</span>}
         </div>
     ));
     if (section === 'languages') return data.items.filter(i=>i.name).map(i => (
         <div key={i.id} style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-            <span style={{fontWeight:500,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.name}</span>
-            <span style={{fontSize:10*fs,color:'#888',fontFamily}}>{i.proficiency}</span>
+            <span style={{fontWeight:500,fontSize:12*fs,fontFamily,color:dmTextColor(darkMode)}}>{i.name}</span>
+            <span style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily}}>{i.proficiency}</span>
         </div>
     ));
     if (section === 'projects') return data.items.filter(i=>i.name).map(i => (
         <div key={i.id} style={{marginBottom:10}}>
-            <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:'#1a1a1a'}}>{i.name}</div>
+            <div style={{fontWeight:600,fontSize:13*fs,fontFamily,color:dmTextColor(darkMode)}}>{i.name}</div>
             {i.technologies && <div style={{fontSize:10*fs,color:accentColor,fontFamily}}>{i.technologies}</div>}
-            {i.description && <div style={{fontSize:11*fs,color:'#555',fontFamily,marginTop:2}}>{i.description}</div>}
+            {i.description && <div style={{fontSize:11*fs,color:dmSubTextColor(darkMode, '#555'),fontFamily,marginTop:2}}>{i.description}</div>}
             {i.bullets?.filter(Boolean).length > 0 && (
-                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:'#333',fontFamily,lineHeight:1.5}}>
+                <ul style={{margin:'4px 0 0 16px',padding:0,fontSize:11*fs,color:dmSubTextColor(darkMode, '#333'),fontFamily,lineHeight:1.5,listStyleType:'disc'}}>
                     {i.bullets.filter(Boolean).map((b,idx) => <li key={idx}>{b}</li>)}
                 </ul>
             )}
@@ -773,27 +920,37 @@ const GenericSection = ({ section, data, accentColor, fontFamily, fontSize }) =>
     ));
     if (section === 'awards') return data.items.filter(i=>i.title).map(i => (
         <div key={i.id} style={{marginBottom:6}}>
-            <span style={{fontWeight:600,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.title}</span>
-            {i.issuer && <span style={{fontSize:10*fs,color:'#888',fontFamily}}> — {i.issuer}</span>}
-            {i.date && <span style={{fontSize:10*fs,color:'#aaa',fontFamily}}> ({i.date})</span>}
-            {i.description && <div style={{fontSize:11*fs,color:'#555',fontFamily,marginTop:2}}>{i.description}</div>}
+            <span style={{fontWeight:600,fontSize:12*fs,fontFamily,color:dmTextColor(darkMode)}}>{i.title}</span>
+            {i.issuer && <span style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily}}> &mdash; {i.issuer}</span>}
+            {i.date && <span style={{fontSize:10*fs,color:dmFaintColor(darkMode, '#aaa', '#64748b'),fontFamily}}> ({i.date})</span>}
+            {i.description && <div style={{fontSize:11*fs,color:dmSubTextColor(darkMode, '#555'),fontFamily,marginTop:2}}>{i.description}</div>}
         </div>
     ));
     if (section === 'volunteer') return data.items.filter(i=>i.organization||i.role).map(i => (
-        <ExpBlock key={i.id} item={{...i, title:i.role, company:i.organization}} fontFamily={fontFamily} fontSize={fontSize} />
+        <ExpBlock key={i.id} item={{...i, title:i.role, company:i.organization}} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />
+    ));
+    if (section === 'references') return data.items.filter(i=>i.name).map(i => (
+        <div key={i.id} style={{marginBottom:10}}>
+            <div style={{fontWeight:600,fontSize:12*fs,fontFamily,color:dmTextColor(darkMode)}}>{i.name}</div>
+            {(i.title || i.company) && <div style={{fontSize:11*fs,color:dmSubTextColor(darkMode, '#555'),fontFamily}}>{[i.title, i.company].filter(Boolean).join(' at ')}</div>}
+            <div style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily,marginTop:2}}>
+                {[i.email, i.phone].filter(Boolean).join(' | ')}
+            </div>
+            {i.relationship && <div style={{fontSize:10*fs,color:dmFaintColor(darkMode, '#aaa', '#64748b'),fontFamily,fontStyle:'italic',marginTop:1}}>{i.relationship}</div>}
+        </div>
     ));
     if (section === 'custom') return data.items.filter(i=>i.title).map(i => (
         <div key={i.id} style={{marginBottom:6}}>
-            <div style={{fontWeight:600,fontSize:12*fs,fontFamily,color:'#1a1a1a'}}>{i.title}</div>
-            {i.subtitle && <div style={{fontSize:10*fs,color:'#888',fontFamily}}>{i.subtitle}</div>}
-            {i.description && <div style={{fontSize:11*fs,color:'#555',fontFamily,marginTop:2}}>{i.description}</div>}
+            <div style={{fontWeight:600,fontSize:12*fs,fontFamily,color:dmTextColor(darkMode)}}>{i.title}</div>
+            {i.subtitle && <div style={{fontSize:10*fs,color:dmFaintColor(darkMode),fontFamily}}>{i.subtitle}</div>}
+            {i.description && <div style={{fontSize:11*fs,color:dmSubTextColor(darkMode, '#555'),fontFamily,marginTop:2}}>{i.description}</div>}
         </div>
     ));
     return null;
 };
 
 const renderSection = (key, props) => {
-    const { sections, accentColor, fontFamily, fontSize } = props;
+    const { sections, accentColor, fontFamily, fontSize, darkMode } = props;
     const sec = sections[key];
     if (!sec || !sec.enabled) return null;
     if (key === 'personal') return null; // rendered as header
@@ -802,7 +959,7 @@ const renderSection = (key, props) => {
         return (
             <div key={key}>
                 <SectionHeading text={sec.heading||'Professional Summary'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
-                <div style={{fontSize:11*tfs(fontSize),color:'#444',fontFamily,lineHeight:tls(props.lineSpacing)}}>{sec.data.text}</div>
+                <div style={{fontSize:11*tfs(fontSize),color:dmSubTextColor(darkMode, '#444'),fontFamily,lineHeight:tls(props.lineSpacing)}}>{sec.data.text}</div>
             </div>
         );
     }
@@ -811,7 +968,7 @@ const renderSection = (key, props) => {
         return (
             <div key={key}>
                 <SectionHeading text={sec.heading||'Work Experience'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
-                {sec.items.filter(i=>i.title||i.company).map(i => <ExpBlock key={i.id} item={i} fontFamily={fontFamily} fontSize={fontSize} />)}
+                {sec.items.filter(i=>i.title||i.company).map(i => <ExpBlock key={i.id} item={i} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />)}
             </div>
         );
     }
@@ -820,7 +977,7 @@ const renderSection = (key, props) => {
         return (
             <div key={key}>
                 <SectionHeading text={sec.heading||'Education'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
-                {sec.items.filter(i=>i.school||i.degree).map(i => <EduBlock key={i.id} item={i} fontFamily={fontFamily} fontSize={fontSize} />)}
+                {sec.items.filter(i=>i.school||i.degree).map(i => <EduBlock key={i.id} item={i} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />)}
             </div>
         );
     }
@@ -829,16 +986,16 @@ const renderSection = (key, props) => {
         return (
             <div key={key}>
                 <SectionHeading text={sec.heading||'Skills'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
-                <SkillsTags items={sec.items} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+                <SkillsTags items={sec.items} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />
             </div>
         );
     }
-    // Generic sections
+    // Generic sections (certifications, languages, projects, awards, volunteer, references, custom)
     if (!sec.items?.length) return null;
     return (
         <div key={key}>
             <SectionHeading text={sec.heading} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
-            <GenericSection section={key} data={sec} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
+            <GenericSection section={key} data={sec} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />
         </div>
     );
 };
@@ -855,15 +1012,14 @@ const TemplateClassic = (props) => {
 };
 
 // Template: Modern (left accent bar)
+// Fix #9: use box-shadow instead of div for accent bar to avoid PDF clipping
 const TemplateModern = (props) => {
     const { sectionOrder, accentColor } = props;
     return (
-        <div style={{display:'flex',minHeight:'100%'}}>
-            <div style={{width:5,background:accentColor,flexShrink:0}} />
-            <div style={{flex:1,padding:'36px 36px 36px 32px',lineHeight:tls(props.lineSpacing)}}>
-                <ResumeHeader {...props} />
-                {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
-            </div>
+        <div style={{minHeight:'100%',padding:'36px 36px 36px 37px',lineHeight:tls(props.lineSpacing),
+            boxShadow:`inset 5px 0 0 0 ${accentColor}`}}>
+            <ResumeHeader {...props} />
+            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
         </div>
     );
 };
@@ -878,36 +1034,22 @@ const TemplateMinimal = (props) => {
     return (
         <div style={{padding:'48px 44px',lineHeight:tls(props.lineSpacing)}}>
             <div style={{textAlign:'center',marginBottom:20}}>
-                {props.photo?.dataUrl && <img src={props.photo.dataUrl} style={{width:56*fs,height:56*fs,objectFit:'cover',margin:'0 auto 10px',
+                {props.photo?.dataUrl && <img src={props.photo.dataUrl} style={{width:56*fs,height:56*fs,objectFit:'cover',margin:'0 auto 10px',display:'block',
                     borderRadius:props.photo.shape==='circle'?'50%':props.photo.shape==='rounded'?8:2}} />}
-                {fullName && <div style={{fontSize:28*fs,fontWeight:300,fontFamily:props.fontFamily,color:'#1a1a1a',letterSpacing:2}}>{fullName}</div>}
-                {p.title && <div style={{fontSize:12*fs,color:'#999',marginTop:4,fontFamily:props.fontFamily,letterSpacing:1}}>{p.title}</div>}
+                {fullName && <div style={{fontSize:28*fs,fontWeight:300,fontFamily:props.fontFamily,color:dmTextColor(props.darkMode),letterSpacing:2}}>{fullName}</div>}
+                {p.title && <div style={{fontSize:12*fs,color:dmFaintColor(props.darkMode, '#999'),marginTop:4,fontFamily:props.fontFamily,letterSpacing:1}}>{p.title}</div>}
                 {contacts.length > 0 && (
-                    <div style={{fontSize:9*fs,color:'#bbb',marginTop:8,fontFamily:props.fontFamily}}>{contacts.join('  |  ')}</div>
+                    <div style={{fontSize:9*fs,color:dmFaintColor(props.darkMode, '#bbb', '#64748b'),marginTop:8,fontFamily:props.fontFamily}}>{contacts.join('  |  ')}</div>
                 )}
             </div>
-            <div style={{borderTop:'1px solid #e5e5e5',marginBottom:16}} />
-            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, {...props, accentColor:'#333'}))}
+            <div style={{borderTop:props.darkMode?'1px solid #334155':'1px solid #e5e5e5',marginBottom:16}} />
+            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, {...props, accentColor:props.darkMode?'#94a3b8':'#333'}))}
         </div>
     );
 };
 
 // Template: Professional
-const TemplateProfessional = (props) => {
-    const { sectionOrder, accentColor } = props;
-    return (
-        <div style={{padding:36,lineHeight:tls(props.lineSpacing)}}>
-            <div style={{background:accentColor,padding:'20px 24px',marginBottom:20,borderRadius:4}}>
-                <ResumeHeader {...props} />
-            </div>
-            {sectionOrder.filter(k=>k!=='personal').map(k => renderSection(k, props))}
-        </div>
-    );
-};
-
-// Override header colors for Professional template
 const ProfessionalWrapper = (props) => {
-    const headerProps = { ...props };
     return (
         <div style={{padding:36,lineHeight:tls(props.lineSpacing)}}>
             <div style={{background:props.accentColor,padding:'20px 24px',marginBottom:20,borderRadius:4}}>
@@ -970,21 +1112,21 @@ const TemplateTwoColumn = (props) => {
     const main = sectionOrder.filter(k => k !== 'personal' && !sidebar.includes(k));
     return (
         <div style={{display:'flex',minHeight:'100%',lineHeight:tls(props.lineSpacing)}}>
-            <div style={{width:220,background:'#f8f9fa',padding:'28px 20px',flexShrink:0}}>
+            <div style={{width:220,background:props.darkMode?'#0f172a':'#f8f9fa',padding:'28px 20px',flexShrink:0}}>
                 {props.photo?.dataUrl && (
                     <div style={{textAlign:'center',marginBottom:16}}>
-                        <img src={props.photo.dataUrl} style={{width:80*fs,height:80*fs,objectFit:'cover',margin:'0 auto',
+                        <img src={props.photo.dataUrl} style={{width:80*fs,height:80*fs,objectFit:'cover',margin:'0 auto',display:'block',
                             borderRadius:props.photo.shape==='circle'?'50%':props.photo.shape==='rounded'?10:4}} />
                     </div>
                 )}
-                <div style={{fontSize:10*fs,color:'#666',fontFamily:props.fontFamily,marginBottom:20}}>
+                <div style={{fontSize:10*fs,color:dmSubTextColor(props.darkMode),fontFamily:props.fontFamily,marginBottom:20}}>
                     {[p.email,p.phone,p.location,p.website,p.linkedin].filter(Boolean).map((c,i) => <div key={i} style={{marginBottom:4,wordBreak:'break-all'}}>{c}</div>)}
                 </div>
                 {sidebar.map(k => renderSection(k, props))}
             </div>
             <div style={{flex:1,padding:'28px 28px'}}>
                 <div style={{marginBottom:12}}>
-                    {fullName && <div style={{fontSize:24*fs,fontWeight:700,fontFamily:props.fontFamily,color:'#1a1a1a'}}>{fullName}</div>}
+                    {fullName && <div style={{fontSize:24*fs,fontWeight:700,fontFamily:props.fontFamily,color:dmTextColor(props.darkMode)}}>{fullName}</div>}
                     {p.title && <div style={{fontSize:13*fs,color:accentColor,fontFamily:props.fontFamily,fontWeight:500}}>{p.title}</div>}
                 </div>
                 {main.map(k => renderSection(k, props))}
@@ -1016,29 +1158,141 @@ const TemplateATS = (props) => {
     const contacts = [p.email, p.phone, p.location, p.website, p.linkedin].filter(Boolean);
     return (
         <div style={{padding:'36px 40px',fontFamily:'Arial, sans-serif',lineHeight:tls(props.lineSpacing)}}>
-            {fullName && <div style={{fontSize:22*fs,fontWeight:700,color:'#000',marginBottom:2}}>{fullName}</div>}
-            {p.title && <div style={{fontSize:13*fs,color:'#333',marginBottom:4}}>{p.title}</div>}
-            {contacts.length > 0 && <div style={{fontSize:10*fs,color:'#555',marginBottom:12}}>{contacts.join(' | ')}</div>}
-            <hr style={{border:'none',borderTop:'1px solid #ccc',marginBottom:12}} />
+            {fullName && <div style={{fontSize:22*fs,fontWeight:700,color:dmTextColor(props.darkMode, '#000'),marginBottom:2}}>{fullName}</div>}
+            {p.title && <div style={{fontSize:13*fs,color:dmSubTextColor(props.darkMode, '#333'),marginBottom:4}}>{p.title}</div>}
+            {contacts.length > 0 && <div style={{fontSize:10*fs,color:dmSubTextColor(props.darkMode, '#555'),marginBottom:12}}>{contacts.join(' | ')}</div>}
+            <hr style={{border:'none',borderTop:props.darkMode?'1px solid #334155':'1px solid #ccc',marginBottom:12}} />
             {sectionOrder.filter(k=>k!=='personal').map(k => {
                 const sec = props.sections[k];
                 if (!sec?.enabled) return null;
-                // ATS uses simple styling
-                return renderSection(k, {...props, accentColor:'#000'});
+                return renderSection(k, {...props, accentColor:props.darkMode?'#e2e8f0':'#000'});
             })}
         </div>
     );
 };
 
 const TEMPLATES = {
-    classic:      { name:'Classic',       component:TemplateClassic,        ats:true,  desc:'Traditional single-column' },
-    modern:       { name:'Modern',        component:TemplateModern,         ats:true,  desc:'Clean with accent sidebar' },
-    minimal:      { name:'Minimal',       component:TemplateMinimal,        ats:true,  desc:'Ultra-clean, whitespace' },
-    professional: { name:'Professional',  component:ProfessionalWrapper,    ats:true,  desc:'Bold color header' },
-    creative:     { name:'Creative',      component:TemplateCreative,       ats:false, desc:'Gradient header, bold' },
-    twocolumn:    { name:'Two-Column',    component:TemplateTwoColumn,      ats:false, desc:'Sidebar + main content' },
-    executive:    { name:'Executive',     component:TemplateExecutive,      ats:true,  desc:'Serif, elegant borders' },
-    ats:          { name:'ATS Optimized', component:TemplateATS,            ats:true,  desc:'Maximum ATS compat' },
+    classic:      { name:'Classic',       component:TemplateClassic,        ats:true,  desc:'Traditional single-column',    color:'#475569' },
+    modern:       { name:'Modern',        component:TemplateModern,         ats:true,  desc:'Clean with accent sidebar',    color:'#2563eb' },
+    minimal:      { name:'Minimal',       component:TemplateMinimal,        ats:true,  desc:'Ultra-clean, whitespace',      color:'#94a3b8' },
+    professional: { name:'Professional',  component:ProfessionalWrapper,    ats:true,  desc:'Bold color header',            color:'#7c3aed' },
+    creative:     { name:'Creative',      component:TemplateCreative,       ats:false, desc:'Gradient header, bold',        color:'#ea580c' },
+    twocolumn:    { name:'Two-Column',    component:TemplateTwoColumn,      ats:false, desc:'Sidebar + main content',       color:'#059669' },
+    executive:    { name:'Executive',     component:TemplateExecutive,      ats:true,  desc:'Serif, elegant borders',       color:'#ca8a04' },
+    ats:          { name:'ATS Optimized', component:TemplateATS,            ats:true,  desc:'Maximum ATS compat',           color:'#0f172a' },
+};
+
+// Fix #12: Template preview thumbnail sketches
+const TemplateThumbnail = ({ templateKey, tpl, isActive, onClick }) => {
+    const c = tpl.color;
+    const sketches = {
+        classic: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="12" y="6" width="36" height="4" rx="1" fill={c} opacity="0.8"/>
+                <rect x="18" y="12" width="24" height="2" rx="1" fill="#999" opacity="0.5"/>
+                <rect x="8" y="20" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="8" y="25" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+                <rect x="8" y="29" width="38" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="8" y="36" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="8" y="41" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+                <rect x="8" y="45" width="30" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="8" y="52" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="8" y="57" width="20" height="6" rx="2" fill={c} opacity="0.15"/>
+                <rect x="30" y="57" width="20" height="6" rx="2" fill={c} opacity="0.15"/>
+            </svg>
+        ),
+        modern: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="0" y="0" width="3" height="84" fill={c}/>
+                <rect x="10" y="8" width="30" height="4" rx="1" fill={c} opacity="0.8"/>
+                <rect x="10" y="14" width="20" height="2" rx="1" fill="#999" opacity="0.5"/>
+                <rect x="10" y="22" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="10" y="27" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+                <rect x="10" y="31" width="38" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="10" y="38" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="10" y="43" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+            </svg>
+        ),
+        minimal: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="14" y="10" width="32" height="3" rx="1" fill="#333" opacity="0.6"/>
+                <rect x="20" y="15" width="20" height="2" rx="1" fill="#999" opacity="0.4"/>
+                <rect x="8" y="22" width="44" height="0.5" fill="#ccc"/>
+                <rect x="8" y="28" width="44" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="8" y="32" width="38" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="8" y="40" width="20" height="1" fill="#333" opacity="0.3"/>
+                <rect x="8" y="44" width="44" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+            </svg>
+        ),
+        professional: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="4" y="4" width="52" height="18" rx="2" fill={c} opacity="0.85"/>
+                <rect x="10" y="8" width="28" height="3" rx="1" fill="white" opacity="0.9"/>
+                <rect x="10" y="13" width="18" height="2" rx="1" fill="white" opacity="0.6"/>
+                <rect x="8" y="28" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="8" y="33" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+                <rect x="8" y="37" width="38" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+            </svg>
+        ),
+        creative: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <defs><linearGradient id="cg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor={c}/><stop offset="100%" stopColor={c} stopOpacity="0.7"/></linearGradient></defs>
+                <rect x="0" y="0" width="60" height="24" fill="url(#cg)"/>
+                <rect x="8" y="6" width="30" height="4" rx="1" fill="white" opacity="0.9"/>
+                <rect x="8" y="12" width="20" height="2" rx="1" fill="white" opacity="0.6"/>
+                <rect x="8" y="30" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="8" y="35" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+            </svg>
+        ),
+        twocolumn: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="0" y="0" width="20" height="84" fill="#f0f0f0"/>
+                <circle cx="10" cy="12" r="5" fill="#ddd"/>
+                <rect x="4" y="22" width="12" height="1.5" rx="0.5" fill="#bbb" opacity="0.5"/>
+                <rect x="4" y="26" width="12" height="1.5" rx="0.5" fill="#bbb" opacity="0.4"/>
+                <rect x="4" y="34" width="12" height="1" fill={c} opacity="0.4"/>
+                <rect x="4" y="38" width="10" height="4" rx="1" fill={c} opacity="0.15"/>
+                <rect x="24" y="6" width="30" height="4" rx="1" fill={c} opacity="0.8"/>
+                <rect x="24" y="12" width="20" height="2" rx="1" fill="#999" opacity="0.5"/>
+                <rect x="24" y="20" width="32" height="1" fill={c} opacity="0.3"/>
+                <rect x="24" y="25" width="32" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+            </svg>
+        ),
+        executive: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="10" y="8" width="40" height="4" rx="1" fill={c} opacity="0.7"/>
+                <rect x="16" y="14" width="28" height="2" rx="1" fill="#999" opacity="0.5"/>
+                <rect x="8" y="20" width="44" height="0.5" fill={c}/>
+                <rect x="8" y="21" width="44" height="0.5" fill={c}/>
+                <rect x="8" y="28" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+                <rect x="8" y="32" width="38" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="8" y="40" width="44" height="1" fill={c} opacity="0.3"/>
+                <rect x="8" y="45" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+            </svg>
+        ),
+        ats: (
+            <svg viewBox="0 0 60 84" style={{width:'100%',height:'100%'}}>
+                <rect x="8" y="8" width="36" height="4" rx="1" fill="#000" opacity="0.7"/>
+                <rect x="8" y="14" width="24" height="2" rx="1" fill="#666" opacity="0.5"/>
+                <rect x="8" y="18" width="44" height="2" rx="1" fill="#999" opacity="0.3"/>
+                <rect x="8" y="24" width="44" height="0.5" fill="#ccc"/>
+                <rect x="8" y="30" width="20" height="2" rx="1" fill="#000" opacity="0.5"/>
+                <rect x="8" y="34" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+                <rect x="8" y="38" width="38" height="2" rx="1" fill="#bbb" opacity="0.3"/>
+                <rect x="8" y="46" width="20" height="2" rx="1" fill="#000" opacity="0.5"/>
+                <rect x="8" y="50" width="44" height="2" rx="1" fill="#bbb" opacity="0.4"/>
+            </svg>
+        ),
+    };
+    return (
+        <div className={`template-card ${isActive?'active':''}`} onClick={onClick}>
+            {tpl.ats && <span className="ats-badge">ATS</span>}
+            <div className="tpl-preview" style={{background:'white'}}>
+                {sketches[templateKey] || sketches.classic}
+            </div>
+            <div className="tpl-name">{tpl.name}</div>
+        </div>
+    );
 };
 
 // ── Preview ───────────────────────────────────────────────────────────────────
@@ -1066,12 +1320,13 @@ const PreviewPanel = ({ resume, previewRef }) => {
         fontSize: resume.fontSize,
         lineSpacing: resume.lineSpacing,
         photo: resume.photo,
+        darkMode: resume.darkMode,
     };
 
     return (
         <div ref={containerRef} style={{display:'flex',justifyContent:'center',paddingTop:16}}>
             <div style={{transform:`scale(${scale})`,transformOrigin:'top center'}}>
-                <div ref={previewRef} id="resume-print" className="a4-page">
+                <div ref={previewRef} id="resume-print" className={`a4-page ${resume.darkMode?'dark-mode':''}`}>
                     <Template {...templateProps} />
                 </div>
             </div>
@@ -1080,17 +1335,33 @@ const PreviewPanel = ({ resume, previewRef }) => {
 };
 
 // ── Export Functions ───────────────────────────────────────────────────────────
+// Fix #10: temporarily set height auto for PDF export
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
     const el = previewRef.current;
-    await html2pdf().set({
-        margin: 0,
-        filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
-        image: { type:'jpeg', quality:0.98 },
-        html2canvas: { scale:2, useCORS:true, logging:false },
-        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-        pagebreak: { mode:['avoid-all','css','legacy'] },
-    }).from(el).save();
+    // Store original styles
+    const origHeight = el.style.height;
+    const origMinHeight = el.style.minHeight;
+    const origOverflow = el.style.overflow;
+    // Temporarily remove fixed height for proper page break calculation
+    el.style.height = 'auto';
+    el.style.minHeight = 'auto';
+    el.style.overflow = 'visible';
+    try {
+        await html2pdf().set({
+            margin: 0,
+            filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
+            image: { type:'jpeg', quality:0.98 },
+            html2canvas: { scale:2, useCORS:true, logging:false },
+            jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
+            pagebreak: { mode:['avoid-all','css','legacy'] },
+        }).from(el).save();
+    } finally {
+        // Restore original styles
+        el.style.height = origHeight;
+        el.style.minHeight = origMinHeight;
+        el.style.overflow = origOverflow;
+    }
 }
 
 function exportJSON(resume) {
@@ -1137,6 +1408,10 @@ const App = () => {
     const [exporting, setExporting] = useState(false);
     const [toast, setToast] = useState(null);
     const saveTimerRef = useRef(null);
+    const [templatePanelOpen, setTemplatePanelOpen] = useState(false);
+
+    // Fix #2: drag handle ref-based approach
+    const dragHandleActiveRef = useRef(false);
 
     // Sync reducer state back to resumes list
     useEffect(() => {
@@ -1211,6 +1486,31 @@ const App = () => {
     // Disabled sections
     const disabledSections = Object.keys(SECTION_META).filter(k => !resume.sections[k]?.enabled);
 
+    // Fix #2: handle drag start only from handle
+    const handleSectionDragStart = (e, idx) => {
+        if (!dragHandleActiveRef.current) {
+            e.preventDefault();
+            return;
+        }
+        secDragStart(e, idx);
+    };
+
+    const handleDragHandleMouseDown = () => {
+        dragHandleActiveRef.current = true;
+    };
+
+    const handleSectionDragEnd = () => {
+        dragHandleActiveRef.current = false;
+        secDragEnd();
+    };
+
+    // Reset flag on any mouseup
+    useEffect(() => {
+        const reset = () => { dragHandleActiveRef.current = false; };
+        window.addEventListener('mouseup', reset);
+        return () => window.removeEventListener('mouseup', reset);
+    }, []);
+
     return (
         <div style={{minHeight:'100vh',paddingTop:100}}>
             <Navigation />
@@ -1239,19 +1539,22 @@ const App = () => {
 
                         <div style={{flex:1}} />
 
-                        {/* Template Picker */}
-                        <select className="inp" style={{maxWidth:160}} value={resume.template} onChange={e => dispatch({ type:'SET_TEMPLATE', value:e.target.value })}>
-                            {Object.entries(TEMPLATES).map(([k,t]) => <option key={k} value={k}>{t.name}{t.ats?' (ATS)':''}</option>)}
-                        </select>
+                        {/* Fix #12: Template picker button */}
+                        <button className="ghost-btn" onClick={() => setTemplatePanelOpen(!templatePanelOpen)}
+                            style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                            <span style={{width:12,height:12,borderRadius:3,background:TEMPLATES[resume.template]?.color||'#2563eb',display:'inline-block'}}></span>
+                            {TEMPLATES[resume.template]?.name || 'Template'}
+                            <span style={{fontSize:'.7rem',opacity:.6}}>{templatePanelOpen ? '\u25B2' : '\u25BC'}</span>
+                        </button>
 
                         {/* Font Picker */}
                         <select className="inp" style={{maxWidth:140}} value={resume.fontFamily} onChange={e => dispatch({ type:'SET_FONT', value:e.target.value })}>
                             {FONTS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
                         </select>
 
-                        {/* Accent Color */}
-                        <div className="flex items-center gap-1">
-                            {ACCENT_COLORS.slice(0,5).map(c => (
+                        {/* Fix #1: Show ALL accent colors including black */}
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {ACCENT_COLORS.map(c => (
                                 <div key={c} className={`color-swatch ${resume.accentColor===c?'active':''}`}
                                     style={{background:c}} onClick={() => dispatch({ type:'SET_ACCENT', value:c })} />
                             ))}
@@ -1262,7 +1565,27 @@ const App = () => {
                                     onChange={e => dispatch({ type:'SET_ACCENT', value:e.target.value })} />
                             </div>
                         </div>
+
+                        {/* Fix #11: Dark mode toggle */}
+                        <button className={`dark-toggle-btn ${resume.darkMode?'active':''}`}
+                            onClick={() => dispatch({ type:'TOGGLE_DARK_MODE' })}
+                            title={resume.darkMode ? 'Switch to light PDF' : 'Switch to dark PDF'}>
+                            {resume.darkMode ? '\u{1F31C}' : '\u{1F31E}'} {resume.darkMode ? 'Dark' : 'Light'}
+                        </button>
                     </div>
+
+                    {/* Fix #12: Template preview grid (collapsible) */}
+                    {templatePanelOpen && (
+                        <div style={{marginTop:12,paddingTop:12,borderTop:'1px solid var(--c-border)'}}>
+                            <div className="template-grid">
+                                {Object.entries(TEMPLATES).map(([k, tpl]) => (
+                                    <TemplateThumbnail key={k} templateKey={k} tpl={tpl}
+                                        isActive={resume.template===k}
+                                        onClick={() => { dispatch({ type:'SET_TEMPLATE', value:k }); setTemplatePanelOpen(false); }} />
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Export Row */}
                     <div className="flex flex-wrap items-center gap-3 mt-3">
@@ -1301,11 +1624,17 @@ const App = () => {
                                 : { data:resume.sections[key], dispatch };
                             return (
                                 <div key={key} className={`section-card ${secDragIdx===idx?'dragging':''}`}
-                                    draggable onDragStart={e=>secDragStart(e,idx)} onDragOver={e=>secDragOver(e,idx)} onDragEnd={secDragEnd}>
+                                    draggable="true"
+                                    onDragStart={e => handleSectionDragStart(e, idx)}
+                                    onDragOver={e => secDragOver(e, idx)}
+                                    onDragEnd={handleSectionDragEnd}>
+                                    {/* Fix #6: section headers bigger */}
                                     <div className="flex items-center gap-2 mb-3">
-                                        <span className="drag-handle" title="Drag to reorder">⠿</span>
-                                        <span>{meta.icon}</span>
-                                        <span style={{fontWeight:600,color:'var(--c-text-strong)',fontSize:'.9rem',flex:1}}>{meta.label}</span>
+                                        <span className="drag-handle"
+                                            onMouseDown={handleDragHandleMouseDown}
+                                            title="Drag to reorder">{'\u2807'}</span>
+                                        <span style={{fontSize:'1.1rem'}}>{meta.icon}</span>
+                                        <span style={{fontWeight:700,color:'var(--c-text-strong)',fontSize:'1.05rem',flex:1}}>{meta.label}</span>
                                         {key !== 'personal' && (
                                             <button className="pill-btn danger" onClick={() => dispatch({ type:'TOGGLE_SECTION', section:key })}>Hide</button>
                                         )}
@@ -1318,7 +1647,7 @@ const App = () => {
                         {/* Add Section */}
                         {disabledSections.length > 0 && (
                             <div className="section-card">
-                                <div style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500,marginBottom:8}}>Add Section</div>
+                                <div style={{color:'var(--c-text-label)',fontSize:'.95rem',fontWeight:600,marginBottom:8}}>Add Section</div>
                                 <div className="flex flex-wrap gap-2">
                                     {disabledSections.map(k => (
                                         <button key={k} className="pill-btn" onClick={() => dispatch({ type:'TOGGLE_SECTION', section:k })}>
