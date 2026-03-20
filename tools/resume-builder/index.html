@@ -1384,13 +1384,16 @@ async function exportPDF(previewRef, name) {
     const pageH = pdf.internal.pageSize.getHeight();
     const imgW = pageW;
     const imgH = (canvas.height * pageW) / canvas.width;
-    let y = 0;
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, imgW, imgH);
-    y += pageH;
-    while (y < imgH) {
+    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+    const TOP_PAD = 30; // headroom on continuation pages
+    // Page 1: full page, no padding
+    pdf.addImage(imgData, 'JPEG', 0, 0, imgW, imgH);
+    let contentY = pageH;
+    const usableH = pageH - TOP_PAD;
+    while (contentY < imgH) {
         pdf.addPage();
-        pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, -y, imgW, imgH);
-        y += pageH;
+        pdf.addImage(imgData, 'JPEG', 0, TOP_PAD - contentY, imgW, imgH);
+        contentY += usableH;
     }
     pdf.save(`${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`);
 }
