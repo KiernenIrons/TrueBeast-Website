@@ -511,13 +511,17 @@ async function postDiscadiaReminder() {
 
 function scheduleDiscadiaReminder(delayMs = DISCADIA_INTERVAL) {
     if (discadiaTimer) clearTimeout(discadiaTimer);
+    const fireAt = Date.now() + delayMs;
+    db.collection('botTimers').doc('discadia').set({ fireAt, updatedAt: new Date().toISOString() }).catch(() => {});
     discadiaTimer = setTimeout(postDiscadiaReminder, delayMs);
-    const when = new Date(Date.now() + delayMs);
-    console.log(`[BeastBot] Discadia bump reminder scheduled for ${when.toUTCString()}`);
+    console.log(`[BeastBot] Discadia bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
 }
 
 function scheduleBumpReminder() {
     if (bumpTimer) clearTimeout(bumpTimer);
+    const fireAt = Date.now() + BUMP_INTERVAL;
+    // Persist so it survives restarts
+    db.collection('botTimers').doc('disboard').set({ fireAt, updatedAt: new Date().toISOString() }).catch(() => {});
     bumpTimer = setTimeout(async () => {
         try {
             const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
@@ -527,7 +531,7 @@ function scheduleBumpReminder() {
             console.error('[BeastBot] Failed to send bump reminder:', e.message);
         }
     }, BUMP_INTERVAL);
-    console.log(`[BeastBot] Disboard bump reminder scheduled for ${new Date(Date.now() + BUMP_INTERVAL).toUTCString()}`);
+    console.log(`[BeastBot] Disboard bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
 }
 
 async function postMemberSpotlight() {
@@ -961,9 +965,46 @@ client.once('ready', async () => {
     }
 
     scheduleDiscordMeReminder();
-    scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // first fire in 10h, then every 24h
     scheduleSpotlight();
     scheduleGiveawayCheck();
+
+    // Restore bump timers from Firestore (survive restarts)
+    try {
+        const disboardSnap = await db.collection('botTimers').doc('disboard').get();
+        const discadiaSnap = await db.collection('botTimers').doc('discadia').get();
+        const now = Date.now();
+
+        if (disboardSnap.exists && disboardSnap.data().fireAt > now) {
+            const delay = disboardSnap.data().fireAt - now;
+            console.log(`[BeastBot] Restoring Disboard timer — fires in ${Math.round(delay / 60000)}m`);
+            if (bumpTimer) clearTimeout(bumpTimer);
+            bumpTimer = setTimeout(async () => {
+                try {
+                    const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+                    await channel.send('⏰ Time to bump! Run `/bump` to keep the server visible on Disboard.');
+                    console.log('[BeastBot] 🔔 Sent Disboard bump reminder');
+                } catch (e) { console.error('[BeastBot] Failed to send bump reminder:', e.message); }
+            }, delay);
+        } else {
+            console.log('[BeastBot] No active Disboard timer to restore');
+        }
+
+        if (discadiaSnap.exists && discadiaSnap.data().fireAt > now) {
+            const delay = discadiaSnap.data().fireAt - now;
+            console.log(`[BeastBot] Restoring Discadia timer — fires in ${Math.round(delay / 60000)}m`);
+            scheduleDiscadiaReminder(delay);
+        } else {
+            scheduleDiscadiaReminder(10 * 60 * 60 * 1000);
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to restore timers:', e.message);
+        scheduleDiscadiaReminder(10 * 60 * 60 * 1000);
+    }
+
+    // Heartbeat every 30 min so we can detect silent crashes
+    setInterval(() => {
+        console.log(`[BeastBot] 💓 heartbeat — uptime ${Math.round(process.uptime() / 60)}m`);
+    }, 30 * 60 * 1000);
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
