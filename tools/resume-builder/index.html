@@ -1348,27 +1348,27 @@ const PreviewPanel = ({ resume, previewRef }) => {
 // Fix #10: temporarily set height auto for PDF export
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
-    // Clone the resume and place at top-left of body to avoid flex/transform issues
-    const clone = previewRef.current.cloneNode(true);
-    clone.removeAttribute('id');
-    Object.assign(clone.style, {
-        position:'fixed', left:'0', top:'0', width:'794px',
-        height:'auto', minHeight:'auto', overflow:'visible',
-        boxShadow:'none', transform:'none', zIndex:'-1', pointerEvents:'none'
-    });
-    document.body.appendChild(clone);
-    try {
-        await html2pdf().set({
-            margin: [0, 0, 2, 0],
-            filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
-            image: { type:'jpeg', quality:0.98 },
-            html2canvas: { scale:2, useCORS:true, logging:false },
-            jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-            pagebreak: { mode:['avoid-all','css','legacy'] },
-        }).from(clone).save();
-    } finally {
-        document.body.removeChild(clone);
-    }
+    await html2pdf().set({
+        margin: [0, 0, 2, 0],
+        filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
+        image: { type:'jpeg', quality:0.98 },
+        html2canvas: { scale:2, useCORS:true, logging:false, windowWidth:794,
+            onclone: (doc) => {
+                const el = doc.getElementById('resume-print');
+                if (!el) return;
+                el.style.height = 'auto';
+                el.style.minHeight = 'auto';
+                el.style.overflow = 'visible';
+                el.style.boxShadow = 'none';
+                const wrapper = el.closest('.preview-scale-wrapper');
+                if (wrapper) { wrapper.style.transform = 'none'; wrapper.style.position = 'static'; }
+                const panel = el.closest('.preview-panel');
+                if (panel) { panel.style.position = 'static'; panel.style.maxHeight = 'none'; panel.style.overflow = 'visible'; }
+            }
+        },
+        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
+        pagebreak: { mode:['avoid-all','css','legacy'] },
+    }).from(previewRef.current).save();
 }
 
 function printResume(previewRef) {
@@ -1378,7 +1378,9 @@ function printResume(previewRef) {
     const html = previewRef.current.outerHTML;
     w.document.write('<!DOCTYPE html><html><head>' +
         '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">' +
-        '<style>@page{size:A4;margin:0}body{margin:0}' +
+        '<style>@page{size:A4;margin:0}' +
+        'body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact}' +
+        '*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}' +
         '.a4-page{width:210mm;min-height:auto;background:white;color:#1a1a1a;overflow:visible;box-shadow:none}' +
         '.a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0}</style>' +
         '</head><body>' + html + '</body></html>');
