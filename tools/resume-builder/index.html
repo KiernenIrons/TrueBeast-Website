@@ -1348,36 +1348,43 @@ const PreviewPanel = ({ resume, previewRef }) => {
 // Fix #10: temporarily set height auto for PDF export
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
-    const el = previewRef.current;
-    const scaleWrapper = el.parentElement;
-    // Store original styles
-    const origHeight = el.style.height;
-    const origMinHeight = el.style.minHeight;
-    const origOverflow = el.style.overflow;
-    const origBoxShadow = el.style.boxShadow;
-    const origTransform = scaleWrapper?.style.transform;
-    // Temporarily reset for clean PDF capture
-    el.style.height = 'auto';
-    el.style.minHeight = 'auto';
-    el.style.overflow = 'visible';
-    el.style.boxShadow = 'none';
-    if (scaleWrapper) scaleWrapper.style.transform = 'none';
+    // Clone the resume and place at top-left of body to avoid flex/transform issues
+    const clone = previewRef.current.cloneNode(true);
+    clone.removeAttribute('id');
+    Object.assign(clone.style, {
+        position:'fixed', left:'0', top:'0', width:'794px',
+        height:'auto', minHeight:'auto', overflow:'visible',
+        boxShadow:'none', transform:'none', zIndex:'-1', pointerEvents:'none'
+    });
+    document.body.appendChild(clone);
     try {
         await html2pdf().set({
             margin: [0, 0, 2, 0],
             filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
             image: { type:'jpeg', quality:0.98 },
-            html2canvas: { scale:2, useCORS:true, logging:false, windowWidth:794 },
+            html2canvas: { scale:2, useCORS:true, logging:false },
             jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
             pagebreak: { mode:['avoid-all','css','legacy'] },
-        }).from(el).save();
+        }).from(clone).save();
     } finally {
-        el.style.height = origHeight;
-        el.style.minHeight = origMinHeight;
-        el.style.overflow = origOverflow;
-        el.style.boxShadow = origBoxShadow;
-        if (scaleWrapper) scaleWrapper.style.transform = origTransform;
+        document.body.removeChild(clone);
     }
+}
+
+function printResume(previewRef) {
+    if (!previewRef.current) return;
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const html = previewRef.current.outerHTML;
+    w.document.write('<!DOCTYPE html><html><head>' +
+        '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&display=swap" rel="stylesheet">' +
+        '<style>@page{size:A4;margin:0}body{margin:0}' +
+        '.a4-page{width:210mm;min-height:auto;background:white;color:#1a1a1a;overflow:visible;box-shadow:none}' +
+        '.a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0}</style>' +
+        '</head><body>' + html + '</body></html>');
+    w.document.close();
+    // Wait for fonts to load before printing
+    setTimeout(() => { w.focus(); w.print(); w.close(); }, 600);
 }
 
 function exportJSON(resume) {
@@ -1613,7 +1620,7 @@ const App = () => {
                             Import JSON
                             <input type="file" accept=".json" onChange={handleImport} style={{display:'none'}} />
                         </label>
-                        <button className="ghost-btn" onClick={() => window.print()}>Print</button>
+                        <button className="ghost-btn" onClick={() => printResume(previewRef)}>Print</button>
                         <span style={{fontSize:'.75rem',color:'var(--c-text-muted)',maxWidth:180,lineHeight:1.3}}>
                             Export JSON to save your progress and edit later
                         </span>
