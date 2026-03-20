@@ -963,7 +963,7 @@ const renderSection = (key, props) => {
     const sec = sections[key];
     if (!sec || !sec.enabled) return null;
     if (key === 'personal') return null; // rendered as header
-    const pba = {pageBreakInside:'avoid',breakInside:'avoid'};
+    const pba = {pageBreakInside:'avoid',breakInside:'avoid',paddingTop:6};
     if (key === 'summary') {
         if (!sec.data?.text) return null;
         return (
@@ -1349,7 +1349,7 @@ const PreviewPanel = ({ resume, previewRef }) => {
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
     await html2pdf().set({
-        margin: [6, 0, 6, 0],
+        margin: 0,
         filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
         image: { type:'jpeg', quality:0.98 },
         html2canvas: { scale:2, useCORS:true, logging:false,
@@ -1357,18 +1357,18 @@ async function exportPDF(previewRef, name) {
                 const el = doc.getElementById('resume-print');
                 if (!el) return;
                 // Move element directly to body to escape flex/transform containers
-                doc.body.style.margin = '0';
-                doc.body.style.padding = '0';
+                doc.body.style.cssText = 'margin:0;padding:0;overflow:hidden';
+                doc.body.innerHTML = '';
                 doc.body.appendChild(el);
                 Object.assign(el.style, {
-                    position:'absolute', left:'0', top:'0', width:'794px',
+                    position:'relative', left:'0', top:'0', width:'794px',
                     height:'auto', minHeight:'auto', overflow:'visible',
-                    boxShadow:'none', transform:'none'
+                    boxShadow:'none', transform:'none', margin:'0', padding:''
                 });
             }
         },
         jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-        pagebreak: { mode:['avoid-all','css','legacy'] },
+        pagebreak: { mode:['css','legacy'] },
     }).from(previewRef.current).save();
 }
 
