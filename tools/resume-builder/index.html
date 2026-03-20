@@ -1349,21 +1349,22 @@ const PreviewPanel = ({ resume, previewRef }) => {
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
     await html2pdf().set({
-        margin: [0, 0, 2, 0],
+        margin: [6, 0, 6, 0],
         filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
         image: { type:'jpeg', quality:0.98 },
-        html2canvas: { scale:2, useCORS:true, logging:false, windowWidth:794,
+        html2canvas: { scale:2, useCORS:true, logging:false,
             onclone: (doc) => {
                 const el = doc.getElementById('resume-print');
                 if (!el) return;
-                el.style.height = 'auto';
-                el.style.minHeight = 'auto';
-                el.style.overflow = 'visible';
-                el.style.boxShadow = 'none';
-                const wrapper = el.closest('.preview-scale-wrapper');
-                if (wrapper) { wrapper.style.transform = 'none'; wrapper.style.position = 'static'; }
-                const panel = el.closest('.preview-panel');
-                if (panel) { panel.style.position = 'static'; panel.style.maxHeight = 'none'; panel.style.overflow = 'visible'; }
+                // Move element directly to body to escape flex/transform containers
+                doc.body.style.margin = '0';
+                doc.body.style.padding = '0';
+                doc.body.appendChild(el);
+                Object.assign(el.style, {
+                    position:'absolute', left:'0', top:'0', width:'794px',
+                    height:'auto', minHeight:'auto', overflow:'visible',
+                    boxShadow:'none', transform:'none'
+                });
             }
         },
         jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
