@@ -14,7 +14,7 @@
 /* CSS Variables
    ============================================================ */
 :root {
-    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-bg: rgba(255, 255, 255, 0.03);
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-highlight: rgba(255, 255, 255, 0.15);
     --accent-green: #22c55e;
