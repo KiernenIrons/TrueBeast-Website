@@ -75,6 +75,33 @@ function makeQuestionId() {
 
 // ── Firestore ────────────────────────────────────────────────────────────────
 
+async function firestoreSet(collection, docId, data) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/${collection}/${docId}?key=${FIREBASE_API_KEY}`;
+    const fields = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (typeof v === 'number') fields[k] = { integerValue: String(v) };
+        else fields[k] = { stringValue: String(v) };
+    }
+    try {
+        await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) });
+    } catch (e) { console.error(`[BeastBot] firestoreSet ${collection}/${docId} failed:`, e.message); }
+}
+
+async function firestoreGet(collection, docId) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/${collection}/${docId}?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.fields) return null;
+        const result = {};
+        for (const [k, v] of Object.entries(data.fields)) {
+            result[k] = v.integerValue ? Number(v.integerValue) : v.stringValue || '';
+        }
+        return result;
+    } catch (e) { return null; }
+}
+
 async function fetchKnowledge() {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase?key=${FIREBASE_API_KEY}&pageSize=50`;
     try {
@@ -512,7 +539,7 @@ async function postDiscadiaReminder() {
 function scheduleDiscadiaReminder(delayMs = DISCADIA_INTERVAL) {
     if (discadiaTimer) clearTimeout(discadiaTimer);
     const fireAt = Date.now() + delayMs;
-    db.collection('botTimers').doc('discadia').set({ fireAt, updatedAt: new Date().toISOString() }).catch(() => {});
+    firestoreSet('botTimers', 'discadia', { fireAt, updatedAt: new Date().toISOString() });
     discadiaTimer = setTimeout(postDiscadiaReminder, delayMs);
     console.log(`[BeastBot] Discadia bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
 }
@@ -521,7 +548,7 @@ function scheduleBumpReminder() {
     if (bumpTimer) clearTimeout(bumpTimer);
     const fireAt = Date.now() + BUMP_INTERVAL;
     // Persist so it survives restarts
-    db.collection('botTimers').doc('disboard').set({ fireAt, updatedAt: new Date().toISOString() }).catch(() => {});
+    firestoreSet('botTimers', 'disboard', { fireAt, updatedAt: new Date().toISOString() });
     bumpTimer = setTimeout(async () => {
         try {
             const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
@@ -970,12 +997,12 @@ client.once('ready', async () => {
 
     // Restore bump timers from Firestore (survive restarts)
     try {
-        const disboardSnap = await db.collection('botTimers').doc('disboard').get();
-        const discadiaSnap = await db.collection('botTimers').doc('discadia').get();
+        const disboardData = await firestoreGet('botTimers', 'disboard');
+        const discadiaData = await firestoreGet('botTimers', 'discadia');
         const now = Date.now();
 
-        if (disboardSnap.exists && disboardSnap.data().fireAt > now) {
-            const delay = disboardSnap.data().fireAt - now;
+        if (disboardData && disboardData.fireAt > now) {
+            const delay = disboardData.fireAt - now;
             console.log(`[BeastBot] Restoring Disboard timer — fires in ${Math.round(delay / 60000)}m`);
             if (bumpTimer) clearTimeout(bumpTimer);
             bumpTimer = setTimeout(async () => {
@@ -989,8 +1016,8 @@ client.once('ready', async () => {
             console.log('[BeastBot] No active Disboard timer to restore');
         }
 
-        if (discadiaSnap.exists && discadiaSnap.data().fireAt > now) {
-            const delay = discadiaSnap.data().fireAt - now;
+        if (discadiaData && discadiaData.fireAt > now) {
+            const delay = discadiaData.fireAt - now;
             console.log(`[BeastBot] Restoring Discadia timer — fires in ${Math.round(delay / 60000)}m`);
             scheduleDiscadiaReminder(delay);
         } else {
