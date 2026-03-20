@@ -19,6 +19,7 @@
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="preconnect" href="https://www.gstatic.com">
     <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+    <style>#root{opacity:0;transition:opacity .15s ease;animation:revealFallback 0s 1.5s forwards}@keyframes revealFallback{to{opacity:1}}</style>
     <link rel="stylesheet" href="../css/shared.css">
     <link rel="stylesheet" href="../css/glass.css?v=5">
     <link rel="stylesheet" href="../css/tech-support.css">
@@ -1076,6 +1077,7 @@
         
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{document.getElementById('root').style.opacity='1';}));
 
         // After React paints, scroll to hash anchor (e.g. #leave-review from email links)
         if (window.location.hash) {

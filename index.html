@@ -24,7 +24,7 @@
     <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <!-- CSS first — render-critical, loads in parallel with deferred scripts -->
     <!-- Hide #root until Tailwind has generated CSS for React-rendered classes (prevents colour flash) -->
-    <style>#root { opacity: 0; transition: opacity 0.15s ease; }</style>
+    <style>#root{opacity:0;transition:opacity .15s ease;animation:revealFallback 0s 1.5s forwards}@keyframes revealFallback{to{opacity:1}}</style>
     <link rel="stylesheet" href="css/shared.css">
     <link rel="stylesheet" href="css/glass.css?v=5">
     <link rel="stylesheet" href="css/index.css?v=3">

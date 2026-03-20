@@ -23,7 +23,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        #root { opacity: 0; transition: opacity 0.15s ease; }
+        #root{opacity:0;transition:opacity .15s ease;animation:revealFallback 0s 1.5s forwards}@keyframes revealFallback{to{opacity:1}}
         .section-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; }
         .step-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #a855f7; margin-bottom: 6px; }
 

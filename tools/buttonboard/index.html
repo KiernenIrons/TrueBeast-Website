@@ -18,7 +18,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <style>
-        #root { opacity: 0; transition: opacity 0.15s ease; }
+        #root{opacity:0;transition:opacity .15s ease;animation:revealFallback 0s 1.5s forwards}@keyframes revealFallback{to{opacity:1}}
 
         /* ── Blue gradient background ── */
         .gradient-bg {

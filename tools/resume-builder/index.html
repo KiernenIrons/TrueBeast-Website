@@ -26,7 +26,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Merriweather:wght@300;400;700&family=Roboto:wght@300;400;500;700&family=Lato:wght@300;400;700&family=Open+Sans:wght@300;400;600;700&family=Playfair+Display:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;600;700&family=Raleway:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        #root { opacity: 0; transition: opacity 0.15s ease; }
+        #root{opacity:0;transition:opacity .15s ease;animation:revealFallback 0s 1.5s forwards}@keyframes revealFallback{to{opacity:1}}
         :root {
             --c-text-faint:rgba(255,255,255,0.22);--c-text-dim:rgba(255,255,255,0.32);
             --c-text-muted:rgba(255,255,255,0.42);--c-text-label:rgba(255,255,255,0.52);
@@ -101,11 +101,12 @@
         .a4-page{width:794px;min-height:1123px;background:white;color:#1a1a1a;overflow:visible;box-shadow:0 4px 20px rgba(0,0,0,0.3);}
         /* Fix #11: dark mode resume */
         .a4-page.dark-mode{background:#1a1a2e;color:#e2e8f0;}
-        /* Fix #15: print CSS - reset scale wrapper and show resume */
+        /* Fix #15: print CSS */
         @media print{
             body *{visibility:hidden!important;}
             #resume-print,#resume-print *{visibility:visible!important;}
-            .preview-scale-wrapper{transform:none!important;}
+            .preview-scale-wrapper{transform:none!important;position:static!important;}
+            .preview-panel{position:static!important;max-height:none!important;overflow:visible!important;display:block!important;}
             #resume-print{position:absolute!important;left:0!important;top:0!important;width:210mm!important;min-height:auto!important;transform:none!important;overflow:visible!important;box-shadow:none!important;margin:0!important;z-index:999999!important;}
             .gradient-bg,nav,.no-print{display:none!important;}
         }
@@ -1348,31 +1349,34 @@ const PreviewPanel = ({ resume, previewRef }) => {
 async function exportPDF(previewRef, name) {
     if (!previewRef.current) return;
     const el = previewRef.current;
+    const scaleWrapper = el.parentElement;
     // Store original styles
     const origHeight = el.style.height;
     const origMinHeight = el.style.minHeight;
     const origOverflow = el.style.overflow;
     const origBoxShadow = el.style.boxShadow;
-    // Temporarily remove fixed height and decorative shadow for clean PDF export
+    const origTransform = scaleWrapper?.style.transform;
+    // Temporarily reset for clean PDF capture
     el.style.height = 'auto';
     el.style.minHeight = 'auto';
     el.style.overflow = 'visible';
     el.style.boxShadow = 'none';
+    if (scaleWrapper) scaleWrapper.style.transform = 'none';
     try {
         await html2pdf().set({
             margin: [0, 0, 2, 0],
             filename: `${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`,
             image: { type:'jpeg', quality:0.98 },
-            html2canvas: { scale:2, useCORS:true, logging:false },
+            html2canvas: { scale:2, useCORS:true, logging:false, windowWidth:794 },
             jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
             pagebreak: { mode:['avoid-all','css','legacy'] },
         }).from(el).save();
     } finally {
-        // Restore original styles
         el.style.height = origHeight;
         el.style.minHeight = origMinHeight;
         el.style.overflow = origOverflow;
         el.style.boxShadow = origBoxShadow;
+        if (scaleWrapper) scaleWrapper.style.transform = origTransform;
     }
 }
 
@@ -1675,7 +1679,7 @@ const App = () => {
                     </div>
 
                     {/* Preview Panel */}
-                    <div className={`flex-1 min-w-0 ${mobileView==='edit'?'hidden md:block':''}`}
+                    <div className={`preview-panel flex-1 min-w-0 ${mobileView==='edit'?'hidden md:block':''}`}
                         style={{position:'sticky',top:100,maxHeight:'calc(100vh - 120px)',overflow:'auto'}}>
                         <PreviewPanel resume={resume} previewRef={previewRef} />
                     </div>
