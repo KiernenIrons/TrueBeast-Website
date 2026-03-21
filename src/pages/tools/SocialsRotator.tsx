@@ -18,7 +18,7 @@ interface RotatorConfig {
   size: number;
   color: string;
   shadowType: ShadowType;
-  shadowOpts: null;
+  shadowOpts: { color: string; blur: number; x: number; y: number } | null;
   logoSize: LogoSize;
   duration: number;
   popupMode: boolean;
@@ -121,7 +121,7 @@ const DEFAULT_CFG: RotatorConfig = {
   size: 22,
   color: '#ffffff',
   shadowType: 'glow',
-  shadowOpts: null,
+  shadowOpts: { color: '#000000', blur: 8, x: 2, y: 2 },
   logoSize: 'md',
   duration: 5,
   popupMode: false,
@@ -372,10 +372,12 @@ function RotatorPreview({
   const logoPx    = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
   const textColor = cfg.matchLogoColor ? pColor : cfg.color;
 
+  const opts = cfg.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2 };
   const textShadow =
-    cfg.shadowType === 'glow'   ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
-    : cfg.shadowType === 'none' ? 'none'
-    :                              `2px 2px 8px rgba(0,0,0,0.8)`;
+    cfg.shadowType === 'glow'     ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
+    : cfg.shadowType === 'none'   ? 'none'
+    : cfg.shadowType === 'custom' ? `${opts.x}px ${opts.y}px ${opts.blur}px ${opts.color}`
+    :                               `2px 2px 8px rgba(0,0,0,0.8)`;
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', width: '100%', overflow: 'hidden' }}>
@@ -513,6 +515,13 @@ export default function SocialsRotator() {
 
   const set = useCallback(<K extends keyof RotatorConfig>(key: K, val: RotatorConfig[K]) => {
     setCfg((prev) => ({ ...prev, [key]: val }));
+  }, []);
+
+  const setShadowOpt = useCallback((key: keyof NonNullable<RotatorConfig['shadowOpts']>, val: string | number) => {
+    setCfg((prev) => ({
+      ...prev,
+      shadowOpts: { ...(prev.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2 }), [key]: val },
+    }));
   }, []);
 
   const handleFocus = useCallback((id: string) => {
@@ -807,6 +816,59 @@ export default function SocialsRotator() {
                         onChange={(v) => set('shadowType', v)}
                       />
                     </div>
+
+                    {cfg.shadowType === 'custom' && (
+                      <div className="sm:col-span-2 glass rounded-xl p-4 flex flex-col gap-4">
+                        <div className="flex items-center gap-4">
+                          <div>
+                            <label className="text-gray-400 text-xs font-medium block mb-1.5">Color</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={cfg.shadowOpts?.color ?? '#000000'}
+                                onChange={(e) => setShadowOpt('color', e.target.value)}
+                                className="w-9 h-9 rounded-lg border border-white/10 cursor-pointer bg-transparent"
+                              />
+                              <span className="text-gray-400 text-xs font-mono">
+                                {(cfg.shadowOpts?.color ?? '#000000').toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex justify-between items-center mb-1.5">
+                              <label className="text-gray-400 text-xs font-medium">Blur</label>
+                              <span className="text-pink-400 text-xs font-mono">{cfg.shadowOpts?.blur ?? 8}px</span>
+                            </div>
+                            <input type="range" min={0} max={40} step={1}
+                              value={cfg.shadowOpts?.blur ?? 8}
+                              onChange={(e) => setShadowOpt('blur', Number(e.target.value))}
+                              className="w-full accent-pink-500" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="flex justify-between items-center mb-1.5">
+                              <label className="text-gray-400 text-xs font-medium">X Offset</label>
+                              <span className="text-pink-400 text-xs font-mono">{cfg.shadowOpts?.x ?? 2}px</span>
+                            </div>
+                            <input type="range" min={-20} max={20} step={1}
+                              value={cfg.shadowOpts?.x ?? 2}
+                              onChange={(e) => setShadowOpt('x', Number(e.target.value))}
+                              className="w-full accent-pink-500" />
+                          </div>
+                          <div>
+                            <div className="flex justify-between items-center mb-1.5">
+                              <label className="text-gray-400 text-xs font-medium">Y Offset</label>
+                              <span className="text-pink-400 text-xs font-mono">{cfg.shadowOpts?.y ?? 2}px</span>
+                            </div>
+                            <input type="range" min={-20} max={20} step={1}
+                              value={cfg.shadowOpts?.y ?? 2}
+                              onChange={(e) => setShadowOpt('y', Number(e.target.value))}
+                              className="w-full accent-pink-500" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div>
                       <label className="text-gray-300 text-sm font-medium block mb-2">Logo Style</label>
