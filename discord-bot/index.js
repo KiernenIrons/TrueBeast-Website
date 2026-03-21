@@ -1055,20 +1055,22 @@ async function createTempVC(state) {
                 embeds: [{
                     color: 0x22c55e,
                     title: `🎙️ ${channelName}`,
-                    description:
-                        `${member}, this is your channel — rename it, set a limit, mute or kick people as you need.\n` +
-                        `Deletes itself **1 minute after everyone leaves**.`,
+                    description: `${member}, this is your channel. Auto-deletes **1 min after everyone leaves**.`,
                     fields: [
-                        {
-                            name: '💤 AFK (works in any voice chat)',
-                            value: '`!!afk [reason]` — adds `[AFK]` to your name and announces when you return.',
-                        },
                         {
                             name: '⚙️ Controls',
                             value:
-                                '**Rename / limit** → right-click the channel → Edit Channel\n' +
-                                '**Mute / kick** → right-click a member in the VC\n' +
-                                '**Lock** → Edit Channel → Permissions → deny Connect for @everyone',
+                                '- **Rename / user limit** — right-click channel → Edit Channel\n' +
+                                '- **Mute / kick** — right-click a member in the VC\n' +
+                                '- **Lock** — Edit Channel → Permissions → deny Connect for @everyone',
+                        },
+                        {
+                            name: '💤 AFK',
+                            value:
+                                '`!!afk [reason]` — works in **any** voice chat\n' +
+                                '- Adds `[AFK]` to your name\n' +
+                                '- Announces your return when you type\n' +
+                                '- Notifies you if someone pings an AFK member',
                         },
                     ],
                     footer: { text: 'Only you, mods, and the server owner can manage this channel' },
@@ -1076,6 +1078,7 @@ async function createTempVC(state) {
             });
         } catch (e) {
             console.error('[BeastBot] Failed to post temp VC guide:', e.message);
+            await logToChannel(`⚠️ Failed to post guide in \`${channelName}\`: \`${e.message}\``);
         }
 
         console.log(`[BeastBot] 🔊 Created temp VC: "${channelName}" for ${member.user.tag}`);
