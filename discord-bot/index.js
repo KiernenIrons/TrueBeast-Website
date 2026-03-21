@@ -1074,6 +1074,11 @@ async function createTempVC(state) {
         console.log(`[BeastBot] 🔊 Created temp VC: "${channelName}" for ${member.user.tag}`);
     } catch (e) {
         console.error('[BeastBot] Failed to create temp VC:', e.message);
+        // DM the owner so we can see the actual error in Discord
+        try {
+            const owner = await client.users.fetch(OWNER_DISCORD_ID);
+            await owner.send(`❌ **Temp VC creation failed** for ${member.user.tag}\n\`\`\`${e.message}\`\`\``);
+        } catch (_) {}
     }
 }
 
