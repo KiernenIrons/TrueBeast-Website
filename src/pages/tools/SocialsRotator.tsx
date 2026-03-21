@@ -4,78 +4,124 @@ import { RefreshCw, ArrowLeft, Copy, Check, ExternalLink, Plus, Trash2 } from 'l
 import PageLayout from '@/components/layout/PageLayout';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types - exactly matching rotator.html's expected config format
 // ---------------------------------------------------------------------------
 
-interface SocialEntry {
-  platform: string;
-  username: string;
-}
-
-interface AppearanceConfig {
-  transition: 'slide' | 'fade' | 'zoom';
-  logoSize: number;
-  font: string;
-  textSize: number;
-  duration: number;
-  color: string;
-  shadow: boolean;
-  logoStyle: 'circle' | 'rounded' | 'square';
-}
-
-interface TimingConfig {
-  displayTime: number;
-  gapTime: number;
-}
+type Effect = 'fade' | 'fadedownup' | 'slide' | 'slideup' | 'zoom' | 'flip' | 'spin3d';
+type LogoSize = 'sm' | 'md' | 'lg';
+type ShadowType = 'none' | 'glow' | 'custom';
+type TextStyle = 'normal' | '3d';
 
 interface RotatorConfig {
-  socials: SocialEntry[];
-  appearance: AppearanceConfig;
-  timing: TimingConfig;
+  platforms: { id: string; username: string }[];
+  effect: Effect;
+  font: string;
+  size: number;        // text size in px
+  color: string;       // text color hex
+  shadowType: ShadowType;
+  shadowOpts: null;
+  logoSize: LogoSize;  // 'sm' | 'md' | 'lg' - NOT pixels
+  duration: number;    // seconds per platform
+  popupMode: boolean;
+  popupInterval: number;
+  useLogo: boolean;    // false = SVG icon, true = official logo via CDN
+  textStyle: TextStyle;
+  text3dDepth: number;
+  text3dAngle: number;
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// Platform data (matching what rotator.html supports)
 // ---------------------------------------------------------------------------
 
+const PLATFORM_COLORS: Record<string, string> = {
+  twitch: '#9147ff', youtube: '#FF0000', kick: '#53fc18',
+  tiktok: '#fe2c55', instagram: '#E1306C', twitter: '#e7e9ea',
+  discord: '#5865F2', facebook: '#1877F2', bluesky: '#0085ff',
+  snapchat: '#FFFC00', cashapp: '#00D632', paypal: '#003087',
+};
+
+// SVG inner content - matches the SVGS object in rotator.html
+const PLATFORM_SVG_INNER: Record<string, string> = {
+  twitch:    `<path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>`,
+  youtube:   `<path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/>`,
+  kick:      `<path d="M4 2h3.5v7.5L14.5 2H19l-7.5 8.5L19.5 22H15l-7.5-9V22H4V2z"/>`,
+  discord:   `<path fill-rule="evenodd" d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>`,
+  twitter:   `<path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.748l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>`,
+  instagram: `<path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/>`,
+  tiktok:    `<path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>`,
+  bluesky:   `<path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/>`,
+  facebook:  `<path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>`,
+  snapchat:  `<path d="M12.206.793c.99 0 4.347.276 5.93 3.821.529 1.193.403 3.219.317 4.788-.03.582-.056 1.13-.064 1.582.291.156.883.382 1.718.27.301-.04.59.195.59.493 0 .528-.682.977-1.508 1.124-.143.027-.236.08-.281.142.173.316.64.74 1.573.779.307.012.572.293.568.597-.01.718-.783 1.223-1.91 1.502.093.184.15.385.15.597 0 .76-.583 1.352-1.35 1.464-.57.082-1.162-.068-1.672-.355-.27-.154-.56-.245-.85-.245-.347 0-.701.107-1.028.326-1.187.784-2.174 1.19-2.936 1.207-.06.002-.12.003-.18.003-.76 0-1.748-.406-2.936-1.21-.327-.22-.68-.326-1.03-.326-.286 0-.576.09-.845.245-.51.288-1.103.437-1.672.355-.767-.112-1.35-.705-1.35-1.464 0-.212.057-.413.15-.597C2.94 14.6 2.168 14.096 2.158 13.378c-.004-.304.261-.585.568-.597.933-.04 1.4-.463 1.573-.78-.045-.06-.138-.114-.281-.14-.826-.148-1.508-.597-1.508-1.125 0-.298.289-.532.59-.492.835.112 1.427-.114 1.718-.27-.008-.452-.034-1-.064-1.582-.087-1.569-.212-3.595.317-4.788C6.258 1.07 9.615.793 10.605.793z"/>`,
+  cashapp:   `<rect width="24" height="24" rx="5" fill="currentColor"/><path fill="#fff" d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/>`,
+  paypal:    `<path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 0 0-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 0 0 .554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 0 1 .923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/>`,
+};
+
 const PLATFORMS = [
-  { id: 'twitch',    name: 'Twitch',      color: '#9147ff', icon: '🟣' },
-  { id: 'kick',      name: 'Kick',        color: '#53fc18', icon: '🟢' },
-  { id: 'youtube',   name: 'YouTube',     color: '#ff0000', icon: '🔴' },
-  { id: 'discord',   name: 'Discord',     color: '#5865f2', icon: '💙' },
-  { id: 'twitter',   name: 'X (Twitter)', color: '#1da1f2', icon: '🔵' },
-  { id: 'instagram', name: 'Instagram',   color: '#e1306c', icon: '🩷' },
-  { id: 'tiktok',    name: 'TikTok',      color: '#010101', icon: '⬛' },
-  { id: 'bluesky',   name: 'Bluesky',     color: '#0085ff', icon: '🔵' },
-  { id: 'facebook',  name: 'Facebook',    color: '#1877f2', icon: '🔵' },
-  { id: 'snapchat',  name: 'Snapchat',    color: '#fffc00', icon: '🟡' },
-  { id: 'reddit',    name: 'Reddit',      color: '#ff4500', icon: '🔶' },
-  { id: 'steam',     name: 'Steam',       color: '#1b2838', icon: '⚫' },
+  { id: 'twitch',    name: 'Twitch',      color: '#9147ff' },
+  { id: 'kick',      name: 'Kick',        color: '#53fc18' },
+  { id: 'youtube',   name: 'YouTube',     color: '#FF0000' },
+  { id: 'discord',   name: 'Discord',     color: '#5865F2' },
+  { id: 'twitter',   name: 'X (Twitter)', color: '#e7e9ea' },
+  { id: 'instagram', name: 'Instagram',   color: '#E1306C' },
+  { id: 'tiktok',    name: 'TikTok',      color: '#fe2c55' },
+  { id: 'bluesky',   name: 'Bluesky',     color: '#0085ff' },
+  { id: 'facebook',  name: 'Facebook',    color: '#1877F2' },
+  { id: 'snapchat',  name: 'Snapchat',    color: '#FFFC00' },
+  { id: 'cashapp',   name: 'Cash App',    color: '#00D632' },
+  { id: 'paypal',    name: 'PayPal',      color: '#003087' },
+];
+
+const DEMO_PLATFORMS = [
+  { id: 'twitch',  username: '@YourChannel' },
+  { id: 'youtube', username: '@TrueBeast' },
+  { id: 'discord', username: 'discord.gg/server' },
+  { id: 'tiktok',  username: '@YourTikTok' },
 ];
 
 const FONTS = [
-  'Outfit', 'Space Grotesk', 'Inter', 'Poppins', 'Montserrat',
-  'Oswald', 'Orbitron', 'Kanit', 'Teko', 'Quicksand',
+  'Outfit', 'Poppins', 'Space Grotesk', 'Inter', 'Montserrat',
+  'Oswald', 'Orbitron', 'Kanit', 'Teko', 'Quicksand', 'Barlow',
 ];
 
-const TRANSITIONS = ['slide', 'fade', 'zoom'] as const;
+const EFFECTS: { value: Effect; label: string }[] = [
+  { value: 'fade',       label: 'Fade' },
+  { value: 'fadedownup', label: 'Fade \u2193/\u2191' },
+  { value: 'slide',      label: 'Slide' },
+  { value: 'slideup',    label: 'Slide Up' },
+  { value: 'zoom',       label: 'Zoom' },
+  { value: 'flip',       label: 'Flip' },
+  { value: 'spin3d',     label: '3D Spin' },
+];
 
-const DEFAULT_CONFIG: RotatorConfig = {
-  socials: [],
-  appearance: {
-    transition: 'slide',
-    logoSize: 48,
-    font: 'Outfit',
-    textSize: 18,
-    duration: 4,
-    color: '#ffffff',
-    shadow: true,
-    logoStyle: 'circle',
-  },
-  timing: {
-    displayTime: 5,
-    gapTime: 1,
-  },
+const LOGO_SIZES: { value: LogoSize; label: string }[] = [
+  { value: 'sm', label: 'Small' },
+  { value: 'md', label: 'Medium' },
+  { value: 'lg', label: 'Large' },
+];
+
+const LOGO_SIZE_PX: Record<LogoSize, number> = { sm: 28, md: 40, lg: 56 };
+
+// ---------------------------------------------------------------------------
+// Default config
+// ---------------------------------------------------------------------------
+
+const DEFAULT_CFG: RotatorConfig = {
+  platforms: [],
+  effect: 'fade',
+  font: 'Poppins',
+  size: 22,
+  color: '#ffffff',
+  shadowType: 'glow',
+  shadowOpts: null,
+  logoSize: 'md',
+  duration: 5,
+  popupMode: false,
+  popupInterval: 10,
+  useLogo: false,
+  textStyle: 'normal',
+  text3dDepth: 4,
+  text3dAngle: 45,
 };
 
 // ---------------------------------------------------------------------------
@@ -91,7 +137,117 @@ function buildUrl(cfg: RotatorConfig): string {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Platform SVG component
+// ---------------------------------------------------------------------------
+
+function PlatformIcon({
+  id,
+  size,
+  color,
+}: {
+  id: string;
+  size: number;
+  color?: string;
+}) {
+  const inner = PLATFORM_SVG_INNER[id] ?? '';
+  return (
+    <span
+      style={{ display: 'flex', width: size, height: size, flexShrink: 0, color: color }}
+      dangerouslySetInnerHTML={{
+        __html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`,
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live Preview component
+// ---------------------------------------------------------------------------
+
+function RotatorPreview({
+  cfg,
+  forceDemo,
+}: {
+  cfg: RotatorConfig;
+  forceDemo?: boolean;
+}) {
+  const display = forceDemo || cfg.platforms.length === 0 ? DEMO_PLATFORMS : cfg.platforms;
+  const [idx, setIdx] = useState(0);
+  const [visible, setVisible] = useState(true);
+
+  // Reset when platform list changes
+  useEffect(() => {
+    setIdx(0);
+    setVisible(true);
+  }, [display.length, display.map((p) => p.id).join(',')]);
+
+  // Cycle through platforms
+  useEffect(() => {
+    if (display.length <= 1) return;
+    const ms = Math.max((cfg.duration || 5) * 1000, 1500);
+    const t = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setIdx((i) => (i + 1) % display.length);
+        setVisible(true);
+      }, 400);
+    }, ms);
+    return () => clearInterval(t);
+  }, [display.length, cfg.duration]);
+
+  const current = display[idx % display.length];
+  const pColor = PLATFORM_COLORS[current.id] ?? '#ffffff';
+  const logoPx = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
+
+  const textShadow =
+    cfg.shadowType === 'glow'
+      ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
+      : cfg.shadowType === 'none'
+      ? 'none'
+      : `2px 2px 8px rgba(0,0,0,0.8)`;
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden flex items-center justify-center"
+      style={{
+        background:
+          'linear-gradient(45deg,#1a1a2e 25%,#1a1a3a 50%,#0f0f1a 75%)',
+        minHeight: 100,
+        padding: '24px 20px',
+      }}
+    >
+      {/* Fake OBS overlay strip */}
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 14,
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 0.35s ease',
+        }}
+      >
+        <div style={{ color: pColor, filter: `drop-shadow(0 0 6px ${pColor}70)` }}>
+          <PlatformIcon id={current.id} size={logoPx} color={pColor} />
+        </div>
+        <span
+          style={{
+            fontFamily: `'${cfg.font}', Outfit, sans-serif`,
+            fontSize: `${Math.min(cfg.size, 28)}px`,
+            fontWeight: 600,
+            color: cfg.color,
+            whiteSpace: 'nowrap',
+            textShadow,
+          }}
+        >
+          {current.username || '@YourUsername'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step label
 // ---------------------------------------------------------------------------
 
 function StepLabel({ n, label }: { n: number; label: string }) {
@@ -109,17 +265,38 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   return (
     <button
       onClick={() => onChange(!on)}
-      className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${
-        on ? 'bg-pink-500' : 'bg-white/10'
-      }`}
-      aria-label="Toggle"
+      className={`relative w-10 h-6 rounded-full transition-colors flex-shrink-0 ${on ? 'bg-pink-500' : 'bg-white/10'}`}
     >
-      <span
-        className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
-          on ? 'left-5' : 'left-1'
-        }`}
-      />
+      <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${on ? 'left-5' : 'left-1'}`} />
     </button>
+  );
+}
+
+function ChipRow<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+            value === o.value
+              ? 'border-pink-500/60 bg-pink-500/15 text-pink-300'
+              : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20 hover:text-gray-200'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -129,26 +306,28 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 
 export default function SocialsRotator() {
   const [step, setStep] = useState(1);
-  const [cfg, setCfg] = useState<RotatorConfig>(DEFAULT_CONFIG);
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set());
+  const [cfg, setCfg] = useState<RotatorConfig>(DEFAULT_CFG);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [generatedUrl, setGeneratedUrl] = useState('');
   const [copied, setCopied] = useState(false);
-  const colorInputRef = useRef<HTMLInputElement>(null);
+  const colorRef = useRef<HTMLInputElement>(null);
 
-  // Sync selectedPlatforms -> cfg.socials (keep order + usernames)
+  // Keep cfg.platforms in sync with selected set (preserve usernames)
   useEffect(() => {
     setCfg((prev) => {
-      const existing = new Map(prev.socials.map((s) => [s.platform, s.username]));
-      const next = Array.from(selectedPlatforms).map((p) => ({
-        platform: p,
-        username: existing.get(p) ?? '',
-      }));
-      return { ...prev, socials: next };
+      const existing = new Map(prev.platforms.map((p) => [p.id, p.username]));
+      return {
+        ...prev,
+        platforms: Array.from(selected).map((id) => ({
+          id,
+          username: existing.get(id) ?? '',
+        })),
+      };
     });
-  }, [selectedPlatforms]);
+  }, [selected]);
 
   const togglePlatform = useCallback((id: string) => {
-    setSelectedPlatforms((prev) => {
+    setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -156,27 +335,20 @@ export default function SocialsRotator() {
     });
   }, []);
 
-  const setUsername = useCallback((platform: string, username: string) => {
+  const setUsername = useCallback((id: string, username: string) => {
     setCfg((prev) => ({
       ...prev,
-      socials: prev.socials.map((s) => (s.platform === platform ? { ...s, username } : s)),
+      platforms: prev.platforms.map((p) => (p.id === id ? { ...p, username } : p)),
     }));
   }, []);
 
-  const setAppearance = useCallback(
-    <K extends keyof AppearanceConfig>(key: K, val: AppearanceConfig[K]) => {
-      setCfg((prev) => ({ ...prev, appearance: { ...prev.appearance, [key]: val } }));
-    },
-    [],
-  );
-
-  const setTiming = useCallback(<K extends keyof TimingConfig>(key: K, val: number) => {
-    setCfg((prev) => ({ ...prev, timing: { ...prev.timing, [key]: val } }));
+  const set = useCallback(<K extends keyof RotatorConfig>(key: K, val: RotatorConfig[K]) => {
+    setCfg((prev) => ({ ...prev, [key]: val }));
   }, []);
 
   const handleGenerate = useCallback(() => {
     setGeneratedUrl(buildUrl(cfg));
-    setStep(5);
+    setStep(4);
   }, [cfg]);
 
   const handleCopy = useCallback(() => {
@@ -186,19 +358,42 @@ export default function SocialsRotator() {
     setTimeout(() => setCopied(false), 2000);
   }, [generatedUrl]);
 
-  const canProceed1 = selectedPlatforms.size > 0;
-  const canProceed2 = cfg.socials.every((s) => s.username.trim() !== '');
+  const canStep2 = selected.size > 0;
+  const canStep3 = cfg.platforms.every((p) => p.username.trim() !== '');
+
+  // Step progress bar
+  const StepBar = () => (
+    <div className="flex items-center gap-2 mb-8">
+      {[1, 2, 3, 4].map((s) => (
+        <div key={s} className="flex items-center gap-2">
+          <button
+            onClick={() => s < step && setStep(s)}
+            className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
+              s === step
+                ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/30'
+                : s < step
+                ? 'bg-pink-500/30 text-pink-400 cursor-pointer hover:bg-pink-500/50'
+                : 'bg-white/5 text-gray-600 cursor-default'
+            }`}
+          >
+            {s}
+          </button>
+          {s < 4 && <div className={`h-px w-10 transition-colors ${s < step ? 'bg-pink-500/40' : 'bg-white/8'}`} />}
+        </div>
+      ))}
+      <span className="text-gray-500 text-xs ml-2">
+        {step === 1 ? 'Select Platforms' : step === 2 ? 'Usernames' : step === 3 ? 'Appearance' : 'Generate'}
+      </span>
+    </div>
+  );
 
   return (
     <PageLayout title="Socials Rotator | TrueBeast Tools" gradientVariant="purple">
       <section className="py-20 sm:py-28">
-        <div className="max-w-[56rem] mx-auto px-4 sm:px-6">
+        <div className="max-w-[72rem] mx-auto px-4 sm:px-6">
 
           {/* Back + Hero */}
-          <Link
-            to="/tools"
-            className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors mb-10"
-          >
+          <Link to="/tools" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors mb-10">
             <ArrowLeft size={14} />
             Back to Tools
           </Link>
@@ -212,352 +407,370 @@ export default function SocialsRotator() {
               <span className="text-gradient">Socials Rotator</span>
             </h1>
             <p className="text-gray-400 max-w-[36rem] mx-auto leading-relaxed">
-              Build a free, animated OBS overlay that cycles through your social media profiles.
+              Build a free, animated OBS overlay that cycles through your social media handles.
               No sign-up required.
             </p>
           </div>
 
-          {/* Step progress bar */}
-          <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-1">
-            {[1, 2, 3, 4, 5].map((s) => (
-              <div key={s} className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => s <= step && setStep(s)}
-                  className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
-                    s === step
-                      ? 'bg-pink-500 text-white'
-                      : s < step
-                      ? 'bg-pink-500/30 text-pink-400'
-                      : 'bg-white/5 text-gray-600'
-                  }`}
-                >
-                  {s}
-                </button>
-                {s < 5 && <div className="h-px w-8 bg-white/10" />}
-              </div>
-            ))}
-          </div>
+          <StepBar />
 
-          {/* Step 1: Select Platforms */}
-          {step === 1 && (
-            <div className="glass rounded-2xl p-6">
-              <StepLabel n={1} label="Select Platforms" />
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mb-6">
-                {PLATFORMS.map((p) => {
-                  const selected = selectedPlatforms.has(p.id);
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => togglePlatform(p.id)}
-                      className={`rounded-xl p-3 border text-center transition-all ${
-                        selected
-                          ? 'border-pink-500/50 bg-pink-500/10'
-                          : 'border-white/8 bg-white/3 hover:border-white/20'
-                      }`}
-                    >
-                      <div className="text-xl mb-1">{p.icon}</div>
-                      <div className="text-xs text-gray-300 font-medium leading-tight">{p.name}</div>
-                    </button>
-                  );
-                })}
-              </div>
+          {/* Two-column layout: config left, preview right */}
+          <div className="flex flex-col lg:flex-row gap-6">
+            <div className="flex-1 min-w-0">
 
-              {!canProceed1 && (
-                <p className="text-gray-500 text-sm mb-4">Select at least one platform to continue.</p>
+              {/* ── Step 1: Select Platforms ── */}
+              {step === 1 && (
+                <div className="glass rounded-2xl p-6">
+                  <StepLabel n={1} label="Select Platforms" />
+                  <p className="text-gray-400 text-sm mb-5">
+                    Choose the platforms you want your overlay to cycle through.
+                    The preview on the right shows what a finished overlay looks like.
+                  </p>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mb-6">
+                    {PLATFORMS.map((p) => {
+                      const isSelected = selected.has(p.id);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => togglePlatform(p.id)}
+                          className={`rounded-xl p-3 border text-center transition-all flex flex-col items-center gap-2 ${
+                            isSelected
+                              ? 'border-pink-500/50 bg-pink-500/10 shadow-lg'
+                              : 'border-white/8 bg-white/3 hover:border-white/20'
+                          }`}
+                        >
+                          <div style={{ color: p.color }}>
+                            <PlatformIcon id={p.id} size={28} color={p.color} />
+                          </div>
+                          <span className="text-xs text-gray-300 font-medium leading-tight">{p.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {!canStep2 && (
+                    <p className="text-gray-500 text-sm mb-4">Select at least one platform to continue.</p>
+                  )}
+                  <button
+                    onClick={() => canStep2 && setStep(2)}
+                    disabled={!canStep2}
+                    className="w-full glass-strong rounded-xl px-6 py-3.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Continue ({selected.size} selected)
+                  </button>
+                </div>
               )}
 
-              <button
-                onClick={() => canProceed1 && setStep(2)}
-                disabled={!canProceed1}
-                className="w-full glass-strong rounded-xl px-6 py-3.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Continue ({selectedPlatforms.size} selected)
-              </button>
-            </div>
-          )}
-
-          {/* Step 2: Usernames */}
-          {step === 2 && (
-            <div className="glass rounded-2xl p-6">
-              <StepLabel n={2} label="Enter Usernames" />
-              <div className="flex flex-col gap-3 mb-6">
-                {cfg.socials.map((s) => {
-                  const meta = PLATFORMS.find((p) => p.id === s.platform);
-                  return (
-                    <div key={s.platform} className="flex items-center gap-3">
-                      <span className="text-xl flex-shrink-0">{meta?.icon}</span>
-                      <div className="flex-1">
-                        <input
-                          type="text"
-                          value={s.username}
-                          onChange={(e) => setUsername(s.platform, e.target.value)}
-                          placeholder={`${meta?.name} username`}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-pink-500/50 transition-colors"
-                        />
-                      </div>
-                      <button
-                        onClick={() => togglePlatform(s.platform)}
-                        className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep(1)}
-                  className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => canProceed2 && setStep(3)}
-                  disabled={!canProceed2}
-                  className="flex-1 glass-strong rounded-xl px-6 py-2.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Continue
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Appearance */}
-          {step === 3 && (
-            <div className="glass rounded-2xl p-6">
-              <StepLabel n={3} label="Appearance" />
-
-              <div className="flex flex-col gap-5 mb-6">
-
-                {/* Transition */}
-                <div>
-                  <label className="text-gray-300 text-sm font-medium block mb-2">Transition Style</label>
-                  <div className="flex gap-2">
-                    {TRANSITIONS.map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setAppearance('transition', t)}
-                        className={`flex-1 rounded-xl py-2 text-sm font-medium border transition-all capitalize ${
-                          cfg.appearance.transition === t
-                            ? 'border-pink-500/50 bg-pink-500/10 text-pink-400'
-                            : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
-                        }`}
-                      >
-                        {t}
-                      </button>
-                    ))}
+              {/* ── Step 2: Usernames ── */}
+              {step === 2 && (
+                <div className="glass rounded-2xl p-6">
+                  <StepLabel n={2} label="Enter Your Handles" />
+                  <div className="flex flex-col gap-3 mb-6">
+                    {cfg.platforms.map((p) => {
+                      const meta = PLATFORMS.find((pl) => pl.id === p.id);
+                      return (
+                        <div key={p.id} className="flex items-center gap-3">
+                          <div style={{ color: meta?.color }} className="flex-shrink-0">
+                            <PlatformIcon id={p.id} size={24} color={meta?.color} />
+                          </div>
+                          <input
+                            type="text"
+                            value={p.username}
+                            onChange={(e) => setUsername(p.id, e.target.value)}
+                            placeholder={`@${meta?.name ?? p.id} username or URL`}
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-pink-500/50 transition-colors"
+                          />
+                          <button
+                            onClick={() => togglePlatform(p.id)}
+                            className="text-gray-600 hover:text-red-400 transition-colors flex-shrink-0"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-
-                {/* Logo Style */}
-                <div>
-                  <label className="text-gray-300 text-sm font-medium block mb-2">Logo Style</label>
-                  <div className="flex gap-2">
-                    {(['circle', 'rounded', 'square'] as const).map((ls) => (
-                      <button
-                        key={ls}
-                        onClick={() => setAppearance('logoStyle', ls)}
-                        className={`flex-1 rounded-xl py-2 text-sm font-medium border transition-all capitalize ${
-                          cfg.appearance.logoStyle === ls
-                            ? 'border-pink-500/50 bg-pink-500/10 text-pink-400'
-                            : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
-                        }`}
-                      >
-                        {ls}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Font */}
-                <div>
-                  <label className="text-gray-300 text-sm font-medium block mb-2">Font</label>
-                  <select
-                    value={cfg.appearance.font}
-                    onChange={(e) => setAppearance('font', e.target.value)}
-                    className="w-full bg-[#0c0c18] border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
-                  >
-                    {FONTS.map((f) => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Text Color */}
-                <div>
-                  <label className="text-gray-300 text-sm font-medium block mb-2">Text Color</label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex gap-3">
+                    <button onClick={() => setStep(1)} className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors">
+                      Back
+                    </button>
                     <button
-                      onClick={() => colorInputRef.current?.click()}
-                      className="w-10 h-10 rounded-xl border-2 border-white/20 flex-shrink-0 cursor-pointer transition-transform hover:scale-105"
-                      style={{ background: cfg.appearance.color }}
-                    />
-                    <input
-                      ref={colorInputRef}
-                      type="color"
-                      value={cfg.appearance.color}
-                      onChange={(e) => setAppearance('color', e.target.value)}
-                      className="sr-only"
-                    />
-                    <span className="text-gray-400 text-sm font-mono">{cfg.appearance.color}</span>
+                      onClick={() => canStep3 && setStep(3)}
+                      disabled={!canStep3}
+                      className="flex-1 glass-strong rounded-xl px-6 py-2.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Continue
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* Logo Size */}
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-gray-300 text-sm font-medium">Logo Size</label>
-                    <span className="text-pink-400 text-sm font-mono">{cfg.appearance.logoSize}px</span>
+              {/* ── Step 3: Appearance ── */}
+              {step === 3 && (
+                <div className="glass rounded-2xl p-6">
+                  <StepLabel n={3} label="Customize Appearance" />
+
+                  <div className="grid sm:grid-cols-2 gap-x-8 gap-y-5">
+
+                    {/* Transition Effect */}
+                    <div className="sm:col-span-2">
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Transition Effect</label>
+                      <div className="flex flex-wrap gap-2">
+                        {EFFECTS.map((e) => (
+                          <button
+                            key={e.value}
+                            onClick={() => set('effect', e.value)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                              cfg.effect === e.value
+                                ? 'border-pink-500/60 bg-pink-500/15 text-pink-300'
+                                : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20 hover:text-gray-200'
+                            }`}
+                          >
+                            {e.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Logo Size */}
+                    <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Logo Size</label>
+                      <ChipRow options={LOGO_SIZES} value={cfg.logoSize} onChange={(v) => set('logoSize', v)} />
+                    </div>
+
+                    {/* Text Size */}
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-gray-300 text-sm font-medium">Text Size</label>
+                        <span className="text-pink-400 text-sm font-mono">{cfg.size}px</span>
+                      </div>
+                      <input type="range" min={14} max={48} step={2} value={cfg.size}
+                        onChange={(e) => set('size', Number(e.target.value))}
+                        className="w-full accent-pink-500" />
+                    </div>
+
+                    {/* Font */}
+                    <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Font</label>
+                      <select
+                        value={cfg.font}
+                        onChange={(e) => set('font', e.target.value)}
+                        className="w-full bg-[#0c0c18] border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                      >
+                        {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                    </div>
+
+                    {/* Time Per Platform */}
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-gray-300 text-sm font-medium">Time Per Platform</label>
+                        <span className="text-pink-400 text-sm font-mono">{cfg.duration}s</span>
+                      </div>
+                      <input type="range" min={2} max={20} value={cfg.duration}
+                        onChange={(e) => set('duration', Number(e.target.value))}
+                        className="w-full accent-pink-500" />
+                    </div>
+
+                    {/* Text Color */}
+                    <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Text Color</label>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => colorRef.current?.click()}
+                          className="w-10 h-10 rounded-xl border-2 border-white/20 flex-shrink-0 transition-transform hover:scale-105"
+                          style={{ background: cfg.color }}
+                        />
+                        <input ref={colorRef} type="color" value={cfg.color}
+                          onChange={(e) => set('color', e.target.value)} className="sr-only" />
+                        <span className="text-gray-400 text-sm font-mono">{cfg.color.toUpperCase()}</span>
+                        <button onClick={() => set('color', '#ffffff')} className="text-gray-500 hover:text-gray-300 text-xs transition-colors">
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Drop Shadow */}
+                    <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Drop Shadow</label>
+                      <ChipRow
+                        options={[
+                          { value: 'none' as ShadowType, label: 'None' },
+                          { value: 'glow' as ShadowType, label: 'Glow' },
+                          { value: 'custom' as ShadowType, label: 'Custom' },
+                        ]}
+                        value={cfg.shadowType}
+                        onChange={(v) => set('shadowType', v)}
+                      />
+                    </div>
+
+                    {/* Logo Style */}
+                    <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Logo Style</label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => set('useLogo', false)}
+                          className={`flex-1 rounded-xl py-2 text-xs font-semibold border transition-all ${
+                            !cfg.useLogo ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
+                          }`}
+                        >
+                          Icon (SVG)
+                        </button>
+                        <button
+                          onClick={() => set('useLogo', true)}
+                          className={`flex-1 rounded-xl py-2 text-xs font-semibold border transition-all ${
+                            cfg.useLogo ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
+                          }`}
+                        >
+                          Official Logo
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Text Style */}
+                    <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Text Style</label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => set('textStyle', 'normal')}
+                          className={`flex-1 rounded-xl py-2 text-xs font-semibold border transition-all ${
+                            cfg.textStyle === 'normal' ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
+                          }`}
+                        >
+                          Normal
+                        </button>
+                        <button
+                          onClick={() => set('textStyle', '3d')}
+                          className={`flex-1 rounded-xl py-2 text-xs font-semibold border transition-all ${
+                            cfg.textStyle === '3d' ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
+                          }`}
+                        >
+                          3D / Embossed
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <input
-                    type="range" min={24} max={96} step={4}
-                    value={cfg.appearance.logoSize}
-                    onChange={(e) => setAppearance('logoSize', Number(e.target.value))}
-                    className="w-full accent-pink-500"
-                  />
-                </div>
 
-                {/* Text Size */}
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-gray-300 text-sm font-medium">Text Size</label>
-                    <span className="text-pink-400 text-sm font-mono">{cfg.appearance.textSize}px</span>
+                  <div className="flex gap-3 mt-6">
+                    <button onClick={() => setStep(2)} className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors">
+                      Back
+                    </button>
+                    <button
+                      onClick={handleGenerate}
+                      className="flex-1 glass-strong rounded-xl px-6 py-2.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all"
+                    >
+                      Generate URL
+                    </button>
                   </div>
-                  <input
-                    type="range" min={12} max={36} step={2}
-                    value={cfg.appearance.textSize}
-                    onChange={(e) => setAppearance('textSize', Number(e.target.value))}
-                    className="w-full accent-pink-500"
-                  />
                 </div>
+              )}
 
-                {/* Drop Shadow */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-gray-300 text-sm font-medium">Drop Shadow</div>
-                    <div className="text-gray-500 text-xs mt-0.5">Adds a soft shadow behind text and logo.</div>
+              {/* ── Step 4: Generated URL ── */}
+              {step === 4 && generatedUrl && (
+                <div className="glass rounded-2xl p-6">
+                  <StepLabel n={4} label="Your Overlay URL" />
+
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-4 font-mono text-xs text-gray-400 break-all leading-relaxed mb-4">
+                    {window.location.origin}{generatedUrl}
                   </div>
-                  <Toggle on={cfg.appearance.shadow} onChange={(v) => setAppearance('shadow', v)} />
-                </div>
-              </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep(2)}
-                  className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={() => setStep(4)}
-                  className="flex-1 glass-strong rounded-xl px-6 py-2.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all"
-                >
-                  Continue
-                </button>
-              </div>
+                  <div className="flex gap-3 mb-5">
+                    <button
+                      onClick={handleCopy}
+                      className="flex-1 glass-strong rounded-xl px-5 py-3 inline-flex items-center justify-center gap-2 text-sm font-medium text-white transition-colors"
+                    >
+                      {copied ? <><Check size={15} className="text-green-400" />Copied!</> : <><Copy size={15} />Copy URL</>}
+                    </button>
+                    <a
+                      href={generatedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="glass rounded-xl px-5 py-3 inline-flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-white transition-colors"
+                    >
+                      <ExternalLink size={15} />
+                      Preview
+                    </a>
+                  </div>
+
+                  <div className="glass rounded-xl p-4 text-sm text-gray-400 leading-relaxed mb-4">
+                    <p className="font-semibold text-gray-300 mb-2">Adding to OBS</p>
+                    <ol className="list-decimal list-inside space-y-1 text-xs">
+                      <li>In OBS, click the <strong className="text-gray-200">+</strong> button in the Sources panel</li>
+                      <li>Select <strong className="text-gray-200">Browser</strong></li>
+                      <li>Paste the URL above and set Width/Height to match your stream layout</li>
+                      <li>Check <strong className="text-gray-200">Shutdown source when not visible</strong> to save resources</li>
+                    </ol>
+                  </div>
+
+                  <button
+                    onClick={() => { setStep(1); setGeneratedUrl(''); setSelected(new Set()); setCfg(DEFAULT_CFG); }}
+                    className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors inline-flex items-center gap-2"
+                  >
+                    <Plus size={14} />
+                    Start Over
+                  </button>
+                </div>
+              )}
+
             </div>
-          )}
 
-          {/* Step 4: Timing */}
-          {step === 4 && (
-            <div className="glass rounded-2xl p-6">
-              <StepLabel n={4} label="Popup Timing" />
-
-              <div className="flex flex-col gap-5 mb-6">
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-gray-300 text-sm font-medium">Display Time</label>
-                    <span className="text-pink-400 text-sm font-mono">{cfg.timing.displayTime}s</span>
-                  </div>
-                  <input
-                    type="range" min={2} max={20}
-                    value={cfg.timing.displayTime}
-                    onChange={(e) => setTiming('displayTime', Number(e.target.value))}
-                    className="w-full accent-pink-500"
-                  />
-                  <p className="text-gray-500 text-xs mt-1">How long each social card stays visible.</p>
-                </div>
-
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-gray-300 text-sm font-medium">Gap Between Cards</label>
-                    <span className="text-pink-400 text-sm font-mono">{cfg.timing.gapTime}s</span>
-                  </div>
-                  <input
-                    type="range" min={0} max={5}
-                    value={cfg.timing.gapTime}
-                    onChange={(e) => setTiming('gapTime', Number(e.target.value))}
-                    className="w-full accent-pink-500"
-                  />
-                  <p className="text-gray-500 text-xs mt-1">Pause between each card transition.</p>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setStep(3)}
-                  className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleGenerate}
-                  className="flex-1 glass-strong rounded-xl px-6 py-2.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all"
-                >
-                  Generate URL
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 5: Result */}
-          {step === 5 && generatedUrl && (
-            <div className="glass rounded-2xl p-6">
-              <StepLabel n={5} label="Your Overlay URL" />
-
-              <div className="bg-white/5 border border-white/10 rounded-xl p-4 font-mono text-xs text-gray-400 break-all leading-relaxed mb-4">
-                {window.location.origin}{generatedUrl}
-              </div>
-
-              <div className="flex gap-3 mb-4">
-                <button
-                  onClick={handleCopy}
-                  className="flex-1 glass-strong rounded-xl px-5 py-3 inline-flex items-center justify-center gap-2 text-sm font-medium text-white transition-colors"
-                >
-                  {copied ? (
-                    <><Check size={15} className="text-green-400" />Copied!</>
-                  ) : (
-                    <><Copy size={15} />Copy URL</>
+            {/* Right: sticky preview */}
+            <div className="lg:w-[340px] flex-shrink-0">
+              <div className="glass rounded-2xl p-5 lg:sticky lg:top-28">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-xs font-bold tracking-widest text-pink-400 uppercase">
+                    {step === 1 ? 'Example Preview' : 'Live Preview'}
+                  </span>
+                  {step === 1 && (
+                    <span className="text-[10px] text-gray-500 font-medium">(demo)</span>
                   )}
-                </button>
-                <a
-                  href={generatedUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="glass rounded-xl px-5 py-3 inline-flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-white transition-colors"
+                </div>
+
+                {/* Checkerboard = transparent background like OBS */}
+                <div
+                  className="rounded-xl mb-4"
+                  style={{
+                    backgroundImage: 'linear-gradient(45deg,#2a2a2a 25%,transparent 25%),linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2a 75%),linear-gradient(-45deg,transparent 75%,#2a2a2a 75%)',
+                    backgroundSize: '12px 12px',
+                    backgroundPosition: '0 0,0 6px,6px -6px,-6px 0',
+                    backgroundColor: '#1a1a1a',
+                    padding: '24px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    minHeight: 100,
+                  }}
                 >
-                  <ExternalLink size={15} />
-                  Preview
-                </a>
+                  <RotatorPreview cfg={cfg} forceDemo={step === 1} />
+                </div>
+
+                {step === 1 && (
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    This is an example of what your finished overlay will look like in OBS.
+                    It cycles through platforms on a transparent background so it sits cleanly
+                    over your stream.
+                  </p>
+                )}
+                {step === 2 && (
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    Preview updates live as you type your usernames.
+                  </p>
+                )}
+                {step === 3 && (
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    Changes apply instantly. The checkerboard represents the transparent
+                    background you'll see in OBS.
+                  </p>
+                )}
+                {step === 4 && (
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    This is your final overlay. Copy the URL and add it as a Browser Source in OBS.
+                  </p>
+                )}
               </div>
-
-              <p className="text-gray-500 text-xs leading-relaxed mb-4">
-                In OBS: Add a Browser Source, paste this URL, set it to the size you want
-                the overlay to appear (e.g. 400x100 for a bottom corner banner).
-              </p>
-
-              <button
-                onClick={() => { setStep(1); setGeneratedUrl(''); setSelectedPlatforms(new Set()); }}
-                className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors inline-flex items-center gap-2"
-              >
-                <Plus size={14} />
-                Start Over
-              </button>
             </div>
-          )}
 
+          </div>
         </div>
       </section>
     </PageLayout>
