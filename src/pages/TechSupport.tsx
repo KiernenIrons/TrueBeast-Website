@@ -550,7 +550,7 @@ export default function TechSupport() {
           {/* ---------------------------------------------------------------- */}
           {/* A. Hero + Sub-nav tabs                                            */}
           {/* ---------------------------------------------------------------- */}
-          <div className="text-center space-y-6 reveal">
+          <div className="text-center space-y-6">
             <span className="inline-flex items-center gap-2 glass rounded-full px-4 py-1.5 text-sm text-green-400">
               <Headset className="w-4 h-4" />
               Free Tech Support
@@ -593,7 +593,7 @@ export default function TechSupport() {
           {/* ---------------------------------------------------------------- */}
           {/* B. Info strip                                                     */}
           {/* ---------------------------------------------------------------- */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 reveal">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Response Time */}
             <div className="glass rounded-2xl p-5 flex flex-col gap-3">
               <div className="flex items-center gap-2 text-green-400">
@@ -626,9 +626,36 @@ export default function TechSupport() {
           </div>
 
           {/* ---------------------------------------------------------------- */}
-          {/* C. FAQ Accordion                                                  */}
+          {/* C. Ticket Form                                                    */}
           {/* ---------------------------------------------------------------- */}
-          <div className="space-y-4 reveal">
+          <TicketForm />
+
+          {/* ---------------------------------------------------------------- */}
+          {/* D. Reviews                                                        */}
+          {/* ---------------------------------------------------------------- */}
+          <div className="space-y-8">
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold font-display text-white">What people say</h2>
+              <p className="text-gray-400">Real feedback from people I've helped</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {MOCK_REVIEWS.map((review) => (
+                <div key={review.name} className="glass rounded-2xl p-5 space-y-3">
+                  <StarDisplay rating={review.rating} />
+                  <p className="text-gray-300 text-sm leading-relaxed">"{review.text}"</p>
+                  <p className="text-white font-semibold text-sm">{review.name}</p>
+                </div>
+              ))}
+            </div>
+
+            <ReviewForm />
+          </div>
+
+          {/* ---------------------------------------------------------------- */}
+          {/* E. FAQ Accordion                                                  */}
+          {/* ---------------------------------------------------------------- */}
+          <div className="space-y-4">
             <h2 className="text-2xl font-bold font-display text-white">Common Questions</h2>
 
             <div className="space-y-2">
@@ -661,37 +688,6 @@ export default function TechSupport() {
                 );
               })}
             </div>
-          </div>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* D. Ticket Form                                                    */}
-          {/* ---------------------------------------------------------------- */}
-          <div className="reveal">
-            <TicketForm />
-          </div>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* E. Reviews                                                        */}
-          {/* ---------------------------------------------------------------- */}
-          <div className="space-y-8 reveal">
-            <div className="space-y-2">
-              <h2 className="text-2xl font-bold font-display text-white">What people say</h2>
-              <p className="text-gray-400">Real feedback from people I've helped</p>
-            </div>
-
-            {/* Review cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {MOCK_REVIEWS.map((review) => (
-                <div key={review.name} className="glass rounded-2xl p-5 space-y-3">
-                  <StarDisplay rating={review.rating} />
-                  <p className="text-gray-300 text-sm leading-relaxed">"{review.text}"</p>
-                  <p className="text-white font-semibold text-sm">{review.name}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Leave a review form */}
-            <ReviewForm />
           </div>
 
         </div>

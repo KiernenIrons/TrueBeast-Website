@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   FileText,
   Plus,
@@ -214,6 +214,8 @@ function TicketCard({
 // ---------------------------------------------------------------------------
 
 export default function MyTickets() {
+  const location = useLocation();
+  const isNewTicket = location.pathname === '/tech-support';
   const [ticketIds, setTicketIds] = useState<string[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -288,20 +290,43 @@ export default function MyTickets() {
       <section className="py-20 sm:py-28">
         <div className="max-w-[56rem] mx-auto px-4 sm:px-6">
           {/* ---- Hero ---- */}
-          <div className="text-center mb-14">
-            <div className="inline-flex items-center gap-2 glass rounded-full px-5 py-2.5 mb-6">
+          <div className="text-center mb-14 space-y-6">
+            <div className="inline-flex items-center gap-2 glass rounded-full px-5 py-2.5">
               <FileText size={16} className="text-green-400" />
-              <span className="text-sm text-gray-300 font-medium">Your Tickets</span>
+              <span className="text-sm text-gray-300 font-medium">Free Tech Support</span>
             </div>
 
-            <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold mb-5">
-              My <span className="text-gradient">Tickets</span>
+            <h1 className="font-display text-4xl sm:text-5xl font-bold">
+              Need <span className="text-gradient">Help?</span>
             </h1>
 
-            <p className="text-gray-400 text-lg max-w-[36rem] mx-auto leading-relaxed">
-              Track all your support tickets in one place. Only tickets submitted from this
-              browser are shown.
+            <p className="text-gray-400 max-w-[36rem] mx-auto leading-relaxed">
+              Track your support tickets below, or head back to submit a new one.
             </p>
+
+            {/* Tab bar */}
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <Link
+                to="/tech-support"
+                className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  isNewTicket
+                    ? 'glass-strong text-green-400'
+                    : 'glass text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                New Ticket
+              </Link>
+              <Link
+                to="/my-tickets"
+                className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  !isNewTicket
+                    ? 'glass-strong text-green-400'
+                    : 'glass text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                My Tickets
+              </Link>
+            </div>
           </div>
 
           {/* ---- Add Ticket Form ---- */}
