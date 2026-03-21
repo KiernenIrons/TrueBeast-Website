@@ -373,11 +373,10 @@ function RotatorPreview({
   const textColor = cfg.matchLogoColor ? pColor : cfg.color;
 
   const opts = cfg.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2 };
-  const textShadow =
-    cfg.shadowType === 'glow'     ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
-    : cfg.shadowType === 'none'   ? 'none'
-    : cfg.shadowType === 'custom' ? `${opts.x}px ${opts.y}px ${opts.blur}px ${opts.color}`
-    :                               `2px 2px 8px rgba(0,0,0,0.8)`;
+  const textFilter =
+    cfg.shadowType === 'glow'     ? `drop-shadow(0 0 18px ${pColor}90) drop-shadow(0 0 35px ${pColor}40)`
+    : cfg.shadowType === 'custom' ? `drop-shadow(${opts.x}px ${opts.y}px ${opts.blur}px ${opts.color})`
+    :                               'none';
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '8px' }}>
@@ -407,7 +406,7 @@ function RotatorPreview({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             minWidth: 0,
-            textShadow,
+            filter: textFilter !== 'none' ? textFilter : undefined,
           }}
         >
           {current.username || '@YourUsername'}
