@@ -59,6 +59,7 @@ export interface Giveaway {
     image: string;
     date: string;
     status: 'open' | 'upcoming' | 'ended';
+    entryUrl?: string; // Link to enter when status is 'open' (Gleam, Google Form, etc.)
 }
 
 export interface EmailConfig {
