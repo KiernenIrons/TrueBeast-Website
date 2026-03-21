@@ -277,7 +277,7 @@ export default function Navigation() {
       }`}
     >
       <div className="max-w-[80rem] mx-auto px-4 sm:px-6">
-        <div className={`glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl shadow-black/50' : ''}`}>
+        <div className={`glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl shadow-black/50' : ''}`} style={{ background: 'rgba(10, 10, 15, 0.72)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}>
           <div className="flex items-center justify-between">
             {/* ---- Logo ---- */}
             <Link to="/" className="flex items-center gap-3 group flex-shrink-0">

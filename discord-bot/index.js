@@ -450,8 +450,6 @@ const BUMP_CHANNEL_ID    = '1477361149862482053';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
 const GIVEAWAY_CHANNEL_ID  = '836728871356989491';
-const REDDIT_CLIENT_ID     = process.env.REDDIT_CLIENT_ID     || '';
-const REDDIT_CLIENT_SECRET = process.env.REDDIT_CLIENT_SECRET || '';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
 const DISBOARD_BOT_ID    = '302050872383242240';
@@ -719,8 +717,6 @@ async function checkAnniversaries() {
 // ── Gleam Giveaway Finder ─────────────────────────────────────────────────────
 
 const postedGiveawayIds = new Set();
-const GIVEAWAY_SUBREDDITS = 'giveaways+GameGiveaways+FreeGamesOnSteam';
-const GIVEAWAY_WINDOW_MS  = 12 * 60 * 60 * 1000; // 12 hours
 
 // Categories in display order — first keyword match wins
 const GIVEAWAY_CATEGORIES = [
@@ -773,33 +769,6 @@ function classifyGiveaway(title) {
     return GIVEAWAY_OTHER;
 }
 
-let redditToken = null;
-let redditTokenExpiry = 0;
-
-async function getRedditToken() {
-    if (redditToken && Date.now() < redditTokenExpiry) return redditToken;
-    const creds = Buffer.from(`${REDDIT_CLIENT_ID}:${REDDIT_CLIENT_SECRET}`).toString('base64');
-    const res = await fetch('https://www.reddit.com/api/v1/access_token', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Basic ${creds}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'TrueBeastBot/1.0',
-        },
-        body: 'grant_type=client_credentials',
-    });
-    if (!res.ok) throw new Error(`Reddit auth failed: ${res.status}`);
-    const data = await res.json();
-    redditToken = data.access_token;
-    redditTokenExpiry = Date.now() + (data.expires_in - 60) * 1000; // refresh 1min early
-    return redditToken;
-}
-
-function extractGleamLink(post) {
-    if (post.url?.includes('gleam.io')) return post.url;
-    const match = (post.selftext || '').match(/https?:\/\/gleam\.io\/\S+/);
-    return match ? match[0] : post.url;
-}
 
 async function fetchGleamGiveaways() {
     try {
