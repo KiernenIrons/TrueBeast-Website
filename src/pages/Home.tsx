@@ -184,7 +184,7 @@ function HeroSection() {
         </div>
 
         {/* Heading */}
-        <h1 className="reveal font-display text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-bold text-gradient leading-tight mb-6">
+        <h1 className="reveal font-display text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-bold text-gradient text-3d-hero leading-tight mb-6">
           TrueBeast
         </h1>
 

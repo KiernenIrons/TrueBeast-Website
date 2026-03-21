@@ -16,18 +16,19 @@ interface RotatorConfig {
   platforms: { id: string; username: string }[];
   effect: Effect;
   font: string;
-  size: number;        // text size in px
-  color: string;       // text color hex
+  size: number;
+  color: string;
   shadowType: ShadowType;
   shadowOpts: null;
-  logoSize: LogoSize;  // 'sm' | 'md' | 'lg' - NOT pixels
-  duration: number;    // seconds per platform
+  logoSize: LogoSize;
+  duration: number;
   popupMode: boolean;
   popupInterval: number;
-  useLogo: boolean;    // false = SVG icon, true = official logo via CDN
+  useLogo: boolean;
   textStyle: TextStyle;
   text3dDepth: number;
   text3dAngle: number;
+  matchLogoColor: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,11 +73,12 @@ const PLATFORMS = [
   { id: 'paypal',    name: 'PayPal',      color: '#003087' },
 ];
 
+// All demo platforms show the same placeholder so users know what they're building
 const DEMO_PLATFORMS = [
-  { id: 'twitch',  username: '@YourChannel' },
-  { id: 'youtube', username: '@TrueBeast' },
-  { id: 'discord', username: 'discord.gg/server' },
-  { id: 'tiktok',  username: '@YourTikTok' },
+  { id: 'twitch',  username: '@YourUsername' },
+  { id: 'youtube', username: '@YourUsername' },
+  { id: 'discord', username: '@YourUsername' },
+  { id: 'tiktok',  username: '@YourUsername' },
 ];
 
 const FONTS = [
@@ -122,6 +124,7 @@ const DEFAULT_CFG: RotatorConfig = {
   textStyle: 'normal',
   text3dDepth: 4,
   text3dAngle: 45,
+  matchLogoColor: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -140,24 +143,52 @@ function buildUrl(cfg: RotatorConfig): string {
 // Platform SVG component
 // ---------------------------------------------------------------------------
 
-function PlatformIcon({
-  id,
-  size,
-  color,
-}: {
-  id: string;
-  size: number;
-  color?: string;
-}) {
+function PlatformIcon({ id, size, color }: { id: string; size: number; color?: string }) {
   const inner = PLATFORM_SVG_INNER[id] ?? '';
   return (
     <span
-      style={{ display: 'flex', width: size, height: size, flexShrink: 0, color: color }}
+      style={{ display: 'flex', width: size, height: size, flexShrink: 0, color }}
       dangerouslySetInnerHTML={{
         __html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`,
       }}
     />
   );
+}
+
+// ---------------------------------------------------------------------------
+// CSS keyframes injected once for preview animations
+// ---------------------------------------------------------------------------
+
+const KEYFRAMES = `
+  @keyframes rp-fade       { from{opacity:0} to{opacity:1} }
+  @keyframes rp-fadedownup { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes rp-slide      { from{opacity:0;transform:translateX(28px)} to{opacity:1;transform:translateX(0)} }
+  @keyframes rp-slideup    { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes rp-zoom       { from{opacity:0;transform:scale(0.6)} to{opacity:1;transform:scale(1)} }
+  @keyframes rp-flip       { from{opacity:0;transform:perspective(500px) rotateY(-80deg)} to{opacity:1;transform:perspective(500px) rotateY(0deg)} }
+  @keyframes rp-spin3d     { from{opacity:0;transform:perspective(500px) rotateY(-180deg)} to{opacity:1;transform:perspective(500px) rotateY(0deg)} }
+`;
+
+function injectKeyframes() {
+  const id = 'rp-keyframes';
+  if (!document.getElementById(id)) {
+    const s = document.createElement('style');
+    s.id = id;
+    s.textContent = KEYFRAMES;
+    document.head.appendChild(s);
+  }
+}
+
+function loadGoogleFont(fontName: string) {
+  const slug = fontName.replace(/\s+/g, '+');
+  const linkId = `gfont-${slug}`;
+  if (!document.getElementById(linkId)) {
+    const link = document.createElement('link');
+    link.id = linkId;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${slug}:wght@400;600;700&display=swap`;
+    document.head.appendChild(link);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,74 +198,101 @@ function PlatformIcon({
 function RotatorPreview({
   cfg,
   forceDemo,
+  pinnedId,
 }: {
   cfg: RotatorConfig;
   forceDemo?: boolean;
+  pinnedId?: string | null;
 }) {
-  const display = forceDemo || cfg.platforms.length === 0 ? DEMO_PLATFORMS : cfg.platforms;
+  const display = (forceDemo || cfg.platforms.length === 0) ? DEMO_PLATFORMS : cfg.platforms;
   const [idx, setIdx] = useState(0);
-  const [visible, setVisible] = useState(true);
+  const [animKey, setAnimKey] = useState(0);
+  const prevEffIdx = useRef(-1);
 
-  // Reset when platform list changes
-  useEffect(() => {
-    setIdx(0);
-    setVisible(true);
-  }, [display.length, display.map((p) => p.id).join(',')]);
+  // Inject keyframes + load font on mount / font change
+  useEffect(() => { injectKeyframes(); }, []);
+  useEffect(() => { loadGoogleFont(cfg.font); }, [cfg.font]);
 
-  // Cycle through platforms
+  // Resolve effective index
+  const pinnedIdx = pinnedId ? display.findIndex((p) => p.id === pinnedId) : -1;
+  const effectiveIdx = pinnedId && pinnedIdx >= 0 ? pinnedIdx : idx % display.length;
+
+  // Bump animKey whenever effective index changes (pinned or cycled)
   useEffect(() => {
-    if (display.length <= 1) return;
+    if (prevEffIdx.current !== effectiveIdx) {
+      prevEffIdx.current = effectiveIdx;
+      setAnimKey((k) => k + 1);
+    }
+  }, [effectiveIdx]);
+
+  // Auto-cycle when not pinned
+  useEffect(() => {
+    if (pinnedId || display.length <= 1) return;
     const ms = Math.max((cfg.duration || 5) * 1000, 1500);
     const t = setInterval(() => {
-      setVisible(false);
-      setTimeout(() => {
-        setIdx((i) => (i + 1) % display.length);
-        setVisible(true);
-      }, 400);
+      setIdx((i) => (i + 1) % display.length);
     }, ms);
     return () => clearInterval(t);
-  }, [display.length, cfg.duration]);
+  }, [display.length, cfg.duration, pinnedId]);
 
-  const current = display[idx % display.length];
+  const current = display[effectiveIdx] ?? display[0];
+  if (!current) return null;
+
   const pColor = PLATFORM_COLORS[current.id] ?? '#ffffff';
   const logoPx = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
+  const textColor = cfg.matchLogoColor ? pColor : cfg.color;
 
-  const textShadow =
-    cfg.shadowType === 'glow'
-      ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
-      : cfg.shadowType === 'none'
-      ? 'none'
-      : `2px 2px 8px rgba(0,0,0,0.8)`;
+  // Base shadow per shadowType
+  const baseShadow =
+    cfg.shadowType === 'glow'   ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
+    : cfg.shadowType === 'none' ? 'none'
+    :                              `2px 2px 8px rgba(0,0,0,0.8)`;
+
+  // 3D text: stacked text-shadow extrusion using the text color at decreasing opacity
+  // This is the canonical CSS technique for 3D extruded text
+  const shadow3d = [
+    `1px 1px 0 ${textColor}cc`,
+    `2px 2px 0 ${textColor}99`,
+    `3px 3px 0 ${textColor}66`,
+    `4px 4px 0 ${textColor}44`,
+    `5px 5px 10px rgba(0,0,0,0.6)`,
+  ].join(', ');
+
+  const textShadow = cfg.textStyle === '3d' ? shadow3d : baseShadow;
 
   return (
-    <div
-      className="rounded-xl overflow-hidden flex items-center justify-center"
-      style={{
-        background:
-          'linear-gradient(45deg,#1a1a2e 25%,#1a1a3a 50%,#0f0f1a 75%)',
-        minHeight: 100,
-        padding: '24px 20px',
-      }}
-    >
-      {/* Fake OBS overlay strip */}
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
       <div
+        key={animKey}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: 14,
-          opacity: visible ? 1 : 0,
-          transition: 'opacity 0.35s ease',
+          animation: `rp-${cfg.effect} 0.45s ease-out forwards`,
         }}
       >
-        <div style={{ color: pColor, filter: `drop-shadow(0 0 6px ${pColor}70)` }}>
-          <PlatformIcon id={current.id} size={logoPx} color={pColor} />
-        </div>
+        {/* Logo: official CDN image or inline SVG */}
+        {cfg.useLogo ? (
+          <img
+            src={`https://cdn.simpleicons.org/${current.id}`}
+            width={logoPx}
+            height={logoPx}
+            alt={current.id}
+            style={{ filter: `drop-shadow(0 0 6px ${pColor}70)` }}
+          />
+        ) : (
+          <div style={{ color: pColor, filter: `drop-shadow(0 0 6px ${pColor}70)` }}>
+            <PlatformIcon id={current.id} size={logoPx} color={pColor} />
+          </div>
+        )}
+
+        {/* Username text */}
         <span
           style={{
-            fontFamily: `'${cfg.font}', Outfit, sans-serif`,
-            fontSize: `${Math.min(cfg.size, 28)}px`,
+            fontFamily: `'${cfg.font}', sans-serif`,
+            fontSize: `${cfg.size}px`,
             fontWeight: 600,
-            color: cfg.color,
+            color: textColor,
             whiteSpace: 'nowrap',
             textShadow,
           }}
@@ -247,7 +305,7 @@ function RotatorPreview({
 }
 
 // ---------------------------------------------------------------------------
-// Step label
+// Step label + shared UI
 // ---------------------------------------------------------------------------
 
 function StepLabel({ n, label }: { n: number; label: string }) {
@@ -310,7 +368,9 @@ export default function SocialsRotator() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [generatedUrl, setGeneratedUrl] = useState('');
   const [copied, setCopied] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const colorRef = useRef<HTMLInputElement>(null);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep cfg.platforms in sync with selected set (preserve usernames)
   useEffect(() => {
@@ -346,6 +406,15 @@ export default function SocialsRotator() {
     setCfg((prev) => ({ ...prev, [key]: val }));
   }, []);
 
+  const handleFocus = useCallback((id: string) => {
+    if (blurTimer.current) clearTimeout(blurTimer.current);
+    setActiveId(id);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    blurTimer.current = setTimeout(() => setActiveId(null), 120);
+  }, []);
+
   const handleGenerate = useCallback(() => {
     setGeneratedUrl(buildUrl(cfg));
     setStep(4);
@@ -361,7 +430,6 @@ export default function SocialsRotator() {
   const canStep2 = selected.size > 0;
   const canStep3 = cfg.platforms.every((p) => p.username.trim() !== '');
 
-  // Step progress bar
   const StepBar = () => (
     <div className="flex items-center gap-2 mb-8">
       {[1, 2, 3, 4].map((s) => (
@@ -386,6 +454,9 @@ export default function SocialsRotator() {
       </span>
     </div>
   );
+
+  // Preview: pin to active input in step 2, cycle otherwise
+  const previewPinnedId = step === 2 ? activeId : null;
 
   return (
     <PageLayout title="Socials Rotator | TrueBeast Tools" gradientVariant="purple">
@@ -418,7 +489,7 @@ export default function SocialsRotator() {
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1 min-w-0">
 
-              {/* ── Step 1: Select Platforms ── */}
+              {/* Step 1: Select Platforms */}
               {step === 1 && (
                 <div className="glass rounded-2xl p-6">
                   <StepLabel n={1} label="Select Platforms" />
@@ -461,10 +532,13 @@ export default function SocialsRotator() {
                 </div>
               )}
 
-              {/* ── Step 2: Usernames ── */}
+              {/* Step 2: Usernames */}
               {step === 2 && (
                 <div className="glass rounded-2xl p-6">
                   <StepLabel n={2} label="Enter Your Handles" />
+                  <p className="text-gray-400 text-sm mb-5">
+                    Click into any field and the preview will show that platform live.
+                  </p>
                   <div className="flex flex-col gap-3 mb-6">
                     {cfg.platforms.map((p) => {
                       const meta = PLATFORMS.find((pl) => pl.id === p.id);
@@ -477,6 +551,8 @@ export default function SocialsRotator() {
                             type="text"
                             value={p.username}
                             onChange={(e) => setUsername(p.id, e.target.value)}
+                            onFocus={() => handleFocus(p.id)}
+                            onBlur={handleBlur}
                             placeholder={`@${meta?.name ?? p.id} username or URL`}
                             className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-gray-500 focus:outline-none focus:border-pink-500/50 transition-colors"
                           />
@@ -505,7 +581,7 @@ export default function SocialsRotator() {
                 </div>
               )}
 
-              {/* ── Step 3: Appearance ── */}
+              {/* Step 3: Appearance */}
               {step === 3 && (
                 <div className="glass rounded-2xl p-6">
                   <StepLabel n={3} label="Customize Appearance" />
@@ -515,21 +591,7 @@ export default function SocialsRotator() {
                     {/* Transition Effect */}
                     <div className="sm:col-span-2">
                       <label className="text-gray-300 text-sm font-medium block mb-2">Transition Effect</label>
-                      <div className="flex flex-wrap gap-2">
-                        {EFFECTS.map((e) => (
-                          <button
-                            key={e.value}
-                            onClick={() => set('effect', e.value)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                              cfg.effect === e.value
-                                ? 'border-pink-500/60 bg-pink-500/15 text-pink-300'
-                                : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20 hover:text-gray-200'
-                            }`}
-                          >
-                            {e.label}
-                          </button>
-                        ))}
-                      </div>
+                      <ChipRow options={EFFECTS} value={cfg.effect} onChange={(v) => set('effect', v)} />
                     </div>
 
                     {/* Logo Size */}
@@ -578,16 +640,33 @@ export default function SocialsRotator() {
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => colorRef.current?.click()}
-                          className="w-10 h-10 rounded-xl border-2 border-white/20 flex-shrink-0 transition-transform hover:scale-105"
-                          style={{ background: cfg.color }}
+                          disabled={cfg.matchLogoColor}
+                          className="w-10 h-10 rounded-xl border-2 border-white/20 flex-shrink-0 transition-transform hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{ background: cfg.matchLogoColor ? 'linear-gradient(135deg,#9147ff,#ff0000,#53fc18)' : cfg.color }}
                         />
                         <input ref={colorRef} type="color" value={cfg.color}
                           onChange={(e) => set('color', e.target.value)} className="sr-only" />
-                        <span className="text-gray-400 text-sm font-mono">{cfg.color.toUpperCase()}</span>
-                        <button onClick={() => set('color', '#ffffff')} className="text-gray-500 hover:text-gray-300 text-xs transition-colors">
-                          Reset
-                        </button>
+                        {cfg.matchLogoColor ? (
+                          <span className="text-gray-400 text-xs">Matching logo color</span>
+                        ) : (
+                          <>
+                            <span className="text-gray-400 text-sm font-mono">{cfg.color.toUpperCase()}</span>
+                            <button onClick={() => set('color', '#ffffff')} className="text-gray-500 hover:text-gray-300 text-xs transition-colors">
+                              Reset
+                            </button>
+                          </>
+                        )}
                       </div>
+                      {/* Match logo color checkbox */}
+                      <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={cfg.matchLogoColor}
+                          onChange={(e) => set('matchLogoColor', e.target.checked)}
+                          className="accent-pink-500 w-4 h-4"
+                        />
+                        <span className="text-gray-400 text-xs">Match text color to platform logo</span>
+                      </label>
                     </div>
 
                     {/* Drop Shadow */}
@@ -665,7 +744,7 @@ export default function SocialsRotator() {
                 </div>
               )}
 
-              {/* ── Step 4: Generated URL ── */}
+              {/* Step 4: Generated URL */}
               {step === 4 && generatedUrl && (
                 <div className="glass rounded-2xl p-6">
                   <StepLabel n={4} label="Your Overlay URL" />
@@ -721,8 +800,11 @@ export default function SocialsRotator() {
                   <span className="text-xs font-bold tracking-widest text-pink-400 uppercase">
                     {step === 1 ? 'Example Preview' : 'Live Preview'}
                   </span>
-                  {step === 1 && (
-                    <span className="text-[10px] text-gray-500 font-medium">(demo)</span>
+                  {step === 1 && <span className="text-[10px] text-gray-500 font-medium">(demo)</span>}
+                  {step === 2 && activeId && (
+                    <span className="text-[10px] text-gray-500 font-medium capitalize">
+                      — {PLATFORMS.find(p => p.id === activeId)?.name}
+                    </span>
                   )}
                 </div>
 
@@ -741,30 +823,28 @@ export default function SocialsRotator() {
                     minHeight: 100,
                   }}
                 >
-                  <RotatorPreview cfg={cfg} forceDemo={step === 1} />
+                  <RotatorPreview cfg={cfg} forceDemo={step === 1} pinnedId={previewPinnedId} />
                 </div>
 
                 {step === 1 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
-                    This is an example of what your finished overlay will look like in OBS.
-                    It cycles through platforms on a transparent background so it sits cleanly
-                    over your stream.
+                    This is an example of what your finished overlay looks like in OBS.
+                    It cycles through platforms on a transparent background so it sits cleanly over your stream.
                   </p>
                 )}
                 {step === 2 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
-                    Preview updates live as you type your usernames.
+                    Click a field to preview that platform. It cycles when no field is active.
                   </p>
                 )}
                 {step === 3 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
-                    Changes apply instantly. The checkerboard represents the transparent
-                    background you'll see in OBS.
+                    All changes apply instantly. The checkerboard represents the transparent background in OBS.
                   </p>
                 )}
                 {step === 4 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
-                    This is your final overlay. Copy the URL and add it as a Browser Source in OBS.
+                    Copy the URL and add it as a Browser Source in OBS.
                   </p>
                 )}
               </div>

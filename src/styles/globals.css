@@ -244,6 +244,14 @@
     background-clip: text;
   }
 
+  /* 3D extruded hero text — uses drop-shadow filter so it works on gradient/clipped text */
+  .text-3d-hero {
+    filter:
+      drop-shadow(2px 3px 0px rgba(34, 197, 94, 0.65))
+      drop-shadow(4px 6px 0px rgba(22, 163, 74, 0.35))
+      drop-shadow(6px 9px 1px rgba(15, 118, 110, 0.18));
+  }
+
   /* ── Nav Dropdown ────────────────────────────────────────────────────── */
   .nav-dropdown {
     background: rgba(17, 17, 24, 0.95);
