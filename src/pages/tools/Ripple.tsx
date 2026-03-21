@@ -685,11 +685,44 @@ const defaultCreds: Creds = { discord: { webhookUrl: '' }, telegram: { botToken:
 
 export default function Ripple() {
   const [creds, setCreds] = useState<Creds>(() => { try { return { ...defaultCreds, ...JSON.parse(localStorage.getItem(CREDS_KEY) || '{}') }; } catch { return defaultCreds; } });
-  const [msg, setMsg] = useState<CoreMsg>({ title: '', body: '', linkUrl: '', imageUrl: '' });
+  const [msg, setMsg] = useState<CoreMsg>({
+    title: '🎉 Example Announcement',
+    body: "This is your core message — write it once here and sync it to each platform below. Edit any platform independently to tailor the tone.\n\nDelete this and start fresh whenever you're ready.",
+    linkUrl: 'https://truebeast.io',
+    imageUrl: '',
+  });
   const [enabled, setEnabled] = useState({ discord: true, telegram: true, bluesky: true });
-  const [dc, setDc] = useState<DiscordMsg>({ displayName: '', avatarUrl: '', content: '', embeds: [], buttons: [] });
-  const [tg, setTg] = useState<TelegramMsg>({ text: '', imageUrl: '', silent: false, disablePreview: false });
-  const [bs, setBs] = useState<BlueskyMsg>({ text: '' });
+  const [dc, setDc] = useState<DiscordMsg>({
+    displayName: 'TrueBeast',
+    avatarUrl: '',
+    content: '**🎉 Example Announcement**\n\nThis is a Discord message with **bold**, *italic*, ~~strikethrough~~, and `inline code`.\n\n> Block quotes look like this\n\nhttps://truebeast.io',
+    embeds: [{
+      ...newEmbed(),
+      color: '#7c3aed',
+      title: 'This is an embed title',
+      url: 'https://truebeast.io',
+      description: 'Embeds can have a description, fields, images, and a footer. Use the embed editor below to build one out.',
+      fields: [
+        { id: genId(), name: 'Inline Field A', value: 'Side by side', inline: true },
+        { id: genId(), name: 'Inline Field B', value: 'with other inlines', inline: true },
+        { id: genId(), name: 'Full-width Field', value: 'Non-inline fields span the full width of the embed.', inline: false },
+      ],
+      footer: { text: 'TrueBeast • Footer text goes here', icon_url: '', timestamp: '' },
+    }],
+    buttons: [[
+      { emoji: '🌐', label: 'Visit Site', url: 'https://truebeast.io' },
+      { emoji: '📢', label: 'Announce', url: 'https://truebeast.io' },
+    ]],
+  });
+  const [tg, setTg] = useState<TelegramMsg>({
+    text: '<b>🎉 Example Announcement</b>\n\nTelegram uses <b>HTML formatting</b> — <i>italic</i>, <u>underline</u>, <s>strikethrough</s>, and <code>inline code</code>.\n\nUse the toolbar above the text box to insert tags, or type them directly.\n\n<a href="https://truebeast.io">Link text works like this</a>',
+    imageUrl: '',
+    silent: false,
+    disablePreview: false,
+  });
+  const [bs, setBs] = useState<BlueskyMsg>({
+    text: '🎉 Example Announcement\n\nBluesky is plain text — no markdown or HTML. Keep it under 300 characters.\n\nhttps://truebeast.io',
+  });
   const [activeTab, setActiveTab] = useState<'discord' | 'telegram' | 'bluesky'>('discord');
   const [credsOpen, setCredsOpen] = useState(false);
   const [sending, setSending] = useState(false);
@@ -760,7 +793,7 @@ export default function Ripple() {
           </div>
 
           {/* Two-column layout */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, alignItems: 'flex-start' }} className="xl:flex-row">
+          <div className="flex flex-col xl:flex-row gap-6 items-start">
 
             {/* ── Left: Editor ── */}
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -821,7 +854,7 @@ export default function Ripple() {
             </div>
 
             {/* ── Right: Preview (sticky) ── */}
-            <div style={{ flexShrink: 0, width: '100%' }} className="xl:w-[460px] xl:sticky xl:top-28">
+            <div className="w-full xl:w-[460px] xl:sticky xl:top-28 shrink-0">
               <div className="glass rounded-2xl p-5">
                 <StepLabel>Preview</StepLabel>
 
