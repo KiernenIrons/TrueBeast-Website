@@ -946,12 +946,21 @@ function scheduleGiveawayCheck() {
 
 // ── Temp Voice Channel logic ──────────────────────────────────────────────────
 
+async function logToChannel(msg) {
+    try {
+        const ch = await client.channels.fetch(LOG_CHANNEL_ID);
+        await ch.send(msg);
+    } catch (_) {}
+}
+
 async function createTempVC(state) {
     const member  = state.member;
     const guild   = state.guild;
     const trigger = guild.channels.cache.get(TEMP_VC_TRIGGER_ID);
     const categoryId = trigger?.parentId || null;
     const channelName = `${member.displayName}'s Channel`;
+
+    await logToChannel(`🔊 **Temp VC triggered** by ${member.user.tag} — creating \`${channelName}\` (category: ${categoryId || 'none'})`);
 
     try {
         const permOverwrites = [
@@ -1072,13 +1081,10 @@ async function createTempVC(state) {
         }
 
         console.log(`[BeastBot] 🔊 Created temp VC: "${channelName}" for ${member.user.tag}`);
+        await logToChannel(`✅ **Temp VC created:** \`${channelName}\` — moved ${member.user.tag} in`);
     } catch (e) {
         console.error('[BeastBot] Failed to create temp VC:', e.message);
-        // DM the owner so we can see the actual error in Discord
-        try {
-            const owner = await client.users.fetch(OWNER_DISCORD_ID);
-            await owner.send(`❌ **Temp VC creation failed** for ${member.user.tag}\n\`\`\`${e.message}\`\`\``);
-        } catch (_) {}
+        await logToChannel(`❌ **Temp VC creation FAILED** for ${member.user.tag}\n\`\`\`${e.message}\`\`\``);
     }
 }
 
@@ -1091,6 +1097,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     // ── Someone joined the trigger → create their VC ─────────────────────────
     if (newCh === TEMP_VC_TRIGGER_ID) {
+        await logToChannel(`🎙️ **voiceStateUpdate fired** — ${newState.member?.user?.tag} joined trigger channel`);
         await createTempVC(newState);
         return;
     }
