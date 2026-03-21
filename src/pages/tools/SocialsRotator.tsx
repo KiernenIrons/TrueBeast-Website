@@ -18,7 +18,7 @@ interface RotatorConfig {
   size: number;
   color: string;
   shadowType: ShadowType;
-  shadowOpts: { color: string; blur: number; x: number; y: number } | null;
+  shadowOpts: { color: string; blur: number; x: number; y: number; glowSize: number; glowStrength: number } | null;
   logoSize: LogoSize;
   duration: number;
   popupMode: boolean;
@@ -121,7 +121,7 @@ const DEFAULT_CFG: RotatorConfig = {
   size: 22,
   color: '#ffffff',
   shadowType: 'glow',
-  shadowOpts: { color: '#000000', blur: 8, x: 2, y: 2 },
+  shadowOpts: { color: '#000000', blur: 8, x: 2, y: 2, glowSize: 18, glowStrength: 70 },
   logoSize: 'md',
   duration: 5,
   popupMode: false,
@@ -372,9 +372,11 @@ function RotatorPreview({
   const logoPx    = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
   const textColor = cfg.matchLogoColor ? pColor : cfg.color;
 
-  const opts = cfg.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2 };
+  const opts = cfg.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2, glowSize: 18, glowStrength: 70 };
+  const glowInnerA = Math.round((opts.glowStrength / 100) * 255).toString(16).padStart(2, '0');
+  const glowOuterA = Math.round((opts.glowStrength / 100) * 0.45 * 255).toString(16).padStart(2, '0');
   const textFilter =
-    cfg.shadowType === 'glow'     ? `drop-shadow(0 0 18px ${pColor}90) drop-shadow(0 0 35px ${pColor}40)`
+    cfg.shadowType === 'glow'     ? `drop-shadow(0 0 ${opts.glowSize}px ${pColor}${glowInnerA}) drop-shadow(0 0 ${Math.round(opts.glowSize * 1.9)}px ${pColor}${glowOuterA})`
     : cfg.shadowType === 'custom' ? `drop-shadow(${opts.x}px ${opts.y}px ${opts.blur}px ${opts.color})`
     :                               'none';
 
@@ -520,7 +522,7 @@ export default function SocialsRotator() {
   const setShadowOpt = useCallback((key: keyof NonNullable<RotatorConfig['shadowOpts']>, val: string | number) => {
     setCfg((prev) => ({
       ...prev,
-      shadowOpts: { ...(prev.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2 }), [key]: val },
+      shadowOpts: { ...(prev.shadowOpts ?? { color: '#000000', blur: 8, x: 2, y: 2, glowSize: 18, glowStrength: 70 }), [key]: val },
     }));
   }, []);
 
@@ -816,6 +818,37 @@ export default function SocialsRotator() {
                         onChange={(v) => set('shadowType', v)}
                       />
                     </div>
+
+                    {cfg.shadowType === 'glow' && (
+                      <div className="sm:col-span-2 glass rounded-xl p-4 grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-gray-400 text-xs font-medium">Glow Size</label>
+                            <span className="text-pink-400 text-xs font-mono">{cfg.shadowOpts?.glowSize ?? 18}px</span>
+                          </div>
+                          <input type="range" min={4} max={60} step={1}
+                            value={cfg.shadowOpts?.glowSize ?? 18}
+                            onChange={(e) => setShadowOpt('glowSize', Number(e.target.value))}
+                            className="w-full accent-pink-500" />
+                          <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                            <span>Tight</span><span>Wide</span>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-gray-400 text-xs font-medium">Strength</label>
+                            <span className="text-pink-400 text-xs font-mono">{cfg.shadowOpts?.glowStrength ?? 70}%</span>
+                          </div>
+                          <input type="range" min={10} max={100} step={5}
+                            value={cfg.shadowOpts?.glowStrength ?? 70}
+                            onChange={(e) => setShadowOpt('glowStrength', Number(e.target.value))}
+                            className="w-full accent-pink-500" />
+                          <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                            <span>Subtle</span><span>Intense</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {cfg.shadowType === 'custom' && (
                       <div className="sm:col-span-2 glass rounded-xl p-4 flex flex-col gap-4">

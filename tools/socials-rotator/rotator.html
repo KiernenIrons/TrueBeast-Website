@@ -164,7 +164,13 @@
         /* ── Compute text shadow ── */
         function computeBaseShadow(type, opts, platformColor) {
             if (type === 'none') return 'none';
-            if (type === 'glow') return `0 0 18px ${platformColor}90, 0 0 35px ${platformColor}40`;
+            if (type === 'glow') {
+                const size = (opts && opts.glowSize) || 18;
+                const strength = (opts && opts.glowStrength) || 70;
+                const iA = Math.round((strength / 100) * 255).toString(16).padStart(2, '0');
+                const oA = Math.round((strength / 100) * 0.45 * 255).toString(16).padStart(2, '0');
+                return `0 0 ${size}px ${platformColor}${iA}, 0 0 ${Math.round(size * 1.9)}px ${platformColor}${oA}`;
+            }
             if (type === 'custom' && opts) {
                 const { color: sColor = '#000000', blur = 8, x = 2, y = 2 } = opts;
                 return `${x}px ${y}px ${blur}px ${sColor}`;
