@@ -36,6 +36,11 @@ const homeDropdownItems: DropdownItem[] = [
   { label: 'Connect', to: '/#connect' },
 ];
 
+const techSupportDropdownItems: DropdownItem[] = [
+  { label: 'Submit Ticket', to: '/tech-support' },
+  { label: 'My Tickets', to: '/my-tickets' },
+];
+
 const navItems: NavItem[] = [
   {
     label: 'Home',
@@ -44,7 +49,11 @@ const navItems: NavItem[] = [
   },
   { label: 'Giveaways', to: '/giveaways' },
   { label: 'Toolkit', to: '/tools' },
-  { label: 'Tech Support', to: '/tech-support' },
+  {
+    label: 'Tech Support',
+    to: '/tech-support',
+    dropdown: techSupportDropdownItems,
+  },
   {
     label: 'Games',
     to: '/games',
@@ -81,10 +90,11 @@ export default function Navigation() {
 
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Tracks which dropdown label is open (or null for none)
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const dropdownTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navRef = useRef<HTMLDivElement>(null);
+  const dropdownTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // ---- Scroll listener ----
   useEffect(() => {
@@ -97,14 +107,14 @@ export default function Navigation() {
   // ---- Close mobile menu on route change ----
   useEffect(() => {
     setMobileOpen(false);
-    setDropdownOpen(false);
+    setOpenDropdown(null);
   }, [location.pathname]);
 
   // ---- Close dropdown on outside click ----
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -112,13 +122,17 @@ export default function Navigation() {
   }, []);
 
   // ---- Dropdown hover helpers ----
-  const openDropdown = useCallback(() => {
-    if (dropdownTimeout.current) clearTimeout(dropdownTimeout.current);
-    setDropdownOpen(true);
+  const openDropdownFor = useCallback((label: string) => {
+    const existing = dropdownTimeouts.current.get(label);
+    if (existing) clearTimeout(existing);
+    setOpenDropdown(label);
   }, []);
 
-  const closeDropdown = useCallback(() => {
-    dropdownTimeout.current = setTimeout(() => setDropdownOpen(false), 150);
+  const closeDropdownFor = useCallback((label: string) => {
+    const t = setTimeout(() => {
+      setOpenDropdown((cur) => (cur === label ? null : cur));
+    }, 150);
+    dropdownTimeouts.current.set(label, t);
   }, []);
 
   // ---- Handle anchor links (scroll on homepage, navigate otherwise) ----
@@ -129,7 +143,7 @@ export default function Navigation() {
         e.preventDefault();
         const el = document.getElementById(hash);
         el?.scrollIntoView({ behavior: 'smooth' });
-        setDropdownOpen(false);
+        setOpenDropdown(null);
         setMobileOpen(false);
       }
     },
@@ -157,19 +171,19 @@ export default function Navigation() {
     }
 
     if (item.dropdown) {
+      const isOpen = openDropdown === item.label;
       return (
         <div
           key={item.label}
-          ref={dropdownRef}
           className="relative"
-          onMouseEnter={openDropdown}
-          onMouseLeave={closeDropdown}
+          onMouseEnter={() => openDropdownFor(item.label)}
+          onMouseLeave={() => closeDropdownFor(item.label)}
         >
           <Link to={item.to!} className={`${classes} group`}>
             {item.label}
             <ChevronDown
               className={`w-3.5 h-3.5 transition-transform duration-300 ${
-                dropdownOpen ? 'rotate-180' : ''
+                isOpen ? 'rotate-180' : ''
               }`}
             />
           </Link>
@@ -177,7 +191,7 @@ export default function Navigation() {
           {/* Dropdown */}
           <div
             className={`nav-dropdown absolute left-0 top-full mt-2 min-w-[180px] rounded-xl shadow-2xl py-2 z-50 transition-all duration-200 origin-top ${
-              dropdownOpen
+              isOpen
                 ? 'opacity-100 scale-100 pointer-events-auto'
                 : 'opacity-0 scale-95 pointer-events-none'
             }`}
@@ -257,6 +271,7 @@ export default function Navigation() {
 
   return (
     <nav
+      ref={navRef}
       className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${
         scrolled ? 'py-2' : 'py-4'
       }`}
