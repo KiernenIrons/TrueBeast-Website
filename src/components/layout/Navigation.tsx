@@ -318,10 +318,10 @@ export default function Navigation() {
             style={{ background: 'rgba(15, 15, 22, 0.38)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
           >
             {/* ---- Main row: Logo | Center nav | Right controls ---- */}
-            <div className="relative flex items-center justify-between">
+            <div className="grid items-center gap-2" style={{ gridTemplateColumns: 'auto 1fr auto' }}>
 
-              {/* Logo */}
-              <Link to="/" className="flex items-center gap-3 group flex-shrink-0">
+              {/* Col 1: Logo */}
+              <Link to="/" className="flex items-center gap-3 group">
                 <img
                   src="/assets/logos/logo.png"
                   alt="TrueBeast logo"
@@ -332,86 +332,76 @@ export default function Navigation() {
                 </span>
               </Link>
 
-              {/* ---- Centered desktop nav ---- */}
-              <div className="absolute left-1/2 -translate-x-1/2 hidden lg:flex items-center gap-2">
+              {/* Col 2: Centered desktop nav (collapses to nothing on mobile) */}
+              <div className="hidden lg:flex items-center justify-center gap-2">
                 {navItems.map(renderNavLink)}
               </div>
 
-              {/* ---- Right controls: theme + auth ---- */}
-              <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  aria-label="Toggle theme"
-                  className={`${btnBase} p-2`}
-                >
-                  {isLight ? (
-                    <Moon className="w-4 h-4" />
-                  ) : (
-                    <Sun className="w-4 h-4" />
-                  )}
-                </button>
+              {/* Col 3: Right controls (desktop auth + mobile hamburger) */}
+              <div className="flex items-center gap-2 justify-end">
+                {/* Desktop theme + auth */}
+                <div className="hidden lg:flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    aria-label="Toggle theme"
+                    className={`${btnBase} p-2`}
+                  >
+                    {isLight ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                  </button>
 
-                {!loading && (
-                  user ? (
-                    <>
-                      <Link
-                        to="/admin"
-                        className={`${btnBase} text-purple-400 hover:text-purple-300 flex items-center gap-2`}
-                      >
-                        <Shield className="w-4 h-4" />
-                        Admin
-                      </Link>
+                  {!loading && (
+                    user ? (
+                      <>
+                        <Link
+                          to="/admin"
+                          className={`${btnBase} text-purple-400 hover:text-purple-300 flex items-center gap-2`}
+                        >
+                          <Shield className="w-4 h-4" />
+                          Admin
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={handleLogout}
+                          className={`${btnBase} flex items-center gap-2`}
+                          aria-label="Log out"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Logout
+                        </button>
+                      </>
+                    ) : (
                       <button
                         type="button"
-                        onClick={handleLogout}
+                        onClick={openLoginModal}
                         className={`${btnBase} flex items-center gap-2`}
-                        aria-label="Log out"
                       >
-                        <LogOut className="w-4 h-4" />
-                        Logout
+                        <LogIn className="w-4 h-4" />
+                        Login
                       </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={openLoginModal}
-                      className={`${btnBase} flex items-center gap-2`}
-                    >
-                      <LogIn className="w-4 h-4" />
-                      Login
-                    </button>
-                  )
-                )}
-              </div>
-
-              {/* ---- Mobile controls ---- */}
-              <div className="flex items-center gap-2 lg:hidden">
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  aria-label="Toggle theme"
-                  className={`${btnBase} p-2`}
-                >
-                  {isLight ? (
-                    <Moon className="w-4 h-4" />
-                  ) : (
-                    <Sun className="w-4 h-4" />
+                    )
                   )}
-                </button>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => setMobileOpen((o) => !o)}
-                  aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-                  className={`${btnBase} p-2`}
-                >
-                  {mobileOpen ? (
-                    <X className="w-5 h-5" />
-                  ) : (
-                    <Menu className="w-5 h-5" />
-                  )}
-                </button>
+                {/* Mobile theme + hamburger */}
+                <div className="flex items-center gap-2 lg:hidden">
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    aria-label="Toggle theme"
+                    className={`${btnBase} p-2`}
+                  >
+                    {isLight ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileOpen((o) => !o)}
+                    aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                    className={`${btnBase} p-2`}
+                  >
+                    {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
             </div>
 
