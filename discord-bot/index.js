@@ -19,7 +19,7 @@
 require('dotenv').config();
 
 const {
-    Client, GatewayIntentBits, Partials, ChannelType,
+    Client, GatewayIntentBits, Partials, ChannelType, PermissionFlagsBits,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     ModalBuilder, TextInputBuilder, TextInputStyle,
     SlashCommandBuilder, REST, Routes,
@@ -458,6 +458,11 @@ const DISBOARD_BOT_ID    = '302050872383242240';
 const DISCADIA_BOT_ID    = '1222548162741538938';
 let bumpTimer     = null;
 let discadiaTimer = null;
+
+// ── Temp Voice Channels ───────────────────────────────────────────────────────
+const TEMP_VC_TRIGGER_ID = '1484970124292128992';
+// channelId → { ownerId, ownerName, deleteTimer }
+const tempVoiceChannels = new Map();
 
 // ── AFK system ────────────────────────────────────────────────────────────────
 // userId → { reason, originalNickname, timestamp }
@@ -939,6 +944,187 @@ function scheduleGiveawayCheck() {
     setTimeout(tick, delay);
 }
 
+// ── Temp Voice Channel logic ──────────────────────────────────────────────────
+
+async function createTempVC(state) {
+    const member  = state.member;
+    const guild   = state.guild;
+    const trigger = guild.channels.cache.get(TEMP_VC_TRIGGER_ID);
+    const categoryId = trigger?.parentId || null;
+    const channelName = `${member.displayName}'s Channel`;
+
+    try {
+        const permOverwrites = [
+            // Channel owner — full VC management rights
+            {
+                id: member.id,
+                allow: [
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.MoveMembers,
+                    PermissionFlagsBits.MuteMembers,
+                    PermissionFlagsBits.DeafenMembers,
+                    PermissionFlagsBits.PrioritySpeaker,
+                    PermissionFlagsBits.Stream,
+                    PermissionFlagsBits.Speak,
+                    PermissionFlagsBits.Connect,
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.UseVAD,
+                    PermissionFlagsBits.SendMessages,
+                ],
+            },
+            // Bot — needs ManageChannels to delete the VC later
+            {
+                id: client.user.id,
+                allow: [
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.MoveMembers,
+                    PermissionFlagsBits.Connect,
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                ],
+            },
+        ];
+
+        // Mods get full management rights too
+        if (MOD_ROLE_ID) {
+            permOverwrites.push({
+                id: MOD_ROLE_ID,
+                allow: [
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.MoveMembers,
+                    PermissionFlagsBits.MuteMembers,
+                    PermissionFlagsBits.DeafenMembers,
+                    PermissionFlagsBits.Connect,
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.Speak,
+                    PermissionFlagsBits.SendMessages,
+                ],
+            });
+        }
+
+        // Server owner (Kiernen) always gets full rights
+        const guildOwner = await guild.fetchOwner().catch(() => null);
+        if (guildOwner && guildOwner.id !== member.id) {
+            permOverwrites.push({
+                id: guildOwner.id,
+                allow: [
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.MoveMembers,
+                    PermissionFlagsBits.MuteMembers,
+                    PermissionFlagsBits.DeafenMembers,
+                    PermissionFlagsBits.Connect,
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.Speak,
+                    PermissionFlagsBits.SendMessages,
+                ],
+            });
+        }
+
+        const tempChannel = await guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildVoice,
+            parent: categoryId,
+            permissionOverwrites: permOverwrites,
+            reason: `Temp VC for ${member.user.tag}`,
+        });
+
+        // Move them in
+        await member.voice.setChannel(tempChannel);
+
+        // Track it
+        tempVoiceChannels.set(tempChannel.id, {
+            ownerId: member.id,
+            ownerName: member.displayName,
+            deleteTimer: null,
+        });
+
+        // Post a commands guide in the VC's built-in text chat
+        try {
+            await tempChannel.send({
+                embeds: [{
+                    color: 0x22c55e,
+                    title: `🎙️ ${channelName}`,
+                    description:
+                        `Hey **${member.displayName}**, this is your personal voice channel!\n` +
+                        `You have full control — rename it, mute people, kick them, whatever you need.\n` +
+                        `The channel automatically deletes itself **1 minute after everyone leaves**.`,
+                    fields: [
+                        {
+                            name: '📋 Commands you can use here',
+                            value:
+                                '`!!afk [reason]` — Mark yourself as AFK while in voice\n' +
+                                '> Example: `!!afk grabbing food` — your nickname gets `[AFK]` prefix and the chat is notified when you return',
+                        },
+                        {
+                            name: '⚙️ Managing your channel',
+                            value:
+                                '**Rename it** → Right-click the channel → Edit Channel\n' +
+                                '**Mute someone** → Right-click their name in the VC\n' +
+                                '**Kick someone** → Right-click → Disconnect (they can rejoin unless you change permissions)\n' +
+                                '**Lock it** → Right-click → Edit Channel → Permissions → deny Connect for @everyone',
+                        },
+                    ],
+                    footer: { text: 'Only you, mods, and the server owner have these controls' },
+                }],
+            });
+        } catch (e) {
+            console.error('[BeastBot] Failed to post temp VC guide:', e.message);
+        }
+
+        console.log(`[BeastBot] 🔊 Created temp VC: "${channelName}" for ${member.user.tag}`);
+    } catch (e) {
+        console.error('[BeastBot] Failed to create temp VC:', e.message);
+    }
+}
+
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    const oldCh = oldState.channelId;
+    const newCh = newState.channelId;
+
+    // Ignore mute/deafen/stream changes with no channel change
+    if (oldCh === newCh) return;
+
+    // ── Someone joined the trigger → create their VC ─────────────────────────
+    if (newCh === TEMP_VC_TRIGGER_ID) {
+        await createTempVC(newState);
+        return;
+    }
+
+    // ── Someone joined an existing temp VC → cancel its delete timer ──────────
+    if (newCh && tempVoiceChannels.has(newCh)) {
+        const vcData = tempVoiceChannels.get(newCh);
+        if (vcData.deleteTimer) {
+            clearTimeout(vcData.deleteTimer);
+            vcData.deleteTimer = null;
+            tempVoiceChannels.set(newCh, vcData);
+            console.log(`[BeastBot] 🔊 Member joined "${vcData.ownerName}'s Channel" — delete timer cancelled`);
+        }
+    }
+
+    // ── Someone left a temp VC → if empty, start 1-min delete timer ──────────
+    if (oldCh && tempVoiceChannels.has(oldCh)) {
+        const vcChannel = newState.guild.channels.cache.get(oldCh);
+        const vcData    = tempVoiceChannels.get(oldCh);
+        const memberCount = vcChannel ? vcChannel.members.size : 0;
+
+        if (memberCount === 0) {
+            if (vcData.deleteTimer) clearTimeout(vcData.deleteTimer);
+            vcData.deleteTimer = setTimeout(async () => {
+                try {
+                    const ch = client.channels.cache.get(oldCh);
+                    if (ch) await ch.delete('Temp VC: empty for 1 minute');
+                    console.log(`[BeastBot] 🔊 Temp VC deleted: "${vcData.ownerName}'s Channel"`);
+                } catch (e) {
+                    console.error('[BeastBot] Failed to delete temp VC:', e.message);
+                }
+                tempVoiceChannels.delete(oldCh);
+            }, 60 * 1000);
+            tempVoiceChannels.set(oldCh, vcData);
+            console.log(`[BeastBot] 🔊 "${vcData.ownerName}'s Channel" is empty — deleting in 1 minute`);
+        }
+    }
+});
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
@@ -1026,6 +1212,29 @@ client.once('ready', async () => {
     } catch (e) {
         console.error('[BeastBot] Failed to restore timers:', e.message);
         scheduleDiscadiaReminder(10 * 60 * 60 * 1000);
+    }
+
+    // Clean up orphaned temp VCs (empty VCs in same category as trigger, left from before restart)
+    try {
+        const trigger = await client.channels.fetch(TEMP_VC_TRIGGER_ID);
+        if (trigger?.parentId) {
+            const guild    = trigger.guild;
+            const category = guild.channels.cache.get(trigger.parentId);
+            if (category) {
+                const orphans = category.children.cache.filter(ch =>
+                    ch.type === ChannelType.GuildVoice &&
+                    ch.id !== TEMP_VC_TRIGGER_ID &&
+                    ch.members.size === 0 &&
+                    ch.name.endsWith("'s Channel")
+                );
+                for (const [, ch] of orphans) {
+                    await ch.delete('Temp VC: orphaned on restart').catch(() => {});
+                    console.log(`[BeastBot] 🔊 Deleted orphaned temp VC: ${ch.name}`);
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[BeastBot] Temp VC cleanup failed:', e.message);
     }
 
     // Heartbeat every 30 min so we can detect silent crashes
@@ -1455,6 +1664,21 @@ client.on('messageCreate', async (message) => {
             } catch (e) {
                 await message.reply(`❌ Error: ${e.message}`);
             }
+            return;
+        }
+
+        // !!cleanvcs — delete all empty temp voice channels (owner only)
+        if (message.content.toLowerCase() === '!!cleanvcs' && message.author.id === OWNER_DISCORD_ID) {
+            let deleted = 0;
+            for (const [chId, vcData] of tempVoiceChannels) {
+                if (vcData.deleteTimer) clearTimeout(vcData.deleteTimer);
+                try {
+                    const ch = client.channels.cache.get(chId);
+                    if (ch) { await ch.delete('!!cleanvcs command'); deleted++; }
+                } catch (_) {}
+                tempVoiceChannels.delete(chId);
+            }
+            await message.reply(`🧹 Cleaned up **${deleted}** temp voice channel(s).`);
             return;
         }
 
