@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { RefreshCw, ArrowLeft, Copy, Check, ExternalLink, Plus, Trash2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
@@ -161,27 +161,8 @@ function PlatformIcon({ id, size, color }: { id: string; size: number; color?: s
 }
 
 // ---------------------------------------------------------------------------
-// CSS keyframes — injected once for all preview transitions
+// Font loader
 // ---------------------------------------------------------------------------
-
-const KEYFRAMES = `
-  @keyframes rp-fade       { from{opacity:0} to{opacity:1} }
-  @keyframes rp-fadedownup { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes rp-slide      { from{opacity:0;transform:translateX(28px)} to{opacity:1;transform:translateX(0)} }
-  @keyframes rp-slideup    { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes rp-zoom       { from{opacity:0;transform:scale(0.6)} to{opacity:1;transform:scale(1)} }
-  @keyframes rp-flip       { from{opacity:0;transform:perspective(500px) rotateY(-80deg)} to{opacity:1;transform:perspective(500px) rotateY(0deg)} }
-  @keyframes rp-spin3d     { from{opacity:0;transform:perspective(500px) rotateY(-180deg)} to{opacity:1;transform:perspective(500px) rotateY(0deg)} }
-`;
-
-function injectKeyframes() {
-  if (!document.getElementById('rp-keyframes')) {
-    const s = document.createElement('style');
-    s.id = 'rp-keyframes';
-    s.textContent = KEYFRAMES;
-    document.head.appendChild(s);
-  }
-}
 
 function loadGoogleFont(fontName: string) {
   const slug = fontName.replace(/\s+/g, '+');
@@ -192,6 +173,64 @@ function loadGoogleFont(fontName: string) {
     link.rel = 'stylesheet';
     link.href = `https://fonts.googleapis.com/css2?family=${slug}:wght@400;600;700&display=swap`;
     document.head.appendChild(link);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 4-phase CSS transition system for preview
+//
+// Phase flow:  showing → exiting → entering-ready → entering → showing
+//
+//  showing        : element fully visible, no transition active
+//  exiting        : element animates to its exit position (opacity→0, transform→exit-end)
+//  entering-ready : content swaps; element SNAPS (no transition) to entry START position
+//                   so it's invisible and in the right starting spot for the entry anim
+//  entering       : element transitions from entry start → final position (opacity→1, transform→none)
+//
+// This matches rotator.html's behaviour: content exits first, then new content enters.
+// ---------------------------------------------------------------------------
+
+type TransPhase = 'showing' | 'exiting' | 'entering-ready' | 'entering';
+
+const EXIT_DUR  = 340; // ms — how long exit animation lasts
+const ENTER_DUR = 380; // ms — how long entry animation lasts
+
+// Exit end positions (where element ends up after exit)
+const EXIT_TRANSFORM: Record<Effect, string> = {
+  fade:       'none',
+  fadedownup: 'translateY(-14px)',
+  slide:      'translateX(-28px)',
+  slideup:    'translateY(-28px)',
+  zoom:       'scale(0.55)',
+  flip:       'perspective(500px) rotateY(75deg)',
+  spin3d:     'perspective(500px) rotateY(180deg)',
+};
+
+// Entry start positions (where new element appears before animating in)
+const ENTRY_START: Record<Effect, string> = {
+  fade:       'none',
+  fadedownup: 'translateY(14px)',
+  slide:      'translateX(28px)',
+  slideup:    'translateY(28px)',
+  zoom:       'scale(0.55)',
+  flip:       'perspective(500px) rotateY(-75deg)',
+  spin3d:     'perspective(500px) rotateY(-180deg)',
+};
+
+function getPhaseStyle(phase: TransPhase, effect: Effect): React.CSSProperties {
+  const exitT  = `opacity ${EXIT_DUR}ms ease-in, transform ${EXIT_DUR}ms ease-in`;
+  const enterT = `opacity ${ENTER_DUR}ms ease-out, transform ${ENTER_DUR}ms ease-out`;
+
+  switch (phase) {
+    case 'showing':
+      return { opacity: 1, transform: 'none' };
+    case 'exiting':
+      return { opacity: 0, transform: EXIT_TRANSFORM[effect], transition: exitT };
+    case 'entering-ready':
+      // No transition here — instant snap to entry start (element is invisible, opacity:0)
+      return { opacity: 0, transform: ENTRY_START[effect] };
+    case 'entering':
+      return { opacity: 1, transform: 'none', transition: enterT };
   }
 }
 
@@ -210,42 +249,81 @@ function RotatorPreview({
 }) {
   const display = (forceDemo || cfg.platforms.length === 0) ? DEMO_PLATFORMS : cfg.platforms;
 
-  // idx and animKey are always updated together in the same setState call (React 18 batches
-  // them inside setInterval automatically), so the content and the `key` prop change in one
-  // render — no flash of new content before animation starts.
-  const [{ idx, animKey }, setCycle] = useState({ idx: 0, animKey: 0 });
+  const [phase, setPhase]     = useState<TransPhase>('showing');
+  const [shownIdx, setShownIdx] = useState(0);
+  const phaseRef      = useRef<TransPhase>('showing');
+  const currentIdxRef = useRef(0);
+  const effectRef     = useRef(cfg.effect);
 
-  useEffect(() => { injectKeyframes(); }, []);
+  useEffect(() => { effectRef.current = cfg.effect; }, [cfg.effect]);
   useEffect(() => { loadGoogleFont(cfg.font); }, [cfg.font]);
 
-  // Derive which platform to show
-  const pinnedIdx = pinnedId ? display.findIndex((p) => p.id === pinnedId) : -1;
-  const effectiveIdx = pinnedId && pinnedIdx >= 0 ? pinnedIdx : idx % Math.max(display.length, 1);
+  // Perform a full exit → swap → enter transition to nextIdx
+  const doTransition = useCallback((nextIdx: number) => {
+    if (phaseRef.current !== 'showing') return; // skip if already mid-transition
 
-  // Auto-cycle — both idx and animKey advance in one atomic update
+    phaseRef.current = 'exiting';
+    setPhase('exiting');
+
+    setTimeout(() => {
+      // Swap content and snap to entry start position (no transition, opacity 0)
+      currentIdxRef.current = nextIdx;
+      phaseRef.current = 'entering-ready';
+      setShownIdx(nextIdx);
+      setPhase('entering-ready');
+
+      // Two rAFs: first ensures React commits the 'entering-ready' render,
+      // second ensures the browser has painted it so the CSS transition has a
+      // real starting point before we switch to 'entering'.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          phaseRef.current = 'entering';
+          setPhase('entering');
+
+          setTimeout(() => {
+            phaseRef.current = 'showing';
+            setPhase('showing');
+          }, ENTER_DUR);
+        });
+      });
+    }, EXIT_DUR);
+  }, []);
+
+  // Auto-cycle when not pinned
   useEffect(() => {
     if (pinnedId || display.length <= 1) return;
-    const ms = Math.max((cfg.duration || 5) * 1000, 1500);
+    const ms = Math.max((cfg.duration || 5) * 1000, EXIT_DUR + ENTER_DUR + 600);
     const t = setInterval(() => {
-      setCycle((s) => ({ idx: (s.idx + 1) % display.length, animKey: s.animKey + 1 }));
+      doTransition((currentIdxRef.current + 1) % display.length);
     }, ms);
     return () => clearInterval(t);
-  }, [display.length, cfg.duration, pinnedId]);
+  }, [display.length, cfg.duration, pinnedId, doTransition]);
 
-  // When the user focuses a different input, bump animKey so the animation plays
-  const prevPinned = useRef<string | null | undefined>(undefined);
+  // When pinned platform changes, transition to it
+  const prevPinnedRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (prevPinned.current !== pinnedId) {
-      prevPinned.current = pinnedId;
-      if (pinnedId) setCycle((s) => ({ ...s, animKey: s.animKey + 1 }));
-    }
-  }, [pinnedId]);
+    if (prevPinnedRef.current === pinnedId) return;
+    prevPinnedRef.current = pinnedId;
+    if (!pinnedId) return;
+    const idx = display.findIndex((p) => p.id === pinnedId);
+    if (idx >= 0) doTransition(idx);
+  }, [pinnedId, display, doTransition]);
 
-  const current = display[effectiveIdx] ?? display[0];
+  // Reset when platform list changes
+  const displayKey = display.map((p) => p.id).join(',');
+  useEffect(() => {
+    currentIdxRef.current = 0;
+    phaseRef.current = 'showing';
+    setShownIdx(0);
+    setPhase('showing');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayKey]);
+
+  const current = display[shownIdx] ?? display[0];
   if (!current) return null;
 
-  const pColor = PLATFORM_COLORS[current.id] ?? '#ffffff';
-  const logoPx = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
+  const pColor    = PLATFORM_COLORS[current.id] ?? '#ffffff';
+  const logoPx    = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
   const textColor = cfg.matchLogoColor ? pColor : cfg.color;
 
   const textShadow =
@@ -254,14 +332,15 @@ function RotatorPreview({
     :                              `2px 2px 8px rgba(0,0,0,0.8)`;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+    <div style={{ display: 'flex', alignItems: 'center', width: '100%', overflow: 'hidden' }}>
       <div
-        key={animKey}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: 14,
-          animation: `rp-${cfg.effect} 0.45s ease-out forwards`,
+          maxWidth: '100%',
+          overflow: 'hidden',
+          ...getPhaseStyle(phase, cfg.effect),
         }}
       >
         {cfg.useLogo ? (
@@ -270,10 +349,10 @@ function RotatorPreview({
             width={logoPx}
             height={logoPx}
             alt={current.id}
-            style={{ filter: `drop-shadow(0 0 6px ${pColor}70)` }}
+            style={{ flexShrink: 0, filter: `drop-shadow(0 0 6px ${pColor}70)` }}
           />
         ) : (
-          <div style={{ color: pColor, filter: `drop-shadow(0 0 6px ${pColor}70)` }}>
+          <div style={{ color: pColor, flexShrink: 0, filter: `drop-shadow(0 0 6px ${pColor}70)` }}>
             <PlatformIcon id={current.id} size={logoPx} color={pColor} />
           </div>
         )}
@@ -284,6 +363,9 @@ function RotatorPreview({
             fontWeight: 600,
             color: textColor,
             whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            minWidth: 0,
             textShadow,
           }}
         >
