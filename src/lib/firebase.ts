@@ -382,12 +382,12 @@ export const FirebaseDB = {
     _ensureApp();
     if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
     const id = 'wb-' + Date.now();
-    const document: WebhookBackup = {
+    const document = {
       ...backup,
       id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    };
+    } as WebhookBackup;
     await _withTimeout(setDoc(doc(_db, 'webhookBackups', id), document));
     return document;
   },
@@ -421,11 +421,11 @@ export const FirebaseDB = {
     _ensureApp();
     if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
     const id = 'ann-' + Date.now();
-    const document: Announcement = {
+    const document = {
       ...announcement,
       id,
       createdAt: new Date().toISOString(),
-    };
+    } as Announcement;
     await _withTimeout(setDoc(doc(_db, 'announcements', id), document));
     return document;
   },
