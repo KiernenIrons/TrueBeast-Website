@@ -21,16 +21,15 @@ import { SITE_CONFIG } from '@/config';
 
 const BUILT_TOOLS = [
   {
-    id: 'multichat',
-    name: 'MultiChat',
-    description: 'Combine Twitch, Kick, and YouTube chat into one OBS overlay or dock.',
-    icon: MessageSquare,
-    color: 'text-purple-400',
-    bg: 'bg-purple-500/10',
-    border: 'border-purple-500/20',
-    to: '/tools/multichat',
-    tag: 'OBS Overlay',
-    beta: true,
+    id: 'ripple',
+    name: 'Ripple',
+    description: 'Write once, post everywhere - Discord, Telegram, and Bluesky at once.',
+    icon: Radio,
+    color: 'text-violet-400',
+    bg: 'bg-violet-500/10',
+    border: 'border-violet-500/20',
+    to: '/tools/ripple',
+    tag: 'Broadcasting',
   },
   {
     id: 'socials-rotator',
@@ -55,15 +54,16 @@ const BUILT_TOOLS = [
     tag: 'Design',
   },
   {
-    id: 'ripple',
-    name: 'Ripple',
-    description: 'Write once, post everywhere - Discord, Telegram, and Bluesky at once.',
-    icon: Radio,
-    color: 'text-violet-400',
-    bg: 'bg-violet-500/10',
-    border: 'border-violet-500/20',
-    to: '/tools/ripple',
-    tag: 'Broadcasting',
+    id: 'multichat',
+    name: 'MultiChat',
+    description: 'Combine Twitch, Kick, and YouTube chat into one OBS overlay or dock.',
+    icon: MessageSquare,
+    color: 'text-purple-400',
+    bg: 'bg-purple-500/10',
+    border: 'border-purple-500/20',
+    to: '/tools/multichat',
+    tag: 'OBS Overlay',
+    beta: true,
   },
   {
     id: 'buttonboard',
@@ -87,6 +87,7 @@ const BUILT_TOOLS = [
     border: 'border-amber-500/20',
     to: '/tools/resume-builder',
     tag: 'Productivity',
+    beta: true,
   },
 ];
 
@@ -192,7 +193,7 @@ export default function Tools() {
             <div className="flex items-center gap-3 mb-8">
               <div className="h-px flex-1 bg-white/5" />
               <span className="text-xs font-bold tracking-widest text-green-400 uppercase">
-                Recommended by TrueBeast
+                Recommended by Kiernen
               </span>
               <div className="h-px flex-1 bg-white/5" />
             </div>
