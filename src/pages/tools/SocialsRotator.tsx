@@ -28,6 +28,7 @@ interface RotatorConfig {
   text3dDepth: number;
   text3dAngle: number;
   matchLogoColor: boolean;
+  transitionDuration: number; // ms per animation phase (exit + enter each use this)
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +131,7 @@ const DEFAULT_CFG: RotatorConfig = {
   text3dDepth: 4,
   text3dAngle: 45,
   matchLogoColor: false,
+  transitionDuration: 350,
 };
 
 // ---------------------------------------------------------------------------
@@ -156,6 +158,54 @@ function PlatformIcon({ id, size, color }: { id: string; size: number; color?: s
       dangerouslySetInnerHTML={{
         __html: `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`,
       }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Official branded logo SVGs
+// For most platforms the simpleicons CDN (flat colour) is close enough.
+// Instagram's actual brand mark is a gradient square — we embed it directly.
+// ---------------------------------------------------------------------------
+
+const INSTAGRAM_OFFICIAL_SVG = (size: number) => `
+  <svg viewBox="0 0 50 50" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="rp-ig" cx="30%" cy="107%" r="150%">
+        <stop offset="0%"   stop-color="#fdf497"/>
+        <stop offset="5%"   stop-color="#fdf497"/>
+        <stop offset="45%"  stop-color="#fd5949"/>
+        <stop offset="60%"  stop-color="#d6249f"/>
+        <stop offset="90%"  stop-color="#285AEB"/>
+      </radialGradient>
+    </defs>
+    <rect width="50" height="50" rx="12" fill="url(#rp-ig)"/>
+    <rect x="11" y="11" width="28" height="28" rx="7"
+          fill="none" stroke="white" stroke-width="2.8"/>
+    <circle cx="25" cy="25" r="7.5"
+            fill="none" stroke="white" stroke-width="2.8"/>
+    <circle cx="35.5" cy="14.5" r="2.5" fill="white"/>
+  </svg>`;
+
+function OfficialLogo({ id, size }: { id: string; size: number }) {
+  // Instagram: use inline gradient SVG — the simpleicons version is indistinguishable
+  // from the flat icon, but the real Instagram logo has a colour gradient background.
+  if (id === 'instagram') {
+    return (
+      <span
+        style={{ display: 'flex', flexShrink: 0, width: size, height: size }}
+        dangerouslySetInnerHTML={{ __html: INSTAGRAM_OFFICIAL_SVG(size) }}
+      />
+    );
+  }
+  // All other platforms: simpleicons CDN (properly coloured flat logo)
+  return (
+    <img
+      src={`https://cdn.simpleicons.org/${siSlug(id)}`}
+      width={size}
+      height={size}
+      alt={id}
+      style={{ flexShrink: 0 }}
     />
   );
 }
@@ -192,9 +242,6 @@ function loadGoogleFont(fontName: string) {
 
 type TransPhase = 'showing' | 'exiting' | 'entering-ready' | 'entering';
 
-const EXIT_DUR  = 340; // ms — how long exit animation lasts
-const ENTER_DUR = 380; // ms — how long entry animation lasts
-
 // Exit end positions (where element ends up after exit)
 const EXIT_TRANSFORM: Record<Effect, string> = {
   fade:       'none',
@@ -217,9 +264,9 @@ const ENTRY_START: Record<Effect, string> = {
   spin3d:     'perspective(500px) rotateY(-180deg)',
 };
 
-function getPhaseStyle(phase: TransPhase, effect: Effect): React.CSSProperties {
-  const exitT  = `opacity ${EXIT_DUR}ms ease-in, transform ${EXIT_DUR}ms ease-in`;
-  const enterT = `opacity ${ENTER_DUR}ms ease-out, transform ${ENTER_DUR}ms ease-out`;
+function getPhaseStyle(phase: TransPhase, effect: Effect, dur: number): React.CSSProperties {
+  const exitT  = `opacity ${dur}ms ease-in, transform ${dur}ms ease-in`;
+  const enterT = `opacity ${dur}ms ease-out, transform ${dur}ms ease-out`;
 
   switch (phase) {
     case 'showing':
@@ -227,7 +274,6 @@ function getPhaseStyle(phase: TransPhase, effect: Effect): React.CSSProperties {
     case 'exiting':
       return { opacity: 0, transform: EXIT_TRANSFORM[effect], transition: exitT };
     case 'entering-ready':
-      // No transition here — instant snap to entry start (element is invisible, opacity:0)
       return { opacity: 0, transform: ENTRY_START[effect] };
     case 'entering':
       return { opacity: 1, transform: 'none', transition: enterT };
@@ -249,32 +295,31 @@ function RotatorPreview({
 }) {
   const display = (forceDemo || cfg.platforms.length === 0) ? DEMO_PLATFORMS : cfg.platforms;
 
-  const [phase, setPhase]     = useState<TransPhase>('showing');
+  const [phase, setPhase]       = useState<TransPhase>('showing');
   const [shownIdx, setShownIdx] = useState(0);
   const phaseRef      = useRef<TransPhase>('showing');
   const currentIdxRef = useRef(0);
   const effectRef     = useRef(cfg.effect);
+  const durRef        = useRef(cfg.transitionDuration ?? 350);
 
   useEffect(() => { effectRef.current = cfg.effect; }, [cfg.effect]);
+  useEffect(() => { durRef.current = cfg.transitionDuration ?? 350; }, [cfg.transitionDuration]);
   useEffect(() => { loadGoogleFont(cfg.font); }, [cfg.font]);
 
   // Perform a full exit → swap → enter transition to nextIdx
   const doTransition = useCallback((nextIdx: number) => {
-    if (phaseRef.current !== 'showing') return; // skip if already mid-transition
+    if (phaseRef.current !== 'showing') return;
+    const dur = durRef.current;
 
     phaseRef.current = 'exiting';
     setPhase('exiting');
 
     setTimeout(() => {
-      // Swap content and snap to entry start position (no transition, opacity 0)
       currentIdxRef.current = nextIdx;
       phaseRef.current = 'entering-ready';
       setShownIdx(nextIdx);
       setPhase('entering-ready');
 
-      // Two rAFs: first ensures React commits the 'entering-ready' render,
-      // second ensures the browser has painted it so the CSS transition has a
-      // real starting point before we switch to 'entering'.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           phaseRef.current = 'entering';
@@ -283,21 +328,22 @@ function RotatorPreview({
           setTimeout(() => {
             phaseRef.current = 'showing';
             setPhase('showing');
-          }, ENTER_DUR);
+          }, dur);
         });
       });
-    }, EXIT_DUR);
+    }, dur);
   }, []);
 
   // Auto-cycle when not pinned
   useEffect(() => {
     if (pinnedId || display.length <= 1) return;
-    const ms = Math.max((cfg.duration || 5) * 1000, EXIT_DUR + ENTER_DUR + 600);
+    const transDur = cfg.transitionDuration ?? 350;
+    const ms = Math.max((cfg.duration || 5) * 1000, transDur * 2 + 600);
     const t = setInterval(() => {
       doTransition((currentIdxRef.current + 1) % display.length);
     }, ms);
     return () => clearInterval(t);
-  }, [display.length, cfg.duration, pinnedId, doTransition]);
+  }, [display.length, cfg.duration, cfg.transitionDuration, pinnedId, doTransition]);
 
   // When pinned platform changes, transition to it
   const prevPinnedRef = useRef<string | null | undefined>(undefined);
@@ -340,22 +386,15 @@ function RotatorPreview({
           gap: 14,
           maxWidth: '100%',
           overflow: 'hidden',
-          ...getPhaseStyle(phase, cfg.effect),
+          ...getPhaseStyle(phase, cfg.effect, cfg.transitionDuration ?? 350),
         }}
       >
-        {cfg.useLogo ? (
-          <img
-            src={`https://cdn.simpleicons.org/${siSlug(current.id)}`}
-            width={logoPx}
-            height={logoPx}
-            alt={current.id}
-            style={{ flexShrink: 0, filter: `drop-shadow(0 0 6px ${pColor}70)` }}
-          />
-        ) : (
-          <div style={{ color: pColor, flexShrink: 0, filter: `drop-shadow(0 0 6px ${pColor}70)` }}>
-            <PlatformIcon id={current.id} size={logoPx} color={pColor} />
-          </div>
-        )}
+        <div style={{ filter: `drop-shadow(0 0 6px ${pColor}70)`, flexShrink: 0 }}>
+          {cfg.useLogo
+            ? <OfficialLogo id={current.id} size={logoPx} />
+            : <div style={{ color: pColor }}><PlatformIcon id={current.id} size={logoPx} color={pColor} /></div>
+          }
+        </div>
         <span
           style={{
             fontFamily: `'${cfg.font}', sans-serif`,
@@ -662,6 +701,29 @@ export default function SocialsRotator() {
                     <div className="sm:col-span-2">
                       <label className="text-gray-300 text-sm font-medium block mb-2">Transition Effect</label>
                       <ChipRow options={EFFECTS} value={cfg.effect} onChange={(v) => set('effect', v)} />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <label className="text-gray-300 text-sm font-medium">Animation Speed</label>
+                        <span className="text-pink-400 text-sm font-mono">
+                          {cfg.transitionDuration <= 150 ? 'Very Fast'
+                            : cfg.transitionDuration <= 280 ? 'Fast'
+                            : cfg.transitionDuration <= 420 ? 'Normal'
+                            : cfg.transitionDuration <= 600 ? 'Slow'
+                            : 'Very Slow'}
+                          {' '}
+                          <span className="text-gray-500 text-xs">({cfg.transitionDuration}ms)</span>
+                        </span>
+                      </div>
+                      <input type="range" min={100} max={900} step={50}
+                        value={cfg.transitionDuration}
+                        onChange={(e) => set('transitionDuration', Number(e.target.value))}
+                        className="w-full accent-pink-500" />
+                      <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                        <span>Faster</span>
+                        <span>Slower</span>
+                      </div>
                     </div>
 
                     <div>
