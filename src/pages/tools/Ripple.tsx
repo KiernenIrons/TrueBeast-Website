@@ -842,18 +842,9 @@ export default function Ripple() {
                 </div>
               </div>
 
-              {/* Send */}
-              <div style={{ marginTop: 16 }}>
-                {bsOver && enabled.bluesky && <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '8px 14px', fontSize: 12, color: '#f87171', marginBottom: 10 }}>Bluesky post exceeds 300 grapheme limit — trim the text before sending.</div>}
-                <button disabled={!canSend} onClick={doSend} className="w-full glass-strong rounded-xl px-6 py-4 inline-flex items-center justify-center gap-2 text-violet-400 hover:text-violet-300 font-semibold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed" style={{ background: 'linear-gradient(135deg, rgba(124,58,237,0.15), rgba(168,85,247,0.1))', border: '1px solid rgba(124,58,237,0.3)' }}>
-                  {sending ? <><Loader2 size={16} className="animate-spin" />Sending...</> : <><Send size={16} />Send Ripple</>}
-                </button>
-              </div>
-
-              <ResultsPanel results={results} onClear={() => setResults(null)} />
             </div>
 
-            {/* ── Right: Preview (sticky) ── */}
+            {/* ── Right: Preview + Send (sticky) ── */}
             <div className="w-full xl:w-[460px] xl:sticky xl:top-28 shrink-0">
               <div className="glass rounded-2xl p-5">
                 <StepLabel>Preview</StepLabel>
@@ -871,7 +862,17 @@ export default function Ripple() {
                 {activeTab === 'discord' && <DiscordPreview dc={dc} enabled={enabled.discord} />}
                 {activeTab === 'telegram' && <TelegramPreview tg={tg} enabled={enabled.telegram} />}
                 {activeTab === 'bluesky' && <BlueskyPreview bs={bs} handle={creds.bluesky?.handle || ''} enabled={enabled.bluesky} />}
+
+                {/* Send */}
+                <div style={{ marginTop: 16 }}>
+                  {bsOver && enabled.bluesky && <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '8px 14px', fontSize: 12, color: '#f87171', marginBottom: 10 }}>Bluesky post exceeds 300 grapheme limit — trim the text before sending.</div>}
+                  <button disabled={!canSend} onClick={doSend} className="w-full glass-strong rounded-xl px-6 py-4 inline-flex items-center justify-center gap-2 text-violet-400 hover:text-violet-300 font-semibold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed" style={{ background: 'linear-gradient(135deg, rgba(124,58,237,0.15), rgba(168,85,247,0.1))', border: '1px solid rgba(124,58,237,0.3)' }}>
+                    {sending ? <><Loader2 size={16} className="animate-spin" />Sending...</> : <><Send size={16} />Send Ripple</>}
+                  </button>
+                </div>
               </div>
+
+              <ResultsPanel results={results} onClear={() => setResults(null)} />
             </div>
 
           </div>
