@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TrueBeast</title>
+  <script>
+    // GitHub Pages SPA redirect — sends all 404s back to index.html
+    // with the original path encoded as a query param so React Router can restore it.
+    var l = window.location;
+    l.replace(
+      l.protocol + '//' + l.host + '/?p=/' +
+      l.pathname.slice(1).replace(/&/g, '~and~') +
+      (l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+      l.hash
+    );
+  </script>
+</head>
+<body></body>
+</html>
