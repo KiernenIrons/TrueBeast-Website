@@ -7,6 +7,7 @@ import {
   Check,
   ExternalLink,
   ChevronRight,
+  FlaskConical,
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 
@@ -165,7 +166,7 @@ export default function MultiChat() {
             Back to Tools
           </Link>
 
-          <div className="text-center mb-14 space-y-5">
+          <div className="text-center mb-10 space-y-5">
             <div className="inline-flex items-center gap-2 glass rounded-full px-5 py-2.5">
               <MessageSquare size={16} className="text-purple-400" />
               <span className="text-sm text-gray-300 font-medium">OBS Overlay</span>
@@ -177,6 +178,18 @@ export default function MultiChat() {
               Combine Twitch, Kick, and YouTube live chats into one clean OBS overlay or dock.
               No account needed for Twitch and Kick.
             </p>
+          </div>
+
+          {/* Beta disclaimer */}
+          <div className="glass rounded-2xl p-4 flex items-start gap-3 mb-10 border border-yellow-500/20 bg-yellow-500/5">
+            <FlaskConical size={18} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-yellow-300 text-sm font-semibold mb-0.5">Work in Progress</p>
+              <p className="text-yellow-200/60 text-sm leading-relaxed">
+                MultiChat is still being tested and may not work perfectly for all platforms or
+                stream setups. You may encounter issues - if you do, let us know in the Discord.
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-col gap-5">

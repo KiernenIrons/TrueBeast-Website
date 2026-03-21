@@ -10,6 +10,7 @@ import {
   Radio,
   Grid3X3,
   FileText,
+  FlaskConical,
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { SITE_CONFIG } from '@/config';
@@ -29,6 +30,7 @@ const BUILT_TOOLS = [
     border: 'border-purple-500/20',
     to: '/tools/multichat',
     tag: 'OBS Overlay',
+    beta: true,
   },
   {
     id: 'socials-rotator',
@@ -73,6 +75,7 @@ const BUILT_TOOLS = [
     border: 'border-blue-500/20',
     to: '/tools/buttonboard',
     tag: 'Streaming',
+    beta: true,
   },
   {
     id: 'resume-builder',
@@ -152,11 +155,19 @@ export default function Tools() {
                       >
                         <Icon size={20} className={tool.color} />
                       </div>
-                      <span
-                        className={`text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full ${tool.bg} ${tool.color} uppercase`}
-                      >
-                        {tool.tag}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {tool.beta && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full bg-yellow-500/10 text-yellow-400 uppercase">
+                            <FlaskConical size={10} />
+                            Beta
+                          </span>
+                        )}
+                        <span
+                          className={`text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full ${tool.bg} ${tool.color} uppercase`}
+                        >
+                          {tool.tag}
+                        </span>
+                      </div>
                     </div>
 
                     <div>

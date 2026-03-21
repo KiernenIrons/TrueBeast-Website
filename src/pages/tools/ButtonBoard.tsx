@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Grid3X3, ArrowLeft, Copy, Check, ExternalLink, X } from 'lucide-react';
+import { Grid3X3, ArrowLeft, Copy, Check, ExternalLink, X, FlaskConical } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 
 // ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ export default function ButtonBoard() {
             Back to Tools
           </Link>
 
-          <div className="text-center mb-14 space-y-5">
+          <div className="text-center mb-10 space-y-5">
             <div className="inline-flex items-center gap-2 glass rounded-full px-5 py-2.5">
               <Grid3X3 size={16} className="text-blue-400" />
               <span className="text-sm text-gray-300 font-medium">Stream Control Panel</span>
@@ -209,6 +209,19 @@ export default function ButtonBoard() {
               Build a customizable grid of buttons for your stream. Each button can trigger
               keyboard shortcuts, media keys, or open links. Works as an OBS browser dock.
             </p>
+          </div>
+
+          {/* Beta disclaimer */}
+          <div className="glass rounded-2xl p-4 flex items-start gap-3 mb-10 border border-yellow-500/20 bg-yellow-500/5">
+            <FlaskConical size={18} className="text-yellow-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-yellow-300 text-sm font-semibold mb-0.5">Work in Progress</p>
+              <p className="text-yellow-200/60 text-sm leading-relaxed">
+                ButtonBoard is still being tested. The config builder works, but triggering
+                keyboard shortcuts requires a companion app that is not yet publicly available.
+                Check back soon or follow along in the Discord.
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-col gap-5">
