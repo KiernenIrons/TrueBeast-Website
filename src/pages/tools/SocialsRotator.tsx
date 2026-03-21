@@ -10,7 +10,6 @@ import PageLayout from '@/components/layout/PageLayout';
 type Effect = 'fade' | 'fadedownup' | 'slide' | 'slideup' | 'zoom' | 'flip' | 'spin3d';
 type LogoSize = 'sm' | 'md' | 'lg';
 type ShadowType = 'none' | 'glow' | 'custom';
-type TextStyle = 'normal' | '3d';
 
 interface RotatorConfig {
   platforms: { id: string; username: string }[];
@@ -23,16 +22,16 @@ interface RotatorConfig {
   logoSize: LogoSize;
   duration: number;
   popupMode: boolean;
-  popupInterval: number;
+  popupInterval: number; // minutes
   useLogo: boolean;
-  textStyle: TextStyle;
+  textStyle: 'normal';  // kept for rotator.html compat; 3D removed from UI
   text3dDepth: number;
   text3dAngle: number;
   matchLogoColor: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Platform data (matching what rotator.html supports)
+// Platform data
 // ---------------------------------------------------------------------------
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -42,7 +41,14 @@ const PLATFORM_COLORS: Record<string, string> = {
   snapchat: '#FFFC00', cashapp: '#00D632', paypal: '#003087',
 };
 
-// SVG inner content - matches the SVGS object in rotator.html
+// simpleicons.org slug overrides (where id != slug)
+const SIMPLEICONS_SLUG: Record<string, string> = {
+  twitter: 'x',
+};
+function siSlug(id: string): string {
+  return SIMPLEICONS_SLUG[id] ?? id;
+}
+
 const PLATFORM_SVG_INNER: Record<string, string> = {
   twitch:    `<path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714z"/>`,
   youtube:   `<path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/>`,
@@ -73,7 +79,6 @@ const PLATFORMS = [
   { id: 'paypal',    name: 'PayPal',      color: '#003087' },
 ];
 
-// All demo platforms show the same placeholder so users know what they're building
 const DEMO_PLATFORMS = [
   { id: 'twitch',  username: '@YourUsername' },
   { id: 'youtube', username: '@YourUsername' },
@@ -156,7 +161,7 @@ function PlatformIcon({ id, size, color }: { id: string; size: number; color?: s
 }
 
 // ---------------------------------------------------------------------------
-// CSS keyframes injected once for preview animations
+// CSS keyframes — injected once for all preview transitions
 // ---------------------------------------------------------------------------
 
 const KEYFRAMES = `
@@ -170,10 +175,9 @@ const KEYFRAMES = `
 `;
 
 function injectKeyframes() {
-  const id = 'rp-keyframes';
-  if (!document.getElementById(id)) {
+  if (!document.getElementById('rp-keyframes')) {
     const s = document.createElement('style');
-    s.id = id;
+    s.id = 'rp-keyframes';
     s.textContent = KEYFRAMES;
     document.head.appendChild(s);
   }
@@ -205,35 +209,37 @@ function RotatorPreview({
   pinnedId?: string | null;
 }) {
   const display = (forceDemo || cfg.platforms.length === 0) ? DEMO_PLATFORMS : cfg.platforms;
-  const [idx, setIdx] = useState(0);
-  const [animKey, setAnimKey] = useState(0);
-  const prevEffIdx = useRef(-1);
 
-  // Inject keyframes + load font on mount / font change
+  // idx and animKey are always updated together in the same setState call (React 18 batches
+  // them inside setInterval automatically), so the content and the `key` prop change in one
+  // render — no flash of new content before animation starts.
+  const [{ idx, animKey }, setCycle] = useState({ idx: 0, animKey: 0 });
+
   useEffect(() => { injectKeyframes(); }, []);
   useEffect(() => { loadGoogleFont(cfg.font); }, [cfg.font]);
 
-  // Resolve effective index
+  // Derive which platform to show
   const pinnedIdx = pinnedId ? display.findIndex((p) => p.id === pinnedId) : -1;
-  const effectiveIdx = pinnedId && pinnedIdx >= 0 ? pinnedIdx : idx % display.length;
+  const effectiveIdx = pinnedId && pinnedIdx >= 0 ? pinnedIdx : idx % Math.max(display.length, 1);
 
-  // Bump animKey whenever effective index changes (pinned or cycled)
-  useEffect(() => {
-    if (prevEffIdx.current !== effectiveIdx) {
-      prevEffIdx.current = effectiveIdx;
-      setAnimKey((k) => k + 1);
-    }
-  }, [effectiveIdx]);
-
-  // Auto-cycle when not pinned
+  // Auto-cycle — both idx and animKey advance in one atomic update
   useEffect(() => {
     if (pinnedId || display.length <= 1) return;
     const ms = Math.max((cfg.duration || 5) * 1000, 1500);
     const t = setInterval(() => {
-      setIdx((i) => (i + 1) % display.length);
+      setCycle((s) => ({ idx: (s.idx + 1) % display.length, animKey: s.animKey + 1 }));
     }, ms);
     return () => clearInterval(t);
   }, [display.length, cfg.duration, pinnedId]);
+
+  // When the user focuses a different input, bump animKey so the animation plays
+  const prevPinned = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (prevPinned.current !== pinnedId) {
+      prevPinned.current = pinnedId;
+      if (pinnedId) setCycle((s) => ({ ...s, animKey: s.animKey + 1 }));
+    }
+  }, [pinnedId]);
 
   const current = display[effectiveIdx] ?? display[0];
   if (!current) return null;
@@ -242,23 +248,10 @@ function RotatorPreview({
   const logoPx = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
   const textColor = cfg.matchLogoColor ? pColor : cfg.color;
 
-  // Base shadow per shadowType
-  const baseShadow =
+  const textShadow =
     cfg.shadowType === 'glow'   ? `0 0 18px ${pColor}90, 0 0 35px ${pColor}40`
     : cfg.shadowType === 'none' ? 'none'
     :                              `2px 2px 8px rgba(0,0,0,0.8)`;
-
-  // 3D text: stacked text-shadow extrusion using the text color at decreasing opacity
-  // This is the canonical CSS technique for 3D extruded text
-  const shadow3d = [
-    `1px 1px 0 ${textColor}cc`,
-    `2px 2px 0 ${textColor}99`,
-    `3px 3px 0 ${textColor}66`,
-    `4px 4px 0 ${textColor}44`,
-    `5px 5px 10px rgba(0,0,0,0.6)`,
-  ].join(', ');
-
-  const textShadow = cfg.textStyle === '3d' ? shadow3d : baseShadow;
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
@@ -271,10 +264,9 @@ function RotatorPreview({
           animation: `rp-${cfg.effect} 0.45s ease-out forwards`,
         }}
       >
-        {/* Logo: official CDN image or inline SVG */}
         {cfg.useLogo ? (
           <img
-            src={`https://cdn.simpleicons.org/${current.id}`}
+            src={`https://cdn.simpleicons.org/${siSlug(current.id)}`}
             width={logoPx}
             height={logoPx}
             alt={current.id}
@@ -285,8 +277,6 @@ function RotatorPreview({
             <PlatformIcon id={current.id} size={logoPx} color={pColor} />
           </div>
         )}
-
-        {/* Username text */}
         <span
           style={{
             fontFamily: `'${cfg.font}', sans-serif`,
@@ -305,7 +295,7 @@ function RotatorPreview({
 }
 
 // ---------------------------------------------------------------------------
-// Step label + shared UI
+// Shared UI
 // ---------------------------------------------------------------------------
 
 function StepLabel({ n, label }: { n: number; label: string }) {
@@ -331,9 +321,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 }
 
 function ChipRow<T extends string>({
-  options,
-  value,
-  onChange,
+  options, value, onChange,
 }: {
   options: { value: T; label: string }[];
   value: T;
@@ -417,7 +405,7 @@ export default function SocialsRotator() {
 
   const handleGenerate = useCallback(() => {
     setGeneratedUrl(buildUrl(cfg));
-    setStep(4);
+    setStep(5);
   }, [cfg]);
 
   const handleCopy = useCallback(() => {
@@ -430,9 +418,16 @@ export default function SocialsRotator() {
   const canStep2 = selected.size > 0;
   const canStep3 = cfg.platforms.every((p) => p.username.trim() !== '');
 
+  // Total one-cycle duration in seconds (for popup timing description)
+  const cycleTotalSec = cfg.platforms.length * cfg.duration;
+
+  const STEP_LABELS: Record<number, string> = {
+    1: 'Select Platforms', 2: 'Usernames', 3: 'Appearance', 4: 'Popup Timing', 5: 'Generate',
+  };
+
   const StepBar = () => (
     <div className="flex items-center gap-2 mb-8">
-      {[1, 2, 3, 4].map((s) => (
+      {[1, 2, 3, 4, 5].map((s) => (
         <div key={s} className="flex items-center gap-2">
           <button
             onClick={() => s < step && setStep(s)}
@@ -446,16 +441,13 @@ export default function SocialsRotator() {
           >
             {s}
           </button>
-          {s < 4 && <div className={`h-px w-10 transition-colors ${s < step ? 'bg-pink-500/40' : 'bg-white/8'}`} />}
+          {s < 5 && <div className={`h-px w-8 transition-colors ${s < step ? 'bg-pink-500/40' : 'bg-white/8'}`} />}
         </div>
       ))}
-      <span className="text-gray-500 text-xs ml-2">
-        {step === 1 ? 'Select Platforms' : step === 2 ? 'Usernames' : step === 3 ? 'Appearance' : 'Generate'}
-      </span>
+      <span className="text-gray-500 text-xs ml-2">{STEP_LABELS[step]}</span>
     </div>
   );
 
-  // Preview: pin to active input in step 2, cycle otherwise
   const previewPinnedId = step === 2 ? activeId : null;
 
   return (
@@ -463,7 +455,6 @@ export default function SocialsRotator() {
       <section className="py-20 sm:py-28">
         <div className="max-w-[72rem] mx-auto px-4 sm:px-6">
 
-          {/* Back + Hero */}
           <Link to="/tools" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors mb-10">
             <ArrowLeft size={14} />
             Back to Tools
@@ -485,7 +476,6 @@ export default function SocialsRotator() {
 
           <StepBar />
 
-          {/* Two-column layout: config left, preview right */}
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1 min-w-0">
 
@@ -518,7 +508,6 @@ export default function SocialsRotator() {
                       );
                     })}
                   </div>
-
                   {!canStep2 && (
                     <p className="text-gray-500 text-sm mb-4">Select at least one platform to continue.</p>
                   )}
@@ -588,19 +577,16 @@ export default function SocialsRotator() {
 
                   <div className="grid sm:grid-cols-2 gap-x-8 gap-y-5">
 
-                    {/* Transition Effect */}
                     <div className="sm:col-span-2">
                       <label className="text-gray-300 text-sm font-medium block mb-2">Transition Effect</label>
                       <ChipRow options={EFFECTS} value={cfg.effect} onChange={(v) => set('effect', v)} />
                     </div>
 
-                    {/* Logo Size */}
                     <div>
                       <label className="text-gray-300 text-sm font-medium block mb-2">Logo Size</label>
                       <ChipRow options={LOGO_SIZES} value={cfg.logoSize} onChange={(v) => set('logoSize', v)} />
                     </div>
 
-                    {/* Text Size */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-gray-300 text-sm font-medium">Text Size</label>
@@ -611,7 +597,6 @@ export default function SocialsRotator() {
                         className="w-full accent-pink-500" />
                     </div>
 
-                    {/* Font */}
                     <div>
                       <label className="text-gray-300 text-sm font-medium block mb-2">Font</label>
                       <select
@@ -623,7 +608,6 @@ export default function SocialsRotator() {
                       </select>
                     </div>
 
-                    {/* Time Per Platform */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-gray-300 text-sm font-medium">Time Per Platform</label>
@@ -634,7 +618,6 @@ export default function SocialsRotator() {
                         className="w-full accent-pink-500" />
                     </div>
 
-                    {/* Text Color */}
                     <div>
                       <label className="text-gray-300 text-sm font-medium block mb-2">Text Color</label>
                       <div className="flex items-center gap-3">
@@ -657,7 +640,6 @@ export default function SocialsRotator() {
                           </>
                         )}
                       </div>
-                      {/* Match logo color checkbox */}
                       <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
                         <input
                           type="checkbox"
@@ -669,7 +651,6 @@ export default function SocialsRotator() {
                       </label>
                     </div>
 
-                    {/* Drop Shadow */}
                     <div>
                       <label className="text-gray-300 text-sm font-medium block mb-2">Drop Shadow</label>
                       <ChipRow
@@ -683,7 +664,6 @@ export default function SocialsRotator() {
                       />
                     </div>
 
-                    {/* Logo Style */}
                     <div>
                       <label className="text-gray-300 text-sm font-medium block mb-2">Logo Style</label>
                       <div className="flex gap-2">
@@ -706,32 +686,73 @@ export default function SocialsRotator() {
                       </div>
                     </div>
 
-                    {/* Text Style */}
-                    <div>
-                      <label className="text-gray-300 text-sm font-medium block mb-2">Text Style</label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => set('textStyle', 'normal')}
-                          className={`flex-1 rounded-xl py-2 text-xs font-semibold border transition-all ${
-                            cfg.textStyle === 'normal' ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
-                          }`}
-                        >
-                          Normal
-                        </button>
-                        <button
-                          onClick={() => set('textStyle', '3d')}
-                          className={`flex-1 rounded-xl py-2 text-xs font-semibold border transition-all ${
-                            cfg.textStyle === '3d' ? 'border-pink-500/60 bg-pink-500/15 text-pink-300' : 'border-white/8 bg-white/3 text-gray-400 hover:border-white/20'
-                          }`}
-                        >
-                          3D / Embossed
-                        </button>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="flex gap-3 mt-6">
                     <button onClick={() => setStep(2)} className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors">
+                      Back
+                    </button>
+                    <button
+                      onClick={() => setStep(4)}
+                      className="flex-1 glass-strong rounded-xl px-6 py-2.5 text-pink-400 hover:text-pink-300 font-semibold text-sm transition-all"
+                    >
+                      Continue
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 4: Popup Timing */}
+              {step === 4 && (
+                <div className="glass rounded-2xl p-6">
+                  <StepLabel n={4} label="Popup Timing" />
+                  <p className="text-gray-400 text-sm mb-6">
+                    By default the overlay is always visible. Enable Popup Mode to have it appear
+                    for one full cycle, then hide until the next interval.
+                  </p>
+
+                  {/* Popup mode toggle */}
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <div className="text-white font-medium text-sm">Popup Mode</div>
+                      <div className="text-gray-500 text-xs mt-0.5">
+                        {cfg.popupMode ? 'Overlay hides between cycles' : 'Overlay is always visible'}
+                      </div>
+                    </div>
+                    <Toggle on={cfg.popupMode} onChange={(v) => set('popupMode', v)} />
+                  </div>
+
+                  {/* Interval slider — only shown when popup mode is on */}
+                  {cfg.popupMode && (
+                    <div className="glass rounded-xl p-5">
+                      <div className="mb-4">
+                        <span className="text-gray-300 text-sm">Show every </span>
+                        <span className="text-pink-400 font-bold font-mono">{cfg.popupInterval}</span>
+                        <span className="text-pink-400 font-bold"> {cfg.popupInterval === 1 ? 'minute' : 'minutes'}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={60}
+                        value={cfg.popupInterval}
+                        onChange={(e) => set('popupInterval', Number(e.target.value))}
+                        className="w-full accent-pink-500 mb-2"
+                      />
+                      <div className="flex justify-between text-[11px] text-gray-600 mb-4">
+                        <span>1 min</span>
+                        <span>60 min</span>
+                      </div>
+                      <p className="text-gray-400 text-xs leading-relaxed">
+                        The overlay will wait{' '}
+                        <strong className="text-gray-200">{cfg.popupInterval} min</strong>, show all{' '}
+                        <strong className="text-gray-200">{cfg.platforms.length}</strong> platform{cfg.platforms.length !== 1 ? 's' : ''} once{' '}
+                        (<strong className="text-gray-200">{cycleTotalSec}s</strong>), then hide and repeat.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 mt-6">
+                    <button onClick={() => setStep(3)} className="glass rounded-xl px-5 py-2.5 text-gray-400 hover:text-white text-sm transition-colors">
                       Back
                     </button>
                     <button
@@ -744,10 +765,10 @@ export default function SocialsRotator() {
                 </div>
               )}
 
-              {/* Step 4: Generated URL */}
-              {step === 4 && generatedUrl && (
+              {/* Step 5: Generated URL */}
+              {step === 5 && generatedUrl && (
                 <div className="glass rounded-2xl p-6">
-                  <StepLabel n={4} label="Your Overlay URL" />
+                  <StepLabel n={5} label="Your Overlay URL" />
 
                   <div className="bg-white/5 border border-white/10 rounded-xl p-4 font-mono text-xs text-gray-400 break-all leading-relaxed mb-4">
                     {window.location.origin}{generatedUrl}
@@ -803,12 +824,11 @@ export default function SocialsRotator() {
                   {step === 1 && <span className="text-[10px] text-gray-500 font-medium">(demo)</span>}
                   {step === 2 && activeId && (
                     <span className="text-[10px] text-gray-500 font-medium capitalize">
-                      — {PLATFORMS.find(p => p.id === activeId)?.name}
+                      — {PLATFORMS.find((p) => p.id === activeId)?.name}
                     </span>
                   )}
                 </div>
 
-                {/* Checkerboard = transparent background like OBS */}
                 <div
                   className="rounded-xl mb-4"
                   style={{
@@ -829,7 +849,7 @@ export default function SocialsRotator() {
                 {step === 1 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
                     This is an example of what your finished overlay looks like in OBS.
-                    It cycles through platforms on a transparent background so it sits cleanly over your stream.
+                    It cycles on a transparent background so it sits cleanly over your stream.
                   </p>
                 )}
                 {step === 2 && (
@@ -839,10 +859,17 @@ export default function SocialsRotator() {
                 )}
                 {step === 3 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
-                    All changes apply instantly. The checkerboard represents the transparent background in OBS.
+                    All changes apply instantly. Checkerboard = transparent in OBS.
                   </p>
                 )}
                 {step === 4 && (
+                  <p className="text-gray-500 text-xs leading-relaxed">
+                    {cfg.popupMode
+                      ? `Overlay will appear every ${cfg.popupInterval} min, cycle through all platforms, then hide.`
+                      : 'Overlay stays visible and cycles continuously.'}
+                  </p>
+                )}
+                {step === 5 && (
                   <p className="text-gray-500 text-xs leading-relaxed">
                     Copy the URL and add it as a Browser Source in OBS.
                   </p>
