@@ -479,6 +479,7 @@ export default function SocialsRotator() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [generatedUrl, setGeneratedUrl] = useState('');
   const [copied, setCopied] = useState(false);
+  const [previewBg, setPreviewBg] = useState<'checker' | string>('checker');
   const [activeId, setActiveId] = useState<string | null>(null);
   const colorRef = useRef<HTMLInputElement>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1036,12 +1037,14 @@ export default function SocialsRotator() {
                 </div>
 
                 <div
-                  className="rounded-xl mb-4"
+                  className="rounded-xl mb-2"
                   style={{
-                    backgroundImage: 'linear-gradient(45deg,#2a2a2a 25%,transparent 25%),linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2a 75%),linear-gradient(-45deg,transparent 75%,#2a2a2a 75%)',
-                    backgroundSize: '12px 12px',
-                    backgroundPosition: '0 0,0 6px,6px -6px,-6px 0',
-                    backgroundColor: '#1a1a1a',
+                    ...(previewBg === 'checker' ? {
+                      backgroundImage: 'linear-gradient(45deg,#2a2a2a 25%,transparent 25%),linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2a 75%),linear-gradient(-45deg,transparent 75%,#2a2a2a 75%)',
+                      backgroundSize: '12px 12px',
+                      backgroundPosition: '0 0,0 6px,6px -6px,-6px 0',
+                      backgroundColor: '#1a1a1a',
+                    } : { background: previewBg }),
                     padding: '24px 16px',
                     display: 'flex',
                     alignItems: 'center',
@@ -1050,6 +1053,35 @@ export default function SocialsRotator() {
                   }}
                 >
                   <RotatorPreview cfg={cfg} forceDemo={step === 1} pinnedId={previewPinnedId} />
+                </div>
+
+                {/* Background swatches */}
+                <div className="flex items-center gap-1.5 mb-4">
+                  {([
+                    { key: 'checker', bg: undefined, label: 'Transparent' },
+                    { key: '#000000', bg: '#000000', label: 'Black' },
+                    { key: '#1a1a2e', bg: '#1a1a2e', label: 'Dark' },
+                    { key: '#0f3460', bg: '#0f3460', label: 'Navy' },
+                    { key: '#2d2d2d', bg: '#2d2d2d', label: 'Grey' },
+                    { key: '#ffffff', bg: '#ffffff', label: 'White' },
+                    { key: '#16213e', bg: '#16213e', label: 'Midnight' },
+                    { key: '#1a472a', bg: '#1a472a', label: 'Forest' },
+                  ] as const).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      title={label}
+                      onClick={() => setPreviewBg(key)}
+                      className={`w-6 h-6 rounded-md border-2 transition-all flex-shrink-0 ${
+                        previewBg === key ? 'border-pink-400 scale-110' : 'border-white/10 hover:border-white/30'
+                      }`}
+                      style={key === 'checker' ? {
+                        backgroundImage: 'linear-gradient(45deg,#555 25%,transparent 25%),linear-gradient(-45deg,#555 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#555 75%),linear-gradient(-45deg,transparent 75%,#555 75%)',
+                        backgroundSize: '6px 6px',
+                        backgroundPosition: '0 0,0 3px,3px -3px,-3px 0',
+                        backgroundColor: '#333',
+                      } : { background: key }}
+                    />
+                  ))}
                 </div>
 
                 {step === 1 && (
