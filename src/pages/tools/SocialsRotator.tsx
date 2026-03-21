@@ -380,14 +380,14 @@ function RotatorPreview({
     :                               `2px 2px 8px rgba(0,0,0,0.8)`;
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', width: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '8px' }}>
       <div
         style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: 14,
           maxWidth: '100%',
-          overflow: 'hidden',
+          minWidth: 0,
           ...getPhaseStyle(phase, cfg.effect, cfg.transitionDuration ?? 350),
         }}
       >
@@ -1045,7 +1045,7 @@ export default function SocialsRotator() {
                       backgroundPosition: '0 0,0 6px,6px -6px,-6px 0',
                       backgroundColor: '#1a1a1a',
                     } : { background: previewBg }),
-                    padding: '24px 16px',
+                    padding: '16px 8px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'flex-start',
