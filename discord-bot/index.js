@@ -1048,41 +1048,30 @@ async function createTempVC(state) {
         });
 
         // Post a commands guide in the VC's built-in text chat
+        // Small delay so Discord fully initialises the VC text channel before we post
+        await new Promise(r => setTimeout(r, 1500));
         try {
             await tempChannel.send({
                 embeds: [{
                     color: 0x22c55e,
-                    title: `🎙️ Welcome to ${channelName}`,
+                    title: `🎙️ ${channelName}`,
                     description:
-                        `Hey ${member}, this is your personal voice channel! You have full control over it — ` +
-                        `rename it, set a limit, mute people, kick them, whatever you need.\n\n` +
-                        `⏳ **The channel automatically deletes itself 1 minute after everyone leaves.**`,
+                        `${member}, this is your channel — rename it, set a limit, mute or kick people as you need.\n` +
+                        `Deletes itself **1 minute after everyone leaves**.`,
                     fields: [
                         {
-                            name: '💤 AFK — works in any voice chat',
-                            value:
-                                '`!!afk [reason]` — Marks you as AFK\n' +
-                                '> Your nickname gets an `[AFK]` prefix so people know you\'re away.\n' +
-                                '> The channel announces when you come back.\n' +
-                                '> **Example:** `!!afk grabbing food`\n\n' +
-                                'If someone pings or replies to an AFK member, the bot will let them know they\'re away.',
+                            name: '💤 AFK (works in any voice chat)',
+                            value: '`!!afk [reason]` — adds `[AFK]` to your name and announces when you return.',
                         },
                         {
-                            name: '⚙️ Managing your channel',
+                            name: '⚙️ Controls',
                             value:
-                                '**Rename** → Right-click the channel → Edit Channel → change the name\n' +
-                                '**Set a user limit** → Edit Channel → User Limit\n' +
-                                '**Mute someone** → Right-click their name in the VC → Mute\n' +
-                                '**Kick someone** → Right-click → Disconnect *(they can rejoin unless you lock it)*\n' +
-                                '**Lock it** → Edit Channel → Permissions → deny **Connect** for @everyone',
-                        },
-                        {
-                            name: '🔒 Who can manage this channel',
-                            value: 'Only **you**, **mods**, and the **server owner** have management permissions here. Regular members can join and talk but can\'t change settings.',
+                                '**Rename / limit** → right-click the channel → Edit Channel\n' +
+                                '**Mute / kick** → right-click a member in the VC\n' +
+                                '**Lock** → Edit Channel → Permissions → deny Connect for @everyone',
                         },
                     ],
-                    footer: { text: 'TrueBeast • Temp Voice Channels' },
-                    timestamp: new Date().toISOString(),
+                    footer: { text: 'Only you, mods, and the server owner can manage this channel' },
                 }],
             });
         } catch (e) {
