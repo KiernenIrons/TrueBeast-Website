@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Sun, Moon, ChevronDown, Youtube } from 'lucide-react';
+import { Menu, X, Sun, Moon, ChevronDown, Youtube, Shield, LogOut, LogIn } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { DiscordIcon } from '@/components/shared/DiscordIcon';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,11 +88,18 @@ const btnBase =
 export default function Navigation() {
   const { isLight, toggle: toggleTheme } = useTheme();
   const location = useLocation();
+  const { user, loading, login, logout } = useAuth();
 
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  // Tracks which dropdown label is open (or null for none)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  // Login modal state
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
 
   const navRef = useRef<HTMLDivElement>(null);
   const dropdownTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -150,7 +158,36 @@ export default function Navigation() {
     [location.pathname],
   );
 
-  // ---- Render a single nav item ----
+  // ---- Login / Logout ----
+  const handleLogin = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLoginError('');
+      setLoginLoading(true);
+      try {
+        await login(loginEmail, loginPassword);
+        setShowLogin(false);
+        setLoginEmail('');
+        setLoginPassword('');
+      } catch {
+        setLoginError('Invalid email or password.');
+      } finally {
+        setLoginLoading(false);
+      }
+    },
+    [login, loginEmail, loginPassword],
+  );
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+  }, [logout]);
+
+  const openLoginModal = useCallback(() => {
+    setLoginError('');
+    setShowLogin(true);
+  }, []);
+
+  // ---- Render a single desktop nav item ----
   const renderNavLink = (item: NavItem) => {
     const colorClass = item.color ?? 'text-gray-200 hover:text-white';
     const classes = `${btnBase} ${colorClass} flex items-center gap-2`;
@@ -188,7 +225,6 @@ export default function Navigation() {
             />
           </Link>
 
-          {/* Dropdown */}
           <div
             className={`nav-dropdown absolute left-0 top-full mt-2 min-w-[180px] rounded-xl shadow-2xl py-2 z-50 transition-all duration-200 origin-top ${
               isOpen
@@ -251,7 +287,6 @@ export default function Navigation() {
           {item.label}
         </Link>
 
-        {/* Mobile sub-links */}
         {item.dropdown?.map((sub) => (
           <Link
             key={sub.label}
@@ -270,88 +305,234 @@ export default function Navigation() {
   };
 
   return (
-    <nav
-      ref={navRef}
-      className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${
-        scrolled ? 'py-2' : 'py-4'
-      }`}
-    >
-      <div className="max-w-[80rem] mx-auto px-4 sm:px-6">
-        <div className={`glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl shadow-black/50' : ''}`} style={{ background: 'rgba(15, 15, 22, 0.38)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}>
-          <div className="flex items-center justify-between">
-            {/* ---- Logo ---- */}
-            <Link to="/" className="flex items-center gap-3 group flex-shrink-0">
-              <img
-                src="/assets/logos/logo.png"
-                alt="TrueBeast logo"
-                className="h-10 w-10 rounded-full object-contain transition-transform duration-300 group-hover:scale-110"
-              />
-              <span className="font-display text-xl font-bold tracking-tight text-white transition-colors group-hover:text-emerald-400">
-                TrueBeast
-              </span>
-            </Link>
-
-            {/* ---- Desktop nav ---- */}
-            <div className="hidden lg:flex items-center gap-2">
-              {navItems.map(renderNavLink)}
-
-              {/* Theme toggle */}
-              <button
-                type="button"
-                onClick={toggleTheme}
-                aria-label="Toggle theme"
-                className={`${btnBase} ml-1 p-2`}
-              >
-                {isLight ? (
-                  <Moon className="w-4 h-4" />
-                ) : (
-                  <Sun className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-
-            {/* ---- Mobile controls ---- */}
-            <div className="flex items-center gap-2 lg:hidden">
-              <button
-                type="button"
-                onClick={toggleTheme}
-                aria-label="Toggle theme"
-                className={`${btnBase} p-2`}
-              >
-                {isLight ? (
-                  <Moon className="w-4 h-4" />
-                ) : (
-                  <Sun className="w-4 h-4" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMobileOpen((o) => !o)}
-                aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-                className={`${btnBase} p-2`}
-              >
-                {mobileOpen ? (
-                  <X className="w-5 h-5" />
-                ) : (
-                  <Menu className="w-5 h-5" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* ---- Mobile menu panel ---- */}
+    <>
+      <nav
+        ref={navRef}
+        className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${
+          scrolled ? 'py-2' : 'py-4'
+        }`}
+      >
+        <div className="max-w-[80rem] mx-auto px-4 sm:px-6">
           <div
-            className={`lg:hidden overflow-hidden transition-all duration-300 ${
-              mobileOpen ? 'max-h-[80vh] opacity-100 mt-4 pt-4 border-t border-white/10' : 'max-h-0 opacity-0'
-            }`}
+            className={`glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl shadow-black/50' : ''}`}
+            style={{ background: 'rgba(15, 15, 22, 0.38)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}
           >
-            <div className="flex flex-col gap-1">
-              {navItems.map(renderMobileLink)}
+            {/* ---- Main row: Logo | Center nav | Right controls ---- */}
+            <div className="relative flex items-center justify-between">
+
+              {/* Logo */}
+              <Link to="/" className="flex items-center gap-3 group flex-shrink-0">
+                <img
+                  src="/assets/logos/logo.png"
+                  alt="TrueBeast logo"
+                  className="h-10 w-10 rounded-full object-contain transition-transform duration-300 group-hover:scale-110"
+                />
+                <span className="font-display text-xl font-bold tracking-tight text-white transition-colors group-hover:text-emerald-400">
+                  TrueBeast
+                </span>
+              </Link>
+
+              {/* ---- Centered desktop nav ---- */}
+              <div className="absolute left-1/2 -translate-x-1/2 hidden lg:flex items-center gap-2">
+                {navItems.map(renderNavLink)}
+              </div>
+
+              {/* ---- Right controls: theme + auth ---- */}
+              <div className="hidden lg:flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  aria-label="Toggle theme"
+                  className={`${btnBase} p-2`}
+                >
+                  {isLight ? (
+                    <Moon className="w-4 h-4" />
+                  ) : (
+                    <Sun className="w-4 h-4" />
+                  )}
+                </button>
+
+                {!loading && (
+                  user ? (
+                    <>
+                      <Link
+                        to="/admin"
+                        className={`${btnBase} text-purple-400 hover:text-purple-300 flex items-center gap-2`}
+                      >
+                        <Shield className="w-4 h-4" />
+                        Admin
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className={`${btnBase} flex items-center gap-2`}
+                        aria-label="Log out"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={openLoginModal}
+                      className={`${btnBase} flex items-center gap-2`}
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Login
+                    </button>
+                  )
+                )}
+              </div>
+
+              {/* ---- Mobile controls ---- */}
+              <div className="flex items-center gap-2 lg:hidden">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  aria-label="Toggle theme"
+                  className={`${btnBase} p-2`}
+                >
+                  {isLight ? (
+                    <Moon className="w-4 h-4" />
+                  ) : (
+                    <Sun className="w-4 h-4" />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMobileOpen((o) => !o)}
+                  aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                  className={`${btnBase} p-2`}
+                >
+                  {mobileOpen ? (
+                    <X className="w-5 h-5" />
+                  ) : (
+                    <Menu className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* ---- Mobile menu panel ---- */}
+            <div
+              className={`lg:hidden overflow-hidden transition-all duration-300 ${
+                mobileOpen ? 'max-h-[80vh] opacity-100 mt-4 pt-4 border-t border-white/10' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="flex flex-col gap-1">
+                {navItems.map(renderMobileLink)}
+
+                {/* Auth in mobile menu */}
+                <div className="border-t border-white/10 mt-2 pt-2">
+                  {user ? (
+                    <>
+                      <Link
+                        to="/admin"
+                        className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-purple-400 hover:text-purple-300 hover:bg-white/5 rounded-xl transition-all"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <Shield className="w-4 h-4" />
+                        Admin Panel
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => { handleLogout(); setMobileOpen(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { openLoginModal(); setMobileOpen(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-gray-200 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Login
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      {/* ---- Login Modal ---- */}
+      {showLogin && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          onClick={() => setShowLogin(false)}
+        >
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative rounded-2xl p-8 w-full max-w-sm border border-white/10 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'rgba(12, 12, 18, 0.95)', backdropFilter: 'blur(32px)' }}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-purple-400" />
+                <h2 className="text-white font-semibold text-lg">Admin Login</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLogin(false)}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+              <div>
+                <label className="text-gray-400 text-xs font-semibold uppercase tracking-wider block mb-1.5">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="admin@example.com"
+                  required
+                  autoFocus
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-purple-500/50 transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="text-gray-400 text-xs font-semibold uppercase tracking-wider block mb-1.5">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-purple-500/50 transition-colors"
+                />
+              </div>
+
+              {loginError && (
+                <p className="text-red-400 text-sm text-center">{loginError}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full bg-purple-600/20 border border-purple-500/30 hover:bg-purple-600/30 text-purple-300 font-semibold rounded-xl py-3 text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+              >
+                {loginLoading ? 'Signing in…' : 'Sign In'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
