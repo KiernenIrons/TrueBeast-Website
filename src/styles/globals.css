@@ -1,0 +1,340 @@
+@import "tailwindcss";
+
+/* ── Tailwind 4 Theme ────────────────────────────────────────────────────── */
+@theme {
+  --container-3xs: 16rem;
+  --container-2xs: 18rem;
+  --container-xs: 20rem;
+  --container-sm: 24rem;
+  --container-md: 28rem;
+  --container-lg: 32rem;
+  --container-xl: 36rem;
+  --container-2xl: 42rem;
+  --container-3xl: 48rem;
+  --container-4xl: 56rem;
+  --container-5xl: 64rem;
+  --container-6xl: 72rem;
+  --container-7xl: 80rem;
+
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+}
+
+/* ── Design System Variables ─────────────────────────────────────────────── */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.15);
+  --accent-green: #22c55e;
+  --accent-green-dark: #16a34a;
+  --accent-green-light: #4ade80;
+  --accent-neon: #39ff14;
+  color-scheme: dark;
+}
+
+/*
+ * IMPORTANT: In Tailwind CSS v4, all custom styles MUST be inside @layer
+ * so they don't override Tailwind utilities. Unlayered CSS beats layered
+ * CSS regardless of specificity -- that's the CSS cascade spec.
+ */
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* @layer base -- element-level defaults, resets, scrollbar, selection       */
+/* ══════════════════════════════════════════════════════════════════════════ */
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background: #0a0a0f;
+    color: #ffffff;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(var(--accent-green-dark), var(--accent-green));
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: rgba(34, 197, 94, 0.3);
+    color: #fff;
+  }
+
+  html.light {
+    color-scheme: light;
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(0, 0, 0, 0.12);
+    --glass-highlight: rgba(255, 255, 255, 1);
+  }
+
+  html.light body {
+    background: #f0f5f0;
+    color: #111;
+  }
+
+  /* Light mode: text colours - ensure strong contrast */
+  html.light .text-white { color: #111 !important; }
+  html.light .text-gray-300 { color: #333 !important; }
+  html.light .text-gray-400 { color: #555 !important; }
+  html.light .text-gray-500 { color: #666 !important; }
+
+  /* Light mode: text gradient */
+  html.light .text-gradient {
+    background: linear-gradient(135deg, #15803d 0%, #16a34a 50%, #059669 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Light mode: glass effects - opaque white with shadow outlines */
+  html.light .glass {
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    backdrop-filter: blur(20px) saturate(120%);
+    -webkit-backdrop-filter: blur(20px) saturate(120%);
+    box-shadow:
+      0 2px 8px rgba(0, 0, 0, 0.06),
+      0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+
+  html.light .glass-strong {
+    background: rgba(255, 255, 255, 0.90);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    backdrop-filter: blur(24px) saturate(130%);
+    -webkit-backdrop-filter: blur(24px) saturate(130%);
+    box-shadow:
+      0 4px 16px rgba(0, 0, 0, 0.08),
+      0 1px 3px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Light mode: glass hover */
+  html.light .glass-hover:hover {
+    border-color: rgba(34, 197, 94, 0.3);
+    box-shadow:
+      0 4px 16px rgba(0, 0, 0, 0.08),
+      0 0 0 1px rgba(34, 197, 94, 0.15);
+  }
+
+  /* Light mode: glass glow border */
+  html.light .glass-glow::before {
+    background: linear-gradient(135deg, rgba(34,197,94,0.4), transparent, rgba(22,163,74,0.3));
+  }
+
+  /* Light mode: green accent text should be darker for contrast */
+  html.light .text-green-400 { color: #15803d !important; }
+  html.light .text-violet-400 { color: #6d28d9 !important; }
+  html.light .text-indigo-400 { color: #4338ca !important; }
+  html.light .text-red-500 { color: #dc2626 !important; }
+
+  /* Light mode: scrollbar */
+  html.light ::-webkit-scrollbar-thumb {
+    background: linear-gradient(#22c55e, #16a34a);
+  }
+
+  html.light ::selection {
+    background: rgba(34, 197, 94, 0.25);
+    color: #111;
+  }
+
+  /* Light mode: nav + footer text contrast */
+  html.light .text-white\/50 { color: #555 !important; }
+  html.light .text-gray-200 { color: #333 !important; }
+  html.light .border-white\/10 { border-color: rgba(0, 0, 0, 0.10) !important; }
+  html.light .border-white\/\[0\.06\] { border-color: rgba(0, 0, 0, 0.08) !important; }
+  html.light .bg-white\/5 { background-color: rgba(0, 0, 0, 0.04) !important; }
+  html.light .hover\:bg-white\/10:hover { background-color: rgba(0, 0, 0, 0.06) !important; }
+  html.light .hover\:text-white:hover { color: #111 !important; }
+  html.light .hover\:text-white\/80:hover { color: #333 !important; }
+  html.light .hover\:border-white\/20:hover { border-color: rgba(0, 0, 0, 0.15) !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* @layer components -- reusable component classes                           */
+/* ══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+  /* ── Glass Effects ──────────────────────────────────────────────────── */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(48px) saturate(180%);
+    -webkit-backdrop-filter: blur(48px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 var(--glass-highlight),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    isolation: isolate;
+  }
+
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(48px) saturate(200%);
+    -webkit-backdrop-filter: blur(48px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 25px 50px -12px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    isolation: isolate;
+  }
+
+  /* ── Scroll Reveal ──────────────────────────────────────────────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: opacity, transform;
+  }
+
+  .reveal.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ── Glass Hover / Glow ─────────────────────────────────────────────── */
+  .glass-hover {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.3s ease,
+                box-shadow 0.3s ease;
+  }
+
+  .glass-hover:hover {
+    transform: translateY(-2px);
+    border-color: var(--glass-highlight);
+  }
+
+  .glass-glow {
+    position: relative;
+  }
+
+  .glass-glow::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, var(--accent-green), transparent, var(--accent-green-light));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.5;
+    transition: opacity 0.3s ease;
+  }
+
+  .glass-glow:hover::before {
+    opacity: 1;
+  }
+
+  /* ── Text Gradient ──────────────────────────────────────────────────── */
+  .text-gradient {
+    background: linear-gradient(135deg, #fff 0%, #4ade80 50%, #22c55e 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  html.light .text-gradient {
+    background: linear-gradient(135deg, #16a34a 0%, #22c55e 60%, #4ade80 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Nav Dropdown ────────────────────────────────────────────────────── */
+  .nav-dropdown {
+    background: rgba(17, 17, 24, 0.95);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+  }
+
+  html.light .nav-dropdown {
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid rgba(0, 0, 0, 0.10);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+
+  /* ── Font Display ───────────────────────────────────────────────────── */
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  /* ── Animations ─────────────────────────────────────────────────────── */
+  .animate-fade-in-up {
+    animation: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out forwards;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* Keyframes (these don't participate in cascade, safe outside layers)      */
+/* ══════════════════════════════════════════════════════════════════════════ */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(3%, -3%); }
+  50% { transform: translate(-2%, 5%); }
+  75% { transform: translate(-5%, -2%); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* Performance & Accessibility overrides (use !important intentionally)     */
+/* ══════════════════════════════════════════════════════════════════════════ */
+html.perf-mode .glass,
+html.perf-mode .glass-strong {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(12, 12, 18, 0.92) !important;
+}
+
+html.perf-mode * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
