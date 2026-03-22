@@ -1175,6 +1175,13 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('canceltimer')
                 .setDescription('Cancel your active leave timer'),
+            new SlashCommandBuilder()
+                .setName('afk')
+                .setDescription('Set yourself as AFK in voice chat')
+                .addStringOption(opt => opt.setName('reason').setDescription('Why are you AFK?')),
+            new SlashCommandBuilder()
+                .setName('cleanvcs')
+                .setDescription('Clean up empty temporary voice channels (admin only)'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -1408,6 +1415,51 @@ client.on('interactionCreate', async (interaction) => {
             } else {
                 await interaction.reply({ content: '❌ You don\'t have an active leave timer.', ephemeral: true });
             }
+            return;
+        }
+
+        // ── /afk ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'afk') {
+            const member = interaction.member;
+            const voiceChannel = member?.voice?.channel;
+            if (!voiceChannel) {
+                await interaction.reply({ content: '❌ You need to be in a voice channel to go AFK!', ephemeral: true });
+                return;
+            }
+            const reason = interaction.options.getString('reason') || 'No reason given';
+            const currentNick = member.displayName;
+            const afkNick = `[AFK] ${currentNick}`.slice(0, 32);
+            afkUsers.set(interaction.user.id, {
+                reason,
+                originalNickname: currentNick,
+                timestamp: Date.now(),
+            });
+            try { await member.setNickname(afkNick); } catch (e) { console.error('[BeastBot] Failed to set AFK nickname:', e.message); }
+            await interaction.reply({
+                embeds: [{
+                    color: 0x22c55e,
+                    description: `💤 **${currentNick}** is now AFK: *${reason}*\nI'll announce their return when they send a message.`,
+                }],
+            });
+            return;
+        }
+
+        // ── /cleanvcs ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'cleanvcs') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Only the server owner can use this command.', ephemeral: true });
+                return;
+            }
+            let deleted = 0;
+            for (const [chId, vcData] of tempVoiceChannels) {
+                if (vcData.deleteTimer) clearTimeout(vcData.deleteTimer);
+                try {
+                    const ch = client.channels.cache.get(chId);
+                    if (ch) { await ch.delete('/cleanvcs command'); deleted++; }
+                } catch (_) {}
+                tempVoiceChannels.delete(chId);
+            }
+            await interaction.reply({ content: `🧹 Cleaned up **${deleted}** temp voice channel(s).`, ephemeral: true });
             return;
         }
     }
@@ -1677,31 +1729,7 @@ client.on('messageCreate', async (message) => {
             }
         }
 
-        // Set AFK
-        if (message.content.toLowerCase().startsWith('!!afk')) {
-            const member = message.member;
-            const voiceChannel = member?.voice?.channel;
-            if (!voiceChannel) {
-                await message.reply('You need to be in a voice channel to go AFK!');
-                return;
-            }
-            const reason = message.content.slice(5).trim() || 'No reason given';
-            const currentNick = member.displayName;
-            const afkNick = `[AFK] ${currentNick}`.slice(0, 32); // Discord 32 char limit
-            afkUsers.set(message.author.id, {
-                reason,
-                originalNickname: currentNick,
-                timestamp: Date.now(),
-            });
-            try {
-                await member.setNickname(afkNick);
-            } catch (e) {
-                console.error('[BeastBot] Failed to set AFK nickname:', e.message);
-            }
-            await message.reply(`✅ You're now AFK: *${reason}*\nI'll announce your return in the voice chat when you type a message.`);
-            console.log(`[BeastBot] AFK set for ${message.author.tag}: ${reason}`);
-            return;
-        }
+        // AFK is now handled via /afk slash command
 
         // Check if anyone pinged or replied to an AFK user
         const mentionedUsers = message.mentions.users;
@@ -1721,129 +1749,7 @@ client.on('messageCreate', async (message) => {
             }
         }
 
-        // !!postintro — post the persistent intro button message (owner only, pin it after)
-        if (message.content.toLowerCase() === '!!postintro' && message.author.id === OWNER_DISCORD_ID) {
-            try {
-                const ch = await client.channels.fetch(INTRO_CHANNEL_ID);
-                await ch.send({
-                    embeds: [{
-                        color: 0x5865f2,
-                        title: '👋 Introduce Yourself!',
-                        description:
-                            'New to the server? Let the community get to know you!\n\n' +
-                            'Click the button below to fill in a quick intro — it only takes a minute and gets posted right here.',
-                        footer: { text: 'You can only submit once — make it count! 😄' },
-                    }],
-                    components: [
-                        new ActionRowBuilder().addComponents(
-                            new ButtonBuilder()
-                                .setCustomId('intro:start')
-                                .setLabel('📝 Introduce yourself')
-                                .setStyle(ButtonStyle.Primary),
-                        ),
-                    ],
-                });
-                await message.reply('✅ Done! Pin that message so it stays at the top.');
-            } catch (e) {
-                await message.reply(`❌ Failed: ${e.message}`);
-            }
-            return;
-        }
-
-        // !!checkgiveaways — manual giveaway pull from SweepsDB (owner only)
-        if (message.content.toLowerCase() === '!!checkgiveaways' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply('🔍 Fetching Gleam giveaways from SweepsDB...');
-            try {
-                const giveaways = await fetchGleamGiveaways();
-                await message.reply(`📊 Found **${giveaways.length}** new Gleam giveaway(s)`);
-                if (giveaways.length === 0) return;
-                await checkAndPostGiveaways();
-                await message.reply('✅ Posted to the giveaways channel!');
-            } catch (e) {
-                await message.reply(`❌ Error: ${e.message}`);
-            }
-            return;
-        }
-
-        // !!cleanvcs — delete all empty temp voice channels (owner only)
-        if (message.content.toLowerCase() === '!!cleanvcs' && message.author.id === OWNER_DISCORD_ID) {
-            let deleted = 0;
-            for (const [chId, vcData] of tempVoiceChannels) {
-                if (vcData.deleteTimer) clearTimeout(vcData.deleteTimer);
-                try {
-                    const ch = client.channels.cache.get(chId);
-                    if (ch) { await ch.delete('!!cleanvcs command'); deleted++; }
-                } catch (_) {}
-                tempVoiceChannels.delete(chId);
-            }
-            await message.reply(`🧹 Cleaned up **${deleted}** temp voice channel(s).`);
-            return;
-        }
-
-        // !!spotlight — owner test command
-        if (message.content.toLowerCase() === '!!spotlight' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply('🌟 Triggering spotlight...');
-            await postMemberSpotlight();
-            return;
-        }
-
-        // !!backfill — crawl channel history to count all past messages (owner only, one-time)
-        if (message.content.toLowerCase() === '!!backfill' && message.author.id === OWNER_DISCORD_ID) {
-            await message.reply('📊 Starting message backfill — this will take a while. I\'ll update you as I go.');
-            const guild = message.guild;
-            const textChannels = guild.channels.cache.filter(c =>
-                c.isTextBased() && !c.isThread() && c.type !== ChannelType.DM
-            );
-            const counts = new Map();
-            let totalMessages = 0;
-            let channelsDone = 0;
-
-            for (const [, channel] of textChannels) {
-                try {
-                    let lastId = null;
-                    let channelCount = 0;
-                    while (true) {
-                        const opts = { limit: 100 };
-                        if (lastId) opts.before = lastId;
-                        const batch = await channel.messages.fetch(opts);
-                        if (batch.size === 0) break;
-                        batch.forEach(m => {
-                            if (!m.author.bot) {
-                                counts.set(m.author.id, (counts.get(m.author.id) || 0) + 1);
-                                totalMessages++;
-                                channelCount++;
-                            }
-                        });
-                        lastId = batch.last().id;
-                        if (batch.size < 100) break;
-                    }
-                    channelsDone++;
-                    if (channelsDone % 5 === 0) {
-                        await message.channel.send(`📊 Progress: ${channelsDone}/${textChannels.size} channels scanned, ${totalMessages.toLocaleString()} messages counted so far...`);
-                    }
-                } catch (e) {
-                    console.error(`[BeastBot] Backfill: couldn't read #${channel.name}: ${e.message}`);
-                }
-            }
-
-            // Merge with existing counts (take the higher value)
-            for (const [userId, count] of counts) {
-                const existing = messageCounts.get(userId) || 0;
-                const merged = Math.max(existing, count);
-                messageCounts.set(userId, merged);
-                await saveMessageCount(userId, merged);
-            }
-
-            await message.channel.send(
-                `✅ **Backfill complete!**\n` +
-                `- Scanned **${textChannels.size}** channels\n` +
-                `- Counted **${totalMessages.toLocaleString()}** messages\n` +
-                `- From **${counts.size}** unique members\n\n` +
-                `Milestones will now be based on these totals.`
-            );
-            console.log(`[BeastBot] Backfill done: ${totalMessages} messages from ${counts.size} users across ${textChannels.size} channels`);
-            return;
-        }
+        // Old !! commands removed — now using slash commands
 
         // Track message count for milestones
         await checkMessageMilestone(message);
