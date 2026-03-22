@@ -242,6 +242,7 @@ export const SITE_CONFIG: SiteConfig = {
     // Leave winner as '' if status is 'open' or 'upcoming' -- shows "Winner TBD"
     // -----------------------------------------------------------------------
     giveaways: [
+        { item: 'TEST - Razer BlackWidow V4 Pro', winner: '', description: 'A premium mechanical gaming keyboard with Razer Green switches, RGB lighting, and a magnetic wrist rest. This is a test giveaway - remove before going live!', image: 'assets/images/winners/Keyboard.jpg', date: '2026-04-30', status: 'open' as const, entryUrl: 'https://gleam.io/example' },
         { item: 'Wireless Gaming Keyboard - Dierya DK63', winner: 'nSamity', description: 'A White Mechanical Gaming Keyboard with RGB Lighting', image: 'assets/images/winners/Keyboard.jpg', date: '2025-04-14', status: 'ended' },
         { item: 'Microphone - Blue Yeti Satin Red', winner: 'SoundLogic', description: 'A brand new Multi-Pattern USB Microphone with Blue VO!CE', image: 'assets/images/winners/BlueYeti.jpg', date: '2024-12-26', status: 'ended' },
         { item: 'Ultimate Game Pass - 12 Months', winner: 'Mitsukunii', description: 'A 12 month Xbox Ultimate Game Pass', image: 'assets/images/winners/Xbox12month.jpg', date: '2023-12-24', status: 'ended' },
