@@ -562,11 +562,13 @@ function DiscordPreview({ state }: { state: ComposerState }) {
   if (!hasAnything) return <div className="text-gray-500 text-sm italic text-center py-8">Start typing to see a preview...</div>;
 
   const renderEmoji = (emojiStr: string) => {
-    const m = emojiStr.match(/^(.+):(\d+)$/);
+    // Handle name:id, or bare numeric ID (legacy)
+    const m = emojiStr.match(/(?:(.+):)?(\d{15,})$/);
     if (m) {
-      const em = bot.emojis.find((e) => e.id === m[2]);
+      const eid = m[2];
+      const em = bot.emojis.find((e) => e.id === eid);
       const ext = em?.animated ? 'gif' : 'png';
-      return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.${ext}?size=20`} alt={m[1]} className="w-4 h-4 inline-block" />;
+      return <img src={`https://cdn.discordapp.com/emojis/${eid}.${ext}?size=20`} alt={m[1] || 'emoji'} className="w-4 h-4 inline-block" />;
     }
     return <span>{emojiStr}</span>;
   };
@@ -805,10 +807,11 @@ function ReactionsEditor({ reactions, onChange }: { reactions: string[]; onChang
   const remove = (i: number) => onChange(reactions.filter((_, idx) => idx !== i));
 
   const renderEmoji = (r: string) => {
-    const m = r.match(/^(.+):(\d+)$/);
+    const m = r.match(/(?:(.+):)?(\d{15,})$/);
     if (m) {
-      const em = bot.emojis.find((e) => e.id === m[2]);
-      return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.${em?.animated ? 'gif' : 'png'}?size=20`} alt={m[1]} className="w-4 h-4" />;
+      const eid = m[2];
+      const em = bot.emojis.find((e) => e.id === eid);
+      return <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt={m[1] || 'emoji'} className="w-4 h-4" />;
     }
     return <span>{r}</span>;
   };
@@ -1074,15 +1077,24 @@ function AnnouncementsTab() {
         </GlassCard>
 
         {/* Send / Clear */}
-        <GlassCard className="p-5 space-y-3">
+        <div className="space-y-3">
           {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
           <div className="flex items-center gap-3">
-            <Button color="primary" size="md" iconLeading={Send01} isLoading={sending} isDisabled={sending || !hasAnyContent(state) || !channelId} onClick={handleSend}>
+            <button type="button" disabled={sending} onClick={handleClear}
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 disabled:opacity-50 transition-all cursor-pointer">
+              <Trash01 className="w-4 h-4" /> Clear All
+            </button>
+            <button type="button" disabled={sending || !hasAnyContent(state) || !channelId} onClick={handleSend}
+              className="flex-[2] flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-bold bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-600/20 hover:shadow-green-500/30 disabled:opacity-40 disabled:shadow-none transition-all cursor-pointer">
+              {sending ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Send01 className="w-4 h-4" />
+              )}
               {sending ? 'Sending...' : 'Send Announcement'}
-            </Button>
-            <Button color="tertiary" size="md" iconLeading={Trash01} isDisabled={sending} onClick={handleClear}>Clear All</Button>
+            </button>
           </div>
-        </GlassCard>
+        </div>
       </div>
     </div>
   );
