@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { FirebaseDB } from '@/lib/firebase';
+import { SITE_CONFIG } from '@/config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -246,6 +247,41 @@ function TicketView({ ticket: initialTicket }: { ticket: TicketData }) {
     try {
       await FirebaseDB.updateTicket(ticket.id, { responses: updatedResponses as any });
       setLocalTicket({ ...ticket, responses: updatedResponses as any, updatedAt: new Date().toISOString() });
+
+      // Notify admin of user reply
+      const threadId = ticket.id.toLowerCase().replace(/[^a-z0-9]/g, '') + '@truebeast.io';
+      const replyHtml = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;background:#0a0a1a;color:#fff;padding:32px;border-radius:16px">
+        <h2 style="color:#22c55e;margin-bottom:16px">New reply on ticket ${ticket.id}</h2>
+        <p style="color:#9ca3af;margin-bottom:12px"><strong style="color:#fff">${ticket.name}</strong> replied to their ticket:</p>
+        <div style="border-left:3px solid #22c55e;padding:12px 16px;margin:16px 0;background:#1a1a2e;border-radius:0 8px 8px 0">
+          <div style="color:#d1d5db;font-size:14px;white-space:pre-wrap">${replyText.trim().replace(/</g, '&lt;')}</div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr><td style="color:#9ca3af;padding:4px 8px">Ticket</td><td style="color:#22c55e;font-family:monospace;padding:4px 8px">${ticket.id}</td></tr>
+          <tr><td style="color:#9ca3af;padding:4px 8px">Subject</td><td style="color:#fff;padding:4px 8px">${ticket.subject}</td></tr>
+          <tr><td style="color:#9ca3af;padding:4px 8px">From</td><td style="color:#fff;padding:4px 8px">${ticket.name} (${ticket.email})</td></tr>
+        </table>
+        <div style="margin-top:20px">
+          <a href="${SITE_CONFIG.siteUrl}/admin" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open Admin Panel</a>
+        </div>
+      </div>`;
+      fetch(SITE_CONFIG.email.workerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: SITE_CONFIG.email.adminEmail,
+          toName: 'TrueBeast Admin',
+          subject: `[TrueBeast Support] ${ticket.name} replied to ticket ${ticket.id}`,
+          html: replyHtml,
+          senderName: SITE_CONFIG.email.senderName,
+          senderEmail: SITE_CONFIG.email.senderEmail,
+          references: `<${threadId}>`,
+          inReplyTo: `<${threadId}>`,
+        }),
+      }).then((r) => {
+        console.log('[Email] Admin reply notification:', r.status, r.ok ? 'OK' : 'FAILED');
+      }).catch((e) => console.warn('[Email] Send error:', e));
+
       setReplyText('');
     } catch (err) {
       console.warn('Reply failed:', err);

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, useRef, useEffect, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   Headset,
@@ -159,22 +159,61 @@ function SelectInput({
   hint,
   required,
   options,
-  ...props
+  value,
+  onChange,
 }: {
   label: string;
   hint?: string;
   required?: boolean;
   options: readonly { value: string; label: string }[];
-} & React.SelectHTMLAttributes<HTMLSelectElement>) {
+  value?: string;
+  onChange?: (e: { target: { value: string } }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value) || options[0];
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   return (
     <FormField label={label} hint={hint} required={required}>
-      <select className={INPUT_CLASSES + ' cursor-pointer'} required={required} {...props}>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value} className="bg-[#0f1a12] text-white">
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <div ref={ref} className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className={INPUT_CLASSES + ' text-left flex items-center justify-between cursor-pointer'}
+        >
+          <span>{selected?.label}</span>
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (
+          <div className="absolute z-50 top-full left-0 right-0 mt-1 glass-strong rounded-xl border border-white/10 overflow-hidden shadow-2xl max-h-60 overflow-y-auto">
+            {options.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange?.({ target: { value: opt.value } });
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-4 py-3 text-sm transition-colors cursor-pointer ${
+                  opt.value === value
+                    ? 'text-green-400 bg-green-500/10'
+                    : 'text-white hover:bg-white/5'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </FormField>
   );
 }
