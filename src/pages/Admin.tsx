@@ -187,8 +187,8 @@ function buildPayload(state: ComposerState) {
     if (e.description.trim()) em.description = e.description;
     em.color = parseInt(e.color.replace('#', ''), 16);
     if (e.author.name.trim()) { const a: any = { name: e.author.name }; if (e.author.icon_url.trim()) a.icon_url = e.author.icon_url; if (e.author.url.trim()) a.url = e.author.url; em.author = a; }
-    const fields = e.fields.filter((f) => f.name.trim() || f.value.trim());
-    if (fields.length) em.fields = fields.map((f) => ({ name: f.name, value: f.value, inline: !!f.inline }));
+    const fields = e.fields.filter((f) => f.name.trim() && f.value.trim());
+    if (fields.length) em.fields = fields.map((f) => ({ name: f.name || '\u200b', value: f.value || '\u200b', inline: !!f.inline }));
     if (e.image.trim()) em.image = { url: e.image };
     if (e.thumbnail.trim()) em.thumbnail = { url: e.thumbnail };
     if (e.footer.text.trim() || e.footer.timestamp) {
@@ -203,9 +203,16 @@ function buildPayload(state: ComposerState) {
       const btn: any = { type: 2, style: 5, url: b.url };
       if (b.label.trim()) btn.label = b.label;
       if (b.emoji) {
-        const m = b.emoji.match(/^(.+):(\d+)$/);
-        if (m) btn.emoji = { name: m[1], id: m[2] };
-        else btn.emoji = { name: b.emoji };
+        // Custom emoji: "name:id" or bare numeric ID (legacy)
+        const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
+        if (m) {
+          const eid = m[2];
+          const eName = m[1] || '_'; // Discord requires a name, use _ as fallback
+          btn.emoji = { name: eName, id: eid };
+        } else {
+          // Unicode emoji — just set the name
+          btn.emoji = { name: b.emoji };
+        }
       }
       return btn;
     });
@@ -961,7 +968,12 @@ function AnnouncementsTab() {
         body: JSON.stringify({ channelId, payload, reactions }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.message || data?.error || `Discord error (${res.status})`);
+      if (!res.ok) {
+        // Build a helpful error message from Discord's response
+        let errMsg = data?.message || data?.error || `Discord error (${res.status})`;
+        if (data?.errors) errMsg += ' — ' + JSON.stringify(data.errors);
+        throw new Error(errMsg);
+      }
 
       // Save to Firestore for homepage
       try {
