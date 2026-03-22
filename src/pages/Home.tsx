@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import {
   Youtube,
   Gamepad2,
@@ -19,6 +20,7 @@ import { SITE_CONFIG } from '@/config';
 import { useScrollReveal } from '@/hooks/useScrollReveal';
 import { GlassCard } from '@/components/shared/GlassCard';
 import { DiscordIcon } from '@/components/shared/DiscordIcon';
+import { FirebaseDB } from '@/lib/firebase';
 
 // ---------------------------------------------------------------------------
 // SVG Icons (inline to avoid extra files)
@@ -623,6 +625,106 @@ function ConnectSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Section: Latest Announcement
+// ---------------------------------------------------------------------------
+
+function LatestAnnouncementSection() {
+  const [announcement, setAnnouncement] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    FirebaseDB.getLatestAnnouncement()
+      .then((a) => { if (!cancelled) { setAnnouncement(a); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading || !announcement) return null;
+
+  const embed = announcement.embeds?.[0];
+  const color = embed?.color
+    ? '#' + ('000000' + embed.color.toString(16)).slice(-6)
+    : '#5865F2';
+
+  const timeAgo = (() => {
+    const d = new Date(announcement.createdAt);
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return mins + 'm ago';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return days + 'd ago';
+    return d.toLocaleDateString();
+  })();
+
+  return (
+    <section className="relative py-24 px-6">
+      <div className="max-w-[72rem] mx-auto">
+        {/* Header */}
+        <div className="reveal flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-green-400 text-sm font-semibold uppercase tracking-widest">
+              Latest Announcement
+            </span>
+          </div>
+          <span className="text-gray-500 text-sm">{timeAgo}</span>
+        </div>
+
+        {/* Card */}
+        <div
+          className="reveal glass-strong rounded-2xl p-6"
+          style={{ borderLeft: `4px solid ${color}` }}
+        >
+          {/* Content text above embed */}
+          {announcement.content && (
+            <p className="text-gray-300 mb-4 leading-relaxed">{announcement.content}</p>
+          )}
+
+          {/* Embed block */}
+          {embed && (
+            <div className="bg-black/25 rounded-lg p-4">
+              {embed.title && (
+                <h3 className="text-white font-bold text-lg mb-2">{embed.title}</h3>
+              )}
+              {embed.description && (
+                <p className="text-gray-400 leading-relaxed mb-3">{embed.description}</p>
+              )}
+              {embed.image?.url && (
+                <img
+                  src={embed.image.url}
+                  alt={embed.title || 'Announcement image'}
+                  className="w-full rounded-lg mt-2"
+                  loading="lazy"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
+            <span className="text-gray-500 text-xs">
+              {embed?.footer?.text || new Date(announcement.createdAt).toLocaleDateString()}
+            </span>
+            <a
+              href="https://discord.gg/Nk8vekY"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-400 hover:text-indigo-300 text-xs font-medium transition-colors"
+            >
+              Join the server to see more
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Home Page
 // ---------------------------------------------------------------------------
 
@@ -633,6 +735,7 @@ export default function Home() {
     <PageLayout title="TrueBeast | Kiernen Irons" description="Gaming, community, and good vibes. TrueBeast by Kiernen Irons.">
       <HeroSection />
       <AboutSection />
+      <LatestAnnouncementSection />
       <ContentSection />
       <CommunitySection />
       <ConnectSection />
