@@ -915,7 +915,7 @@ function ClickArea({
               return (
                 <div key={i} className="absolute left-1/2 top-1/2" style={{ animation: `cc-orbit ${speed}s linear infinite`, animationDelay: `${delay}s`, width: 0, height: 0 }}>
                   <span className="absolute text-base" style={{ left: radius, top: 0, animation: `cc-pulse 10s ease-in-out infinite`, animationDelay: `${-(i / total) * 10}s` }}>
-                    <span style={{ display: 'inline-block', transform: 'rotate(-90deg)' }}>👆</span>
+                    <span style={{ display: 'inline-block', transform: 'rotate(-60deg)' }}>👆</span>
                   </span>
                 </div>
               );
@@ -1356,21 +1356,10 @@ export default function CloutClicker() {
 
   // Custom cursor: pointing emoji rotated -45deg
   useEffect(() => {
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = 32; canvas.height = 32;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.translate(16, 16);
-        ctx.rotate(-45 * Math.PI / 180);
-        ctx.font = '24px serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('👆', 0, 0);
-        const url = canvas.toDataURL();
-        document.body.style.cursor = `url(${url}) 16 16, pointer`;
-      }
-    } catch { /* fallback to default */ }
+    // Use SVG foreignObject to render emoji as cursor (works cross-browser)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><foreignObject width="32" height="32"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:22px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg)">👆</div></foreignObject></svg>`;
+    const encoded = 'data:image/svg+xml;base64,' + btoa(svg);
+    document.body.style.cursor = `url('${encoded}') 16 4, pointer`;
     return () => { document.body.style.cursor = ''; };
   }, []);
 
