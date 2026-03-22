@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trophy, Gift, ExternalLink, Users } from 'lucide-react';
+import { Trophy, Gift, ExternalLink, Users, Sparkles, Clock, ArrowRight } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { SITE_CONFIG, type Giveaway } from '@/config';
 
@@ -57,12 +57,102 @@ function sortGiveaways(list: Giveaway[]): Giveaway[] {
     if (statusDiff !== 0) return statusDiff;
     const dateA = a.date ? new Date(a.date + 'T00:00:00').getTime() : 0;
     const dateB = b.date ? new Date(b.date + 'T00:00:00').getTime() : 0;
-    return dateB - dateA; // newest first within same status
+    return dateB - dateA;
   });
 }
 
 // ---------------------------------------------------------------------------
-// GiveawayCard
+// Featured Giveaway (hero-style showcase for open giveaways)
+// ---------------------------------------------------------------------------
+
+function FeaturedGiveaway({ g }: { g: Giveaway }) {
+  const imgSrc = g.image ? `/${g.image}` : null;
+  const dateStr = formatDate(g.date);
+
+  return (
+    <div className="relative mb-16 rounded-3xl overflow-hidden border border-green-500/20">
+      {/* Animated gradient border glow */}
+      <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-green-500/20 via-emerald-500/5 to-yellow-500/10 pointer-events-none" />
+      <div className="absolute -inset-[1px] rounded-3xl opacity-50 pointer-events-none"
+           style={{ background: 'conic-gradient(from 180deg, transparent 60%, rgba(34,197,94,0.3) 75%, transparent 90%)' }} />
+
+      <div className="relative glass-strong rounded-3xl overflow-hidden">
+        {/* Live banner */}
+        <div className="bg-gradient-to-r from-green-500/20 via-emerald-500/10 to-transparent px-8 py-4 flex items-center gap-3 border-b border-green-500/10">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+          </span>
+          <span className="text-green-400 font-display font-bold text-sm tracking-widest uppercase">Live Giveaway</span>
+          {dateStr && (
+            <span className="ml-auto text-gray-500 text-sm flex items-center gap-1.5">
+              <Clock size={14} />
+              Ends {dateStr}
+            </span>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="p-8 sm:p-10 grid md:grid-cols-2 gap-10 items-center">
+          {/* Left: Image */}
+          {imgSrc && (
+            <div className="relative group">
+              <div className="absolute -inset-4 rounded-3xl bg-gradient-to-br from-green-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-green-500/10">
+                <img
+                  src={imgSrc}
+                  alt={g.item}
+                  className="w-full aspect-video object-contain bg-black/40 transition-transform duration-500 group-hover:scale-[1.02]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Right: Details */}
+          <div className="flex flex-col gap-5">
+            <div className="inline-flex items-center gap-2 self-start bg-green-500/10 border border-green-500/20 rounded-full px-4 py-1.5 text-green-400 text-xs font-semibold uppercase tracking-wider">
+              <Sparkles size={14} />
+              Featured Prize
+            </div>
+
+            <h2 className="font-display font-bold text-3xl sm:text-4xl leading-tight">{g.item}</h2>
+
+            {g.description && (
+              <p className="text-gray-400 text-lg leading-relaxed">{g.description}</p>
+            )}
+
+            {/* Entry CTA */}
+            {g.entryUrl ? (
+              <a
+                href={g.entryUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-3 bg-green-500 hover:bg-green-400 text-black font-bold rounded-xl py-4 px-8 text-base transition-all duration-200 hover:shadow-lg hover:shadow-green-500/25 hover:-translate-y-0.5 mt-2"
+              >
+                <Gift size={18} />
+                Enter Giveaway
+                <ArrowRight size={16} />
+              </a>
+            ) : (
+              <div className="inline-flex items-center justify-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400/70 rounded-xl py-4 px-8 text-sm mt-2">
+                <Gift size={16} />
+                Entry details coming soon
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 text-gray-500 text-sm mt-1">
+              <Users size={14} />
+              <span className="italic">Winner TBD</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GiveawayCard (for grid)
 // ---------------------------------------------------------------------------
 
 function GiveawayCard({ g }: { g: Giveaway }) {
@@ -81,7 +171,7 @@ function GiveawayCard({ g }: { g: Giveaway }) {
             className="w-full aspect-video object-contain bg-black/30"
           />
         ) : (
-          <div className="w-full aspect-video flex items-center justify-center bg-white/3">
+          <div className="w-full aspect-video flex items-center justify-center bg-white/[0.03]">
             <Gift size={48} className="text-gray-700" />
           </div>
         )}
@@ -158,17 +248,22 @@ export default function Giveaways() {
   const [activeFilter, setActiveFilter] = useState('all');
 
   const allGiveaways = sortGiveaways(SITE_CONFIG.giveaways ?? []);
+  const openGiveaways = allGiveaways.filter((g) => g.status === 'open');
+  const nonOpenGiveaways = allGiveaways.filter((g) => g.status !== 'open');
+
   const filtered =
     activeFilter === 'all'
-      ? allGiveaways
-      : allGiveaways.filter((g) => g.status === activeFilter);
+      ? nonOpenGiveaways
+      : activeFilter === 'open'
+        ? openGiveaways
+        : nonOpenGiveaways.filter((g) => g.status === activeFilter);
 
   const usedStatuses = new Set(allGiveaways.map((g) => g.status));
   const visibleFilters = FILTERS.filter(
     (f) => f.key === 'all' || usedStatuses.has(f.key as Giveaway['status']),
   );
 
-  const openCount     = allGiveaways.filter((g) => g.status === 'open').length;
+  const openCount     = openGiveaways.length;
   const upcomingCount = allGiveaways.filter((g) => g.status === 'upcoming').length;
   const endedCount    = allGiveaways.filter((g) => g.status === 'ended').length;
 
@@ -221,6 +316,20 @@ export default function Giveaways() {
               </div>
             )}
           </div>
+
+          {/* Featured open giveaways */}
+          {openGiveaways.map((g, i) => (
+            <FeaturedGiveaway key={`featured-${i}`} g={g} />
+          ))}
+
+          {/* Section divider when there are featured giveaways */}
+          {openGiveaways.length > 0 && nonOpenGiveaways.length > 0 && (
+            <div className="flex items-center gap-4 mb-10">
+              <div className="h-px flex-1 bg-white/5" />
+              <span className="text-gray-500 text-sm font-medium">Past & Upcoming</span>
+              <div className="h-px flex-1 bg-white/5" />
+            </div>
+          )}
 
           {/* Filter tabs */}
           {visibleFilters.length > 1 && (
