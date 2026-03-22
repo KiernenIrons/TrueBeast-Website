@@ -2074,20 +2074,25 @@ function AdminManagementTab() {
                 })
                 .map((u) => {
                   const name = (u.data.displayName || u.data.username || u.data.name || '') as string;
-                  const score = u.data.score || u.data.clicks || u.data.count;
+                  const score = u.data.score || u.data.clicks;
+                  const peakScore = u.data.peakScore;
                   return (
                     <GlassCard key={u.uid} className="p-4">
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white font-semibold text-sm">{name || u.uid.slice(0, 12) + '...'}</span>
-                            <span className="bg-white/5 border border-white/10 text-gray-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">{u.source}</span>
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                              {(name || '?').charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-white font-semibold text-sm">{name || 'Unknown'}</span>
+                            <span className="bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">{u.source}</span>
                           </div>
-                          <p className="text-[10px] text-gray-600 font-mono mt-0.5 truncate">{u.uid}</p>
+                          <p className="text-[10px] text-gray-600 font-mono mt-0.5">{u.uid}</p>
                           <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-400">
-                            {score !== undefined && <span>Score: <span className="text-white">{String(score)}</span></span>}
+                            {score !== undefined && <span>Score: <span className="text-yellow-400 font-semibold">{String(score)}</span></span>}
+                            {peakScore !== undefined && <span>Peak: <span className="text-green-400 font-semibold">{String(peakScore)}</span></span>}
                             {u.data.level !== undefined && <span>Level: <span className="text-white">{String(u.data.level)}</span></span>}
-                            {typeof u.data.lastSaved === 'string' && <span>Last active: <span className="text-white">{new Date(u.data.lastSaved).toLocaleDateString()}</span></span>}
+                            {typeof u.data.lastSaved === 'string' && <span>Last saved: <span className="text-white">{new Date(u.data.lastSaved).toLocaleDateString()}</span></span>}
                             {typeof u.data.updatedAt === 'string' && <span>Updated: <span className="text-white">{new Date(u.data.updatedAt).toLocaleDateString()}</span></span>}
                           </div>
                         </div>

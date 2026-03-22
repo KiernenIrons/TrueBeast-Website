@@ -604,18 +604,10 @@ export const FirebaseDB = {
     const users: { uid: string; source: string; data: Record<string, unknown> }[] = [];
     const seen = new Set<string>();
 
-    // Check leaderboard (public, has displayName)
-    try {
-      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-leaderboard')));
-      snap.docs.forEach((d) => {
-        if (!seen.has(d.id)) {
-          seen.add(d.id);
-          users.push({ uid: d.id, source: 'clout-clicker', data: d.data() });
-        }
-      });
-    } catch { /* */ }
+    // Only scan collections that require Firebase Auth (real user accounts).
+    // Collections like messageCounts use Discord IDs, not Firebase UIDs.
 
-    // Check game saves
+    // Game saves (requires auth: request.auth.uid == uid)
     try {
       const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-saves')));
       snap.docs.forEach((d) => {
@@ -626,13 +618,28 @@ export const FirebaseDB = {
       });
     } catch { /* */ }
 
-    // Check message counts (from Discord bot)
+    // Leaderboard entries (merge data for users we already found)
     try {
-      const snap = await _withTimeout(getDocs(collection(_db, 'messageCounts')));
+      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-leaderboard')));
       snap.docs.forEach((d) => {
-        if (!seen.has(d.id)) {
+        const existing = users.find((u) => u.uid === d.id);
+        if (existing) {
+          // Merge leaderboard data (displayName, score) into existing entry
+          existing.data = { ...existing.data, ...d.data() };
+        } else if (!seen.has(d.id)) {
           seen.add(d.id);
-          users.push({ uid: d.id, source: 'messaging', data: d.data() });
+          users.push({ uid: d.id, source: 'clout-clicker', data: d.data() });
+        }
+      });
+    } catch { /* */ }
+
+    // Peak scores
+    try {
+      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-peak')));
+      snap.docs.forEach((d) => {
+        const existing = users.find((u) => u.uid === d.id);
+        if (existing) {
+          existing.data.peakScore = d.data().score || d.data().peakScore;
         }
       });
     } catch { /* */ }
@@ -643,8 +650,8 @@ export const FirebaseDB = {
   async deleteUserData(uid: string): Promise<void> {
     _ensureApp();
     if (!_isConfigured() || !_db) return;
-    // Delete from all known user collections
-    const collections = ['clout-clicker-saves', 'clout-clicker-leaderboard', 'clout-clicker-peak', 'messageCounts', 'userStreaks', 'taskCompletions'];
+    // Delete from Firebase Auth user collections only (not Discord bot data)
+    const collections = ['clout-clicker-saves', 'clout-clicker-leaderboard', 'clout-clicker-peak', 'userStreaks', 'taskCompletions'];
     for (const col of collections) {
       try { await deleteDoc(doc(_db, col, uid)); } catch { /* doc may not exist */ }
     }
