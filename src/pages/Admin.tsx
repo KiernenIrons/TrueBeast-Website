@@ -1851,11 +1851,30 @@ const PERM_COLORS: Record<string, string> = { tickets: 'text-blue-400 bg-blue-50
 function AdminManagementTab() {
   const { user } = useAuth();
   const [admins, setAdmins] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<{ uid: string; source: string; data: Record<string, unknown> }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [usersLoading, setUsersLoading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editEmail, setEditEmail] = useState<string | null>(null);
   const [form, setForm] = useState({ email: '', displayName: '', password: '', permissions: {} as Record<string, boolean> });
+  const [userSearch, setUserSearch] = useState('');
+  const [section, setSection] = useState<'admins' | 'users'>('admins');
+
+  const fetchUsers = useCallback(async () => {
+    setUsersLoading(true);
+    try { setAllUsers(await FirebaseDB.getAllUsers()); } catch { /* */ }
+    finally { setUsersLoading(false); }
+  }, []);
+
+  const handleDeleteUserData = async (uid: string) => {
+    if (!window.confirm(`Delete ALL data for user ${uid}? This removes their game saves, leaderboard entries, streaks, and message counts. This cannot be undone.`)) return;
+    try {
+      await FirebaseDB.deleteUserData(uid);
+      setFeedback({ type: 'success', message: `Deleted data for ${uid}` });
+      fetchUsers();
+    } catch { setFeedback({ type: 'error', message: 'Delete failed' }); }
+  };
 
   const fetchAdmins = useCallback(async () => {
     setLoading(true);
@@ -1946,10 +1965,23 @@ function AdminManagementTab() {
         </button>
       </div>
 
+      {/* Section toggle */}
+      <div className="flex gap-1.5 mb-4">
+        <button type="button" onClick={() => setSection('admins')}
+          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${section === 'admins' ? 'bg-violet-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+          Admin Roles
+        </button>
+        <button type="button" onClick={() => { setSection('users'); if (allUsers.length === 0) fetchUsers(); }}
+          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${section === 'users' ? 'bg-violet-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+          All Users
+        </button>
+      </div>
+
       {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
 
       {/* Admin list */}
-      {loading && admins.length === 0 ? (
+      {section === 'admins' && (
+        loading && admins.length === 0 ? (
         <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading admins...</p></GlassCard>
       ) : admins.length === 0 ? (
         <GlassCard className="p-12 text-center">
@@ -2007,11 +2039,70 @@ function AdminManagementTab() {
             );
           })}
         </div>
+      ))}
+
+      {section === 'admins' && (
+        <p className="text-xs text-gray-600">
+          Removing an admin only removes their permissions. Their Firebase Auth account must be deleted manually in the Firebase Console.
+        </p>
       )}
 
-      <p className="text-xs text-gray-600">
-        Removing an admin only removes their permissions. Their Firebase Auth account must be deleted manually in the Firebase Console.
-      </p>
+      {/* Users section */}
+      {section === 'users' && (
+        <div className="space-y-4">
+          <GlassCard className="p-4 flex flex-wrap items-center gap-3">
+            <input type="text" placeholder="Search by UID, display name..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)}
+              className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50" />
+            <span className="text-xs text-gray-500">{allUsers.length} user{allUsers.length !== 1 ? 's' : ''}</span>
+            <button type="button" onClick={fetchUsers} disabled={usersLoading} className="text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+              <RefreshCw01 className={`w-4 h-4 ${usersLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </GlassCard>
+
+          {usersLoading && allUsers.length === 0 ? (
+            <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading users...</p></GlassCard>
+          ) : allUsers.length === 0 ? (
+            <GlassCard className="p-12 text-center"><p className="text-gray-500">No user data found in Firestore collections.</p></GlassCard>
+          ) : (
+            <div className="space-y-2">
+              {allUsers
+                .filter((u) => {
+                  if (!userSearch) return true;
+                  const s = userSearch.toLowerCase();
+                  const name = ((u.data.displayName || u.data.username || u.data.name || '') as string).toLowerCase();
+                  return u.uid.toLowerCase().includes(s) || name.includes(s) || u.source.toLowerCase().includes(s);
+                })
+                .map((u) => {
+                  const name = (u.data.displayName || u.data.username || u.data.name || '') as string;
+                  const score = u.data.score || u.data.clicks || u.data.count;
+                  return (
+                    <GlassCard key={u.uid} className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-white font-semibold text-sm">{name || u.uid.slice(0, 12) + '...'}</span>
+                            <span className="bg-white/5 border border-white/10 text-gray-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">{u.source}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-600 font-mono mt-0.5 truncate">{u.uid}</p>
+                          <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-400">
+                            {score !== undefined && <span>Score: <span className="text-white">{String(score)}</span></span>}
+                            {u.data.level !== undefined && <span>Level: <span className="text-white">{String(u.data.level)}</span></span>}
+                            {typeof u.data.lastSaved === 'string' && <span>Last active: <span className="text-white">{new Date(u.data.lastSaved).toLocaleDateString()}</span></span>}
+                            {typeof u.data.updatedAt === 'string' && <span>Updated: <span className="text-white">{new Date(u.data.updatedAt).toLocaleDateString()}</span></span>}
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => handleDeleteUserData(u.uid)} title="Delete all user data"
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer flex-shrink-0">
+                          <Trash01 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </GlassCard>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {modalOpen && (

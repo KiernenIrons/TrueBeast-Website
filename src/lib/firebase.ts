@@ -594,6 +594,66 @@ export const FirebaseDB = {
   // Admin Roles (RBAC)
   // -----------------------------------------------------------------------
 
+  // -----------------------------------------------------------------------
+  // User Management (list users from Firestore collections)
+  // -----------------------------------------------------------------------
+
+  async getAllUsers(): Promise<{ uid: string; source: string; data: Record<string, unknown> }[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return [];
+    const users: { uid: string; source: string; data: Record<string, unknown> }[] = [];
+    const seen = new Set<string>();
+
+    // Check leaderboard (public, has displayName)
+    try {
+      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-leaderboard')));
+      snap.docs.forEach((d) => {
+        if (!seen.has(d.id)) {
+          seen.add(d.id);
+          users.push({ uid: d.id, source: 'clout-clicker', data: d.data() });
+        }
+      });
+    } catch { /* */ }
+
+    // Check game saves
+    try {
+      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-saves')));
+      snap.docs.forEach((d) => {
+        if (!seen.has(d.id)) {
+          seen.add(d.id);
+          users.push({ uid: d.id, source: 'clout-clicker', data: d.data() });
+        }
+      });
+    } catch { /* */ }
+
+    // Check message counts (from Discord bot)
+    try {
+      const snap = await _withTimeout(getDocs(collection(_db, 'messageCounts')));
+      snap.docs.forEach((d) => {
+        if (!seen.has(d.id)) {
+          seen.add(d.id);
+          users.push({ uid: d.id, source: 'messaging', data: d.data() });
+        }
+      });
+    } catch { /* */ }
+
+    return users;
+  },
+
+  async deleteUserData(uid: string): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    // Delete from all known user collections
+    const collections = ['clout-clicker-saves', 'clout-clicker-leaderboard', 'clout-clicker-peak', 'messageCounts', 'userStreaks', 'taskCompletions'];
+    for (const col of collections) {
+      try { await deleteDoc(doc(_db, col, uid)); } catch { /* doc may not exist */ }
+    }
+  },
+
+  // -----------------------------------------------------------------------
+  // Admin Roles (RBAC)
+  // -----------------------------------------------------------------------
+
   async getAdminRole(email: string): Promise<AdminRole | null> {
     _ensureApp();
     if (!_isConfigured() || !_db) return null;
