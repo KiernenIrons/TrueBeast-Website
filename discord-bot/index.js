@@ -1058,7 +1058,23 @@ async function createTempVC(state) {
     }
 }
 
+// ── Leave timer store ────────────────────────────────────────────────────────
+// userId -> { mainTimeout, warningTimeout, channelId, textChannelId, reason, minutes }
+const leaveTimers = new Map();
+
+function cancelLeaveTimer(userId) {
+    const timer = leaveTimers.get(userId);
+    if (!timer) return;
+    if (timer.mainTimeout) clearTimeout(timer.mainTimeout);
+    if (timer.warningTimeout) clearTimeout(timer.warningTimeout);
+    leaveTimers.delete(userId);
+}
+
 client.on('voiceStateUpdate', async (oldState, newState) => {
+    // ── Cancel leave timer if user manually leaves VC ────────────────────────
+    if (oldState.channelId && !newState.channelId && leaveTimers.has(oldState.member?.id)) {
+        cancelLeaveTimer(oldState.member.id);
+    }
     const oldCh = oldState.channelId;
     const newCh = newState.channelId;
 
@@ -1151,6 +1167,14 @@ client.once('ready', async () => {
                 .setName('rank')
                 .setDescription('Check your message count and rank')
                 .addUserOption(opt => opt.setName('user').setDescription('User to check (defaults to you)')),
+            new SlashCommandBuilder()
+                .setName('leavetimer')
+                .setDescription('Set a timer to automatically leave voice chat')
+                .addIntegerOption(opt => opt.setName('minutes').setDescription('Minutes before you leave (1-120)').setRequired(true).setMinValue(1).setMaxValue(120))
+                .addStringOption(opt => opt.setName('reason').setDescription('Why are you leaving? (shown to others)')),
+            new SlashCommandBuilder()
+                .setName('canceltimer')
+                .setDescription('Cancel your active leave timer'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -1292,6 +1316,98 @@ client.on('interactionCreate', async (interaction) => {
                     timestamp: new Date().toISOString(),
                 }],
             });
+            return;
+        }
+
+        // ── /leavetimer ───────────────────────────────────────────────────────
+        if (interaction.commandName === 'leavetimer') {
+            const member = interaction.member;
+            const voiceChannel = member?.voice?.channel;
+
+            if (!voiceChannel) {
+                await interaction.reply({ content: '❌ You need to be in a voice channel to use this!', ephemeral: true });
+                return;
+            }
+
+            const minutes = interaction.options.getInteger('minutes');
+            const reason = interaction.options.getString('reason') || 'No reason given';
+            const delayMs = minutes * 60 * 1000;
+
+            // Cancel existing timer if any
+            cancelLeaveTimer(member.id);
+
+            // Find a text channel to post announcements in
+            // Try the VC's associated text chat, then the interaction channel
+            const textChannel = interaction.channel;
+
+            // Set warning timeout (1 minute before, only if timer > 1 min)
+            let warningTimeout = null;
+            if (minutes > 1) {
+                warningTimeout = setTimeout(async () => {
+                    try {
+                        await textChannel.send({
+                            embeds: [{
+                                color: 0xf59e0b, // amber
+                                description: `⏰ **1 minute left!** ${member} is leaving soon${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}`,
+                            }],
+                        });
+                    } catch (e) { console.warn('[BeastBot] Leave timer warning failed:', e.message); }
+                }, delayMs - 60000);
+            }
+
+            // Set main disconnect timeout
+            const mainTimeout = setTimeout(async () => {
+                try {
+                    // Post farewell
+                    await textChannel.send({
+                        embeds: [{
+                            color: 0x6b7280, // gray
+                            description: `👋 **${member.displayName} has left the call**${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}. See you next time!`,
+                        }],
+                    });
+                    // Disconnect from voice
+                    if (member.voice?.channel) {
+                        await member.voice.disconnect();
+                    }
+                } catch (e) { console.warn('[BeastBot] Leave timer disconnect failed:', e.message); }
+                leaveTimers.delete(member.id);
+            }, delayMs);
+
+            leaveTimers.set(member.id, {
+                mainTimeout,
+                warningTimeout,
+                channelId: voiceChannel.id,
+                textChannelId: textChannel.id,
+                reason,
+                minutes,
+            });
+
+            // Reply ephemerally to the user
+            await interaction.reply({
+                content: `✅ Timer set! You'll be disconnected in **${minutes} minute${minutes > 1 ? 's' : ''}**.`,
+                ephemeral: true,
+            });
+
+            // Announce to the channel
+            const timeText = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+            await textChannel.send({
+                embeds: [{
+                    color: 0x22c55e, // green
+                    description: `🕐 **Heads up!** ${member} needs to leave in **${timeText}**${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}\nWrap up your conversation with them soon!`,
+                }],
+            });
+
+            return;
+        }
+
+        // ── /canceltimer ──────────────────────────────────────────────────────
+        if (interaction.commandName === 'canceltimer') {
+            if (leaveTimers.has(interaction.user.id)) {
+                cancelLeaveTimer(interaction.user.id);
+                await interaction.reply({ content: '✅ Your leave timer has been cancelled.', ephemeral: true });
+            } else {
+                await interaction.reply({ content: '❌ You don\'t have an active leave timer.', ephemeral: true });
+            }
             return;
         }
     }
