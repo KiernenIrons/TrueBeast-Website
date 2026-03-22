@@ -50,21 +50,15 @@ function ensureStyles() {
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
-    /* Dotted grid background */
-    .cc-grid-bg {
+    /* Background: dotted grid + green gradients */
+    .cc-game-bg {
+      background-color: #0a0a0f;
       background-image:
-        radial-gradient(circle, rgba(34,197,94,0.15) 1px, transparent 1px);
-      background-size: 28px 28px;
-    }
-    .cc-bg-gradient {
-      background: radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.08) 0%, transparent 60%),
-                  radial-gradient(ellipse at 80% 80%, rgba(16,185,129,0.05) 0%, transparent 50%),
-                  radial-gradient(ellipse at 20% 100%, rgba(5,150,105,0.04) 0%, transparent 40%),
-                  #0a0a0f;
-    }
-    /* Custom cursor: pointing emoji rotated -45deg */
-    .cc-cursor {
-      cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' x='4' font-size='24' transform='rotate(-45 16 16)'>👆</text></svg>") 16 16, pointer;
+        radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(16,185,129,0.05) 0%, transparent 50%),
+        radial-gradient(ellipse at 20% 100%, rgba(5,150,105,0.04) 0%, transparent 40%),
+        radial-gradient(circle, rgba(34,197,94,0.12) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 100% 100%, 24px 24px;
     }
     @keyframes ccFloatUp {
       from { opacity: 1; transform: translateY(0) scale(1); }
@@ -877,23 +871,6 @@ function ClickArea({
 
   return (
     <div className="flex flex-col items-center justify-center h-full relative select-none">
-      {/* Clout Display */}
-      <div className="text-center mb-6">
-        <p className="text-5xl sm:text-6xl font-display font-black text-white tracking-tight">
-          {formatNumber(s.clout)}
-        </p>
-        <p className="text-white/40 text-sm mt-1">clout</p>
-        <div className="flex items-center justify-center gap-4 mt-2 text-sm">
-          <span className="text-green-400">
-            {formatNumber(s.cps * cpsMult)}/s
-          </span>
-          <span className="text-white/30">|</span>
-          <span className="text-white/50">
-            +{formatNumber((s.clickPower + s.cps * 0.01) * clickMult)}/click
-          </span>
-        </div>
-      </div>
-
       {/* Buff Bar */}
       {(hasFrenzy || hasClickFrenzy) && (
         <div className="flex flex-wrap gap-2 justify-center mb-4">
@@ -937,7 +914,9 @@ function ClickArea({
               const delay = -(posInRing / ringSize) * speed;
               return (
                 <div key={i} className="absolute left-1/2 top-1/2" style={{ animation: `cc-orbit ${speed}s linear infinite`, animationDelay: `${delay}s`, width: 0, height: 0 }}>
-                  <span className="absolute text-base" style={{ left: radius, top: 0, transform: 'rotate(-90deg)', animation: `cc-pulse 10s ease-in-out infinite`, animationDelay: `${-(i / total) * 10}s` }}>👆</span>
+                  <span className="absolute text-base" style={{ left: radius, top: 0, animation: `cc-pulse 10s ease-in-out infinite`, animationDelay: `${-(i / total) * 10}s` }}>
+                    <span style={{ display: 'inline-block', transform: 'rotate(-90deg)' }}>👆</span>
+                  </span>
                 </div>
               );
             })}
@@ -1197,6 +1176,46 @@ function StatsPanel({
 
 /* ── Nav Bar ─────────────────────────────────────────────── */
 
+function AudioControls() {
+  const [sfxOn, setSfxOn] = useState(GameSound.getEnabled());
+  const [sfxVol, setSfxVol] = useState(Math.round(GameSound.getVolume() * 100));
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => { GameSound.init(); setOpen(!open); }}
+        className="px-2 py-1 text-xs rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 transition-colors">
+        {sfxOn && sfxVol > 0 ? '🔊' : '🔇'}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 glass-strong rounded-xl p-4 w-56 z-50 space-y-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-white/60">SFX</span>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={sfxOn} onChange={(e) => { setSfxOn(e.target.checked); GameSound.setEnabled(e.target.checked); }}
+                  className="w-3 h-3 accent-green-500 cursor-pointer" />
+                <span className="text-[10px] text-white/40">{sfxOn ? 'On' : 'Off'}</span>
+              </label>
+            </div>
+            <input type="range" min="0" max="100" value={sfxVol}
+              onChange={(e) => { const v = parseInt(e.target.value); setSfxVol(v); GameSound.setVolume(v / 100); }}
+              className="w-full h-1 accent-green-500 cursor-pointer" />
+            <span className="text-[10px] text-white/30">{sfxVol}%</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GameNavBar({
   user,
   onSave,
@@ -1225,6 +1244,7 @@ function GameNavBar({
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <AudioControls />
         <button
           onClick={onSave}
           disabled={saving}
@@ -1332,6 +1352,26 @@ export default function CloutClicker() {
       forceRender((n) => n + 1);
     });
     return unsub;
+  }, []);
+
+  // Custom cursor: pointing emoji rotated -45deg
+  useEffect(() => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32; canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.translate(16, 16);
+        ctx.rotate(-45 * Math.PI / 180);
+        ctx.font = '24px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👆', 0, 0);
+        const url = canvas.toDataURL();
+        document.body.style.cursor = `url(${url}) 16 16, pointer`;
+      }
+    } catch { /* fallback to default */ }
+    return () => { document.body.style.cursor = ''; };
   }, []);
 
   // Load game on mount
@@ -1536,7 +1576,7 @@ export default function CloutClicker() {
   const s = eng.state;
 
   return (
-    <div className="h-screen flex flex-col cc-bg-gradient cc-grid-bg cc-cursor text-white overflow-hidden">
+    <div className="h-screen flex flex-col cc-game-bg text-white overflow-hidden" style={{ cursor: 'pointer' }}>
       <Helmet>
         <title>Clout Clicker | TrueBeast</title>
       </Helmet>
