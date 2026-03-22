@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type FormEvent, type ChangeEvent, createContext, useContext } from 'react';
+import { useState, useCallback, useEffect, useRef, type FormEvent, createContext, useContext } from 'react';
 import {
   Send01,
   Trash01,
@@ -20,8 +20,6 @@ import {
   XClose,
   Link01,
   FaceSmile,
-  Image01,
-  Upload01,
   Hash01,
   AtSign,
 } from '@untitledui/icons';
@@ -58,7 +56,6 @@ interface DiscordChannel { id: string; name: string; type: number; position: num
 interface DiscordEmoji { id: string; name: string; animated: boolean }
 interface DiscordRole { id: string; name: string; color: number }
 interface DiscordMember { user: { id: string; username: string; global_name?: string }; nick?: string }
-interface StoredImage { name: string; url: string; fullPath: string }
 type Feedback = { type: 'success' | 'error'; message: string } | null;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -69,18 +66,13 @@ interface BotData {
   ready: boolean; loading: boolean;
   channels: DiscordChannel[]; emojis: DiscordEmoji[];
   roles: DiscordRole[]; members: Record<string, string>;
-  images: StoredImage[]; imagesLoading: boolean;
   fetch: () => Promise<void>;
-  fetchImages: () => Promise<void>;
-  uploadImage: (file: File) => Promise<string | null>;
 }
 
 const BotCtx = createContext<BotData>({
   ready: false, loading: false,
   channels: [], emojis: [], roles: [], members: {},
-  images: [], imagesLoading: false,
-  fetch: async () => {}, fetchImages: async () => {},
-  uploadImage: async () => null,
+  fetch: async () => {},
 });
 
 function BotProvider({ children }: { children: React.ReactNode }) {
@@ -90,9 +82,6 @@ function BotProvider({ children }: { children: React.ReactNode }) {
   const [emojis, setEmojis] = useState<DiscordEmoji[]>([]);
   const [roles, setRoles] = useState<DiscordRole[]>([]);
   const [members, setMembers] = useState<Record<string, string>>({});
-  const [images, setImages] = useState<StoredImage[]>([]);
-  const [imagesLoading, setImagesLoading] = useState(false);
-
   const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
 
   const fetchBot = useCallback(async () => {
@@ -129,34 +118,11 @@ function BotProvider({ children }: { children: React.ReactNode }) {
     }
   }, [base]);
 
-  const fetchImages = useCallback(async () => {
-    setImagesLoading(true);
-    try {
-      const list = await FirebaseDB.listImages('admin-uploads');
-      setImages(list);
-    } catch (err) {
-      console.warn('Image list failed:', err);
-    } finally {
-      setImagesLoading(false);
-    }
-  }, []);
-
-  const uploadImage = useCallback(async (file: File): Promise<string | null> => {
-    try {
-      const url = await FirebaseDB.uploadImage(file);
-      fetchImages(); // refresh list
-      return url;
-    } catch (err) {
-      console.warn('Upload failed:', err);
-      return null;
-    }
-  }, [fetchImages]);
-
   // Auto-fetch on mount
-  useEffect(() => { fetchBot(); fetchImages(); }, [fetchBot, fetchImages]);
+  useEffect(() => { fetchBot(); }, [fetchBot]);
 
   return (
-    <BotCtx.Provider value={{ ready, loading, channels, emojis, roles, members, images, imagesLoading, fetch: fetchBot, fetchImages, uploadImage }}>
+    <BotCtx.Provider value={{ ready, loading, channels, emojis, roles, members, fetch: fetchBot }}>
       {children}
     </BotCtx.Provider>
   );
@@ -366,7 +332,7 @@ function LoginScreen() {
 // Rich Picker (Emoji + Mentions + Images)
 // ═══════════════════════════════════════════════════════════════════════════
 
-type PickerMode = 'emoji' | 'mention' | 'image';
+type PickerMode = 'emoji' | 'mention';
 
 function RichPicker({
   onInsert,
@@ -385,9 +351,6 @@ function RichPicker({
   const ref = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<PickerMode>(modes[0]);
   const [search, setSearch] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-
   useEffect(() => {
     function handler(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); }
     document.addEventListener('mousedown', handler);
@@ -398,23 +361,6 @@ function RichPicker({
   const filteredRoles = bot.roles.filter((r) => !search || r.name.toLowerCase().includes(search.toLowerCase()));
   const filteredChannels = bot.channels.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()));
 
-  const handleUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const url = await bot.uploadImage(file);
-      if (url) onInsert(url);
-      else window.alert('Upload failed — check that Firebase Storage is enabled in your Firebase Console and storage rules allow authenticated writes.');
-    } catch (err: any) {
-      window.alert('Upload error: ' + (err?.message || 'Unknown error'));
-    } finally {
-      setUploading(false);
-      // Reset file input so re-selecting the same file triggers onChange
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
   return (
     <div ref={ref} className={`absolute z-50 top-full mt-1 bg-[#1e1f22] border border-white/10 rounded-xl shadow-2xl w-80 max-h-80 flex flex-col overflow-hidden ${anchor === 'right' ? 'right-0' : 'left-0'}`}>
       {/* Tabs */}
@@ -423,7 +369,7 @@ function RichPicker({
           {modes.map((m) => (
             <button key={m} type="button" onClick={() => { setTab(m); setSearch(''); }}
               className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer ${tab === m ? 'text-green-400 border-b-2 border-green-400' : 'text-gray-500 hover:text-gray-300'}`}>
-              {m === 'emoji' ? 'Emojis' : m === 'mention' ? 'Mentions' : 'Images'}
+              {m === 'emoji' ? 'Emojis' : 'Mentions'}
             </button>
           ))}
         </div>
@@ -495,31 +441,6 @@ function RichPicker({
           </>
         )}
 
-        {tab === 'image' && (
-          <>
-            <div className="flex items-center gap-2 mb-2">
-              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="text-xs text-green-400 hover:text-green-300 flex items-center gap-1 transition-colors disabled:opacity-50 cursor-pointer">
-                <Upload01 className="w-3 h-3" /> {uploading ? 'Uploading...' : 'Upload Image'}
-              </button>
-              <button type="button" onClick={bot.fetchImages} disabled={bot.imagesLoading}
-                className="text-xs text-gray-400 hover:text-gray-300 flex items-center gap-1 transition-colors cursor-pointer">
-                <RefreshCw01 className={`w-3 h-3 ${bot.imagesLoading ? 'animate-spin' : ''}`} />
-              </button>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-            </div>
-            {bot.images.length === 0 && <p className="text-gray-600 text-xs text-center py-4">No images uploaded yet</p>}
-            <div className="grid grid-cols-3 gap-1.5">
-              {bot.images.filter((img) => !search || img.name.toLowerCase().includes(search.toLowerCase())).map((img) => (
-                <button key={img.fullPath} type="button" onClick={() => { onInsert(img.url); onClose(); }}
-                  className="rounded-lg overflow-hidden border border-white/5 hover:border-green-500/50 transition-colors cursor-pointer group">
-                  <img src={img.url} alt={img.name} className="w-full h-16 object-cover" />
-                  <p className="text-[9px] text-gray-500 truncate px-1 py-0.5 group-hover:text-gray-300">{img.name}</p>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
@@ -581,20 +502,10 @@ function EmojiPicker({ onPick, onClose }: { onPick: (emoji: string, isCustom?: b
 // ═══════════════════════════════════════════════════════════════════════════
 
 function ImageInput({ value, onChange, label, placeholder }: { value: string; onChange: (v: string) => void; label: string; placeholder?: string }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
   return (
     <div>
-      <label className={subLbl}>{label}</label>
-      <div className="flex gap-1.5 items-center">
-        <input type="url" placeholder={placeholder || 'Image URL or upload'} value={value} onChange={(e) => onChange(e.target.value)} className={inpSm} />
-        <div className="relative flex-shrink-0">
-          <button type="button" onClick={() => setPickerOpen(!pickerOpen)} title="Upload or pick image"
-            className="w-9 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
-            <Image01 className="w-3.5 h-3.5 text-gray-400" />
-          </button>
-          {pickerOpen && <RichPicker modes={['image']} onInsert={(url) => { onChange(url); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} anchor="right" />}
-        </div>
-      </div>
+      {label && <label className={subLbl}>{label}</label>}
+      <input type="url" placeholder={placeholder || 'Paste image URL'} value={value} onChange={(e) => onChange(e.target.value)} className={inpSm} />
     </div>
   );
 }
