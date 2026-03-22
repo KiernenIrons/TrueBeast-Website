@@ -41,6 +41,15 @@ import {
   type UserCredential,
   type Unsubscribe,
 } from 'firebase/auth';
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  listAll,
+  deleteObject,
+  type FirebaseStorage,
+} from 'firebase/storage';
 import { SITE_CONFIG } from '@/config';
 
 // ---------------------------------------------------------------------------
@@ -129,6 +138,7 @@ export interface GiveawayEntry {
 let _app: FirebaseApp | null = null;
 let _db: Firestore | null = null;
 let _auth: Auth | null = null;
+let _storage: FirebaseStorage | null = null;
 
 const TIMEOUT_MS = 8000;
 
@@ -146,6 +156,7 @@ function _ensureApp(): void {
   _app = getApps().length ? getApp() : initializeApp(SITE_CONFIG.firebase);
   _db = getFirestore(_app);
   _auth = getAuth(_app);
+  _storage = getStorage(_app);
 }
 
 /** Returns the Firestore instance (or null if not configured). Exported for analytics. */
@@ -158,6 +169,12 @@ export function getFirestoreDb(): Firestore | null {
 export function getFirebaseApp(): FirebaseApp | null {
   _ensureApp();
   return _app;
+}
+
+/** Returns the Firebase Storage instance (or null if not configured). */
+export function getFirebaseStorage(): FirebaseStorage | null {
+  _ensureApp();
+  return _storage;
 }
 
 /**
@@ -580,6 +597,46 @@ export const FirebaseDB = {
     _ensureApp();
     if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
     await _withTimeout(deleteDoc(doc(_db, 'adminRoles', email)));
+  },
+
+  // -----------------------------------------------------------------------
+  // Image Storage (admin uploads for embed icons/images)
+  // -----------------------------------------------------------------------
+
+  async uploadImage(file: File, path?: string): Promise<string> {
+    _ensureApp();
+    if (!_isConfigured() || !_storage) throw new Error('Firebase not configured');
+    const fileName = path || `admin-uploads/${Date.now()}-${file.name}`;
+    const storageRef = ref(_storage, fileName);
+    await uploadBytes(storageRef, file);
+    return getDownloadURL(storageRef);
+  },
+
+  async listImages(folder?: string): Promise<{ name: string; url: string; fullPath: string }[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_storage) return [];
+    const folderRef = ref(_storage, folder || 'admin-uploads');
+    try {
+      const result = await listAll(folderRef);
+      const items = await Promise.all(
+        result.items.map(async (item) => ({
+          name: item.name,
+          fullPath: item.fullPath,
+          url: await getDownloadURL(item),
+        }))
+      );
+      return items;
+    } catch (err) {
+      console.warn('FirebaseDB.listImages error:', (err as Error).message);
+      return [];
+    }
+  },
+
+  async deleteImage(fullPath: string): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_storage) return;
+    const imageRef = ref(_storage, fullPath);
+    await deleteObject(imageRef);
   },
 
   // -----------------------------------------------------------------------
