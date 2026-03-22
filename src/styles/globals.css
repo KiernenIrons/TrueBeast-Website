@@ -157,24 +157,28 @@
 @layer components {
   /* ── Glass Effects ──────────────────────────────────────────────────── */
   .glass {
-    background: rgba(15, 15, 22, 0.35);
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 100%),
+      rgba(25, 28, 35, 0.65);
     backdrop-filter: blur(48px) saturate(200%);
     -webkit-backdrop-filter: blur(48px) saturate(200%);
-    border: 1px solid var(--glass-border);
+    border: 1px solid rgba(255, 255, 255, 0.10);
     box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 var(--glass-highlight),
+      0 8px 32px rgba(0, 0, 0, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
       inset 0 -1px 0 rgba(0, 0, 0, 0.1);
   }
 
   .glass-strong {
-    background: rgba(15, 15, 22, 0.50);
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 100%),
+      rgba(25, 28, 35, 0.75);
     backdrop-filter: blur(48px) saturate(200%);
     -webkit-backdrop-filter: blur(48px) saturate(200%);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     box-shadow:
-      0 25px 50px -12px rgba(0, 0, 0, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2),
+      0 25px 50px -12px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
       inset 0 -1px 0 rgba(0, 0, 0, 0.1);
   }
 
@@ -329,7 +333,8 @@ html.perf-mode .glass,
 html.perf-mode .glass-strong {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: rgba(14, 18, 20, 0.85) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%),
+              rgba(25, 28, 35, 0.88) !important;
 }
 
 html.perf-mode * {
