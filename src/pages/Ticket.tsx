@@ -271,7 +271,7 @@ function TicketView({ ticket: initialTicket }: { ticket: TicketData }) {
         body: JSON.stringify({
           to: SITE_CONFIG.email.adminEmail,
           toName: 'TrueBeast Admin',
-          subject: `[TrueBeast Support] Ticket ${ticket.id} — Reply from ${ticket.name}`,
+          subject: `Re: [TrueBeast Support] Ticket ${ticket.id}`,
           html: replyHtml,
           senderName: SITE_CONFIG.email.senderName,
           senderEmail: SITE_CONFIG.email.senderEmail,

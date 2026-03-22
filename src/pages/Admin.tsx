@@ -1217,7 +1217,7 @@ function TicketsTab() {
             <a href="${SITE_CONFIG.siteUrl}/submit-review" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-left:8px">Leave a Review</a>
           </div>
         </div>`;
-        sendTicketEmail(ticket.email, ticket.name, `[TrueBeast Support] Ticket ${ticket.id} has been resolved ✓`, html, ticket.id);
+        sendTicketEmail(ticket.email, ticket.name, `Re: [TrueBeast Support] Ticket ${ticket.id}`, html, ticket.id);
       }
       setFeedback({ type: 'success', message: `Status → ${status}` });
       fetchTickets();
@@ -1246,7 +1246,7 @@ function TicketsTab() {
             <a href="${SITE_CONFIG.siteUrl}/ticket?id=${selected.id}" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View & Reply to Ticket</a>
           </div>
         </div>`;
-        sendTicketEmail(selected.email, selected.name, `[TrueBeast Support] New reply on ticket ${selected.id}`, html, selected.id);
+        sendTicketEmail(selected.email, selected.name, `Re: [TrueBeast Support] Ticket ${selected.id}`, html, selected.id);
       }
 
       setReply('');

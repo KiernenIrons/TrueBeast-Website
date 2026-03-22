@@ -344,7 +344,7 @@ function TicketForm() {
         const emailPayload = {
           to: ticket.email,
           toName: ticket.name,
-          subject: `[TrueBeast Support] Ticket ${ticketId} — ${ticket.subject}`,
+          subject: `Re: [TrueBeast Support] Ticket ${ticketId}`,
           html: userHtml,
           senderName: SITE_CONFIG.email.senderName,
           senderEmail: SITE_CONFIG.email.senderEmail,
@@ -385,7 +385,7 @@ function TicketForm() {
           body: JSON.stringify({
             to: SITE_CONFIG.email.adminEmail,
             toName: 'TrueBeast Admin',
-            subject: `[TrueBeast Support] Ticket ${ticketId} — New ticket from ${ticket.name}`,
+            subject: `[TrueBeast Support] Ticket ${ticketId}`,
             html: adminHtml,
             senderName: SITE_CONFIG.email.senderName,
             senderEmail: SITE_CONFIG.email.senderEmail,

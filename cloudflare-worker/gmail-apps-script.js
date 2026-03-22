@@ -69,13 +69,29 @@ function doPost(e) {
 
         if (threadSubject) {
             try {
-                // Search for threads matching subject AND involving this recipient
-                // This ensures admin emails thread separately from user emails
-                var query = 'subject:"' + threadSubject + '" {to:' + to + ' from:' + to + '}';
-                var threads = GmailApp.search(query, 0, 1);
-                if (threads.length > 0) {
-                    var thread = threads[0];
-                    thread.reply('', {
+                // Search for ANY thread matching the ticket subject
+                // Gmail will automatically group the reply into the right thread
+                // for each recipient based on the subject line match
+                var threads = GmailApp.search('subject:"' + threadSubject + '"', 0, 5);
+
+                // Find the best thread: prefer one that involves this recipient
+                var bestThread = null;
+                for (var t = 0; t < threads.length; t++) {
+                    var msgs = threads[t].getMessages();
+                    for (var m = 0; m < msgs.length; m++) {
+                        var msgTo = (msgs[m].getTo() || '') + ' ' + (msgs[m].getCc() || '');
+                        if (msgTo.toLowerCase().indexOf(to.toLowerCase()) !== -1) {
+                            bestThread = threads[t];
+                            break;
+                        }
+                    }
+                    if (bestThread) break;
+                }
+                // Fall back to first thread if no recipient-specific match
+                if (!bestThread && threads.length > 0) bestThread = threads[0];
+
+                if (bestThread) {
+                    bestThread.reply('', {
                         htmlBody: htmlBody,
                         name: name,
                         to: to,
@@ -84,7 +100,6 @@ function doPost(e) {
                     sent = true;
                 }
             } catch (threadErr) {
-                // If thread reply fails, fall back to regular send
                 Logger.log('Thread reply failed: ' + threadErr.message);
             }
         }
