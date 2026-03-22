@@ -1356,10 +1356,11 @@ export default function CloutClicker() {
 
   // Custom cursor: pointing emoji rotated -45deg
   useEffect(() => {
-    // Use SVG foreignObject to render emoji as cursor (works cross-browser)
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><foreignObject width="32" height="32"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:22px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg)">👆</div></foreignObject></svg>`;
-    const encoded = 'data:image/svg+xml;base64,' + btoa(svg);
-    document.body.style.cursor = `url('${encoded}') 16 4, pointer`;
+    try {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><foreignObject width="32" height="32"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:22px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transform:rotate(-45deg)">👆</div></foreignObject></svg>`;
+      const encoded = 'data:image/svg+xml,' + encodeURIComponent(svg);
+      document.body.style.cursor = `url('${encoded}') 16 4, pointer`;
+    } catch { /* fallback */ }
     return () => { document.body.style.cursor = ''; };
   }, []);
 
