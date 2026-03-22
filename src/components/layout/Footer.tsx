@@ -5,7 +5,7 @@ export default function Footer() {
     <footer className="glass mt-auto border-t border-white/[0.06]">
       <div className="mx-auto max-w-[72rem] px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-white/50">
         {/* Copyright */}
-        <p>&copy; 2026 TrueBeast - Built by Kiernen Irons</p>
+        <p>&copy; 2026 TrueBeast &mdash; Built by Kiernen Irons</p>
 
         {/* Links */}
         <div className="flex items-center gap-5">
