@@ -2062,9 +2062,18 @@ function AdminManagementTab() {
       {section === 'users' && (
         <div className="space-y-4">
           <GlassCard className="p-4 flex flex-wrap items-center gap-3">
-            <input type="text" placeholder="Search by UID, display name..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)}
+            <input type="text" placeholder="Search by email, name, UID..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)}
               className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50" />
             <span className="text-xs text-gray-500">{allUsers.length} user{allUsers.length !== 1 ? 's' : ''}</span>
+            <button type="button" onClick={async () => {
+              if (!allUsers.length) { setFeedback({ type: 'error', message: 'Load users first' }); return; }
+              if (!window.confirm('Clean up Clout Clicker data?\n\nThis removes ALL leaderboard entries, saves, and peak data for accounts that no longer exist in Firebase Auth.\n\nThis cannot be undone.')) return;
+              const validUids = allUsers.map((u) => u.uid);
+              const removed = await FirebaseDB.cleanupLeaderboard(validUids);
+              setFeedback({ type: 'success', message: `Cleanup done — removed ${removed} orphaned entries` });
+            }} className="text-xs text-yellow-400 hover:text-yellow-300 flex items-center gap-1 transition-colors cursor-pointer" title="Remove game data for deleted accounts">
+              <Trash01 className="w-3 h-3" /> Clean Fake Data
+            </button>
             <button type="button" onClick={fetchUsers} disabled={usersLoading} className="text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
               <RefreshCw01 className={`w-4 h-4 ${usersLoading ? 'animate-spin' : ''}`} />
             </button>

@@ -637,6 +637,44 @@ export const FirebaseDB = {
     } catch { return false; }
   },
 
+  async cleanupLeaderboard(validUids: string[]): Promise<number> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return 0;
+    const validSet = new Set(validUids);
+    let removed = 0;
+    // Check leaderboard
+    try {
+      const snap = await getDocs(collection(_db, 'clout-clicker-leaderboard'));
+      for (const d of snap.docs) {
+        if (!validSet.has(d.id)) {
+          await deleteDoc(doc(_db, 'clout-clicker-leaderboard', d.id));
+          removed++;
+        }
+      }
+    } catch (err) { console.warn('Leaderboard cleanup error:', err); }
+    // Check saves
+    try {
+      const snap = await getDocs(collection(_db, 'clout-clicker-saves'));
+      for (const d of snap.docs) {
+        if (!validSet.has(d.id)) {
+          await deleteDoc(doc(_db, 'clout-clicker-saves', d.id));
+          removed++;
+        }
+      }
+    } catch (err) { console.warn('Saves cleanup error:', err); }
+    // Check peak
+    try {
+      const snap = await getDocs(collection(_db, 'clout-clicker-peak'));
+      for (const d of snap.docs) {
+        if (!validSet.has(d.id)) {
+          await deleteDoc(doc(_db, 'clout-clicker-peak', d.id));
+          removed++;
+        }
+      }
+    } catch (err) { console.warn('Peak cleanup error:', err); }
+    return removed;
+  },
+
   async deleteUserData(uid: string): Promise<void> {
     _ensureApp();
     if (!_isConfigured() || !_db) return;
