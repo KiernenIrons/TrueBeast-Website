@@ -340,14 +340,120 @@ function AboutSection() {
 // Section: Content (Asymmetric Video Grid)
 // ---------------------------------------------------------------------------
 
+// Parse ISO 8601 duration (PT#H#M#S) to seconds
+function parseDuration(iso: string): number {
+  const m = (iso || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  return m ? (parseInt(m[1] || '0') * 3600) + (parseInt(m[2] || '0') * 60) + parseInt(m[3] || '0') : 0;
+}
+
+interface VideoSlots {
+  latest?: { id: string; title: string; category: string };
+  short?: { id: string; title: string; category: string };
+  stream?: { id: string; title: string; category: string };
+  popular?: { id: string; title: string; category: string };
+}
+
+const YT_CACHE_KEY = 'tb_yt_slots_v10';
+const YT_CACHE_TTL = 3600000; // 1 hour
+
+async function fetchYouTubeSlots(): Promise<VideoSlots> {
+  // Check cache
+  try {
+    const cached = JSON.parse(localStorage.getItem(YT_CACHE_KEY) || 'null');
+    if (cached && Date.now() - cached.ts < YT_CACHE_TTL) return cached.slots;
+  } catch { /* */ }
+
+  const cfg = SITE_CONFIG.youtube;
+  if (!cfg.apiKey || !cfg.channelId) return {};
+
+  const plBase = 'https://www.googleapis.com/youtube/v3/playlistItems';
+  const vBase = 'https://www.googleapis.com/youtube/v3/videos';
+  const slots: VideoSlots = {};
+
+  try {
+    // Step 1: Fetch all uploads from uploads playlist (UC → UU)
+    const uploadsId = cfg.channelId.replace(/^UC/, 'UU');
+    const allItems: { id: string; title: string; publishedAt: string }[] = [];
+    let pageToken = '';
+    do {
+      const url = `${plBase}?part=snippet&playlistId=${uploadsId}&maxResults=50&key=${cfg.apiKey}${pageToken ? '&pageToken=' + pageToken : ''}`;
+      const d = await fetch(url).then((r) => r.json());
+      if (d.error) break;
+      (d.items || []).forEach((it: any) => {
+        allItems.push({
+          id: it.snippet.resourceId.videoId,
+          title: it.snippet.title,
+          publishedAt: it.snippet.publishedAt,
+        });
+      });
+      pageToken = d.nextPageToken || '';
+    } while (pageToken);
+
+    if (!allItems.length) return slots;
+
+    // Step 2: Fetch contentDetails + liveStreamingDetails + statistics in batches of 50
+    const detailMap: Record<string, any> = {};
+    for (let i = 0; i < allItems.length; i += 50) {
+      const ids = allItems.slice(i, i + 50).map((v) => v.id).join(',');
+      const d = await fetch(`${vBase}?part=contentDetails,liveStreamingDetails,statistics&id=${ids}&key=${cfg.apiKey}`).then((r) => r.json());
+      if (d.error) break;
+      (d.items || []).forEach((v: any) => { detailMap[v.id] = v; });
+    }
+
+    // Step 3: Classify each video (uploads playlist is newest-first)
+    const streams: any[] = [];
+    const shorts: any[] = [];
+    const videos: any[] = [];
+    for (const item of allItems) {
+      const detail = detailMap[item.id];
+      if (!detail) continue;
+      const dur = parseDuration(detail.contentDetails?.duration);
+      const isStream = !!detail.liveStreamingDetails;
+      const isShort = !isStream && dur > 0 && dur <= 60;
+      const views = parseInt(detail.statistics?.viewCount || '0');
+      const enriched = { ...item, views, dur };
+      if (isStream) streams.push(enriched);
+      else if (isShort) shorts.push(enriched);
+      else videos.push(enriched);
+    }
+
+    // Step 4: Fill slots — arrays are newest-first
+    if (streams.length) slots.stream = { id: streams[0].id, title: streams[0].title, category: 'Latest Stream' };
+    if (shorts.length) slots.short = { id: shorts[0].id, title: shorts[0].title, category: 'Latest Short' };
+    if (videos.length) slots.latest = { id: videos[0].id, title: videos[0].title, category: 'Latest Video' };
+
+    // Most Viewed: highest views across non-stream uploads not already used
+    const usedIds = new Set([slots.stream?.id, slots.short?.id, slots.latest?.id].filter(Boolean));
+    const popular = [...shorts, ...videos]
+      .filter((v) => !usedIds.has(v.id))
+      .sort((a, b) => b.views - a.views)[0];
+    if (popular) slots.popular = { id: popular.id, title: popular.title, category: 'Most Viewed' };
+  } catch (e) {
+    console.warn('[TrueBeast YouTube] fetchYouTubeSlots failed:', e);
+  }
+
+  // Cache if at least one slot filled
+  if (Object.values(slots).some(Boolean)) {
+    try { localStorage.setItem(YT_CACHE_KEY, JSON.stringify({ ts: Date.now(), slots })); } catch { /* */ }
+  }
+  return slots;
+}
+
 function ContentSection() {
-  // Each slot maps directly to config.videos[0-3]
-  // Slot 0 = Latest Video, Slot 1 = Latest Short (portrait), Slot 2 = Latest Stream, Slot 3 = Most Viewed
-  const videos = SITE_CONFIG.videos;
-  const latest = videos[0] ? { ...videos[0], category: videos[0].category || 'Latest Video' } : undefined;
-  const short = videos[1] ? { ...videos[1], category: videos[1].category || 'Latest Short' } : undefined;
-  const stream = videos[2] ? { ...videos[2], category: videos[2].category || 'Latest Stream' } : undefined;
-  const popular = videos[3] ? { ...videos[3], category: videos[3].category || 'Most Viewed' } : undefined;
+  const fallback = SITE_CONFIG.videos;
+  const [latest, setLatest] = useState(fallback[0] ? { ...fallback[0], category: 'Latest Video' } : undefined);
+  const [short, setShort] = useState(fallback[1] ? { ...fallback[1], category: 'Latest Short' } : undefined);
+  const [stream, setStream] = useState(fallback[2] ? { ...fallback[2], category: 'Latest Stream' } : undefined);
+  const [popular, setPopular] = useState(fallback[3] ? { ...fallback[3], category: 'Most Viewed' } : undefined);
+
+  useEffect(() => {
+    fetchYouTubeSlots().then((slots) => {
+      if (slots.latest) setLatest(slots.latest);
+      if (slots.short) setShort(slots.short);
+      if (slots.stream) setStream(slots.stream);
+      if (slots.popular) setPopular(slots.popular);
+    });
+  }, []);
 
   return (
     <section id="content" className="relative py-24 px-6">
