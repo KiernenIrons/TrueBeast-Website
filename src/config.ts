@@ -200,26 +200,34 @@ export const SITE_CONFIG: SiteConfig = {
     //   Example URL:  https://www.youtube.com/watch?v=dQw4w9WgXcQ
     //   Video ID:     dQw4w9WgXcQ
     // -----------------------------------------------------------------------
+    // VIDEO SLOTS — Update these when you upload new content:
+    //   Slot 0 = Latest Video  (top-left)
+    //   Slot 1 = Latest Short  (right, tall/portrait)
+    //   Slot 2 = Latest Stream (bottom-left)
+    //   Slot 3 = Most Viewed   (full-width bottom)
+    //
+    // Find a video ID: go to the video on YouTube, copy the part after "?v="
+    //   Example: https://www.youtube.com/watch?v=dQw4w9WgXcQ → ID: dQw4w9WgXcQ
     videos: [
         {
             id:       've7X66ROqGs',
-            title:    'Latest Upload',
-            category: 'Gaming',
+            title:    'R.E.P.O - Modded',
+            category: 'Latest Video',
         },
         {
             id:       'uuyDxFe9-sY',
-            title:    'Community Favorite',
-            category: 'Group',
+            title:    'Obey The Voice - Horror Game',
+            category: 'Latest Short',
         },
         {
             id:       '6cSM0JOTAL4',
-            title:    'Trending Now',
-            category: 'Highlights',
+            title:    'Improving Streams - Overall',
+            category: 'Latest Stream',
         },
         {
             id:       'DEmAkXZBxX4',
-            title:    'Deep Dive',
-            category: 'Tech',
+            title:    'Horror Stream - Perceptum',
+            category: 'Most Viewed',
         },
     ],
 
