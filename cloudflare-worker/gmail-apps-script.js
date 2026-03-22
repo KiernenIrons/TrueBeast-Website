@@ -69,8 +69,10 @@ function doPost(e) {
 
         if (threadSubject) {
             try {
-                // Search for threads matching the ticket subject in sent mail
-                var threads = GmailApp.search('subject:"' + threadSubject + '" in:anywhere', 0, 1);
+                // Search for threads matching subject AND involving this recipient
+                // This ensures admin emails thread separately from user emails
+                var query = 'subject:"' + threadSubject + '" {to:' + to + ' from:' + to + '}';
+                var threads = GmailApp.search(query, 0, 1);
                 if (threads.length > 0) {
                     var thread = threads[0];
                     thread.reply('', {
