@@ -341,7 +341,42 @@ function AboutSection() {
 // ---------------------------------------------------------------------------
 
 function ContentSection() {
-  const videos = SITE_CONFIG.videos.slice(0, 4);
+  const [videos, setVideos] = useState(SITE_CONFIG.videos.slice(0, 4));
+
+  useEffect(() => {
+    const { apiKey, channelId, maxResults } = SITE_CONFIG.youtube;
+    if (!apiKey || !channelId) return;
+
+    // Check localStorage cache (1 hour TTL)
+    const cacheKey = 'tb_yt_vids_v3';
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const { data, ts } = JSON.parse(cached);
+        if (Date.now() - ts < 3600000 && Array.isArray(data) && data.length > 0) {
+          setVideos(data);
+          return;
+        }
+      } catch { /* */ }
+    }
+
+    // Fetch from YouTube Data API v3
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=${maxResults || 4}&order=date&type=video&key=${apiKey}`;
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.items?.length) return;
+        const fetched = data.items.map((item: any) => ({
+          id: item.id.videoId,
+          title: item.snippet.title,
+          category: 'Latest',
+        }));
+        setVideos(fetched);
+        localStorage.setItem(cacheKey, JSON.stringify({ data: fetched, ts: Date.now() }));
+      })
+      .catch(() => { /* keep fallback */ });
+  }, []);
+
   const latest = videos[0] ? { ...videos[0], category: 'Latest Video' } : undefined;
   const short = videos[1] ? { ...videos[1], category: 'Latest Short' } : undefined;
   const stream = videos[2] ? { ...videos[2], category: 'Latest Stream' } : undefined;
