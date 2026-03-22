@@ -56,9 +56,8 @@ Dev server runs at `http://localhost:5173`
 - `src/pages/tools/Ripple.tsx` - Multi-platform poster
 - `src/pages/tools/QRGenerator.tsx` - QR code generator
 
-### Phase 5: Complex Tools (2 pages)
-- `src/pages/tools/ResumeBuilder.tsx` - Resume builder with PDF export (html2canvas + jspdf already installed)
-- `src/pages/Giveaways.tsx` - Giveaway showcase
+### Phase 5: Giveaways (DONE)
+- `src/pages/Giveaways.tsx` - Full giveaway page with past winners, live giveaway entry system, bonus entry actions
 
 ### Phase 6: Admin Dashboard
 - `src/pages/Admin.tsx` - Protected route, tabs for tickets/reviews/announcements/analytics
@@ -72,6 +71,11 @@ Dev server runs at `http://localhost:5173`
 
 ### Phase 9: Deployment
 - Update GitHub Actions workflow, add 404.html SPA fallback
+
+### Phase 10: Unfinished Items (deferred)
+- `src/pages/tools/ResumeBuilder.tsx` - Resume builder with PDF export (needs full rebuild from old version)
+- `src/pages/tools/MultiChat.tsx` - MultiChat config page (needs completion)
+- `src/pages/tools/ButtonBoard.tsx` - ButtonBoard config page (needs completion)
 
 ---
 
@@ -140,7 +144,7 @@ src/
     Ticket.tsx          # DONE
     MyTickets.tsx       # DONE
     Tools.tsx           # Placeholder
-    Giveaways.tsx       # Placeholder
+    Giveaways.tsx       # DONE
     Games.tsx           # Placeholder
     Admin.tsx           # Placeholder
     tools/              # All placeholders
