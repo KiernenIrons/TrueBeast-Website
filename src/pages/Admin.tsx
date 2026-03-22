@@ -22,6 +22,8 @@ import {
   FaceSmile,
   Hash01,
   AtSign,
+  Users01,
+  ShieldTick,
 } from '@untitledui/icons';
 import { Tabs, TabList, TabPanel, Tab } from '@/components/application/tabs/tabs';
 import { Button } from '@/components/base/buttons/button';
@@ -1838,6 +1840,233 @@ function AnalyticsTab() {
 // Placeholder Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Admin Management Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+const PERM_KEYS = ['tickets', 'reviews', 'discord', 'analytics', 'adminManagement'] as const;
+const PERM_LABELS: Record<string, string> = { tickets: 'Tickets', reviews: 'Reviews', discord: 'Announcements', analytics: 'Analytics', adminManagement: 'Admin Mgmt' };
+const PERM_COLORS: Record<string, string> = { tickets: 'text-blue-400 bg-blue-500/10 border-blue-500/20', reviews: 'text-green-400 bg-green-500/10 border-green-500/20', discord: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', analytics: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', adminManagement: 'text-violet-400 bg-violet-500/10 border-violet-500/20' };
+
+function AdminManagementTab() {
+  const { user } = useAuth();
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editEmail, setEditEmail] = useState<string | null>(null);
+  const [form, setForm] = useState({ email: '', displayName: '', password: '', permissions: {} as Record<string, boolean> });
+
+  const fetchAdmins = useCallback(async () => {
+    setLoading(true);
+    try { setAdmins(await FirebaseDB.getAllAdminRoles()); } catch { /* */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchAdmins(); }, [fetchAdmins]);
+  useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 4000); return () => clearTimeout(t); }, [feedback]);
+
+  const isSuperAdmin = (email: string) => email === user?.email;
+
+  const openAddModal = () => {
+    setEditEmail(null);
+    setForm({ email: '', displayName: '', password: '', permissions: Object.fromEntries(PERM_KEYS.map((k) => [k, false])) });
+    setModalOpen(true);
+  };
+
+  const openEditModal = (admin: any) => {
+    setEditEmail(admin.email || admin.id);
+    setForm({
+      email: admin.email || admin.id,
+      displayName: admin.displayName || '',
+      password: '',
+      permissions: admin.permissions || {},
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    const email = form.email.trim().toLowerCase();
+    if (!email) { setFeedback({ type: 'error', message: 'Email is required' }); return; }
+
+    try {
+      if (!editEmail) {
+        // Creating new admin — need to create Firebase Auth account first
+        // This requires the Firebase Admin SDK (server-side), so we just save the role
+        // The admin must create their account via Firebase Console
+        await FirebaseDB.setAdminRole(email, {
+          email,
+          displayName: form.displayName || email.split('@')[0],
+          permissions: form.permissions,
+          createdAt: new Date().toISOString(),
+        });
+        setFeedback({ type: 'success', message: `Admin role saved for ${email}. Create their Firebase Auth account in the Firebase Console.` });
+      } else {
+        // Editing existing
+        await FirebaseDB.setAdminRole(email, {
+          email,
+          displayName: form.displayName || email.split('@')[0],
+          permissions: form.permissions,
+        });
+        setFeedback({ type: 'success', message: `Updated ${email}` });
+      }
+      setModalOpen(false);
+      fetchAdmins();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Save failed' });
+    }
+  };
+
+  const handleDelete = async (admin: any) => {
+    const email = admin.email || admin.id;
+    if (isSuperAdmin(email)) { setFeedback({ type: 'error', message: "Can't remove yourself" }); return; }
+    if (!window.confirm(`Remove admin access for ${email}? Their Firebase Auth account will remain (delete it manually in Firebase Console if needed).`)) return;
+    try {
+      await FirebaseDB.deleteAdminRole(email);
+      setFeedback({ type: 'success', message: `Removed ${email}` });
+      fetchAdmins();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Delete failed' });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold font-display text-white flex items-center gap-2">
+            <Users01 className="w-5 h-5 text-violet-400" /> Admin Management
+          </h3>
+          <p className="text-xs text-gray-500 mt-1">You ({user?.email}) are the super admin with full access.</p>
+        </div>
+        <button type="button" onClick={openAddModal}
+          className="flex items-center gap-2 py-2.5 px-5 rounded-xl text-sm font-bold bg-violet-600 hover:bg-violet-500 text-white transition-all cursor-pointer">
+          <Plus className="w-4 h-4" /> Add Admin
+        </button>
+      </div>
+
+      {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
+
+      {/* Admin list */}
+      {loading && admins.length === 0 ? (
+        <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading admins...</p></GlassCard>
+      ) : admins.length === 0 ? (
+        <GlassCard className="p-12 text-center">
+          <p className="text-gray-500">No sub-admins configured yet. You (super admin) always have full access.</p>
+        </GlassCard>
+      ) : (
+        <div className="space-y-3">
+          {admins.map((admin) => {
+            const email = admin.email || admin.id;
+            const perms = admin.permissions || {};
+            const isSuper = isSuperAdmin(email);
+            return (
+              <GlassCard key={email} className="p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white font-semibold text-sm">{admin.displayName || email}</span>
+                      {isSuper && (
+                        <span className="bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase">
+                          Super Admin
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">{email}</p>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {isSuper ? (
+                        <span className="text-[10px] text-gray-400">Full access to everything</span>
+                      ) : (
+                        PERM_KEYS.filter((k) => perms[k]).length > 0 ? (
+                          PERM_KEYS.filter((k) => perms[k]).map((k) => (
+                            <span key={k} className={`${PERM_COLORS[k]} border text-[10px] font-semibold px-2 py-0.5 rounded-full`}>
+                              {PERM_LABELS[k]}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[10px] text-gray-600">No permissions</span>
+                        )
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button type="button" onClick={() => openEditModal(admin)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer">
+                      Edit
+                    </button>
+                    {!isSuper && (
+                      <button type="button" onClick={() => handleDelete(admin)}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer">
+                        <Trash01 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </GlassCard>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-xs text-gray-600">
+        Removing an admin only removes their permissions. Their Firebase Auth account must be deleted manually in the Firebase Console.
+      </p>
+
+      {/* Add/Edit Modal */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-[200] bg-black/75 flex items-center justify-center p-4" onClick={() => setModalOpen(false)}>
+          <div className="glass-strong rounded-3xl p-7 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display font-bold text-lg text-white mb-5">
+              {editEmail ? 'Edit Admin' : 'Add Admin'}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Email</label>
+                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  disabled={!!editEmail} placeholder="admin@example.com"
+                  className={`${inp} ${editEmail ? 'opacity-50' : ''}`} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Display Name</label>
+                <input type="text" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+                  placeholder="e.g. Mod Team" className={inp} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Permissions</label>
+                <div className="glass rounded-xl p-4 space-y-2.5">
+                  {PERM_KEYS.map((k) => (
+                    <label key={k} className="flex items-center gap-3 text-sm text-gray-300 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!form.permissions[k]}
+                        onChange={(e) => setForm({ ...form, permissions: { ...form.permissions, [k]: e.target.checked } })}
+                        className="w-4 h-4 rounded accent-violet-500 cursor-pointer" />
+                      <span>{PERM_LABELS[k]}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button type="button" onClick={() => setModalOpen(false)}
+                className="flex-1 glass px-4 py-2.5 rounded-xl text-gray-300 text-sm font-medium hover:bg-white/10 transition-colors cursor-pointer">
+                Cancel
+              </button>
+              <button type="button" onClick={handleSave}
+                className="flex-1 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer">
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Placeholder Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
 function PlaceholderTab({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
   return (
     <GlassCard className="p-12 flex flex-col items-center justify-center text-center">
@@ -1853,6 +2082,7 @@ const TAB_ITEMS = [
   { id: 'tickets', label: 'Tickets' },
   { id: 'reviews', label: 'Reviews' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'admin', label: 'Admin' },
 ];
 
 const ADMIN_TAB_KEY = 'tb_admin_tab';
@@ -1886,6 +2116,7 @@ function AdminDashboard() {
                   {tab.id === 'tickets' && <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />}
                   {tab.id === 'reviews' && <Star01 className="w-4 h-4 mr-1.5 inline-block" />}
                   {tab.id === 'analytics' && <BarChart01 className="w-4 h-4 mr-1.5 inline-block" />}
+                  {tab.id === 'admin' && <Users01 className="w-4 h-4 mr-1.5 inline-block" />}
                   {tab.label}
                 </Tab>
               ))}
@@ -1894,6 +2125,7 @@ function AdminDashboard() {
             <TabPanel id="tickets" className="mt-2"><TicketsTab /></TabPanel>
             <TabPanel id="reviews" className="mt-2"><ReviewsTab /></TabPanel>
             <TabPanel id="analytics" className="mt-2"><AnalyticsTab /></TabPanel>
+            <TabPanel id="admin" className="mt-2"><AdminManagementTab /></TabPanel>
           </Tabs>
         </div>
       </BotProvider>
