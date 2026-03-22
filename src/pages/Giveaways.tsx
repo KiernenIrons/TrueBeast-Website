@@ -1,8 +1,7 @@
-import { useState, useEffect, type FormEvent } from 'react';
-import { Trophy, Gift, Users, Sparkles, Clock, Check, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { Trophy, Gift, ExternalLink, Users, Sparkles, Clock, ArrowRight } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { SITE_CONFIG, type Giveaway } from '@/config';
-import { FirebaseDB } from '@/lib/firebase';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -27,7 +26,7 @@ const STATUS_META = {
     label: 'Ended',
     color: 'text-gray-400',
     bg: 'bg-gray-500/10',
-    border: 'border-gray-500/20',
+    border: 'border-gray-500/30',
     pulse: false,
   },
 } as const;
@@ -60,108 +59,6 @@ function sortGiveaways(list: Giveaway[]): Giveaway[] {
     const dateB = b.date ? new Date(b.date + 'T00:00:00').getTime() : 0;
     return dateB - dateA;
   });
-}
-
-// ---------------------------------------------------------------------------
-// Entry Form (inline Discord username entry)
-// ---------------------------------------------------------------------------
-
-function EntryForm({ giveawayId, variant = 'featured' }: { giveawayId: string; variant?: 'featured' | 'card' }) {
-  const [discord, setDiscord] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [entered, setEntered] = useState(false);
-  const [error, setError] = useState('');
-  const [entryCount, setEntryCount] = useState<number | null>(null);
-
-  useEffect(() => {
-    FirebaseDB.getGiveawayEntryCount(giveawayId).then(setEntryCount).catch(() => {});
-  }, [giveawayId, entered]);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = discord.trim();
-    if (!trimmed) return;
-
-    setSubmitting(true);
-    setError('');
-
-    try {
-      const result = await FirebaseDB.enterGiveaway(giveawayId, trimmed);
-      if (result.alreadyEntered) {
-        setError('This Discord username has already entered!');
-      } else if (result.success) {
-        setEntered(true);
-      } else {
-        setError('Something went wrong. Please try again.');
-      }
-    } catch {
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  // Success state
-  if (entered) {
-    return (
-      <div className={`flex items-center gap-3 ${variant === 'featured' ? 'mt-2' : ''}`}>
-        <div className="inline-flex items-center gap-2 bg-green-500/15 border border-green-500/30 text-green-400 font-semibold rounded-xl py-3 px-6 text-sm">
-          <Check size={16} />
-          You're in! Good luck
-        </div>
-        {entryCount !== null && (
-          <span className="text-gray-500 text-sm flex items-center gap-1.5">
-            <Users size={14} />
-            {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  const isFeatured = variant === 'featured';
-
-  return (
-    <div className={isFeatured ? 'mt-2' : ''}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-        <div className={`flex ${isFeatured ? 'flex-row' : 'flex-col'} gap-2`}>
-          <input
-            type="text"
-            value={discord}
-            onChange={(e) => setDiscord(e.target.value)}
-            placeholder="Your Discord username"
-            required
-            className={`glass border border-white/10 rounded-xl px-4 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-green-500/40 transition-colors ${
-              isFeatured ? 'py-4 flex-1' : 'py-3 w-full'
-            }`}
-          />
-          <button
-            type="submit"
-            disabled={submitting || !discord.trim()}
-            className={`inline-flex items-center justify-center gap-2 bg-green-500 hover:bg-green-400 disabled:opacity-50 disabled:hover:bg-green-500 text-black font-bold rounded-xl transition-all duration-200 hover:shadow-lg hover:shadow-green-500/25 ${
-              isFeatured ? 'py-4 px-8 text-base hover:-translate-y-0.5' : 'py-3 px-5 text-sm'
-            }`}
-          >
-            {submitting ? (
-              <Loader2 size={isFeatured ? 18 : 15} className="animate-spin" />
-            ) : (
-              <Gift size={isFeatured ? 18 : 15} />
-            )}
-            {submitting ? 'Entering...' : 'Enter Giveaway'}
-          </button>
-        </div>
-        {error && (
-          <p className="text-red-400 text-xs mt-1">{error}</p>
-        )}
-      </form>
-      {entryCount !== null && entryCount > 0 && (
-        <p className="text-gray-500 text-xs mt-2 flex items-center gap-1.5">
-          <Users size={12} />
-          {entryCount} {entryCount === 1 ? 'entry' : 'entries'} so far
-        </p>
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -224,8 +121,24 @@ function FeaturedGiveaway({ g }: { g: Giveaway }) {
               <p className="text-gray-400 text-lg leading-relaxed">{g.description}</p>
             )}
 
-            {/* Inline entry form */}
-            <EntryForm giveawayId={g.id} variant="featured" />
+            {/* Entry CTA */}
+            {g.entryUrl ? (
+              <a
+                href={g.entryUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-3 bg-green-500 hover:bg-green-400 text-black font-bold rounded-xl py-4 px-8 text-base transition-all duration-200 hover:shadow-lg hover:shadow-green-500/25 hover:-translate-y-0.5 mt-2"
+              >
+                <Gift size={18} />
+                Enter Giveaway
+                <ArrowRight size={16} />
+              </a>
+            ) : (
+              <div className="inline-flex items-center justify-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400/70 rounded-xl py-4 px-8 text-sm mt-2">
+                <Gift size={16} />
+                Entry details coming soon
+              </div>
+            )}
 
             <div className="flex items-center gap-2 text-gray-500 text-sm mt-1">
               <Users size={14} />
@@ -280,9 +193,25 @@ function GiveawayCard({ g }: { g: Giveaway }) {
           <p className="text-gray-400 text-sm leading-relaxed">{g.description}</p>
         )}
 
-        {/* Inline entry form for open giveaways */}
-        {g.status === 'open' && (
-          <EntryForm giveawayId={g.id} variant="card" />
+        {/* Enter button for open giveaways */}
+        {g.status === 'open' && g.entryUrl && (
+          <a
+            href={g.entryUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 bg-green-500/15 border border-green-500/30 hover:bg-green-500/25 text-green-400 font-semibold rounded-xl py-3 text-sm transition-all"
+          >
+            <Gift size={15} />
+            Enter Giveaway
+            <ExternalLink size={13} />
+          </a>
+        )}
+
+        {g.status === 'open' && !g.entryUrl && (
+          <div className="inline-flex items-center justify-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400/70 rounded-xl py-3 text-sm">
+            <Gift size={15} />
+            Entry details coming soon
+          </div>
         )}
 
         {/* Footer: winner / date */}
