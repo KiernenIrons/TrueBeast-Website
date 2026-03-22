@@ -12,6 +12,7 @@ import {
   Search,
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
+import { FirebaseDB } from '@/lib/firebase';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,8 +123,13 @@ function formatDate(iso: string): string {
   });
 }
 
-function getTicketById(id: string): Ticket | undefined {
-  return MOCK_TICKETS.find((t) => t.id === id);
+async function getTicketById(id: string): Promise<Ticket | undefined> {
+  try {
+    const t = await FirebaseDB.getTicket(id);
+    return t ? (t as unknown as Ticket) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -226,26 +232,17 @@ export default function MyTickets() {
   useEffect(() => {
     const ids = getSavedIds();
 
-    if (ids.length === 0) {
-      const demoIds = MOCK_TICKETS.map((t) => t.id);
-      saveIds(demoIds);
-      setTicketIds(demoIds);
-    } else {
-      setTicketIds(ids);
-    }
-
-    // Simulate async load
-    const timer = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(timer);
+    setTicketIds(ids);
+    setLoading(false);
   }, []);
 
   // Resolve ticket objects whenever IDs change
   useEffect(() => {
     if (loading) return;
-    const resolved = ticketIds
-      .map((id) => getTicketById(id))
-      .filter((t): t is Ticket => t !== undefined);
-    setTickets(resolved);
+    Promise.all(ticketIds.map((id) => getTicketById(id)))
+      .then((results) => {
+        setTickets(results.filter((t): t is Ticket => t !== undefined));
+      });
   }, [ticketIds, loading]);
 
   const handleRemove = useCallback(
@@ -258,22 +255,22 @@ export default function MyTickets() {
   );
 
   const handleAdd = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
       setAddError('');
 
       const value = addInput.trim().toUpperCase();
       if (!value) return;
 
-      // Check if it matches a known ticket
-      const found = MOCK_TICKETS.find((t) => t.id === value);
-      if (!found) {
-        setAddError('Ticket not found. Check the ID.');
+      if (ticketIds.includes(value)) {
+        setAddInput('');
         return;
       }
 
-      if (ticketIds.includes(value)) {
-        setAddInput('');
+      // Look up in Firebase
+      const found = await getTicketById(value);
+      if (!found) {
+        setAddError('Ticket not found. Check the ID.');
         return;
       }
 

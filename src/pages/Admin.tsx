@@ -1127,14 +1127,20 @@ const PRIORITY_COLORS: Record<string, string> = {
   low: 'text-gray-400', medium: 'text-yellow-400', high: 'text-red-400',
 };
 
-async function sendTicketEmail(to: string, toName: string, subject: string, html: string) {
+async function sendTicketEmail(to: string, toName: string, subject: string, html: string, ticketId?: string) {
   const cfg = SITE_CONFIG.email;
   if (!cfg.workerUrl) return;
+  // Thread all emails for the same ticket together using a consistent messageId
+  const threadId = ticketId ? ticketId.toLowerCase().replace(/[^a-z0-9]/g, '') + '@truebeast.io' : undefined;
   try {
     await fetch(cfg.workerUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to, toName, subject, html, senderName: cfg.senderName, senderEmail: cfg.senderEmail }),
+      body: JSON.stringify({
+        to, toName, subject, html,
+        senderName: cfg.senderName, senderEmail: cfg.senderEmail,
+        ...(threadId ? { references: `<${threadId}>`, inReplyTo: `<${threadId}>` } : {}),
+      }),
     });
   } catch (err) { console.warn('Email send failed:', err); }
 }
@@ -1209,7 +1215,7 @@ function TicketsTab() {
             <a href="${SITE_CONFIG.siteUrl}/submit-review" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-left:8px">Leave a Review</a>
           </div>
         </div>`;
-        sendTicketEmail(ticket.email, ticket.name, `[TrueBeast Support] Ticket ${ticket.id} has been resolved ✓`, html);
+        sendTicketEmail(ticket.email, ticket.name, `[TrueBeast Support] Ticket ${ticket.id} has been resolved ✓`, html, ticket.id);
       }
       setFeedback({ type: 'success', message: `Status → ${status}` });
       fetchTickets();
@@ -1238,7 +1244,7 @@ function TicketsTab() {
             <a href="${SITE_CONFIG.siteUrl}/ticket?id=${selected.id}" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View & Reply to Ticket</a>
           </div>
         </div>`;
-        sendTicketEmail(selected.email, selected.name, `[TrueBeast Support] New reply on ticket ${selected.id}`, html);
+        sendTicketEmail(selected.email, selected.name, `[TrueBeast Support] New reply on ticket ${selected.id}`, html, selected.id);
       }
 
       setReply('');

@@ -168,9 +168,9 @@ function SelectInput({
 } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <FormField label={label} hint={hint} required={required}>
-      <select className={INPUT_CLASSES + ' [&>option]:bg-[#1a1a2e] [&>option]:text-white'} required={required} {...props}>
+      <select className={INPUT_CLASSES.replace('bg-transparent', 'bg-[#0d0d1a]') + ' appearance-none cursor-pointer'} required={required} {...props} style={{ colorScheme: 'dark' }}>
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value} className="bg-[#1a1a2e] text-white">
+          <option key={opt.value} value={opt.value} style={{ background: '#0d0d1a', color: '#fff' }}>
             {opt.label}
           </option>
         ))}
@@ -279,15 +279,85 @@ function TicketForm() {
       localStorage.setItem('tb_my_ticket_ids', JSON.stringify([ticketId]));
     }
 
-    // Save to Firebase
+    // Save to Firebase then send emails
     FirebaseDB.saveTicket(ticket as any)
       .then(() => {
+        // Send confirmation email to user
+        const userHtml = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;background:#0a0a1a;color:#fff;padding:32px;border-radius:16px">
+          <h2 style="color:#22c55e;margin-bottom:16px">Your ticket has been submitted!</h2>
+          <p style="color:#d1d5db;margin-bottom:16px">We've received your request and will get back to you as soon as possible.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="color:#9ca3af;padding:6px 8px">Ticket ID</td><td style="color:#22c55e;font-family:monospace;padding:6px 8px;font-weight:bold">${ticketId}</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">Subject</td><td style="color:#fff;padding:6px 8px">${ticket.subject}</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">Category</td><td style="color:#fff;padding:6px 8px">${ticket.category}</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">Priority</td><td style="color:#fff;padding:6px 8px;text-transform:capitalize">${ticket.priority}</td></tr>
+          </table>
+          <div style="border-left:3px solid #22c55e;padding:12px 16px;margin:16px 0;background:#1a1a2e;border-radius:0 8px 8px 0">
+            <div style="color:#d1d5db;font-size:14px;white-space:pre-wrap">${ticket.description.replace(/</g, '&lt;')}</div>
+          </div>
+          <div style="margin-top:20px">
+            <a href="${SITE_CONFIG.siteUrl}/ticket?id=${ticketId}" style="background:#22c55e;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View Your Ticket</a>
+          </div>
+          <p style="color:#6b7280;font-size:12px;margin-top:20px">You'll receive email updates when we reply. Keep your ticket ID safe: <strong>${ticketId}</strong></p>
+        </div>`;
+
+        const threadId = ticketId.toLowerCase().replace(/[^a-z0-9]/g, '') + '@truebeast.io';
+        const emailPayload = {
+          to: ticket.email,
+          toName: ticket.name,
+          subject: `[TrueBeast Support] Ticket ${ticketId} — ${ticket.subject}`,
+          html: userHtml,
+          senderName: SITE_CONFIG.email.senderName,
+          senderEmail: SITE_CONFIG.email.senderEmail,
+          messageId: `<${threadId}>`,
+          references: `<${threadId}>`,
+        };
+
+        // Send to user
+        fetch(SITE_CONFIG.email.workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(emailPayload),
+        }).catch(() => {});
+
+        // Send notification to admin
+        const adminHtml = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;background:#0a0a1a;color:#fff;padding:32px;border-radius:16px">
+          <h2 style="color:#8b5cf6;margin-bottom:16px">New Support Ticket</h2>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="color:#9ca3af;padding:6px 8px">Ticket</td><td style="color:#22c55e;font-family:monospace;padding:6px 8px;font-weight:bold">${ticketId}</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">From</td><td style="color:#fff;padding:6px 8px">${ticket.name} (${ticket.email})</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">Subject</td><td style="color:#fff;padding:6px 8px">${ticket.subject}</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">Category</td><td style="color:#fff;padding:6px 8px">${ticket.category}</td></tr>
+            <tr><td style="color:#9ca3af;padding:6px 8px">Priority</td><td style="color:#fff;padding:6px 8px;text-transform:capitalize">${ticket.priority}</td></tr>
+          </table>
+          <div style="border-left:3px solid #22c55e;padding:12px 16px;margin:16px 0;background:#1a1a2e;border-radius:0 8px 8px 0">
+            <div style="color:#d1d5db;font-size:14px;white-space:pre-wrap">${ticket.description.replace(/</g, '&lt;')}</div>
+          </div>
+          <div style="margin-top:20px">
+            <a href="${SITE_CONFIG.siteUrl}/admin" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Open Admin Panel</a>
+          </div>
+        </div>`;
+
+        fetch(SITE_CONFIG.email.workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: SITE_CONFIG.email.adminEmail,
+            toName: 'TrueBeast Admin',
+            subject: `[TrueBeast Support] New ticket ${ticketId} — ${ticket.subject}`,
+            html: adminHtml,
+            senderName: SITE_CONFIG.email.senderName,
+            senderEmail: SITE_CONFIG.email.senderEmail,
+            messageId: `<admin-${threadId}>`,
+            references: `<${threadId}>`,
+          }),
+        }).catch(() => {});
+
         setSubmitting(false);
         setSubmittedId(ticketId);
       })
       .catch((err) => {
         console.warn('Ticket save failed:', err);
-        // Still show success since localStorage fallback works
         setSubmitting(false);
         setSubmittedId(ticketId);
       });
