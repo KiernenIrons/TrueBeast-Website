@@ -1113,6 +1113,361 @@ function AnnouncementsTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Tickets Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+type TicketFilter = 'all' | 'open' | 'in-progress' | 'resolved' | 'urgent';
+const TICKET_STATUS_COLORS: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  open: { bg: 'bg-green-500/10', text: 'text-green-400', border: 'border-green-500/20', label: 'Open' },
+  'in-progress': { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/20', label: 'In Progress' },
+  resolved: { bg: 'bg-gray-500/10', text: 'text-gray-400', border: 'border-gray-500/20', label: 'Resolved' },
+  urgent: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20', label: 'Urgent' },
+};
+const PRIORITY_COLORS: Record<string, string> = {
+  low: 'text-gray-400', medium: 'text-yellow-400', high: 'text-red-400',
+};
+
+async function sendTicketEmail(to: string, toName: string, subject: string, html: string) {
+  const cfg = SITE_CONFIG.email;
+  if (!cfg.workerUrl) return;
+  try {
+    await fetch(cfg.workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, toName, subject, html, senderName: cfg.senderName, senderEmail: cfg.senderEmail }),
+    });
+  } catch (err) { console.warn('Email send failed:', err); }
+}
+
+function buildThreadHtml(responses: any[], limit = 5): string {
+  const recent = responses.slice(-limit);
+  return recent.map((r: any) => {
+    const isSupport = r.from === 'support';
+    const border = isSupport ? '#8b5cf6' : '#22c55e';
+    const name = isSupport ? 'TrueBeast Support' : 'You';
+    const time = new Date(r.timestamp || r.createdAt).toLocaleString();
+    return `<div style="border-left:3px solid ${border};padding:8px 12px;margin:8px 0;background:#1a1a2e;border-radius:0 8px 8px 0">
+      <div style="font-size:12px;color:#9ca3af;margin-bottom:4px"><strong style="color:${border}">${name}</strong> · ${time}</div>
+      <div style="color:#d1d5db;font-size:14px;white-space:pre-wrap">${(r.text || r.message || '').replace(/</g, '&lt;')}</div>
+    </div>`;
+  }).join('');
+}
+
+function TicketsTab() {
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<TicketFilter>('all');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<any>(null);
+  const [reply, setReply] = useState('');
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+
+  const fetchTickets = useCallback(async () => {
+    setLoading(true);
+    try { setTickets(await FirebaseDB.getAllTickets()); } catch { /* */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchTickets(); }, [fetchTickets]);
+  useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 4000); return () => clearTimeout(t); }, [feedback]);
+
+  const counts = {
+    all: tickets.length,
+    open: tickets.filter((t) => t.status === 'open').length,
+    'in-progress': tickets.filter((t) => t.status === 'in-progress').length,
+    resolved: tickets.filter((t) => t.status === 'resolved').length,
+    urgent: tickets.filter((t) => t.priority === 'high' && t.status !== 'resolved').length,
+  };
+
+  const filtered = tickets.filter((t) => {
+    if (filter === 'urgent') return t.priority === 'high' && t.status !== 'resolved';
+    if (filter !== 'all' && t.status !== filter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      if (!t.id?.toLowerCase().includes(s) && !t.name?.toLowerCase().includes(s) && !t.subject?.toLowerCase().includes(s) && !t.email?.toLowerCase().includes(s)) return false;
+    }
+    return true;
+  });
+
+  const handleStatusChange = async (ticket: any, status: string) => {
+    try {
+      await FirebaseDB.updateTicket(ticket.id, { status });
+      // Send resolution email
+      if (status === 'resolved' && ticket.email) {
+        const thread = buildThreadHtml(ticket.responses || [], 5);
+        const html = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;background:#0a0a1a;color:#fff;padding:32px;border-radius:16px">
+          <h2 style="color:#22c55e;margin-bottom:8px">Your ticket has been resolved ✓</h2>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="color:#9ca3af;padding:4px 8px">Ticket</td><td style="color:#fff;padding:4px 8px">${ticket.id}</td></tr>
+            <tr><td style="color:#9ca3af;padding:4px 8px">Subject</td><td style="color:#fff;padding:4px 8px">${ticket.subject}</td></tr>
+          </table>
+          ${thread ? '<h3 style="color:#9ca3af;font-size:14px;margin-top:16px">Conversation</h3>' + thread : ''}
+          <p style="color:#9ca3af;margin-top:20px;font-size:13px">If the issue wasn't fully resolved you can still reply or open a new one.</p>
+          <div style="margin-top:20px">
+            <a href="${SITE_CONFIG.siteUrl}/ticket?id=${ticket.id}" style="background:#22c55e;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View Ticket</a>
+            <a href="${SITE_CONFIG.siteUrl}/submit-review" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;margin-left:8px">Leave a Review</a>
+          </div>
+        </div>`;
+        sendTicketEmail(ticket.email, ticket.name, `[TrueBeast Support] Ticket ${ticket.id} has been resolved ✓`, html);
+      }
+      setFeedback({ type: 'success', message: `Status → ${status}` });
+      fetchTickets();
+      if (selected?.id === ticket.id) setSelected({ ...ticket, status });
+    } catch { setFeedback({ type: 'error', message: 'Status update failed' }); }
+  };
+
+  const handleReply = async () => {
+    if (!reply.trim() || !selected) return;
+    setSending(true);
+    try {
+      const newResponse = { from: 'support', text: reply.trim(), timestamp: new Date().toISOString() };
+      const responses = [...(selected.responses || []), newResponse];
+      await FirebaseDB.updateTicket(selected.id, { responses, status: selected.status === 'open' ? 'in-progress' : selected.status });
+
+      // Send email notification
+      if (selected.email) {
+        const thread = buildThreadHtml(responses.slice(-4), 4);
+        const html = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;background:#0a0a1a;color:#fff;padding:32px;border-radius:16px">
+          <h2 style="color:#8b5cf6;margin-bottom:16px">TrueBeast replied to your ticket</h2>
+          <div style="border-left:3px solid #8b5cf6;padding:12px 16px;margin:16px 0;background:#1a1a2e;border-radius:0 8px 8px 0">
+            <div style="color:#d1d5db;font-size:14px;white-space:pre-wrap">${reply.trim().replace(/</g, '&lt;')}</div>
+          </div>
+          ${thread ? '<h3 style="color:#9ca3af;font-size:14px;margin-top:16px">Recent conversation</h3>' + thread : ''}
+          <div style="margin-top:20px">
+            <a href="${SITE_CONFIG.siteUrl}/ticket?id=${selected.id}" style="background:#8b5cf6;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">View & Reply to Ticket</a>
+          </div>
+        </div>`;
+        sendTicketEmail(selected.email, selected.name, `[TrueBeast Support] New reply on ticket ${selected.id}`, html);
+      }
+
+      setReply('');
+      setFeedback({ type: 'success', message: 'Reply sent + email notification' });
+      fetchTickets();
+      setSelected({ ...selected, responses, status: selected.status === 'open' ? 'in-progress' : selected.status });
+    } catch { setFeedback({ type: 'error', message: 'Reply failed' }); }
+    finally { setSending(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Permanently delete this ticket?')) return;
+    try {
+      await FirebaseDB.deleteTicket(id);
+      setFeedback({ type: 'success', message: 'Ticket deleted' });
+      if (selected?.id === id) setSelected(null);
+      fetchTickets();
+    } catch { setFeedback({ type: 'error', message: 'Delete failed' }); }
+  };
+
+  // ── Detail View ──
+  if (selected) {
+    const sc = TICKET_STATUS_COLORS[selected.status] || TICKET_STATUS_COLORS.open;
+    const responses = selected.responses || [];
+    return (
+      <div className="space-y-4">
+        {/* Back + header */}
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => setSelected(null)} className="text-gray-400 hover:text-white transition-colors cursor-pointer text-sm flex items-center gap-1">
+            ← Back to tickets
+          </button>
+        </div>
+
+        <GlassCard className="p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-white font-display">{selected.subject}</h3>
+              <p className="text-xs text-gray-500 font-mono mt-0.5">{selected.id}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {['open', 'in-progress', 'resolved', 'urgent'].map((s) => {
+                const c = TICKET_STATUS_COLORS[s] || TICKET_STATUS_COLORS.open;
+                return (
+                  <button key={s} type="button" onClick={() => handleStatusChange(selected, s)}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${selected.status === s ? `${c.bg} ${c.text} ${c.border}` : 'bg-white/5 text-gray-500 border-white/5 hover:bg-white/10'}`}>
+                    {c.label}
+                  </button>
+                );
+              })}
+              <button type="button" onClick={() => handleDelete(selected.id)} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer ml-2">
+                <Trash01 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Info grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white/[0.02] rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">From</p>
+              <p className="text-sm text-white">{selected.name}</p>
+              <p className="text-xs text-gray-400">{selected.email}</p>
+              {selected.discord && <p className="text-xs text-indigo-400">{selected.discord}</p>}
+            </div>
+            <div className="bg-white/[0.02] rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Details</p>
+              <p className="text-sm text-white capitalize">{selected.category}</p>
+              <p className={`text-xs font-semibold capitalize ${PRIORITY_COLORS[selected.priority] || 'text-gray-400'}`}>Priority: {selected.priority}</p>
+              <span className={`inline-block ${sc.bg} ${sc.text} ${sc.border} border rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase`}>{sc.label}</span>
+            </div>
+            <div className="bg-white/[0.02] rounded-xl p-4 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Timeline</p>
+              <p className="text-xs text-gray-400">Created: {new Date(selected.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+              {selected.updatedAt && <p className="text-xs text-gray-400">Updated: {new Date(selected.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
+              <p className="text-xs text-gray-400">{responses.length} message{responses.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+        </GlassCard>
+
+        {/* Conversation thread */}
+        <GlassCard className="p-5">
+          <h4 className="text-sm font-semibold text-gray-300 mb-4">Conversation</h4>
+          <div className="space-y-3">
+            {/* Original message */}
+            <div className="flex gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {(selected.name || '?').charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-green-400">{selected.name}</span>
+                  <span className="text-[10px] text-gray-600">{new Date(selected.createdAt).toLocaleString()}</span>
+                </div>
+                <div className="bg-green-500/5 border-l-2 border-green-500/30 rounded-r-lg p-3">
+                  <p className="text-sm text-gray-300 whitespace-pre-wrap">{selected.description}</p>
+                  {selected.deviceInfo && (
+                    <div className="mt-2 pt-2 border-t border-white/5">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Device Info</p>
+                      <p className="text-xs text-gray-400 whitespace-pre-wrap">{selected.deviceInfo}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Responses */}
+            {responses.map((r: any, i: number) => {
+              const isSupport = r.from === 'support';
+              return (
+                <div key={i} className="flex gap-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${isSupport ? 'bg-gradient-to-br from-violet-500 to-purple-600' : 'bg-gradient-to-br from-green-500 to-emerald-600'}`}>
+                    {isSupport ? 'TB' : (selected.name || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-sm font-semibold ${isSupport ? 'text-violet-400' : 'text-green-400'}`}>{isSupport ? 'TrueBeast Support' : selected.name}</span>
+                      <span className="text-[10px] text-gray-600">{new Date(r.timestamp || r.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className={`${isSupport ? 'bg-violet-500/5 border-l-2 border-violet-500/30' : 'bg-green-500/5 border-l-2 border-green-500/30'} rounded-r-lg p-3`}>
+                      <p className="text-sm text-gray-300 whitespace-pre-wrap">{r.text || r.message}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Reply form */}
+          {selected.status !== 'resolved' ? (
+            <div className="mt-6 pt-4 border-t border-white/5">
+              <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Type your reply..." rows={3}
+                className={inp + ' resize-y mb-3'} />
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={handleReply} disabled={sending || !reply.trim()}
+                  className="flex items-center gap-2 py-2.5 px-5 rounded-xl text-sm font-bold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40 transition-all cursor-pointer">
+                  {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send01 className="w-4 h-4" />}
+                  {sending ? 'Sending...' : 'Send Reply'}
+                </button>
+                {feedback && <span className={`text-xs ${feedback.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>{feedback.message}</span>}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 pt-4 border-t border-white/5 text-center">
+              <p className="text-gray-500 text-sm">This ticket has been resolved.</p>
+            </div>
+          )}
+        </GlassCard>
+      </div>
+    );
+  }
+
+  // ── List View ──
+  return (
+    <div className="space-y-4">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { label: 'Total', value: counts.all, icon: '📋' },
+          { label: 'Open', value: counts.open, icon: '🟢' },
+          { label: 'In Progress', value: counts['in-progress'], icon: '🔵' },
+          { label: 'Resolved', value: counts.resolved, icon: '✅' },
+          { label: 'Urgent', value: counts.urgent, icon: '🔴' },
+        ].map((s) => (
+          <GlassCard key={s.label} className="p-4 text-center">
+            <span className="text-lg">{s.icon}</span>
+            <p className="text-2xl font-bold text-white mt-1">{s.value}</p>
+            <p className="text-xs text-gray-500">{s.label}</p>
+          </GlassCard>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <GlassCard className="p-4 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1.5">
+          {(['all', 'open', 'in-progress', 'resolved', 'urgent'] as const).map((f) => (
+            <button key={f} type="button" onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${filter === f ? 'bg-green-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+              {f === 'all' ? 'All' : f === 'in-progress' ? 'In Progress' : f.charAt(0).toUpperCase() + f.slice(1)}
+              {counts[f] > 0 && <span className="ml-1 opacity-60">({counts[f]})</span>}
+            </button>
+          ))}
+        </div>
+        <input type="text" placeholder="Search by ID, name, subject, email..." value={search} onChange={(e) => setSearch(e.target.value)}
+          className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50" />
+        <button type="button" onClick={fetchTickets} className="text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+          <RefreshCw01 className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </GlassCard>
+
+      {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
+
+      {/* Ticket list */}
+      {loading && tickets.length === 0 ? (
+        <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading tickets...</p></GlassCard>
+      ) : filtered.length === 0 ? (
+        <GlassCard className="p-12 text-center"><p className="text-gray-500">{search ? 'No tickets match your search' : 'No tickets found'}</p></GlassCard>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((t) => {
+            const sc = TICKET_STATUS_COLORS[t.status] || TICKET_STATUS_COLORS.open;
+            const replyCount = (t.responses || []).length;
+            return (
+              <GlassCard key={t.id} hover className="p-4 cursor-pointer" onClick={() => setSelected(t)}>
+                <div className="flex items-center gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-xs font-mono text-green-400">{t.id}</span>
+                      <span className={`${sc.bg} ${sc.text} ${sc.border} border rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase`}>{sc.label}</span>
+                      <span className={`text-[10px] font-semibold uppercase ${PRIORITY_COLORS[t.priority] || 'text-gray-400'}`}>{t.priority}</span>
+                    </div>
+                    <p className="text-sm text-white font-medium truncate">{t.subject}</p>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                      <span>{t.name}</span>
+                      <span>{t.category}</span>
+                      <span>{new Date(t.createdAt).toLocaleDateString()}</span>
+                      {replyCount > 0 && <span>{replyCount} repl{replyCount === 1 ? 'y' : 'ies'}</span>}
+                    </div>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-600 -rotate-90 flex-shrink-0" />
+                </div>
+              </GlassCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Reviews Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1518,7 +1873,7 @@ function AdminDashboard() {
               ))}
             </TabList>
             <TabPanel id="announcements" className="mt-2"><AnnouncementsTab /></TabPanel>
-            <TabPanel id="tickets" className="mt-2"><PlaceholderTab icon={MessageSquare01} label="Tickets" /></TabPanel>
+            <TabPanel id="tickets" className="mt-2"><TicketsTab /></TabPanel>
             <TabPanel id="reviews" className="mt-2"><ReviewsTab /></TabPanel>
             <TabPanel id="analytics" className="mt-2"><AnalyticsTab /></TabPanel>
           </Tabs>
