@@ -271,12 +271,11 @@ function TicketView({ ticket: initialTicket }: { ticket: TicketData }) {
         body: JSON.stringify({
           to: SITE_CONFIG.email.adminEmail,
           toName: 'TrueBeast Admin',
-          subject: `[TrueBeast Support] ${ticket.name} replied to ticket ${ticket.id}`,
+          subject: `[TrueBeast Support] Ticket ${ticket.id} — Reply from ${ticket.name}`,
           html: replyHtml,
           senderName: SITE_CONFIG.email.senderName,
           senderEmail: SITE_CONFIG.email.senderEmail,
-          references: `<${threadId}>`,
-          inReplyTo: `<${threadId}>`,
+          threadSubject: `[TrueBeast Support] Ticket ${ticket.id}`,
         }),
       }).then((r) => {
         console.log('[Email] Admin reply notification:', r.status, r.ok ? 'OK' : 'FAILED');

@@ -9,6 +9,11 @@
  *   Google Workspace     → 1,500 emails/day
  * That's more than enough for a tech support site.
  *
+ * SUPPORTS EMAIL THREADING:
+ *   If `threadSubject` is provided, the script searches your Gmail
+ *   for an existing thread with that subject and replies to it.
+ *   This keeps all emails for the same ticket in one conversation.
+ *
  * SETUP STEPS (one-time, ~5 minutes):
  *
  *  1. Go to https://script.google.com
@@ -34,13 +39,16 @@
  *       Value: (the same random string you used in step 5)
  *  8. Update the Cloudflare Worker code (email-proxy.js) — already done!
  *  9. That's it. Emails now send from your Gmail, zero third-party services.
+ *
+ * IMPORTANT: After updating this script, you MUST re-deploy:
+ *   Deploy → Manage deployments → Edit (pencil) → Version: New version → Deploy
  */
 
 function doPost(e) {
     try {
-        const props  = PropertiesService.getScriptProperties();
-        const secret = props.getProperty('SECRET');
-        const data   = JSON.parse(e.postData.contents);
+        var props  = PropertiesService.getScriptProperties();
+        var secret = props.getProperty('SECRET');
+        var data   = JSON.parse(e.postData.contents);
 
         // Simple secret check so random people can't spam via your script
         if (!secret || data.secret !== secret) {
@@ -49,16 +57,48 @@ function doPost(e) {
                 .setMimeType(ContentService.MimeType.JSON);
         }
 
-        // Send the email from your Gmail account
-        MailApp.sendEmail({
-            to:       data.to,
-            subject:  data.subject,
-            htmlBody: data.html || data.htmlContent || '',
-            name:     data.senderName || (data.sender && data.sender.name) || 'TrueBeast Support',
-        });
+        var to       = data.to;
+        var subject  = data.subject;
+        var htmlBody = data.html || data.htmlContent || '';
+        var name     = data.senderName || 'TrueBeast Support';
+
+        // Threading: if threadSubject is provided, try to find an existing
+        // Gmail thread and reply to it instead of creating a new email
+        var threadSubject = data.threadSubject || null;
+        var sent = false;
+
+        if (threadSubject) {
+            try {
+                // Search for threads matching the ticket subject in sent mail
+                var threads = GmailApp.search('subject:"' + threadSubject + '" in:anywhere', 0, 1);
+                if (threads.length > 0) {
+                    var thread = threads[0];
+                    thread.reply('', {
+                        htmlBody: htmlBody,
+                        name: name,
+                        to: to,
+                        subject: subject,
+                    });
+                    sent = true;
+                }
+            } catch (threadErr) {
+                // If thread reply fails, fall back to regular send
+                Logger.log('Thread reply failed: ' + threadErr.message);
+            }
+        }
+
+        // Fall back to regular send if threading didn't work
+        if (!sent) {
+            MailApp.sendEmail({
+                to:       to,
+                subject:  subject,
+                htmlBody: htmlBody,
+                name:     name,
+            });
+        }
 
         return ContentService
-            .createTextOutput(JSON.stringify({ success: true }))
+            .createTextOutput(JSON.stringify({ success: true, threaded: sent }))
             .setMimeType(ContentService.MimeType.JSON);
 
     } catch (err) {
@@ -71,6 +111,6 @@ function doPost(e) {
 // GET handler — useful for testing the script is deployed correctly
 function doGet() {
     return ContentService
-        .createTextOutput(JSON.stringify({ status: 'TrueBeast email script is running' }))
+        .createTextOutput(JSON.stringify({ status: 'TrueBeast email script is running (v2 with threading)' }))
         .setMimeType(ContentService.MimeType.JSON);
 }

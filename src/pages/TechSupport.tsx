@@ -348,8 +348,7 @@ function TicketForm() {
           html: userHtml,
           senderName: SITE_CONFIG.email.senderName,
           senderEmail: SITE_CONFIG.email.senderEmail,
-          messageId: `<${threadId}>`,
-          references: `<${threadId}>`,
+          threadSubject: `[TrueBeast Support] Ticket ${ticketId}`,
         };
 
         // Send to user
@@ -386,12 +385,11 @@ function TicketForm() {
           body: JSON.stringify({
             to: SITE_CONFIG.email.adminEmail,
             toName: 'TrueBeast Admin',
-            subject: `[TrueBeast Support] New ticket ${ticketId} — ${ticket.subject}`,
+            subject: `[TrueBeast Support] Ticket ${ticketId} — New ticket from ${ticket.name}`,
             html: adminHtml,
             senderName: SITE_CONFIG.email.senderName,
             senderEmail: SITE_CONFIG.email.senderEmail,
-            messageId: `<admin-${threadId}>`,
-            references: `<${threadId}>`,
+            threadSubject: `[TrueBeast Support] Ticket ${ticketId}`,
           }),
         }).then((r) => {
           console.log('[Email] Admin notification:', r.status, r.ok ? 'OK' : 'FAILED');

@@ -1139,7 +1139,7 @@ async function sendTicketEmail(to: string, toName: string, subject: string, html
       body: JSON.stringify({
         to, toName, subject, html,
         senderName: cfg.senderName, senderEmail: cfg.senderEmail,
-        ...(threadId ? { references: `<${threadId}>`, inReplyTo: `<${threadId}>` } : {}),
+        ...(ticketId ? { threadSubject: `[TrueBeast Support] Ticket ${ticketId}` } : {}),
       }),
     });
     console.log('[Email] Ticket email:', to, res.status, res.ok ? 'OK' : 'FAILED');
