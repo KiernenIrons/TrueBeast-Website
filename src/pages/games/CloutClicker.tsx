@@ -37,6 +37,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { getFirebaseApp } from '@/lib/firebase';
+import { GameSound } from '@/games/clout-clicker/sound';
 
 // ---------------------------------------------------------------------------
 // CSS Keyframes (injected once)
@@ -49,6 +50,22 @@ function ensureStyles() {
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
+    /* Dotted grid background */
+    .cc-grid-bg {
+      background-image:
+        radial-gradient(circle, rgba(34,197,94,0.15) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .cc-bg-gradient {
+      background: radial-gradient(ellipse at 50% 0%, rgba(34,197,94,0.08) 0%, transparent 60%),
+                  radial-gradient(ellipse at 80% 80%, rgba(16,185,129,0.05) 0%, transparent 50%),
+                  radial-gradient(ellipse at 20% 100%, rgba(5,150,105,0.04) 0%, transparent 40%),
+                  #0a0a0f;
+    }
+    /* Custom cursor: pointing emoji rotated -45deg */
+    .cc-cursor {
+      cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><text y='24' x='4' font-size='24' transform='rotate(-45 16 16)'>👆</text></svg>") 16 16, pointer;
+    }
     @keyframes ccFloatUp {
       from { opacity: 1; transform: translateY(0) scale(1); }
       to   { opacity: 0; transform: translateY(-60px) scale(1.2); }
@@ -79,6 +96,19 @@ function ensureStyles() {
     @keyframes cc-pulse {
       0%, 100% { opacity: 0.6; transform: scale(0.8); }
       50%      { opacity: 1; transform: scale(1.1); }
+    }
+    /* Leaderboard sparkles */
+    @keyframes ccSparkle {
+      0%   { opacity: 0; transform: scale(0) translateY(0); }
+      50%  { opacity: 1; transform: scale(1) translateY(-8px); }
+      100% { opacity: 0; transform: scale(0.5) translateY(-16px); }
+    }
+    .cc-lb-sparkle {
+      position: absolute;
+      pointer-events: none;
+      animation: ccSparkle var(--dur, 1.5s) ease-out infinite;
+      animation-delay: var(--delay, 0s);
+      font-size: 12px;
     }
     .cc-pulse {
       animation: ccPulse 2s ease-in-out infinite;
@@ -303,44 +333,54 @@ function LeaderboardModal({ onClose }: { onClose: () => void }) {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e, i) => (
-                <tr
-                  key={e.uid}
-                  className="border-b border-white/5 hover:bg-white/5"
-                >
-                  <td className="py-2 text-white/60">
+              {entries.map((e, i) => {
+                const isTop3 = i < 3;
+                const rankColors = ['text-yellow-400', 'text-gray-300', 'text-amber-600'];
+                const rowBg = i === 0 ? 'bg-yellow-500/5 border-yellow-500/20' : i === 1 ? 'bg-gray-400/5 border-gray-400/10' : i === 2 ? 'bg-amber-600/5 border-amber-600/10' : 'border-white/5';
+                const nameColor = i === 0 ? 'text-yellow-400 font-bold' : i === 1 ? 'text-gray-200 font-semibold' : i === 2 ? 'text-amber-500 font-semibold' : '';
+                return (
+                <tr key={e.uid} className={`border-b ${rowBg} hover:bg-white/5 relative`}>
+                  <td className={`py-2.5 ${isTop3 ? rankColors[i] + ' font-bold text-base' : 'text-white/60'}`}>
                     {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                   </td>
-                  <td className="py-2 flex items-center gap-2">
-                    {e.photoURL ? (
-                      <img
-                        src={e.photoURL}
-                        alt=""
-                        className="w-5 h-5 rounded-full"
-                      />
-                    ) : (
-                      <span className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-xs">
-                        {(e.displayName || '?')[0]}
-                      </span>
-                    )}
-                    <span className="truncate max-w-[120px]">
+                  <td className="py-2.5 flex items-center gap-2">
+                    <div className={`relative ${isTop3 ? 'w-7 h-7' : 'w-5 h-5'}`}>
+                      {e.photoURL ? (
+                        <img src={e.photoURL} alt="" className={`rounded-full ${isTop3 ? 'w-7 h-7 ring-2 ' + (i === 0 ? 'ring-yellow-400' : i === 1 ? 'ring-gray-300' : 'ring-amber-600') : 'w-5 h-5'}`} />
+                      ) : (
+                        <span className={`rounded-full flex items-center justify-center text-xs ${isTop3 ? 'w-7 h-7 ring-2 ' + (i === 0 ? 'ring-yellow-400 bg-yellow-500/20' : i === 1 ? 'ring-gray-300 bg-gray-400/20' : 'ring-amber-600 bg-amber-600/20') : 'w-5 h-5 bg-white/10'}`}>
+                          {(e.displayName || '?')[0]}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`truncate max-w-[120px] ${nameColor}`}>
                       {e.displayName || 'Anonymous'}
                     </span>
+                    {(e.prestigeLevel ?? 0) > 0 && <span className="text-violet-400 text-[10px]">🌀{e.prestigeLevel > 1 ? ` ×${e.prestigeLevel}` : ''}</span>}
                   </td>
-                  <td className="py-2 text-right text-green-400">
+                  <td className={`py-2.5 text-right ${isTop3 ? rankColors[i] + ' font-semibold' : 'text-green-400'}`}>
                     {formatNumber(e.allTimeCloutEver ?? 0)}
                   </td>
-                  <td className="py-2 text-right text-violet-400 hidden sm:table-cell">
+                  <td className="py-2.5 text-right text-violet-400 hidden sm:table-cell">
                     {e.prestigeLevel ?? 0}
                   </td>
-                  <td className="py-2 text-right hidden sm:table-cell">
+                  <td className="py-2.5 text-right hidden sm:table-cell">
                     {formatNumber(e.cps ?? 0)}/s
                   </td>
-                  <td className="py-2 text-right hidden md:table-cell">
+                  <td className="py-2.5 text-right hidden md:table-cell">
                     {formatNumber(e.clicks ?? 0)}
                   </td>
+                  {/* Sparkles for top 3 */}
+                  {isTop3 && (
+                    <>
+                      {['✨','⭐','🌟','💛','✨','⭐'].map((sp, si) => (
+                        <span key={si} className="cc-lb-sparkle" style={{ left: `${10 + si * 16}%`, top: `${20 + (si % 3) * 30}%`, '--delay': `${si * 0.3}s`, '--dur': `${1.2 + si * 0.2}s` } as CSSProperties}>{sp}</span>
+                      ))}
+                    </>
+                  )}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -656,7 +696,7 @@ function BuildingsList({
         return (
           <button
             key={b.id}
-            onClick={() => engine.buyBuilding(b.id, buyMode)}
+            onClick={() => { if (engine.buyBuilding(b.id, buyMode)) GameSound.playPurchase(); }}
             disabled={!canAfford}
             className={`w-full text-left p-2.5 rounded-xl border transition-all ${
               canAfford
@@ -723,7 +763,7 @@ function UpgradesGrid({ engine }: { engine: GameEngine }) {
               return (
                 <div key={u.id} className="relative">
                   <button
-                    onClick={() => engine.buyUpgrade(u.id)}
+                    onClick={() => { if (engine.buyUpgrade(u.id)) GameSound.playPurchase(); }}
                     onMouseEnter={() => setHoverId(u.id)}
                     onMouseLeave={() => setHoverId(null)}
                     disabled={!canAfford}
@@ -814,6 +854,8 @@ function ClickArea({
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       const earned = engine.click();
+      if (engine.buffs.clickFrenzy) GameSound.playClickFrenzy();
+      else GameSound.playClick();
       const rect = targetRef.current?.getBoundingClientRect();
       const x = e.clientX - (rect?.left ?? 0);
       const y = e.clientY - (rect?.top ?? 0);
@@ -895,7 +937,7 @@ function ClickArea({
               const delay = -(posInRing / ringSize) * speed;
               return (
                 <div key={i} className="absolute left-1/2 top-1/2" style={{ animation: `cc-orbit ${speed}s linear infinite`, animationDelay: `${delay}s`, width: 0, height: 0 }}>
-                  <span className="absolute text-base" style={{ left: radius, top: 0, animation: `cc-pulse 10s ease-in-out infinite`, animationDelay: `${-(i / total) * 10}s` }}>👆</span>
+                  <span className="absolute text-base" style={{ left: radius, top: 0, transform: 'rotate(-90deg)', animation: `cc-pulse 10s ease-in-out infinite`, animationDelay: `${-(i / total) * 10}s` }}>👆</span>
                 </div>
               );
             })}
@@ -1275,9 +1317,12 @@ export default function CloutClicker() {
     ensureStyles();
   }, []);
 
-  // Initialize engine
+  // Initialize engine + audio
   if (!engine.current) {
     engine.current = new GameEngine();
+    // Init audio context on first user interaction
+    const initAudio = () => { GameSound.init(); document.removeEventListener('click', initAudio); };
+    document.addEventListener('click', initAudio);
   }
 
   // Subscribe to engine updates
@@ -1436,6 +1481,7 @@ export default function CloutClicker() {
     if (goldenCountdown.current) clearInterval(goldenCountdown.current);
 
     eng.clickGolden();
+    GameSound.playGoldenClick();
 
     // Schedule next golden
     const { min, max } = eng.getGoldenSpawnRange();
@@ -1463,6 +1509,7 @@ export default function CloutClicker() {
 
   const handlePrestige = useCallback(() => {
     engine.current!.prestige();
+    GameSound.playPrestige();
     setModal(null);
   }, []);
 
@@ -1489,7 +1536,7 @@ export default function CloutClicker() {
   const s = eng.state;
 
   return (
-    <div className="h-screen flex flex-col bg-[#0a0a0f] text-white overflow-hidden">
+    <div className="h-screen flex flex-col cc-bg-gradient cc-grid-bg cc-cursor text-white overflow-hidden">
       <Helmet>
         <title>Clout Clicker | TrueBeast</title>
       </Helmet>
@@ -1502,6 +1549,14 @@ export default function CloutClicker() {
         onSignOut={handleSignOut}
         saving={saving}
       />
+
+      {/* Sticky Clout Bar */}
+      <div className="flex items-center justify-center gap-6 py-2 px-4 border-b border-white/5 bg-black/30 backdrop-blur-sm flex-shrink-0">
+        <span className="text-2xl sm:text-3xl font-display font-black text-white tracking-tight">{formatNumber(s.clout)}</span>
+        <span className="text-green-400 text-sm font-semibold">{formatNumber(s.cps * (eng.buffs.frenzy ? eng.buffs.frenzy.mult : 1))}/s</span>
+        <span className="text-white/40 text-sm">+{formatNumber((s.clickPower + s.cps * 0.01) * (eng.buffs.clickFrenzy ? eng.buffs.clickFrenzy.mult : 1))}/click</span>
+        {s.prestigeLevel > 0 && <span className="text-violet-400 text-xs">🌀 ×{s.prestigeLevel}</span>}
+      </div>
 
       {/* Game Area */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
