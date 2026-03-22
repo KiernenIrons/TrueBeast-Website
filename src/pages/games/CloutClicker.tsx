@@ -72,6 +72,14 @@ function ensureStyles() {
     .cc-golden-bob {
       animation: ccGoldenBob 2s ease-in-out infinite;
     }
+    @keyframes cc-orbit {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    @keyframes cc-pulse {
+      0%, 100% { opacity: 0.6; transform: scale(0.8); }
+      50%      { opacity: 1; transform: scale(1.1); }
+    }
     .cc-pulse {
       animation: ccPulse 2s ease-in-out infinite;
     }
@@ -872,15 +880,63 @@ function ClickArea({
         </div>
       )}
 
-      {/* Click Target */}
-      <div className="relative">
+      {/* Click Target with Orbit Ring */}
+      <div className="relative flex items-center justify-center" style={{ width: 280, height: 280 }}>
+        {/* Orbit ring — viewer icons orbiting the controller */}
+        {(s.buildings['viewer'] || 0) > 0 && (
+          <div className="absolute inset-0 pointer-events-none">
+            {Array.from({ length: Math.min(s.buildings['viewer'] || 0, 40) }).map((_, i) => {
+              const total = Math.min(s.buildings['viewer'] || 0, 40);
+              const ring = Math.floor(i / 20);
+              const posInRing = i % 20;
+              const ringSize = Math.min(total - ring * 20, 20);
+              const radius = 120 + ring * 38;
+              const speed = 12 + ring * 3;
+              const delay = -(posInRing / ringSize) * speed;
+              return (
+                <div key={i} className="absolute left-1/2 top-1/2" style={{ animation: `cc-orbit ${speed}s linear infinite`, animationDelay: `${delay}s`, width: 0, height: 0 }}>
+                  <span className="absolute text-base" style={{ left: radius, top: 0, animation: `cc-pulse 10s ease-in-out infinite`, animationDelay: `${-(i / total) * 10}s` }}>👆</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Click speed ring */}
+        <svg className="absolute" width="220" height="220" viewBox="0 0 220 220" style={{ left: 30, top: 30 }}>
+          <circle cx="110" cy="110" r="98" fill="none" stroke="rgba(34,197,94,0.1)" strokeWidth="3" />
+          <circle cx="110" cy="110" r="98" fill="none" stroke="rgba(34,197,94,0.6)" strokeWidth="3"
+            strokeDasharray={`${2 * Math.PI * 98}`}
+            strokeDashoffset={`${2 * Math.PI * 98 * (1 - Math.min((s.sessionClicks > 0 ? 0.3 : 0), 1))}`}
+            strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.3s' }} />
+        </svg>
+
         <button
           ref={targetRef}
           onClick={handleClick}
-          className="w-28 h-28 sm:w-32 sm:h-32 rounded-full glass-strong border-2 border-green-400/30 hover:border-green-400/60 active:scale-95 transition-all flex items-center justify-center text-6xl sm:text-7xl cursor-pointer"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
+          className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full border-2 border-green-400/30 hover:border-green-400/60 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+          style={{ WebkitTapHighlightColor: 'transparent', background: 'rgba(34,197,94,0.03)' }}
         >
-          🎮
+          {/* Original wireframe controller SVG */}
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 70" width="88" height="56" aria-hidden="true">
+            <path d="M18 32 C14 20 22 14 34 14 L42 14 C44 11 66 11 68 14 L76 14 C88 14 96 20 92 32 L86 55 C84 62 76 65 68 60 L62 55 C59 58 55 59 55 59 C55 59 51 58 48 55 L42 60 C34 65 26 62 24 55 Z" fill="rgba(34,197,94,0.1)" stroke="rgba(34,197,94,0.9)" strokeWidth="2.5" strokeLinejoin="round"/>
+            <path d="M22 16 C28 10 38 12 42 14" stroke="rgba(34,197,94,0.7)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+            <path d="M88 16 C82 10 72 12 68 14" stroke="rgba(34,197,94,0.7)" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+            <rect x="24" y="22" width="7" height="18" rx="2" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" strokeWidth="1.8"/>
+            <rect x="18" y="28" width="19" height="6" rx="2" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" strokeWidth="1.8"/>
+            <circle cx="83" cy="24" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" strokeWidth="1.8"/>
+            <circle cx="76" cy="30" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" strokeWidth="1.8"/>
+            <circle cx="90" cy="30" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" strokeWidth="1.8"/>
+            <circle cx="83" cy="36" r="3.5" fill="rgba(34,197,94,0.15)" stroke="rgba(34,197,94,0.7)" strokeWidth="1.8"/>
+            <circle cx="38" cy="44" r="6.5" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.6)" strokeWidth="1.8"/>
+            <circle cx="38" cy="44" r="2.5" fill="rgba(34,197,94,0.3)"/>
+            <circle cx="68" cy="44" r="6.5" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.6)" strokeWidth="1.8"/>
+            <circle cx="68" cy="44" r="2.5" fill="rgba(34,197,94,0.3)"/>
+            <rect x="48" y="24" width="5" height="3.5" rx="1.5" fill="rgba(34,197,94,0.45)"/>
+            <rect x="57" y="24" width="5" height="3.5" rx="1.5" fill="rgba(34,197,94,0.45)"/>
+            <circle cx="55" cy="38" r="5" fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.5)" strokeWidth="1.8"/>
+            <text x="55" y="41" textAnchor="middle" fontSize="5" fill="rgba(34,197,94,0.85)" fontFamily="sans-serif" fontWeight="bold">TB</text>
+          </svg>
         </button>
 
         {/* Float Animations */}
