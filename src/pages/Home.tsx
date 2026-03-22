@@ -665,6 +665,42 @@ function ConnectSection() {
 // Section: Latest Announcement
 // ---------------------------------------------------------------------------
 
+// Simple Discord markdown + mention renderer for homepage
+function renderAnnouncementMarkdown(text: string): string {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // Custom emoji
+    .replace(/&lt;(a?):(\w+):(\d+)&gt;/g, (_m, animated, name, id) => {
+      const ext = animated ? 'gif' : 'png';
+      return `<img src="https://cdn.discordapp.com/emojis/${id}.${ext}?size=24" alt=":${name}:" title=":${name}:" class="inline-block w-5 h-5 align-text-bottom" />`;
+    })
+    // Strip role/user mentions (show as styled text)
+    .replace(/&lt;@[!&]?\d+&gt;/g, '')
+    // Channel mentions
+    .replace(/&lt;#\d+&gt;/g, '')
+    // Bold italic
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    // Underline
+    .replace(/__(.+?)__/g, '<u>$1</u>')
+    // Strikethrough
+    .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1 rounded text-xs">$1</code>')
+    // Spoiler
+    .replace(/\|\|(.+?)\|\|/g, '<span class="bg-gray-600 text-gray-600 hover:text-gray-200 rounded px-0.5 cursor-pointer transition-colors">$1</span>')
+    // Blockquote
+    .replace(/^&gt; (.+)$/gm, '<div class="border-l-2 border-gray-500 pl-2 text-gray-400">$1</div>')
+    // Bullet lists
+    .replace(/^- (.+)$/gm, '<div class="flex gap-1.5"><span class="text-gray-500">•</span><span>$1</span></div>')
+    // Newlines
+    .replace(/\n/g, '<br>');
+}
+
 function LatestAnnouncementSection() {
   const [announcement, setAnnouncement] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -697,6 +733,10 @@ function LatestAnnouncementSection() {
     return d.toLocaleDateString();
   })();
 
+  // Parse content — strip role mentions that are just noise on the homepage
+  const contentHtml = announcement.content ? renderAnnouncementMarkdown(announcement.content) : null;
+  const descHtml = embed?.description ? renderAnnouncementMarkdown(embed.description) : null;
+
   return (
     <section className="relative py-24 px-6">
       <div className="max-w-[72rem] mx-auto">
@@ -717,8 +757,8 @@ function LatestAnnouncementSection() {
           style={{ borderLeft: `4px solid ${color}` }}
         >
           {/* Content text above embed */}
-          {announcement.content && (
-            <p className="text-gray-300 mb-4 leading-relaxed">{announcement.content}</p>
+          {contentHtml && (
+            <div className="text-gray-300 mb-4 leading-relaxed" dangerouslySetInnerHTML={{ __html: contentHtml }} />
           )}
 
           {/* Embed block */}
@@ -727,8 +767,8 @@ function LatestAnnouncementSection() {
               {embed.title && (
                 <h3 className="text-white font-bold text-lg mb-2">{embed.title}</h3>
               )}
-              {embed.description && (
-                <p className="text-gray-400 leading-relaxed mb-3">{embed.description}</p>
+              {descHtml && (
+                <div className="text-gray-400 leading-relaxed mb-3" dangerouslySetInnerHTML={{ __html: descHtml }} />
               )}
               {embed.image?.url && (
                 <img

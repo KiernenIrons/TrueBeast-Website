@@ -321,7 +321,7 @@ export default function Navigation() {
             <div className="grid items-center gap-2" style={{ gridTemplateColumns: 'auto 1fr auto' }}>
 
               {/* Col 1: Logo */}
-              <Link to="/" className="flex items-center gap-3 group">
+              <Link to="/" onClick={() => { if (window.location.pathname === '/') window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="flex items-center gap-3 group">
                 <img
                   src="/assets/logos/logo.png"
                   alt="TrueBeast logo"
