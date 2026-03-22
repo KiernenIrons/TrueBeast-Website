@@ -5,7 +5,8 @@
  *
  * Performance mode automatically disables backdrop-filter and heavy animations
  * when sustained FPS drops below 28 (e.g. browser with hardware acceleration off).
- * The result is cached in localStorage so it applies before first paint on return visits.
+ * Only 'fast' is cached — once a device proves capable, future visits skip measurement.
+ * 'slow' is never persisted so one bad session can't permanently degrade the experience.
  */
 
 // ---------------------------------------------------------------------------
@@ -44,7 +45,6 @@ const THEME_EVENT = 'tb-theme-change';
 
 // FPS thresholds
 const FPS_SLOW_THRESHOLD = 28;
-const FPS_FAST_THRESHOLD = 55;
 const FPS_SAMPLE_DURATION_MS = 2000;
 const FPS_SETTLE_DELAY_MS = 3000;
 
@@ -66,11 +66,10 @@ if (initialIsLight) {
   root.classList.add(LIGHT_CLASS);
 }
 
-// Performance -- apply cached result immediately.
+// Performance -- if the device previously proved fast, skip measurement.
+// We intentionally do NOT cache 'slow' — perf-mode is session-only so one
+// bad measurement can't permanently kill glass effects across visits.
 const cachedPerf: string | null = localStorage.getItem(PERF_KEY);
-if (cachedPerf === 'slow') {
-  root.classList.add(PERF_CLASS);
-}
 
 // Respect OS "reduce motion" preference as an explicit opt-in.
 if (
@@ -108,7 +107,7 @@ export const TBTheme: TBThemeAPI = {
 export const TBPerf: TBPerfAPI = {
   enable(): void {
     root.classList.add(PERF_CLASS);
-    localStorage.setItem(PERF_KEY, 'slow');
+    // Session-only — don't persist to localStorage.
   },
 
   disable(): void {
@@ -140,12 +139,11 @@ function measureFps(): void {
 
       if (fps < FPS_SLOW_THRESHOLD) {
         root.classList.add(PERF_CLASS);
-        localStorage.setItem(PERF_KEY, 'slow');
-      } else if (fps >= FPS_FAST_THRESHOLD) {
+        // Don't persist 'slow' — only activate for this session.
+      } else {
         root.classList.remove(PERF_CLASS);
         localStorage.setItem(PERF_KEY, 'fast');
       }
-      // Between 28-55 fps: keep whatever was set from localStorage, don't overwrite.
     }
   }
 
@@ -153,6 +151,8 @@ function measureFps(): void {
 }
 
 window.addEventListener('load', () => {
+  // If the device previously proved fast, skip measurement entirely.
+  if (cachedPerf === 'fast') return;
   // Wait for Babel/React/fonts to finish their initial burst before measuring.
   setTimeout(measureFps, FPS_SETTLE_DELAY_MS);
 });

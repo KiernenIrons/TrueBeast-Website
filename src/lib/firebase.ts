@@ -25,6 +25,7 @@ import {
   deleteDoc,
   collection,
   query,
+  where,
   orderBy,
   limit,
   addDoc,
@@ -112,6 +113,13 @@ export interface AnalyticsEvent {
   ts: string;
   ua: string;
   [key: string]: unknown;
+}
+
+export interface GiveawayEntry {
+  id: string;           // Auto-generated doc ID
+  giveawayId: string;   // Matches Giveaway.id slug from config
+  discord: string;      // Discord username (unique per giveaway)
+  enteredAt: string;    // ISO timestamp
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +238,27 @@ function _lsUpdateReview(id: string, payload: Partial<Review>): Review | null {
 function _lsDeleteReview(id: string): void {
   const reviews: Review[] = JSON.parse(localStorage.getItem('tb_reviews') || '[]');
   localStorage.setItem('tb_reviews', JSON.stringify(reviews.filter((r) => r.id !== id)));
+}
+
+// Giveaway entry localStorage fallbacks
+
+const LS_GIVEAWAY_ENTRIES = 'tb_giveaway_entries';
+
+function _lsGetGiveawayEntries(giveawayId: string): GiveawayEntry[] {
+  const all: GiveawayEntry[] = JSON.parse(localStorage.getItem(LS_GIVEAWAY_ENTRIES) || '[]');
+  return all.filter((e) => e.giveawayId === giveawayId);
+}
+
+function _lsSaveGiveawayEntry(entry: GiveawayEntry): GiveawayEntry {
+  const all: GiveawayEntry[] = JSON.parse(localStorage.getItem(LS_GIVEAWAY_ENTRIES) || '[]');
+  all.push(entry);
+  localStorage.setItem(LS_GIVEAWAY_ENTRIES, JSON.stringify(all));
+  return entry;
+}
+
+function _lsHasEnteredGiveaway(giveawayId: string, discord: string): boolean {
+  const entries = _lsGetGiveawayEntries(giveawayId);
+  return entries.some((e) => e.discord.toLowerCase() === discord.toLowerCase());
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +401,78 @@ export const FirebaseDB = {
       }
     }
     _lsDeleteReview(id);
+  },
+
+  // -----------------------------------------------------------------------
+  // Giveaway Entries
+  // -----------------------------------------------------------------------
+
+  async enterGiveaway(giveawayId: string, discord: string): Promise<{ success: boolean; alreadyEntered?: boolean }> {
+    const normalizedDiscord = discord.trim();
+    if (!normalizedDiscord) return { success: false };
+
+    _ensureApp();
+
+    if (_isConfigured() && _db) {
+      try {
+        // Check for existing entry by this Discord user in this giveaway
+        const q = query(
+          collection(_db, 'giveaway_entries'),
+          where('giveawayId', '==', giveawayId),
+          where('discord', '==', normalizedDiscord.toLowerCase()),
+        );
+        const existing = await _withTimeout(getDocs(q));
+        if (!existing.empty) {
+          return { success: false, alreadyEntered: true };
+        }
+
+        const entry: GiveawayEntry = {
+          id: `ge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          giveawayId,
+          discord: normalizedDiscord,
+          enteredAt: new Date().toISOString(),
+        };
+        await _withTimeout(setDoc(doc(_db, 'giveaway_entries', entry.id), entry));
+        return { success: true };
+      } catch (err) {
+        console.warn('FirebaseDB.enterGiveaway fell back to localStorage:', (err as Error).message);
+      }
+    }
+
+    // localStorage fallback
+    if (_lsHasEnteredGiveaway(giveawayId, normalizedDiscord)) {
+      return { success: false, alreadyEntered: true };
+    }
+    _lsSaveGiveawayEntry({
+      id: `ge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      giveawayId,
+      discord: normalizedDiscord,
+      enteredAt: new Date().toISOString(),
+    });
+    return { success: true };
+  },
+
+  async getGiveawayEntries(giveawayId: string): Promise<GiveawayEntry[]> {
+    _ensureApp();
+    if (_isConfigured() && _db) {
+      try {
+        const q = query(
+          collection(_db, 'giveaway_entries'),
+          where('giveawayId', '==', giveawayId),
+          orderBy('enteredAt', 'desc'),
+        );
+        const snap = await _withTimeout(getDocs(q));
+        return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as GiveawayEntry);
+      } catch (err) {
+        console.warn('FirebaseDB.getGiveawayEntries fell back to localStorage:', (err as Error).message);
+      }
+    }
+    return _lsGetGiveawayEntries(giveawayId);
+  },
+
+  async getGiveawayEntryCount(giveawayId: string): Promise<number> {
+    const entries = await this.getGiveawayEntries(giveawayId);
+    return entries.length;
   },
 
   // -----------------------------------------------------------------------

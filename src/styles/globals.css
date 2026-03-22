@@ -157,19 +157,18 @@
 @layer components {
   /* ── Glass Effects ──────────────────────────────────────────────────── */
   .glass {
-    background: rgba(15, 15, 22, 0.65);
-    backdrop-filter: blur(48px) saturate(180%);
-    -webkit-backdrop-filter: blur(48px) saturate(180%);
+    background: rgba(15, 15, 22, 0.35);
+    backdrop-filter: blur(48px) saturate(200%);
+    -webkit-backdrop-filter: blur(48px) saturate(200%);
     border: 1px solid var(--glass-border);
     box-shadow:
       0 8px 32px rgba(0, 0, 0, 0.3),
       inset 0 1px 0 var(--glass-highlight),
       inset 0 -1px 0 rgba(0, 0, 0, 0.1);
-    isolation: isolate;
   }
 
   .glass-strong {
-    background: rgba(15, 15, 22, 0.75);
+    background: rgba(15, 15, 22, 0.50);
     backdrop-filter: blur(48px) saturate(200%);
     -webkit-backdrop-filter: blur(48px) saturate(200%);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -177,7 +176,6 @@
       0 25px 50px -12px rgba(0, 0, 0, 0.5),
       inset 0 1px 0 rgba(255, 255, 255, 0.2),
       inset 0 -1px 0 rgba(0, 0, 0, 0.1);
-    isolation: isolate;
   }
 
   /* ── Scroll Reveal ──────────────────────────────────────────────────── */
@@ -331,7 +329,7 @@ html.perf-mode .glass,
 html.perf-mode .glass-strong {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: rgba(12, 12, 18, 0.92) !important;
+  background: rgba(14, 18, 20, 0.85) !important;
 }
 
 html.perf-mode * {
