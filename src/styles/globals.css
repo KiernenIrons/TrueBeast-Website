@@ -166,6 +166,7 @@
       inset 0 1px 0 var(--glass-highlight),
       inset 0 -1px 0 rgba(0, 0, 0, 0.1);
     isolation: isolate;
+    animation: glassReveal 0.15s ease-out both;
   }
 
   .glass-strong {
@@ -177,6 +178,7 @@
       0 25px 50px -12px rgba(0, 0, 0, 0.5),
       inset 0 1px 0 rgba(255, 255, 255, 0.2),
       inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+    animation: glassReveal 0.15s ease-out both;
     isolation: isolate;
   }
 
@@ -292,6 +294,11 @@
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* Keyframes (these don't participate in cascade, safe outside layers)      */
 /* ══════════════════════════════════════════════════════════════════════════ */
+@keyframes glassReveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: translateY(0); }
