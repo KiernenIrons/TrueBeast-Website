@@ -1113,7 +1113,366 @@ function AnnouncementsTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Placeholder Tabs & Dashboard
+// Reviews Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  pending: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/20' },
+  approved: { bg: 'bg-green-500/10', text: 'text-green-400', border: 'border-green-500/20' },
+  rejected: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/20' },
+};
+
+function Stars({ rating, size = 14 }: { rating: number; size?: number }) {
+  return (
+    <div className="flex gap-0.5">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <svg key={i} width={size} height={size} viewBox="0 0 24 24" fill={i <= rating ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2"
+          className={i <= rating ? 'text-yellow-400' : 'text-gray-600'}>
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
+type ReviewFilter = 'all' | 'pending' | 'approved' | 'rejected';
+
+function ReviewsTab() {
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<ReviewFilter>('all');
+  const [search, setSearch] = useState('');
+  const [feedback, setFeedback] = useState<Feedback>(null);
+
+  const fetchReviews = useCallback(async () => {
+    setLoading(true);
+    try { setReviews(await FirebaseDB.getAllReviews()); } catch { /* */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchReviews(); }, [fetchReviews]);
+  useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 3000); return () => clearTimeout(t); }, [feedback]);
+
+  const filtered = reviews.filter((r) => {
+    if (filter !== 'all' && r.status !== filter) return false;
+    if (search && !r.name?.toLowerCase().includes(search.toLowerCase()) && !r.text?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const counts = { all: reviews.length, pending: reviews.filter((r) => r.status === 'pending').length, approved: reviews.filter((r) => r.status === 'approved').length, rejected: reviews.filter((r) => r.status === 'rejected').length };
+  const avgRating = reviews.length ? (reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length).toFixed(1) : '—';
+
+  const handleAction = async (id: string, action: 'approved' | 'rejected') => {
+    try { await FirebaseDB.updateReview(id, { status: action }); setFeedback({ type: 'success', message: `Review ${action}` }); fetchReviews(); }
+    catch { setFeedback({ type: 'error', message: 'Action failed' }); }
+  };
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this review?')) return;
+    try { await FirebaseDB.deleteReview(id); setFeedback({ type: 'success', message: 'Deleted' }); fetchReviews(); }
+    catch { setFeedback({ type: 'error', message: 'Delete failed' }); }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { label: 'Total', value: counts.all, icon: '📊' },
+          { label: 'Pending', value: counts.pending, icon: '⏳' },
+          { label: 'Approved', value: counts.approved, icon: '✅' },
+          { label: 'Rejected', value: counts.rejected, icon: '❌' },
+          { label: 'Avg Rating', value: avgRating, icon: '⭐' },
+        ].map((s) => (
+          <GlassCard key={s.label} className="p-4 text-center">
+            <span className="text-lg">{s.icon}</span>
+            <p className="text-2xl font-bold text-white mt-1">{s.value}</p>
+            <p className="text-xs text-gray-500">{s.label}</p>
+          </GlassCard>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <GlassCard className="p-4 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1.5">
+          {(['all', 'pending', 'approved', 'rejected'] as const).map((f) => (
+            <button key={f} type="button" onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${filter === f ? 'bg-green-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+              {f.charAt(0).toUpperCase() + f.slice(1)} {counts[f] > 0 && <span className="ml-1 opacity-60">({counts[f]})</span>}
+            </button>
+          ))}
+        </div>
+        <input type="text" placeholder="Search reviews..." value={search} onChange={(e) => setSearch(e.target.value)}
+          className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/50" />
+        <button type="button" onClick={fetchReviews} className="text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+          <RefreshCw01 className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </GlassCard>
+
+      {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
+
+      {/* Reviews list */}
+      {loading && reviews.length === 0 ? (
+        <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading reviews...</p></GlassCard>
+      ) : filtered.length === 0 ? (
+        <GlassCard className="p-12 text-center"><p className="text-gray-500">No reviews found</p></GlassCard>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((r) => {
+            const sc = STATUS_COLORS[r.status] || STATUS_COLORS.pending;
+            return (
+              <GlassCard key={r.id} className="p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 min-w-0">
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                      {(r.name || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-white font-semibold text-sm">{r.name}</span>
+                        <Stars rating={r.rating || 0} />
+                        <span className={`${sc.bg} ${sc.text} ${sc.border} border rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase`}>
+                          {r.status}
+                        </span>
+                      </div>
+                      <p className="text-gray-400 text-sm mt-1 leading-relaxed">{r.text}</p>
+                      <p className="text-gray-600 text-[10px] mt-2">{new Date(r.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    </div>
+                  </div>
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {r.status !== 'approved' && (
+                      <button type="button" onClick={() => handleAction(r.id, 'approved')} title="Approve"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors cursor-pointer">
+                        Approve
+                      </button>
+                    )}
+                    {r.status !== 'rejected' && (
+                      <button type="button" onClick={() => handleAction(r.id, 'rejected')} title="Reject"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors cursor-pointer">
+                        Reject
+                      </button>
+                    )}
+                    <button type="button" onClick={() => handleDelete(r.id)} title="Delete"
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer">
+                      <Trash01 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </GlassCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Analytics Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+type Period = 'today' | '7d' | '30d' | 'all';
+
+function getPeriodStart(period: Period): string | undefined {
+  if (period === 'all') return undefined;
+  const d = new Date();
+  if (period === 'today') d.setHours(0, 0, 0, 0);
+  else if (period === '7d') d.setDate(d.getDate() - 7);
+  else if (period === '30d') d.setDate(d.getDate() - 30);
+  return d.toISOString();
+}
+
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+const EVENT_ICONS: Record<string, string> = {
+  page_view: '👁️', time_on_page: '⏱️', click: '🖱️',
+  announcement_sent: '📢', link_gen: '🔗', giveaway_enter: '🎁',
+};
+
+function AnalyticsTab() {
+  const [events, setEvents] = useState<any[]>([]);
+  const [period, setPeriod] = useState<Period>('30d');
+  const [loading, setLoading] = useState(true);
+  const lineRef = useRef<HTMLCanvasElement>(null);
+  const barRef = useRef<HTMLCanvasElement>(null);
+  const lineChartRef = useRef<any>(null);
+  const barChartRef = useRef<any>(null);
+
+  const fetchEvents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const start = getPeriodStart(period);
+      const data = await FirebaseDB.getAnalyticsEvents({ startDate: start, limit: 2000 });
+      setEvents(data);
+    } catch { /* */ }
+    finally { setLoading(false); }
+  }, [period]);
+
+  useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+  // Compute metrics
+  const pageViews = events.filter((e) => e.type === 'page_view');
+  const clicks = events.filter((e) => e.type === 'click');
+  const timeEvents = events.filter((e) => e.type === 'time_on_page');
+  const uniqueSessions = new Set(events.map((e) => e.sessionId)).size;
+  const avgTime = timeEvents.length ? Math.round(timeEvents.reduce((s, e) => s + (e.seconds || 0), 0) / timeEvents.length) : 0;
+
+  // Daily page views for line chart
+  const dailyViews = (() => {
+    const map: Record<string, number> = {};
+    pageViews.forEach((e) => {
+      const day = new Date(e.ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      map[day] = (map[day] || 0) + 1;
+    });
+    const entries = Object.entries(map);
+    return { labels: entries.map(([l]) => l), data: entries.map(([, v]) => v) };
+  })();
+
+  // Top pages for bar chart
+  const topPages = (() => {
+    const map: Record<string, number> = {};
+    pageViews.forEach((e) => { const p = e.page || '/'; map[p] = (map[p] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  })();
+
+  // Top clicks
+  const topClicks = (() => {
+    const map: Record<string, number> = {};
+    clicks.forEach((e) => { const l = e.label || e.text || 'unknown'; map[l] = (map[l] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  })();
+
+  // Charts
+  useEffect(() => {
+    if (!lineRef.current || !dailyViews.labels.length) return;
+    import('chart.js/auto').then(({ default: Chart }) => {
+      if (lineChartRef.current) lineChartRef.current.destroy();
+      const ctx = lineRef.current!.getContext('2d')!;
+      const gradient = ctx.createLinearGradient(0, 0, 0, 180);
+      gradient.addColorStop(0, 'rgba(34,197,94,0.3)');
+      gradient.addColorStop(1, 'rgba(34,197,94,0)');
+      lineChartRef.current = new Chart(ctx, {
+        type: 'line',
+        data: { labels: dailyViews.labels, datasets: [{ label: 'Page Views', data: dailyViews.data, borderColor: '#22c55e', backgroundColor: gradient, fill: true, tension: 0.4, pointRadius: 3, pointBackgroundColor: '#22c55e' }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.03)' } }, y: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } } } },
+      });
+    });
+    return () => { if (lineChartRef.current) { lineChartRef.current.destroy(); lineChartRef.current = null; } };
+  }, [dailyViews.labels.join(), dailyViews.data.join()]);
+
+  useEffect(() => {
+    if (!barRef.current || !topPages.length) return;
+    import('chart.js/auto').then(({ default: Chart }) => {
+      if (barChartRef.current) barChartRef.current.destroy();
+      barChartRef.current = new Chart(barRef.current!, {
+        type: 'bar',
+        data: { labels: topPages.map(([p]) => p), datasets: [{ label: 'Views', data: topPages.map(([, v]) => v), backgroundColor: 'rgba(34,197,94,0.5)', borderColor: '#22c55e', borderWidth: 1, borderRadius: 4 }] },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }, y: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { display: false } } } },
+      });
+    });
+    return () => { if (barChartRef.current) { barChartRef.current.destroy(); barChartRef.current = null; } };
+  }, [topPages.map(([p, v]) => `${p}:${v}`).join()]);
+
+  return (
+    <div className="space-y-4">
+      {/* Period selector */}
+      <GlassCard className="p-4 flex flex-wrap items-center gap-3">
+        <span className="text-sm text-gray-400 font-medium">Period:</span>
+        {(['today', '7d', '30d', 'all'] as const).map((p) => (
+          <button key={p} type="button" onClick={() => setPeriod(p)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${period === p ? 'bg-green-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+            {p === 'today' ? 'Today' : p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'All Time'}
+          </button>
+        ))}
+        <button type="button" onClick={fetchEvents} disabled={loading} className="ml-auto text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+          <RefreshCw01 className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </GlassCard>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { icon: '👁️', value: pageViews.length.toLocaleString(), label: 'Page Views', color: 'text-blue-400' },
+          { icon: '👤', value: uniqueSessions.toLocaleString(), label: 'Unique Sessions', color: 'text-green-400' },
+          { icon: '⏱️', value: `${avgTime}s`, label: 'Avg Time on Page', color: 'text-yellow-400' },
+          { icon: '🖱️', value: clicks.length.toLocaleString(), label: 'Total Clicks', color: 'text-purple-400' },
+        ].map((s) => (
+          <GlassCard key={s.label} className="p-5">
+            <span className="text-xl">{s.icon}</span>
+            <p className={`text-3xl font-bold mt-2 ${s.color}`}>{s.value}</p>
+            <p className="text-xs text-gray-500 mt-1">{s.label}</p>
+          </GlassCard>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <GlassCard className="p-5">
+          <h4 className="text-sm font-semibold text-gray-300 mb-3">Daily Page Views</h4>
+          <div style={{ height: 200 }}><canvas ref={lineRef} /></div>
+          {dailyViews.labels.length === 0 && !loading && <p className="text-gray-600 text-xs text-center mt-2">No page view data yet</p>}
+        </GlassCard>
+        <GlassCard className="p-5">
+          <h4 className="text-sm font-semibold text-gray-300 mb-3">Top Pages</h4>
+          <div style={{ height: 200 }}><canvas ref={barRef} /></div>
+          {topPages.length === 0 && !loading && <p className="text-gray-600 text-xs text-center mt-2">No page data yet</p>}
+        </GlassCard>
+      </div>
+
+      {/* Top clicks + Recent events */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Top clicks */}
+        <GlassCard className="p-5">
+          <h4 className="text-sm font-semibold text-gray-300 mb-3">Top Clicks</h4>
+          {topClicks.length === 0 ? <p className="text-gray-600 text-xs">No click data yet — add <code className="text-green-400">data-track</code> attributes to elements</p> : (
+            <div className="space-y-1.5">
+              {topClicks.map(([label, count]) => (
+                <div key={label} className="flex items-center justify-between bg-white/[0.02] rounded-lg px-3 py-2">
+                  <span className="text-xs text-gray-300 truncate">{label}</span>
+                  <span className="text-xs text-green-400 font-semibold ml-2">{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+
+        {/* Recent events */}
+        <GlassCard className="p-5">
+          <h4 className="text-sm font-semibold text-gray-300 mb-3">Recent Events</h4>
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {events.slice(0, 50).map((e, i) => (
+              <div key={e.id || i} className="flex items-center gap-2 bg-white/[0.02] rounded-lg px-3 py-1.5 text-xs">
+                <span>{EVENT_ICONS[e.type] || '📌'}</span>
+                <span className="text-gray-400 truncate flex-1">
+                  {e.type === 'page_view' && `Viewed ${e.page}`}
+                  {e.type === 'click' && `Clicked: ${e.label || e.text || '?'}`}
+                  {e.type === 'time_on_page' && `${e.seconds}s on ${e.page}`}
+                  {e.type === 'announcement_sent' && `Announcement by ${e.admin || '?'}`}
+                  {!['page_view', 'click', 'time_on_page', 'announcement_sent'].includes(e.type) && `${e.type} on ${e.page}`}
+                </span>
+                <span className="text-gray-600 flex-shrink-0">{timeAgo(e.ts)}</span>
+              </div>
+            ))}
+            {events.length === 0 && !loading && <p className="text-gray-600 text-xs text-center py-4">No events recorded yet</p>}
+          </div>
+        </GlassCard>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Placeholder Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
 function PlaceholderTab({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
@@ -1160,8 +1519,8 @@ function AdminDashboard() {
             </TabList>
             <TabPanel id="announcements" className="mt-2"><AnnouncementsTab /></TabPanel>
             <TabPanel id="tickets" className="mt-2"><PlaceholderTab icon={MessageSquare01} label="Tickets" /></TabPanel>
-            <TabPanel id="reviews" className="mt-2"><PlaceholderTab icon={Star01} label="Reviews" /></TabPanel>
-            <TabPanel id="analytics" className="mt-2"><PlaceholderTab icon={BarChart01} label="Analytics" /></TabPanel>
+            <TabPanel id="reviews" className="mt-2"><ReviewsTab /></TabPanel>
+            <TabPanel id="analytics" className="mt-2"><AnalyticsTab /></TabPanel>
           </Tabs>
         </div>
       </BotProvider>

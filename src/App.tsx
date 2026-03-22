@@ -17,6 +17,7 @@ const QRGenerator = lazy(() => import('./pages/tools/QRGenerator'))
 const Ripple = lazy(() => import('./pages/tools/Ripple'))
 const SocialsRotator = lazy(() => import('./pages/tools/SocialsRotator'))
 const CloutClicker = lazy(() => import('./pages/games/CloutClicker'))
+const SubmitReview = lazy(() => import('./pages/SubmitReview'))
 
 function LoadingFallback() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/tech-support" element={<TechSupport />} />
         <Route path="/ticket" element={<Ticket />} />
         <Route path="/my-tickets" element={<MyTickets />} />
+        <Route path="/submit-review" element={<SubmitReview />} />
         <Route path="/giveaways" element={<Giveaways />} />
         <Route path="/games" element={<Games />} />
         <Route path="/games/clout-clicker" element={<CloutClicker />} />

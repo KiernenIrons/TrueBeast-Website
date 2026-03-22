@@ -564,6 +564,33 @@ export const FirebaseDB = {
   },
 
   // -----------------------------------------------------------------------
+  // Analytics Events (admin read)
+  // -----------------------------------------------------------------------
+
+  async getAnalyticsEvents(options?: {
+    startDate?: string;
+    limit?: number;
+  }): Promise<AnalyticsEvent[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return [];
+    try {
+      const constraints: any[] = [orderBy('ts', 'desc')];
+      if (options?.startDate) {
+        constraints.unshift(where('ts', '>=', options.startDate));
+      }
+      if (options?.limit) {
+        constraints.push(limit(options.limit));
+      }
+      const q = query(collection(_db, 'analytics'), ...constraints);
+      const snap = await _withTimeout(getDocs(q), 15000);
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as unknown as AnalyticsEvent));
+    } catch (err) {
+      console.warn('FirebaseDB.getAnalyticsEvents error:', (err as Error).message);
+      return [];
+    }
+  },
+
+  // -----------------------------------------------------------------------
   // Admin Roles (RBAC)
   // -----------------------------------------------------------------------
 

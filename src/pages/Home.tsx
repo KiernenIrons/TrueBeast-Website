@@ -113,6 +113,7 @@ function VideoCard({ video, portrait = false, className = '', style }: VideoCard
       rel="noopener noreferrer"
       className={`group block h-full ${className}`}
       style={style}
+      data-track={`video_${video.category.toLowerCase().replace(/\s+/g, '_')}`}
     >
       <div className="glass rounded-2xl overflow-hidden h-full flex flex-col transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] group-hover:-translate-y-2 group-hover:scale-[1.02]">
         {/* Thumbnail */}
@@ -210,6 +211,7 @@ function HeroSection() {
             className="glass-strong rounded-xl px-8 py-4 flex items-center gap-3 text-white font-semibold
                        transition-all duration-300 hover:scale-105 hover:shadow-[0_0_30px_rgba(34,197,94,0.3)]
                        group"
+            data-track="hero_watch_latest"
           >
             <Youtube className="w-5 h-5 text-red-500 group-hover:scale-110 transition-transform" />
             Watch Latest
@@ -220,6 +222,7 @@ function HeroSection() {
             rel="noopener noreferrer"
             className="glass rounded-xl px-8 py-4 flex items-center gap-3 text-white font-semibold
                        transition-all duration-300 hover:scale-105 group"
+            data-track="hero_join_discord"
           >
             <DiscordIcon size={20} className="text-indigo-400 group-hover:scale-110 transition-transform" />
             Join Discord
@@ -418,7 +421,37 @@ function ContentSection() {
 // Section: Community (with floating reviews)
 // ---------------------------------------------------------------------------
 
+const REVIEW_COLORS = [
+  'from-green-500 to-emerald-500',
+  'from-pink-500 to-rose-500',
+  'from-violet-500 to-purple-500',
+  'from-cyan-500 to-blue-500',
+  'from-orange-500 to-amber-500',
+  'from-indigo-500 to-blue-500',
+];
+
 function CommunitySection() {
+  const [liveReviews, setLiveReviews] = useState<ReviewData[]>([]);
+
+  useEffect(() => {
+    FirebaseDB.getAllReviews()
+      .then((all: any[]) => {
+        const approved = all
+          .filter((r) => r.status === 'approved' && r.text)
+          .slice(0, 6)
+          .map((r, i) => ({
+            name: r.name || 'Anonymous',
+            tag: '',
+            text: r.text,
+            color: REVIEW_COLORS[i % REVIEW_COLORS.length],
+          }));
+        if (approved.length > 0) setLiveReviews(approved);
+      })
+      .catch(() => {});
+  }, []);
+
+  const displayReviews = liveReviews.length > 0 ? liveReviews : FALLBACK_REVIEWS;
+
   const features = [
     { icon: <Calendar className="w-5 h-5 text-green-400" />, text: 'Game nights every Friday - hop in and play' },
     { icon: <Film className="w-5 h-5 text-green-400" />, text: 'Movie nights every Saturday - grab the popcorn' },
@@ -474,6 +507,7 @@ function CommunitySection() {
                 </a>
                 <a
                   href="/submit-review"
+                  data-track="review_cta"
                   className="glass rounded-xl px-8 py-4 flex items-center justify-center gap-3 text-white font-semibold
                              transition-all duration-300 hover:scale-105 group"
                 >
@@ -487,7 +521,7 @@ function CommunitySection() {
             <div className="flex gap-2 pt-8">
               {[0, 1].map((col) => (
                 <div key={col} className="flex-1 flex flex-col gap-3">
-                  {FALLBACK_REVIEWS.filter((_, i) => i % 2 === col).map((review, j) => (
+                  {displayReviews.filter((_, i) => i % 2 === col).map((review, j) => (
                     <div
                       key={review.name}
                       className="glass rounded-2xl p-4 animate-float"
@@ -578,6 +612,7 @@ function ConnectSection() {
               target="_blank"
               rel="noopener noreferrer"
               className="group"
+              data-track={`social_${s.key}`}
             >
               <div className="glass glass-hover rounded-xl p-6 flex flex-col items-center text-center transition-all duration-300 group-hover:border-white/15">
                 {/* Colored icon area */}
@@ -602,6 +637,7 @@ function ConnectSection() {
             href="/tech-support"
             className="glass rounded-xl px-8 py-4 flex items-center gap-3 text-white font-semibold
                        transition-all duration-300 hover:scale-105 group"
+            data-track="tech_support_cta"
           >
             <Wrench className="w-5 h-5 text-green-400 group-hover:scale-110 transition-transform" />
             Need Tech Help? Submit a Ticket
@@ -613,6 +649,7 @@ function ConnectSection() {
               rel="noopener noreferrer"
               className="glass rounded-xl px-8 py-4 flex items-center gap-3 text-yellow-400 font-semibold
                          transition-all duration-300 hover:scale-105 group"
+              data-track="donation_link"
             >
               <Gift className="w-5 h-5 text-yellow-400 group-hover:scale-110 transition-transform" />
               Support the Channel
