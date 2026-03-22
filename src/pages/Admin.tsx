@@ -1133,7 +1133,7 @@ async function sendTicketEmail(to: string, toName: string, subject: string, html
   // Thread all emails for the same ticket together using a consistent messageId
   const threadId = ticketId ? ticketId.toLowerCase().replace(/[^a-z0-9]/g, '') + '@truebeast.io' : undefined;
   try {
-    await fetch(cfg.workerUrl, {
+    const res = await fetch(cfg.workerUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1142,6 +1142,8 @@ async function sendTicketEmail(to: string, toName: string, subject: string, html
         ...(threadId ? { references: `<${threadId}>`, inReplyTo: `<${threadId}>` } : {}),
       }),
     });
+    console.log('[Email] Ticket email:', to, res.status, res.ok ? 'OK' : 'FAILED');
+    if (!res.ok) { const t = await res.text().catch(() => ''); console.warn('[Email] Error:', t); }
   } catch (err) { console.warn('Email send failed:', err); }
 }
 

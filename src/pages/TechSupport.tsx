@@ -168,9 +168,9 @@ function SelectInput({
 } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <FormField label={label} hint={hint} required={required}>
-      <select className={INPUT_CLASSES.replace('bg-transparent', 'bg-[#0d0d1a]') + ' appearance-none cursor-pointer'} required={required} {...props} style={{ colorScheme: 'dark' }}>
+      <select className={INPUT_CLASSES + ' cursor-pointer'} required={required} {...props}>
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value} style={{ background: '#0d0d1a', color: '#fff' }}>
+          <option key={opt.value} value={opt.value} className="bg-[#0f1a12] text-white">
             {opt.label}
           </option>
         ))}
@@ -318,7 +318,10 @@ function TicketForm() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(emailPayload),
-        }).catch(() => {});
+        }).then((r) => {
+          console.log('[Email] User notification:', r.status, r.ok ? 'OK' : 'FAILED');
+          if (!r.ok) r.text().then((t) => console.warn('[Email] User error:', t));
+        }).catch((e) => console.warn('[Email] User send error:', e));
 
         // Send notification to admin
         const adminHtml = `<div style="font-family:system-ui;max-width:600px;margin:0 auto;background:#0a0a1a;color:#fff;padding:32px;border-radius:16px">
@@ -351,7 +354,10 @@ function TicketForm() {
             messageId: `<admin-${threadId}>`,
             references: `<${threadId}>`,
           }),
-        }).catch(() => {});
+        }).then((r) => {
+          console.log('[Email] Admin notification:', r.status, r.ok ? 'OK' : 'FAILED');
+          if (!r.ok) r.text().then((t) => console.warn('[Email] Admin error:', t));
+        }).catch((e) => console.warn('[Email] Admin send error:', e));
 
         setSubmitting(false);
         setSubmittedId(ticketId);
