@@ -373,11 +373,13 @@ function RichPicker({
   onClose,
   modes = ['emoji'],
   allowCustom = true,
+  anchor = 'left',
 }: {
   onInsert: (text: string) => void;
   onClose: () => void;
   modes?: PickerMode[];
   allowCustom?: boolean;
+  anchor?: 'left' | 'right';
 }) {
   const bot = useContext(BotCtx);
   const ref = useRef<HTMLDivElement>(null);
@@ -400,13 +402,21 @@ function RichPicker({
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const url = await bot.uploadImage(file);
-    if (url) onInsert(url);
-    setUploading(false);
+    try {
+      const url = await bot.uploadImage(file);
+      if (url) onInsert(url);
+      else window.alert('Upload failed — check that Firebase Storage is enabled in your Firebase Console and storage rules allow authenticated writes.');
+    } catch (err: any) {
+      window.alert('Upload error: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setUploading(false);
+      // Reset file input so re-selecting the same file triggers onChange
+      if (fileRef.current) fileRef.current.value = '';
+    }
   };
 
   return (
-    <div ref={ref} className="absolute z-50 top-full left-0 mt-1 bg-[#1e1f22] border border-white/10 rounded-xl shadow-2xl w-80 max-h-80 flex flex-col overflow-hidden">
+    <div ref={ref} className={`absolute z-50 top-full mt-1 bg-[#1e1f22] border border-white/10 rounded-xl shadow-2xl w-80 max-h-80 flex flex-col overflow-hidden ${anchor === 'right' ? 'right-0' : 'left-0'}`}>
       {/* Tabs */}
       {modes.length > 1 && (
         <div className="flex border-b border-white/10 flex-shrink-0">
@@ -582,7 +592,7 @@ function ImageInput({ value, onChange, label, placeholder }: { value: string; on
             className="w-9 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
             <Image01 className="w-3.5 h-3.5 text-gray-400" />
           </button>
-          {pickerOpen && <RichPicker modes={['image']} onInsert={(url) => { onChange(url); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />}
+          {pickerOpen && <RichPicker modes={['image']} onInsert={(url) => { onChange(url); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} anchor="right" />}
         </div>
       </div>
     </div>
@@ -846,18 +856,21 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
 
   const renderBtnEmoji = () => {
     if (!btn.emoji) return <FaceSmile className="w-4 h-4 text-gray-500" />;
-    const m = btn.emoji.match(/^(.+):(\d+)$/);
+    // Custom emoji: name:id OR just a numeric ID (legacy)
+    const m = btn.emoji.match(/(?:(.+):)?(\d{15,})$/);
     if (m) {
-      const em = bot.emojis.find((e) => e.id === m[2]);
-      return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.${em?.animated ? 'gif' : 'png'}?size=32`} alt={m[1]} className="w-5 h-5" />;
+      const eid = m[2];
+      const em = bot.emojis.find((e) => e.id === eid);
+      const ext = em?.animated ? 'gif' : 'png';
+      return <img src={`https://cdn.discordapp.com/emojis/${eid}.${ext}?size=32`} alt={m[1] || 'emoji'} className="w-5 h-5" />;
     }
-    return <span className="text-lg">{btn.emoji}</span>;
+    return <span className="text-lg leading-none">{btn.emoji}</span>;
   };
 
   return (
     <div className="flex gap-2 items-center">
       <div className="relative flex-shrink-0">
-        <button type="button" onClick={() => setPickerOpen(!pickerOpen)} className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer" title="Pick emoji">
+        <button type="button" onClick={() => setPickerOpen(!pickerOpen)} className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer overflow-hidden" title="Pick emoji">
           {renderBtnEmoji()}
         </button>
         {btn.emoji && <button type="button" onClick={() => onChange('emoji', '')} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center cursor-pointer"><XClose className="w-2 h-2" /></button>}
@@ -1131,19 +1144,9 @@ function AnnouncementsTab() {
 
         <GlassCard className="p-5"><ReactionsEditor reactions={state.reactions} onChange={setReactions} /></GlassCard>
         <GlassCard className="p-5"><PresetManager state={state} onLoad={handleLoadPreset} /></GlassCard>
-
-        <GlassCard className="p-5 space-y-3">
-          {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
-          <div className="flex items-center gap-3">
-            <Button color="primary" size="md" iconLeading={Send01} isLoading={sending} isDisabled={sending || !hasAnyContent(state) || !channelId} onClick={handleSend}>
-              {sending ? 'Sending...' : 'Send Announcement'}
-            </Button>
-            <Button color="tertiary" size="md" iconLeading={Trash01} isDisabled={sending} onClick={handleClear}>Clear All</Button>
-          </div>
-        </GlassCard>
       </div>
 
-      {/* Preview */}
+      {/* Preview + Send/Clear */}
       <div className="lg:sticky lg:top-28 space-y-4">
         <GlassCard className="p-5">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Live Preview</h3>
@@ -1156,6 +1159,17 @@ function AnnouncementsTab() {
               </div>
             </div>
             <DiscordPreview state={state} />
+          </div>
+        </GlassCard>
+
+        {/* Send / Clear */}
+        <GlassCard className="p-5 space-y-3">
+          {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
+          <div className="flex items-center gap-3">
+            <Button color="primary" size="md" iconLeading={Send01} isLoading={sending} isDisabled={sending || !hasAnyContent(state) || !channelId} onClick={handleSend}>
+              {sending ? 'Sending...' : 'Send Announcement'}
+            </Button>
+            <Button color="tertiary" size="md" iconLeading={Trash01} isDisabled={sending} onClick={handleClear}>Clear All</Button>
           </div>
         </GlassCard>
       </div>
