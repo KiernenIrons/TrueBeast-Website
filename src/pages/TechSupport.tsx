@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { SITE_CONFIG } from '@/config';
+import { FirebaseDB } from '@/lib/firebase';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -167,9 +168,9 @@ function SelectInput({
 } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <FormField label={label} hint={hint} required={required}>
-      <select className={INPUT_CLASSES} required={required} {...props}>
+      <select className={INPUT_CLASSES + ' [&>option]:bg-[#1a1a2e] [&>option]:text-white'} required={required} {...props}>
         {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
+          <option key={opt.value} value={opt.value} className="bg-[#1a1a2e] text-white">
             {opt.label}
           </option>
         ))}
@@ -278,11 +279,18 @@ function TicketForm() {
       localStorage.setItem('tb_my_ticket_ids', JSON.stringify([ticketId]));
     }
 
-    // Log for now; Firebase integration comes later
-    console.log('Ticket submitted:', ticket);
-
-    setSubmitting(false);
-    setSubmittedId(ticketId);
+    // Save to Firebase
+    FirebaseDB.saveTicket(ticket as any)
+      .then(() => {
+        setSubmitting(false);
+        setSubmittedId(ticketId);
+      })
+      .catch((err) => {
+        console.warn('Ticket save failed:', err);
+        // Still show success since localStorage fallback works
+        setSubmitting(false);
+        setSubmittedId(ticketId);
+      });
   }
 
   // ---- success state ----

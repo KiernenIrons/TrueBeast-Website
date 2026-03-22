@@ -15,6 +15,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
+import { FirebaseDB } from '@/lib/firebase';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -231,17 +232,24 @@ function TicketNotFound() {
 // Ticket View (main)
 // ---------------------------------------------------------------------------
 
-function TicketView({ ticket }: { ticket: TicketData }) {
+function TicketView({ ticket: initialTicket }: { ticket: TicketData }) {
+  const [ticket, setLocalTicket] = useState(initialTicket);
   const [replyText, setReplyText] = useState('');
   const statusStyle = STATUS_STYLES[ticket.status];
   const priorityStyle = PRIORITY_STYLES[ticket.priority];
 
-  const handleReply = (e: FormEvent) => {
+  const handleReply = async (e: FormEvent) => {
     e.preventDefault();
     if (!replyText.trim()) return;
-    // Firebase integration will go here later
-    console.log('Reply submitted:', { ticketId: ticket.id, text: replyText.trim() });
-    setReplyText('');
+    const newResponse = { from: 'user' as const, text: replyText.trim(), message: replyText.trim(), timestamp: new Date().toISOString(), createdAt: new Date().toISOString() };
+    const updatedResponses = [...ticket.responses, newResponse];
+    try {
+      await FirebaseDB.updateTicket(ticket.id, { responses: updatedResponses as any });
+      setLocalTicket({ ...ticket, responses: updatedResponses as any, updatedAt: new Date().toISOString() });
+      setReplyText('');
+    } catch (err) {
+      console.warn('Reply failed:', err);
+    }
   };
 
   return (
@@ -479,19 +487,21 @@ export default function Ticket() {
     setNotFound(false);
     setTicket(null);
 
-    // Simulate async fetch -- replace with Firebase lookup later
-    const timer = setTimeout(() => {
-      if (ticketId === MOCK_TICKET.id) {
-        setTicket(MOCK_TICKET);
-        setNotFound(false);
-      } else {
+    FirebaseDB.getTicket(ticketId)
+      .then((t) => {
+        if (t) {
+          setTicket(t as unknown as TicketData);
+          setNotFound(false);
+        } else {
+          setTicket(null);
+          setNotFound(true);
+        }
+      })
+      .catch(() => {
         setTicket(null);
         setNotFound(true);
-      }
-      setLoading(false);
-    }, 800);
-
-    return () => clearTimeout(timer);
+      })
+      .finally(() => setLoading(false));
   }, [ticketId]);
 
   // Determine which state to render

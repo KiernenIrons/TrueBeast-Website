@@ -1156,7 +1156,7 @@ function buildThreadHtml(responses: any[], limit = 5): string {
 function TicketsTab() {
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<TicketFilter>('all');
+  const [filter, setFilter] = useState<TicketFilter>('open');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<any>(null);
   const [reply, setReply] = useState('');
@@ -1847,8 +1847,18 @@ const TAB_ITEMS = [
   { id: 'analytics', label: 'Analytics' },
 ];
 
+const ADMIN_TAB_KEY = 'tb_admin_tab';
+
 function AdminDashboard() {
   const { user, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem(ADMIN_TAB_KEY) || 'announcements');
+
+  const handleTabChange = (key: any) => {
+    const id = String(key);
+    setActiveTab(id);
+    localStorage.setItem(ADMIN_TAB_KEY, id);
+  };
+
   return (
     <PageLayout gradientVariant="green" title="Admin Panel | TrueBeast">
       <BotProvider>
@@ -1860,7 +1870,7 @@ function AdminDashboard() {
             </div>
             <Button color="tertiary" size="sm" iconLeading={LogOut01} onClick={logout}>Sign Out</Button>
           </div>
-          <Tabs>
+          <Tabs selectedKey={activeTab} onSelectionChange={handleTabChange}>
             <TabList items={TAB_ITEMS} type="underline" size="md" className="mb-6">
               {TAB_ITEMS.map((tab) => (
                 <Tab key={tab.id} id={tab.id}>
