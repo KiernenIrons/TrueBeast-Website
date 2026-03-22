@@ -18,6 +18,16 @@
  *   GET  /discord/emojis    — returns custom emojis for the configured guild
  *   GET  /discord/roles     — returns roles for the configured guild
  *   POST /discord/send      — sends a message to a channel  { channelId, payload, reactions? }
+ *
+ * Firebase Auth routes:
+ *   GET  /firebase/users    — lists all Firebase Auth users (requires FIREBASE_SERVICE_ACCOUNT_EMAIL + FIREBASE_SERVICE_ACCOUNT_KEY)
+ *   POST /firebase/delete-user — deletes a Firebase Auth user { uid }
+ *   POST /firebase/disable-user — disables a Firebase Auth user { uid, disabled }
+ *
+ * Additional secrets for Firebase Auth management:
+ *   FIREBASE_PROJECT_ID            — your Firebase project ID (e.g. "truebeast-support")
+ *   FIREBASE_SERVICE_ACCOUNT_EMAIL — service account email from Firebase Console
+ *   FIREBASE_SERVICE_ACCOUNT_KEY   — service account private key (PEM format)
  */
 
 const ALLOWED_ORIGINS = [
@@ -149,6 +159,117 @@ async function handleDiscordSend(request, env, corsHeaders) {
     return jsonResponse(responseData, res.status, corsHeaders);
 }
 
+// ── Firebase Auth Management ──────────────────────────────────────────────
+
+async function getGoogleAccessToken(env) {
+    const email = env.FIREBASE_SERVICE_ACCOUNT_EMAIL;
+    const key = env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (!email || !key) return null;
+
+    // Build JWT
+    const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).replace(/=/g, '');
+    const now = Math.floor(Date.now() / 1000);
+    const payload = btoa(JSON.stringify({
+        iss: email,
+        scope: 'https://www.googleapis.com/auth/identitytoolkit https://www.googleapis.com/auth/firebase',
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+    })).replace(/=/g, '');
+
+    // Sign JWT with RSA private key
+    const pemContents = key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\n|\r/g, '');
+    const binaryKey = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+    const cryptoKey = await crypto.subtle.importKey('pkcs8', binaryKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+    const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(header + '.' + payload));
+    const sig = btoa(String.fromCharCode(...new Uint8Array(signature))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+    const jwt = header + '.' + payload + '.' + sig;
+
+    // Exchange JWT for access token
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+    });
+    const tokenData = await tokenRes.json();
+    return tokenData.access_token || null;
+}
+
+async function handleFirebaseListUsers(env, corsHeaders) {
+    const projectId = env.FIREBASE_PROJECT_ID;
+    if (!projectId) return jsonResponse({ error: 'FIREBASE_PROJECT_ID not set' }, 500, corsHeaders);
+
+    const token = await getGoogleAccessToken(env);
+    if (!token) return jsonResponse({ error: 'Could not get access token. Check FIREBASE_SERVICE_ACCOUNT_EMAIL and FIREBASE_SERVICE_ACCOUNT_KEY.' }, 500, corsHeaders);
+
+    // Use Identity Toolkit API to list all users
+    const allUsers = [];
+    let nextPageToken = '';
+    do {
+        const url = `https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:batchGet?maxResults=500${nextPageToken ? '&nextPageToken=' + nextPageToken : ''}`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        if (data.error) return jsonResponse({ error: data.error.message }, data.error.code || 500, corsHeaders);
+        if (data.users) allUsers.push(...data.users);
+        nextPageToken = data.nextPageToken || '';
+    } while (nextPageToken);
+
+    // Map to a clean format
+    const users = allUsers.map(u => ({
+        uid: u.localId,
+        email: u.email || null,
+        displayName: u.displayName || null,
+        photoUrl: u.photoUrl || null,
+        disabled: u.disabled || false,
+        createdAt: u.createdAt ? new Date(parseInt(u.createdAt)).toISOString() : null,
+        lastSignedIn: u.lastLoginAt ? new Date(parseInt(u.lastLoginAt)).toISOString() : null,
+        providers: (u.providerUserInfo || []).map(p => p.providerId),
+    }));
+
+    return jsonResponse(users, 200, corsHeaders);
+}
+
+async function handleFirebaseDeleteUser(request, env, corsHeaders) {
+    const projectId = env.FIREBASE_PROJECT_ID;
+    if (!projectId) return jsonResponse({ error: 'FIREBASE_PROJECT_ID not set' }, 500, corsHeaders);
+
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400, corsHeaders); }
+    if (!body.uid) return jsonResponse({ error: 'uid required' }, 400, corsHeaders);
+
+    const token = await getGoogleAccessToken(env);
+    if (!token) return jsonResponse({ error: 'Auth token failed' }, 500, corsHeaders);
+
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:delete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localId: [body.uid] }),
+    });
+    const data = await res.json();
+    return jsonResponse(data, res.status, corsHeaders);
+}
+
+async function handleFirebaseDisableUser(request, env, corsHeaders) {
+    const projectId = env.FIREBASE_PROJECT_ID;
+    if (!projectId) return jsonResponse({ error: 'FIREBASE_PROJECT_ID not set' }, 500, corsHeaders);
+
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400, corsHeaders); }
+    if (!body.uid) return jsonResponse({ error: 'uid required' }, 400, corsHeaders);
+
+    const token = await getGoogleAccessToken(env);
+    if (!token) return jsonResponse({ error: 'Auth token failed' }, 500, corsHeaders);
+
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${projectId}/accounts:update`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localId: body.uid, disableUser: body.disabled !== false }),
+    });
+    const data = await res.json();
+    return jsonResponse(data, res.status, corsHeaders);
+}
+
 export default {
     async fetch(request, env) {
         const origin = request.headers.get('Origin') || '';
@@ -185,6 +306,17 @@ export default {
         }
         if (path === '/discord/send' && request.method === 'POST') {
             return handleDiscordSend(request, env, corsHeaders);
+        }
+
+        // ── Firebase Auth routes ──────────────────────────────────────────────
+        if (path === '/firebase/users' && request.method === 'GET') {
+            return handleFirebaseListUsers(env, corsHeaders);
+        }
+        if (path === '/firebase/delete-user' && request.method === 'POST') {
+            return handleFirebaseDeleteUser(request, env, corsHeaders);
+        }
+        if (path === '/firebase/disable-user' && request.method === 'POST') {
+            return handleFirebaseDisableUser(request, env, corsHeaders);
         }
 
         // ── Email proxy (existing) ───────────────────────────────────────────

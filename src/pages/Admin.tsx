@@ -1851,7 +1851,7 @@ const PERM_COLORS: Record<string, string> = { tickets: 'text-blue-400 bg-blue-50
 function AdminManagementTab() {
   const { user } = useAuth();
   const [admins, setAdmins] = useState<any[]>([]);
-  const [allUsers, setAllUsers] = useState<{ uid: string; source: string; data: Record<string, unknown> }[]>([]);
+  const [allUsers, setAllUsers] = useState<{ uid: string; email: string | null; displayName: string | null; disabled: boolean; createdAt: string | null; lastSignedIn: string | null; providers: string[] }[]>([]);
   const [loading, setLoading] = useState(true);
   const [usersLoading, setUsersLoading] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -1867,13 +1867,24 @@ function AdminManagementTab() {
     finally { setUsersLoading(false); }
   }, []);
 
-  const handleDeleteUserData = async (uid: string) => {
-    if (!window.confirm(`Delete ALL data for user ${uid}? This removes their game saves, leaderboard entries, streaks, and message counts. This cannot be undone.`)) return;
+  const handleDeleteUser = async (u: typeof allUsers[0]) => {
+    if (!window.confirm(`DELETE user ${u.email || u.uid}?\n\nThis will:\n• Remove their Firebase Auth account (permanent)\n• Delete all their game data\n\nThis cannot be undone.`)) return;
     try {
-      await FirebaseDB.deleteUserData(uid);
-      setFeedback({ type: 'success', message: `Deleted data for ${uid}` });
+      await FirebaseDB.deleteAuthUser(u.uid);
+      await FirebaseDB.deleteUserData(u.uid);
+      setFeedback({ type: 'success', message: `Deleted ${u.email || u.uid}` });
       fetchUsers();
     } catch { setFeedback({ type: 'error', message: 'Delete failed' }); }
+  };
+
+  const handleToggleDisable = async (u: typeof allUsers[0]) => {
+    const action = u.disabled ? 'enable' : 'disable';
+    if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} user ${u.email || u.uid}?`)) return;
+    try {
+      await FirebaseDB.disableAuthUser(u.uid, !u.disabled);
+      setFeedback({ type: 'success', message: `User ${action}d` });
+      fetchUsers();
+    } catch { setFeedback({ type: 'error', message: `${action} failed` }); }
   };
 
   const fetchAdmins = useCallback(async () => {
@@ -2060,50 +2071,52 @@ function AdminManagementTab() {
           </GlassCard>
 
           {usersLoading && allUsers.length === 0 ? (
-            <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading users...</p></GlassCard>
+            <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading users from Firebase Auth...</p></GlassCard>
           ) : allUsers.length === 0 ? (
-            <GlassCard className="p-12 text-center"><p className="text-gray-500">No user data found in Firestore collections.</p></GlassCard>
+            <GlassCard className="p-12 text-center">
+              <p className="text-gray-500">No users found. Make sure the Cloudflare Worker has FIREBASE_PROJECT_ID, FIREBASE_SERVICE_ACCOUNT_EMAIL, and FIREBASE_SERVICE_ACCOUNT_KEY configured.</p>
+            </GlassCard>
           ) : (
             <div className="space-y-2">
               {allUsers
                 .filter((u) => {
                   if (!userSearch) return true;
                   const s = userSearch.toLowerCase();
-                  const name = ((u.data.displayName || u.data.username || u.data.name || '') as string).toLowerCase();
-                  return u.uid.toLowerCase().includes(s) || name.includes(s) || u.source.toLowerCase().includes(s);
+                  return u.uid.toLowerCase().includes(s) || (u.email || '').toLowerCase().includes(s) || (u.displayName || '').toLowerCase().includes(s);
                 })
-                .map((u) => {
-                  const name = (u.data.displayName || u.data.username || u.data.name || '') as string;
-                  const score = u.data.score || u.data.clicks;
-                  const peakScore = u.data.peakScore;
-                  return (
-                    <GlassCard key={u.uid} className="p-4">
+                .map((u) => (
+                    <GlassCard key={u.uid} className={`p-4 ${u.disabled ? 'opacity-50' : ''}`}>
                       <div className="flex items-center justify-between gap-4">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                              {(name || '?').charAt(0).toUpperCase()}
+                              {(u.displayName || u.email || '?').charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-white font-semibold text-sm">{name || 'Unknown'}</span>
-                            <span className="bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">{u.source}</span>
+                            <span className="text-white font-semibold text-sm">{u.displayName || u.email || 'No name'}</span>
+                            {u.disabled && <span className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">Disabled</span>}
+                            {u.providers.includes('password') && <span className="bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">Email</span>}
+                            {u.providers.includes('google.com') && <span className="bg-red-500/10 border border-red-500/20 text-orange-400 text-[10px] font-semibold px-2 py-0.5 rounded-full">Google</span>}
                           </div>
-                          <p className="text-[10px] text-gray-600 font-mono mt-0.5">{u.uid}</p>
-                          <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-400">
-                            {score !== undefined && <span>Score: <span className="text-yellow-400 font-semibold">{String(score)}</span></span>}
-                            {peakScore !== undefined && <span>Peak: <span className="text-green-400 font-semibold">{String(peakScore)}</span></span>}
-                            {u.data.level !== undefined && <span>Level: <span className="text-white">{String(u.data.level)}</span></span>}
-                            {typeof u.data.lastSaved === 'string' && <span>Last saved: <span className="text-white">{new Date(u.data.lastSaved).toLocaleDateString()}</span></span>}
-                            {typeof u.data.updatedAt === 'string' && <span>Updated: <span className="text-white">{new Date(u.data.updatedAt).toLocaleDateString()}</span></span>}
+                          <p className="text-xs text-gray-400 mt-0.5">{u.email || 'No email'}</p>
+                          <p className="text-[10px] text-gray-600 font-mono">{u.uid}</p>
+                          <div className="flex flex-wrap gap-3 mt-1.5 text-xs text-gray-500">
+                            {u.createdAt && <span>Created: <span className="text-gray-400">{new Date(u.createdAt).toLocaleDateString()}</span></span>}
+                            {u.lastSignedIn && <span>Last login: <span className="text-gray-400">{new Date(u.lastSignedIn).toLocaleDateString()}</span></span>}
                           </div>
                         </div>
-                        <button type="button" onClick={() => handleDeleteUserData(u.uid)} title="Delete all user data"
-                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer flex-shrink-0">
-                          <Trash01 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button type="button" onClick={() => handleToggleDisable(u)} title={u.disabled ? 'Enable user' : 'Disable user'}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-colors cursor-pointer ${u.disabled ? 'bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/20'}`}>
+                            {u.disabled ? 'Enable' : 'Disable'}
+                          </button>
+                          <button type="button" onClick={() => handleDeleteUser(u)} title="Delete user permanently"
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer">
+                            <Trash01 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </GlassCard>
-                  );
-                })}
+                  ))}
             </div>
           )}
         </div>

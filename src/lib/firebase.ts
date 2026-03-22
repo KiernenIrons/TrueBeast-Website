@@ -598,59 +598,48 @@ export const FirebaseDB = {
   // User Management (list users from Firestore collections)
   // -----------------------------------------------------------------------
 
-  async getAllUsers(): Promise<{ uid: string; source: string; data: Record<string, unknown> }[]> {
-    _ensureApp();
-    if (!_isConfigured() || !_db) return [];
-    const users: { uid: string; source: string; data: Record<string, unknown> }[] = [];
-    const seen = new Set<string>();
-
-    // Only scan collections that require Firebase Auth (real user accounts).
-    // Collections like messageCounts use Discord IDs, not Firebase UIDs.
-
-    // Game saves (requires auth: request.auth.uid == uid)
+  async getAllUsers(): Promise<{ uid: string; email: string | null; displayName: string | null; disabled: boolean; createdAt: string | null; lastSignedIn: string | null; providers: string[] }[]> {
+    // Fetch from Cloudflare Worker which uses Firebase Auth Admin API
+    const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
     try {
-      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-saves')));
-      snap.docs.forEach((d) => {
-        if (!seen.has(d.id)) {
-          seen.add(d.id);
-          users.push({ uid: d.id, source: 'clout-clicker', data: d.data() });
-        }
-      });
-    } catch { /* */ }
+      const res = await fetch(base + '/firebase/users');
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      console.warn('getAllUsers error:', data?.error);
+      return [];
+    } catch (err) {
+      console.warn('getAllUsers fetch failed:', err);
+      return [];
+    }
+  },
 
-    // Leaderboard entries (merge data for users we already found)
+  async deleteAuthUser(uid: string): Promise<boolean> {
+    const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
     try {
-      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-leaderboard')));
-      snap.docs.forEach((d) => {
-        const existing = users.find((u) => u.uid === d.id);
-        if (existing) {
-          // Merge leaderboard data (displayName, score) into existing entry
-          existing.data = { ...existing.data, ...d.data() };
-        } else if (!seen.has(d.id)) {
-          seen.add(d.id);
-          users.push({ uid: d.id, source: 'clout-clicker', data: d.data() });
-        }
+      const res = await fetch(base + '/firebase/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid }),
       });
-    } catch { /* */ }
+      return res.ok;
+    } catch { return false; }
+  },
 
-    // Peak scores
+  async disableAuthUser(uid: string, disabled: boolean): Promise<boolean> {
+    const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
     try {
-      const snap = await _withTimeout(getDocs(collection(_db, 'clout-clicker-peak')));
-      snap.docs.forEach((d) => {
-        const existing = users.find((u) => u.uid === d.id);
-        if (existing) {
-          existing.data.peakScore = d.data().score || d.data().peakScore;
-        }
+      const res = await fetch(base + '/firebase/disable-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, disabled }),
       });
-    } catch { /* */ }
-
-    return users;
+      return res.ok;
+    } catch { return false; }
   },
 
   async deleteUserData(uid: string): Promise<void> {
     _ensureApp();
     if (!_isConfigured() || !_db) return;
-    // Delete from Firebase Auth user collections only (not Discord bot data)
     const collections = ['clout-clicker-saves', 'clout-clicker-leaderboard', 'clout-clicker-peak', 'userStreaks', 'taskCompletions'];
     for (const col of collections) {
       try { await deleteDoc(doc(_db, col, uid)); } catch { /* doc may not exist */ }
