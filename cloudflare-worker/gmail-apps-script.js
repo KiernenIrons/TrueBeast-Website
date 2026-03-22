@@ -62,60 +62,16 @@ function doPost(e) {
         var htmlBody = data.html || data.htmlContent || '';
         var name     = data.senderName || 'TrueBeast Support';
 
-        // Threading: if threadSubject is provided, try to find an existing
-        // Gmail thread and reply to it instead of creating a new email
-        var threadSubject = data.threadSubject || null;
-        var sent = false;
-
-        if (threadSubject) {
-            try {
-                // Search for ANY thread matching the ticket subject
-                // Gmail will automatically group the reply into the right thread
-                // for each recipient based on the subject line match
-                var threads = GmailApp.search('subject:"' + threadSubject + '"', 0, 5);
-
-                // Find the best thread: prefer one that involves this recipient
-                var bestThread = null;
-                for (var t = 0; t < threads.length; t++) {
-                    var msgs = threads[t].getMessages();
-                    for (var m = 0; m < msgs.length; m++) {
-                        var msgTo = (msgs[m].getTo() || '') + ' ' + (msgs[m].getCc() || '');
-                        if (msgTo.toLowerCase().indexOf(to.toLowerCase()) !== -1) {
-                            bestThread = threads[t];
-                            break;
-                        }
-                    }
-                    if (bestThread) break;
-                }
-                // Fall back to first thread if no recipient-specific match
-                if (!bestThread && threads.length > 0) bestThread = threads[0];
-
-                if (bestThread) {
-                    bestThread.reply('', {
-                        htmlBody: htmlBody,
-                        name: name,
-                        to: to,
-                        subject: subject,
-                    });
-                    sent = true;
-                }
-            } catch (threadErr) {
-                Logger.log('Thread reply failed: ' + threadErr.message);
-            }
-        }
-
-        // Fall back to regular send if threading didn't work
-        if (!sent) {
-            MailApp.sendEmail({
-                to:       to,
-                subject:  subject,
-                htmlBody: htmlBody,
-                name:     name,
-            });
-        }
+        // Use GmailApp.sendEmail — Gmail automatically threads emails
+        // with the same subject line to the same recipient.
+        // All ticket emails use subject: "[TrueBeast Support] Ticket {ID}"
+        GmailApp.sendEmail(to, subject, '', {
+            htmlBody: htmlBody,
+            name: name,
+        });
 
         return ContentService
-            .createTextOutput(JSON.stringify({ success: true, threaded: sent }))
+            .createTextOutput(JSON.stringify({ success: true }))
             .setMimeType(ContentService.MimeType.JSON);
 
     } catch (err) {

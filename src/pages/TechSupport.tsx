@@ -344,7 +344,7 @@ function TicketForm() {
         const emailPayload = {
           to: ticket.email,
           toName: ticket.name,
-          subject: `Re: [TrueBeast Support] Ticket ${ticketId}`,
+          subject: `[TrueBeast Support] Ticket ${ticketId}`,
           html: userHtml,
           senderName: SITE_CONFIG.email.senderName,
           senderEmail: SITE_CONFIG.email.senderEmail,
