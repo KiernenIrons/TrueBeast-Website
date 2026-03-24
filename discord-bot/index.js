@@ -1807,6 +1807,50 @@ async function generateProfileImage(userId) {
     return canvas.toBuffer('image/png');
 }
 
+// ── Test card (demo of closest-achievable MEE6-style) ─────────────────────────
+
+async function generateTestCard() {
+    const W = 680, H = 164;
+    const canvas = createCanvas(W, H);
+    const ctx    = canvas.getContext('2d');
+
+    // Gradient background matching MEE6's dark teal style
+    const bg = ctx.createLinearGradient(0, 0, W, 0);
+    bg.addColorStop(0, '#1a2744');
+    bg.addColorStop(1, '#0d3d52');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, W, H, 14);
+    ctx.fill();
+
+    // App icon (bot avatar) — rounded square on the left
+    const iconSize = 120, iconX = 22, iconY = 22;
+    let iconImg = null;
+    try { iconImg = await loadImage(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
+    if (iconImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(iconX, iconY, iconSize, iconSize, 16);
+        ctx.clip();
+        ctx.drawImage(iconImg, iconX, iconY, iconSize, iconSize);
+        ctx.restore();
+    }
+
+    // Title
+    const textX = iconX + iconSize + 24;
+    ctx.font = 'bold 28px Noto Sans, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'top';
+    ctx.fillText('TrueBeast', textX, 32);
+
+    // Subtitle
+    ctx.font = '18px Noto Sans, sans-serif';
+    ctx.fillStyle = '#93b4ca';
+    ctx.fillText('Game Night! Click below to join the fun.', textX, 72);
+
+    return canvas.toBuffer('image/png');
+}
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
@@ -2650,6 +2694,26 @@ client.on('messageCreate', async (message) => {
 
         // !! prefix commands
         const msgContent = message.content.trim();
+
+        if (msgContent === '!!testcard' && message.author.id === OWNER_DISCORD_ID) {
+            const buffer = await generateTestCard();
+            const attachment = new AttachmentBuilder(buffer, { name: 'card.png' });
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Play')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL('https://truebeast.io'),
+            );
+            const testCh = await client.channels.fetch('1486021237548257330');
+            await testCh.send({
+                content: '**Closest we can get to the MEE6 style** — the image layout is identical but the button must sit below (Discord limitation for non-Activity bots):',
+                files: [attachment],
+                components: [row],
+            });
+            await message.react('✅');
+            return;
+        }
+
         if (msgContent.toLowerCase().startsWith('!!afk')) {
             const voiceChannel = message.member?.voice?.channel;
             if (!voiceChannel) {
