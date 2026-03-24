@@ -1818,26 +1818,72 @@ const CARD_BG_PRESETS = {
     dark:   ['#111218', '#1a1d26'],
 };
 
+function stripMd(s) {
+    return s.replace(/\*\*([^*]*)\*\*/g, '$1').replace(/\*([^*]*)\*/g, '$1').replace(/~~([^~]*)~~/g, '$1');
+}
+
 function wrapTextLines(ctx, text, maxWidth, maxLines) {
     maxLines = maxLines || 4;
     if (!text || !text.trim()) return [];
-    const words = text.split(' ');
+    // Reliability check — Noto Sans on Alpine may return near-zero for first call
+    const testW = ctx.measureText('MMMMMMMM').width;
+    const useMeasure = testW > 20;
+    const measure = (s) => useMeasure ? ctx.measureText(stripMd(s)).width : stripMd(s).length * 8.5;
+    const paras = text.split('\n');
     const lines = [];
-    let line = '';
-    for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        if (!word) continue;
-        const test = line ? line + ' ' + word : word;
-        if (ctx.measureText(test).width > maxWidth && line) {
-            lines.push(line);
-            if (lines.length >= maxLines) return lines;
-            line = word;
-        } else {
-            line = test;
+    for (const para of paras) {
+        if (lines.length >= maxLines) break;
+        if (!para.trim()) { if (lines.length > 0) lines.push(''); continue; }
+        const words = para.split(' ');
+        let line = '';
+        for (const word of words) {
+            if (!word) continue;
+            const test = line ? line + ' ' + word : word;
+            if (measure(test) > maxWidth && line) {
+                lines.push(line); if (lines.length >= maxLines) return lines; line = word;
+            } else { line = test; }
         }
+        if (line) { lines.push(line); if (lines.length >= maxLines) return lines; }
     }
-    if (line) lines.push(line);
     return lines;
+}
+
+function parseMdSegs(text) {
+    const segs = [];
+    let i = 0, bold = false, italic = false, strike = false;
+    while (i < text.length) {
+        if (text.startsWith('**', i)) { bold = !bold; i += 2; continue; }
+        if (text.startsWith('~~', i)) { strike = !strike; i += 2; continue; }
+        if (text[i] === '*') { italic = !italic; i++; continue; }
+        let j = i + 1;
+        while (j < text.length) {
+            if (text.startsWith('**', j) || text.startsWith('~~', j) || text[j] === '*') break;
+            j++;
+        }
+        if (i < j) segs.push({ text: text.slice(i, j), bold, italic, strike });
+        i = j;
+    }
+    return segs;
+}
+
+function drawMdLine(ctx, text, x, y, fontSize, fontFamily, alignMode) {
+    if (!text) return;
+    const segs = parseMdSegs(text);
+    const metrics = segs.map((seg) => {
+        ctx.font = `${seg.bold && seg.italic ? 'bold italic ' : seg.bold ? 'bold ' : seg.italic ? 'italic ' : ''}${fontSize}px ${fontFamily}`;
+        return ctx.measureText(seg.text).width;
+    });
+    const totalW = metrics.reduce((a, b) => a + b, 0);
+    let dx = alignMode === 'center' ? x - totalW / 2 : alignMode === 'right' ? x - totalW : x;
+    const savedAlign = ctx.textAlign;
+    ctx.textAlign = 'left';
+    segs.forEach((seg, idx) => {
+        ctx.font = `${seg.bold && seg.italic ? 'bold italic ' : seg.bold ? 'bold ' : seg.italic ? 'italic ' : ''}${fontSize}px ${fontFamily}`;
+        ctx.fillText(seg.text, dx, y);
+        if (seg.strike) ctx.fillRect(dx, y + Math.round(fontSize * 0.56), metrics[idx], Math.max(1, Math.round(fontSize * 0.07)));
+        dx += metrics[idx];
+    });
+    ctx.textAlign = savedAlign;
 }
 
 function hexToRgbaBot(hex, alpha) {
@@ -1927,7 +1973,7 @@ async function generateDiscordCard(opts) {
     bg.addColorStop(0, hexToRgbaBot(gradientFrom, gradientFromAlpha));
     bg.addColorStop(1, hexToRgbaBot(gradientTo, gradientToAlpha));
     ctx.fillStyle = bg;
-    ctx.beginPath(); ctx.roundRect(0, 0, W, baseH, 14); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
 
     // Load images
     let mainImg = null;
@@ -1975,19 +2021,19 @@ async function generateDiscordCard(opts) {
 
     // Text
     ctx.textAlign = ctxTextAlign; ctx.textBaseline = 'top';
-    ctx.font = `bold ${TITLE_SZ}px ${FONT}`;
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6;
-    ctx.fillText(title, textX, titleY);
+    ctx.font = `bold ${TITLE_SZ}px ${FONT}`;
+    ctx.fillText(stripMd(title), textX, titleY);
     ctx.shadowBlur = 0;
 
     if (subLines.length) {
-        ctx.font = `${SUB_SZ}px ${FONT}`; ctx.fillStyle = '#93b4ca';
-        subLines.forEach(function(line, i) { ctx.fillText(line, textX, titleY + TITLE_H + i * LINE_H); });
+        ctx.fillStyle = '#93b4ca';
+        subLines.forEach(function(line, i) { drawMdLine(ctx, line, textX, titleY + TITLE_H + i * LINE_H, SUB_SZ, FONT, ctxTextAlign); });
     }
     if (bodyLines.length) {
-        ctx.font = `${BODY_SZ}px ${FONT}`; ctx.fillStyle = '#6b7f99';
-        bodyLines.forEach(function(line, i) { ctx.fillText(line, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H); });
+        ctx.fillStyle = '#6b7f99';
+        bodyLines.forEach(function(line, i) { drawMdLine(ctx, line, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H, BODY_SZ, FONT, ctxTextAlign); });
     }
 
     // Logo overlay (top-right, drawn AFTER text so it's always visible)

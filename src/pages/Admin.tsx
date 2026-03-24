@@ -820,7 +820,11 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
         {pickerOpen && <EmojiPicker onPick={(em) => onChange('emoji', em)} onClose={() => setPickerOpen(false)} />}
       </div>
       <input type="text" placeholder="Label" value={btn.label} onChange={(e) => onChange('label', e.target.value)} className={inpSm + ' !w-32'} />
-      <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange('url', e.target.value)} className={inpSm} />
+      <input type="url" placeholder={btn.style && btn.style !== 'link' ? 'No URL (coloured button)' : 'https://...'}
+        value={btn.style && btn.style !== 'link' ? '' : btn.url}
+        onChange={(e) => onChange('url', e.target.value)}
+        disabled={!!(btn.style && btn.style !== 'link')}
+        className={inpSm + (btn.style && btn.style !== 'link' ? ' opacity-30 cursor-not-allowed' : '')} />
       <select value={btn.style || 'link'} onChange={(e) => onChange('style', e.target.value)}
         className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-xs focus:outline-none cursor-pointer flex-shrink-0 appearance-none">
         <option value="link" className="bg-[#1e1f22]">Grey</option>
@@ -2288,22 +2292,68 @@ function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 // Discord Cards Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
+function stripMdUI(s: string): string {
+  return s.replace(/\*\*([^*]*)\*\*/g, '$1').replace(/\*([^*]*)\*/g, '$1').replace(/~~([^~]*)~~/g, '$1');
+}
+
 function wrapCanvasLines2(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 8): string[] {
   if (!text.trim()) return [];
-  const words = text.split(' ');
+  const paras = text.split('\n');
   const lines: string[] = [];
-  let line = '';
-  for (const word of words) {
-    if (!word) continue;
-    const test = line ? line + ' ' + word : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      if (lines.length >= maxLines) return lines;
-      line = word;
-    } else { line = test; }
+  for (const para of paras) {
+    if (lines.length >= maxLines) break;
+    if (!para.trim()) { if (lines.length > 0) lines.push(''); continue; }
+    const words = para.split(' ');
+    let line = '';
+    for (const word of words) {
+      if (!word) continue;
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(stripMdUI(test)).width > maxWidth && line) {
+        lines.push(line); if (lines.length >= maxLines) return lines; line = word;
+      } else { line = test; }
+    }
+    if (line) { lines.push(line); if (lines.length >= maxLines) return lines; }
   }
-  if (line) lines.push(line);
   return lines;
+}
+
+interface MdSeg { text: string; bold: boolean; italic: boolean; strike: boolean }
+function parseMdSegsUI(text: string): MdSeg[] {
+  const segs: MdSeg[] = [];
+  let i = 0, bold = false, italic = false, strike = false;
+  while (i < text.length) {
+    if (text.startsWith('**', i)) { bold = !bold; i += 2; continue; }
+    if (text.startsWith('~~', i)) { strike = !strike; i += 2; continue; }
+    if (text[i] === '*') { italic = !italic; i++; continue; }
+    let j = i + 1;
+    while (j < text.length) {
+      if (text.startsWith('**', j) || text.startsWith('~~', j) || text[j] === '*') break;
+      j++;
+    }
+    if (i < j) segs.push({ text: text.slice(i, j), bold, italic, strike });
+    i = j;
+  }
+  return segs;
+}
+
+function drawMdLineUI(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, fontSize: number, fontFamily: string, alignMode: string) {
+  if (!text) return;
+  const segs = parseMdSegsUI(text);
+  const metrics = segs.map((seg) => {
+    ctx.font = `${seg.bold && seg.italic ? 'bold italic ' : seg.bold ? 'bold ' : seg.italic ? 'italic ' : ''}${fontSize}px ${fontFamily}`;
+    return ctx.measureText(seg.text).width;
+  });
+  const totalW = metrics.reduce((a, b) => a + b, 0);
+  let dx = alignMode === 'center' ? x - totalW / 2 : alignMode === 'right' ? x - totalW : x;
+  const savedAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  segs.forEach((seg, idx) => {
+    ctx.font = `${seg.bold && seg.italic ? 'bold italic ' : seg.bold ? 'bold ' : seg.italic ? 'italic ' : ''}${fontSize}px ${fontFamily}`;
+    ctx.fillText(seg.text, dx, y);
+    if (seg.strike) ctx.fillRect(dx, y + Math.round(fontSize * 0.56), metrics[idx], Math.max(1, Math.round(fontSize * 0.07)));
+    dx += metrics[idx];
+  });
+  ctx.textAlign = savedAlign;
 }
 
 function DiscordCardsTab() {
@@ -2405,16 +2455,11 @@ function DiscordCardsTab() {
       const featW = W - FEAT_PAD * 2;
       const FEAT_H = featuredImg ? Math.min(500, Math.round(featuredImg.naturalHeight * featW / featuredImg.naturalWidth)) : 0;
 
-      const BTN_H_PX = 34, BTN_VGAP = 8;
-      const btnsAreaH = components.length > 0 ? components.length * (BTN_H_PX + BTN_VGAP) + 16 : 0;
-      const reactAreaH = reactions.length > 0 ? 44 : 0;
-      const extraH = btnsAreaH + reactAreaH;
-
       const heightMap: Record<string, number> = { compact: 164, standard: 220, tall: 340, banner: 500, xl: 750, xxl: 1100, giant: 1500 };
       const baseH = cardHeight === 'auto'
         ? Math.max(164, headerH + (FEAT_H > 0 ? FEAT_PAD + FEAT_H + FEAT_PAD : 0))
         : Math.max(heightMap[cardHeight] || headerH, headerH) + (FEAT_H > 0 ? FEAT_PAD + FEAT_H + FEAT_PAD : 0);
-      const H = baseH + (extraH > 0 ? extraH : 0);
+      const H = baseH;
 
       canvas.width = W; canvas.height = H;
 
@@ -2475,17 +2520,18 @@ function DiscordCardsTab() {
       }
 
       // Text
-      ctx.textAlign = ctxTextAlign; ctx.textBaseline = 'top';
-      ctx.font = `bold ${TITLE_SZ}px sans-serif`; ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#ffffff';
       ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
-      ctx.fillText(title || 'Title', textX, titleY); ctx.shadowBlur = 0;
+      ctx.textAlign = ctxTextAlign; ctx.font = `bold ${TITLE_SZ}px sans-serif`;
+      ctx.fillText(stripMdUI(title) || 'Title', textX, titleY); ctx.shadowBlur = 0;
       if (subLines.length) {
-        ctx.font = `${SUB_SZ}px sans-serif`; ctx.fillStyle = '#93b4ca';
-        subLines.forEach((l, i) => ctx.fillText(l, textX, titleY + TITLE_H + i * LINE_H));
+        ctx.fillStyle = '#93b4ca';
+        subLines.forEach((l, i) => drawMdLineUI(ctx, l, textX, titleY + TITLE_H + i * LINE_H, SUB_SZ, 'sans-serif', ctxTextAlign));
       }
       if (bodyLines.length) {
-        ctx.font = `${BODY_SZ}px sans-serif`; ctx.fillStyle = '#6b7f99';
-        bodyLines.forEach((l, i) => ctx.fillText(l, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H));
+        ctx.fillStyle = '#6b7f99';
+        bodyLines.forEach((l, i) => drawMdLineUI(ctx, l, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H, BODY_SZ, 'sans-serif', ctxTextAlign));
       }
 
       // Logo (drawn AFTER text so it's always on top)
@@ -2504,52 +2550,10 @@ function DiscordCardsTab() {
         ctx.restore();
       }
 
-      // Buttons + reactions preview
-      if (extraH > 0) {
-        const BTN_PAD = 14;
-        const styleColors: Record<string, string> = { link: '#4f545c', primary: '#5865f2', secondary: '#2b2d31', success: '#3ba55c', danger: '#ed4245' };
-        let btnY = baseH + 8;
-        for (const row of components) {
-          let btnX = BTN_PAD;
-          for (const btn of row) {
-            if (!btn.label.trim() && !btn.emoji) continue;
-            const isCustom = /\d{15,}/.test(btn.emoji || '');
-            const prefix = btn.emoji && !isCustom ? btn.emoji + ' ' : '';
-            const label = prefix + (btn.label || 'Button');
-            ctx.font = '500 13px sans-serif';
-            const tw = ctx.measureText(label).width;
-            const bw = Math.max(72, tw + 24);
-            ctx.fillStyle = styleColors[btn.style || 'link'] || styleColors.link;
-            ctx.beginPath(); (ctx as any).roundRect(btnX, btnY, bw, BTN_H_PX, 4); ctx.fill();
-            ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.fillText(label, btnX + 10, btnY + BTN_H_PX / 2);
-            btnX += bw + 6;
-            if (btnX > W - BTN_PAD - 40) break;
-          }
-          btnY += BTN_H_PX + BTN_VGAP;
-        }
-        if (reactions.length > 0) {
-          const PILL_H = 26, PILL_GAP = 5;
-          let rx = BTN_PAD;
-          const ry = btnY + (components.length > 0 ? 4 : 8);
-          for (const r of reactions) {
-            const isCustom = /\d{15,}/.test(r);
-            const label = isCustom ? '[emoji] 1' : `${r} 1`;
-            ctx.font = '12px sans-serif';
-            const pw = ctx.measureText(label).width + 18;
-            ctx.fillStyle = 'rgba(255,255,255,0.08)';
-            ctx.beginPath(); (ctx as any).roundRect(rx, ry, pw, PILL_H, 4); ctx.fill();
-            ctx.fillStyle = '#cccccc'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-            ctx.fillText(label, rx + 7, ry + PILL_H / 2);
-            rx += pw + PILL_GAP;
-            if (rx > W - BTN_PAD - 40) break;
-          }
-        }
-      }
     }
     draw();
     return () => { active = false; };
-  }, [title, subtitle, bodyText, gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight, components, reactions]);
+  }, [title, subtitle, bodyText, gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight]);
 
   const handlePost = async () => {
     if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
@@ -2779,6 +2783,62 @@ function DiscordCardsTab() {
           <div className="rounded-xl overflow-hidden bg-black/20">
             <canvas ref={canvasRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
           </div>
+
+          {/* Buttons + Reactions DOM Preview */}
+          {(components.some((r) => r.some((b) => b.label.trim() || b.emoji)) || reactions.length > 0) && (
+            <div className="pt-1 space-y-2">
+              {components.map((row, ri) => {
+                const visible = row.filter((b) => b.label.trim() || b.emoji);
+                if (!visible.length) return null;
+                const styleClasses: Record<string, string> = {
+                  link: 'bg-[#4f545c]',
+                  primary: 'bg-[#5865f2]',
+                  secondary: 'bg-[#2b2d31] border border-white/10',
+                  success: 'bg-[#3ba55c]',
+                  danger: 'bg-[#ed4245]',
+                };
+                return (
+                  <div key={ri} className="flex gap-2 flex-wrap">
+                    {visible.map((btn, bi) => {
+                      const cm = btn.emoji?.match(/(?:(.+):)?(\d{15,})$/);
+                      const eid = cm?.[2];
+                      const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
+                      return (
+                        <div key={bi} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-white text-xs font-medium select-none ${styleClasses[btn.style || 'link'] ?? styleClasses.link}`}>
+                          {eid ? (
+                            <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=32`} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
+                          ) : btn.emoji ? (
+                            <span className="text-sm leading-none">{btn.emoji}</span>
+                          ) : null}
+                          {btn.label && <span>{btn.label}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              {reactions.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {reactions.map((r, i) => {
+                    const cm = r.match(/(?:(.+):)?(\d{15,})$/);
+                    const eid = cm?.[2];
+                    const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
+                    return (
+                      <div key={i} className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/8 border border-white/10 text-xs text-gray-300">
+                        {eid ? (
+                          <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=32`} alt="" className="w-4 h-4 object-contain" />
+                        ) : (
+                          <span className="text-base leading-none">{r}</span>
+                        )}
+                        <span className="text-gray-400 ml-0.5">1</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           <p className="text-xs text-gray-500">Bot avatar shows for icon positions when no image URL is set.</p>
         </GlassCard>
       </div>
