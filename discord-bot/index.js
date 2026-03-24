@@ -1840,6 +1840,13 @@ function wrapTextLines(ctx, text, maxWidth, maxLines) {
     return lines;
 }
 
+function hexToRgbaBot(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${(alpha / 100).toFixed(2)})`;
+}
+
 async function generateDiscordCard(opts) {
     if (!opts) opts = {};
     const title            = opts.title            || 'TrueBeast';
@@ -1847,7 +1854,11 @@ async function generateDiscordCard(opts) {
     const bodyText         = opts.bodyText         || '';
     const gradientFrom     = opts.gradientFrom     || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[0];
     const gradientTo       = opts.gradientTo       || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[1];
-    const gradientOpacity  = Math.min(1, Math.max(0, (opts.gradientOpacity !== undefined ? opts.gradientOpacity : 100) / 100));
+    // Per-colour alpha — fall back to legacy gradientOpacity for old cards
+    const legacyOpacity    = opts.gradientOpacity !== undefined ? opts.gradientOpacity : 100;
+    const gradientFromAlpha = opts.gradientFromAlpha !== undefined ? opts.gradientFromAlpha : legacyOpacity;
+    const gradientToAlpha  = opts.gradientToAlpha  !== undefined ? opts.gradientToAlpha  : legacyOpacity;
+    const textBgOpacity    = opts.textBgOpacity    || 0;
     const imageUrl         = opts.imageUrl         || null;
     const imagePosition    = opts.imagePosition    || 'left';
     const logoUrl          = opts.logoUrl          || null;
@@ -1858,17 +1869,21 @@ async function generateDiscordCard(opts) {
     const W = 680;
     const ICON_SZ = 120, ICON_PAD = 22, GAP = 16, TEXT_PAD = 24;
     const TITLE_SZ = 28, SUB_SZ = 18, BODY_SZ = 15, LINE_H = 26, BODY_LINE_H = 22;
+    const FEAT_PAD = 12;
+    const LOGO_SZ = 52, LOGO_MARGIN = 14;
     const FONT = 'Noto Sans, sans-serif';
+
+    const logoReserve = logoUrl ? LOGO_SZ + LOGO_MARGIN + 8 : 0;
 
     let textX, textMaxW, ctxTextAlign;
     if (imagePosition === 'left') {
-        textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD; ctxTextAlign = 'left';
+        textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD - logoReserve; ctxTextAlign = 'left';
     } else if (imagePosition === 'right') {
-        textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD; ctxTextAlign = 'left';
+        textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD - logoReserve; ctxTextAlign = 'left';
     } else {
         ctxTextAlign = textAlign;
         textX = textAlign === 'center' ? W / 2 : TEXT_PAD;
-        textMaxW = W - TEXT_PAD * 2;
+        textMaxW = W - TEXT_PAD * 2 - logoReserve;
     }
 
     // Measure text for height calculation
@@ -1882,27 +1897,23 @@ async function generateDiscordCard(opts) {
     const TITLE_H = TITLE_SZ + 10;
     const subH    = subLines.length * LINE_H;
     const bodyH   = bodyLines.length > 0 ? bodyLines.length * BODY_LINE_H + 8 : 0;
+    const textContentH = TITLE_H + subH + bodyH;
+    const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
 
     // Load featured image to get aspect ratio
     let featuredImg = null;
     if (featuredImageUrl) {
         try { featuredImg = await loadImage(featuredImageUrl); } catch (_) {}
     }
-    const FEAT_W = W;
-    const FEAT_H = featuredImg ? Math.min(240, Math.round(featuredImg.height * FEAT_W / featuredImg.width)) : 0;
+    const featW = W - FEAT_PAD * 2;
+    const FEAT_H = featuredImg ? Math.min(500, Math.round(featuredImg.height * featW / featuredImg.width)) : 0;
 
-    // Header section height
-    const textContentH = TITLE_H + subH + bodyH;
-    const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
-
-    // Card height
-    const heightMap = { compact: 164, standard: 220, tall: 340, banner: 500 };
-    let H;
-    if (cardHeightOpt === 'auto') {
-        H = Math.max(164, headerH + (FEAT_H > 0 ? FEAT_H + 12 : 0));
-    } else {
-        H = heightMap[cardHeightOpt] || headerH;
-    }
+    // Card height — preset controls header area; featured image always extends below
+    const heightMap = { compact: 164, standard: 220, tall: 340, banner: 500, xl: 750, xxl: 1100, giant: 1500 };
+    const baseH = cardHeightOpt === 'auto'
+        ? Math.max(164, headerH)
+        : Math.max(heightMap[cardHeightOpt] || headerH, headerH);
+    const H = baseH + (FEAT_H > 0 ? FEAT_PAD + FEAT_H + FEAT_PAD : 0);
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
@@ -1911,13 +1922,12 @@ async function generateDiscordCard(opts) {
     ctx.fillStyle = '#0a0a0a';
     ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
 
-    // Gradient overlay with opacity
-    ctx.globalAlpha = gradientOpacity;
+    // Gradient with per-colour alpha (no globalAlpha)
     const bg = ctx.createLinearGradient(0, 0, W, 0);
-    bg.addColorStop(0, gradientFrom); bg.addColorStop(1, gradientTo);
+    bg.addColorStop(0, hexToRgbaBot(gradientFrom, gradientFromAlpha));
+    bg.addColorStop(1, hexToRgbaBot(gradientTo, gradientToAlpha));
     ctx.fillStyle = bg;
-    ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
-    ctx.globalAlpha = 1.0;
+    ctx.beginPath(); ctx.roundRect(0, 0, W, baseH, 14); ctx.fill();
 
     // Load images
     let mainImg = null;
@@ -1932,16 +1942,15 @@ async function generateDiscordCard(opts) {
     if (imagePosition === 'background' && mainImg) {
         ctx.save();
         ctx.globalAlpha = 0.3;
-        ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.clip();
-        const scale = Math.max(W / mainImg.width, H / mainImg.height);
-        ctx.drawImage(mainImg, (W - mainImg.width * scale) / 2, (H - mainImg.height * scale) / 2, mainImg.width * scale, mainImg.height * scale);
+        ctx.beginPath(); ctx.roundRect(0, 0, W, baseH, 14); ctx.clip();
+        const scale = Math.max(W / mainImg.width, baseH / mainImg.height);
+        ctx.drawImage(mainImg, (W - mainImg.width * scale) / 2, (baseH - mainImg.height * scale) / 2, mainImg.width * scale, mainImg.height * scale);
         ctx.restore();
-        ctx.globalAlpha = gradientOpacity;
         const ov = ctx.createLinearGradient(0, 0, W, 0);
-        ov.addColorStop(0, gradientFrom + 'cc'); ov.addColorStop(1, gradientTo + 'cc');
+        ov.addColorStop(0, hexToRgbaBot(gradientFrom, Math.min(gradientFromAlpha, 80)));
+        ov.addColorStop(1, hexToRgbaBot(gradientTo, Math.min(gradientToAlpha, 80)));
         ctx.fillStyle = ov;
-        ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
-        ctx.globalAlpha = 1.0;
+        ctx.beginPath(); ctx.roundRect(0, 0, W, baseH, 14); ctx.fill();
     }
 
     // Side icon
@@ -1954,21 +1963,18 @@ async function generateDiscordCard(opts) {
         ctx.restore();
     }
 
-    // Logo overlay (bottom-right of header)
-    if (logoImg) {
-        const LOGO_SZ = 52;
-        const lx = W - LOGO_SZ - 14, ly = headerH - LOGO_SZ - 14;
-        ctx.save();
-        ctx.beginPath(); ctx.roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8); ctx.clip();
-        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ);
-        ctx.restore();
+    // Text bg scrim (before text, for readability on bright gradients)
+    const totalTextH = TITLE_H + subH + bodyH;
+    const titleY = Math.round((headerH - totalTextH) / 2);
+    if (textBgOpacity > 0) {
+        const SP = 10;
+        const scrimX = ctxTextAlign === 'center' ? textX - textMaxW / 2 - SP : textX - SP;
+        ctx.fillStyle = `rgba(0,0,0,${(textBgOpacity / 100).toFixed(2)})`;
+        ctx.beginPath(); ctx.roundRect(scrimX, titleY - SP, textMaxW + SP * 2, totalTextH + SP * 2, 8); ctx.fill();
     }
 
     // Text
     ctx.textAlign = ctxTextAlign; ctx.textBaseline = 'top';
-    const totalTextH = TITLE_H + subH + bodyH;
-    const titleY = Math.round((headerH - totalTextH) / 2);
-
     ctx.font = `bold ${TITLE_SZ}px ${FONT}`;
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6;
@@ -1984,17 +1990,23 @@ async function generateDiscordCard(opts) {
         bodyLines.forEach(function(line, i) { ctx.fillText(line, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H); });
     }
 
-    // Featured image inside card (below header)
+    // Logo overlay (top-right, drawn AFTER text so it's always visible)
+    if (logoImg) {
+        const lx = W - LOGO_SZ - LOGO_MARGIN, ly = LOGO_MARGIN;
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8); ctx.clip();
+        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ);
+        ctx.restore();
+    }
+
+    // Featured image (with side padding, rounded corners)
     if (featuredImg && FEAT_H > 0) {
-        const imgY = headerH + 8;
-        const imgDrawH = H - imgY - 8;
-        if (imgDrawH > 20) {
-            ctx.save();
-            ctx.beginPath(); ctx.roundRect(0, imgY, W, imgDrawH, [0, 0, 14, 14]); ctx.clip();
-            const s = Math.max(W / featuredImg.width, imgDrawH / featuredImg.height);
-            ctx.drawImage(featuredImg, (W - featuredImg.width * s) / 2, imgY + (imgDrawH - featuredImg.height * s) / 2, featuredImg.width * s, featuredImg.height * s);
-            ctx.restore();
-        }
+        const imgY = baseH + FEAT_PAD, imgX = FEAT_PAD, imgW = W - FEAT_PAD * 2;
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(imgX, imgY, imgW, FEAT_H, 10); ctx.clip();
+        const s = Math.max(imgW / featuredImg.width, FEAT_H / featuredImg.height);
+        ctx.drawImage(featuredImg, imgX + (imgW - featuredImg.width * s) / 2, imgY + (FEAT_H - featuredImg.height * s) / 2, featuredImg.width * s, featuredImg.height * s);
+        ctx.restore();
     }
 
     return canvas.toBuffer('image/png');
@@ -2052,9 +2064,19 @@ async function pollDiscordCards() {
             const gradientFrom     = f.gradientFrom?.stringValue     || '';
             const gradientTo       = f.gradientTo?.stringValue       || '';
             const bgPreset         = f.bgPreset?.stringValue         || 'teal';
-            const gradientOpacity  = f.gradientOpacity?.integerValue !== undefined
+            // Per-colour alpha (new) with fallback to legacy gradientOpacity
+            const legacyOpacity    = f.gradientOpacity?.integerValue !== undefined
                 ? Number(f.gradientOpacity.integerValue)
                 : (f.gradientOpacity?.doubleValue !== undefined ? Number(f.gradientOpacity.doubleValue) : 100);
+            const gradientFromAlpha = f.gradientFromAlpha?.integerValue !== undefined
+                ? Number(f.gradientFromAlpha.integerValue)
+                : (f.gradientFromAlpha?.doubleValue !== undefined ? Number(f.gradientFromAlpha.doubleValue) : legacyOpacity);
+            const gradientToAlpha  = f.gradientToAlpha?.integerValue !== undefined
+                ? Number(f.gradientToAlpha.integerValue)
+                : (f.gradientToAlpha?.doubleValue !== undefined ? Number(f.gradientToAlpha.doubleValue) : legacyOpacity);
+            const textBgOpacity    = f.textBgOpacity?.integerValue !== undefined
+                ? Number(f.textBgOpacity.integerValue)
+                : (f.textBgOpacity?.doubleValue !== undefined ? Number(f.textBgOpacity.doubleValue) : 0);
             const imageUrl         = f.imageUrl?.stringValue         || null;
             const imagePosition    = f.imagePosition?.stringValue    || 'left';
             const logoUrl          = f.logoUrl?.stringValue          || null;
@@ -2071,19 +2093,26 @@ async function pollDiscordCards() {
             if (!channelId) continue;
 
             try {
-                const buffer = await generateDiscordCard({ title, subtitle, bodyText, gradientFrom, gradientTo, bgPreset, gradientOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight });
+                const buffer = await generateDiscordCard({ title, subtitle, bodyText, gradientFrom, gradientTo, bgPreset, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight });
                 const attachment = new AttachmentBuilder(buffer, { name: 'card.png' });
                 const channel = await client.channels.fetch(channelId);
                 const msgOptions = { files: [attachment] };
 
                 // Build Discord components from componentsJson or legacy single-button
+                const styleMap = { primary: ButtonStyle.Primary, secondary: ButtonStyle.Secondary, success: ButtonStyle.Success, danger: ButtonStyle.Danger };
                 const discordRows = [];
                 if (componentsJson) {
                     try {
                         const rows = JSON.parse(componentsJson);
                         for (const row of rows) {
-                            const btns = row.filter(function(b) { return b.url && (b.label || b.emoji); }).map(function(b) {
-                                let btn = new ButtonBuilder().setURL(b.url).setStyle(ButtonStyle.Link);
+                            const btns = row.filter(function(b) { return (b.url || b.style !== 'link') && (b.label || b.emoji); }).map(function(b) {
+                                let btn;
+                                if (b.url) {
+                                    btn = new ButtonBuilder().setURL(b.url).setStyle(ButtonStyle.Link);
+                                } else {
+                                    const dStyle = styleMap[b.style] || ButtonStyle.Secondary;
+                                    btn = new ButtonBuilder().setCustomId(`cdbtn_${Math.random().toString(36).slice(2, 8)}`).setStyle(dStyle);
+                                }
                                 if (b.label) btn = btn.setLabel(b.label);
                                 if (b.emoji) {
                                     const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
@@ -2711,6 +2740,9 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (!interaction.isButton()) return;
+
+    // ── Coloured card buttons (non-link, generated by Discord Cards tool) ─────
+    if (interaction.customId.startsWith('cdbtn_')) { await interaction.deferUpdate(); return; }
 
     // ── Leaderboard buttons (lbt/lbp/lbn/lbx/lbclose prefixes) ──────────────
     if (/^lb[tpnx]/.test(interaction.customId) || interaction.customId === 'lbclose') {

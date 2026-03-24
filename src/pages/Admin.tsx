@@ -46,7 +46,17 @@ interface EmbedData {
   description: string; author: EmbedAuthor; fields: EmbedField[];
   image: string; thumbnail: string; footer: EmbedFooter;
 }
-interface ButtonData { label: string; url: string; emoji: string }
+interface ButtonData { label: string; url: string; emoji: string; style?: string }
+interface CardSave {
+  id: string; name: string; createdAt: string;
+  title: string; subtitle: string; bodyText: string;
+  gradientFrom: string; gradientTo: string; gradientFromAlpha: number; gradientToAlpha: number;
+  textBgOpacity: number;
+  imageUrl: string; imagePosition: 'left' | 'right' | 'background' | 'none';
+  logoUrl: string; featuredImageUrl: string;
+  textAlign: 'left' | 'center'; cardHeight: string;
+  components: ButtonData[][]; reactions: string[];
+}
 interface ComposerState {
   content: string; embeds: EmbedData[]; components: ButtonData[][];
   reactions: string[];
@@ -811,6 +821,14 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
       </div>
       <input type="text" placeholder="Label" value={btn.label} onChange={(e) => onChange('label', e.target.value)} className={inpSm + ' !w-32'} />
       <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange('url', e.target.value)} className={inpSm} />
+      <select value={btn.style || 'link'} onChange={(e) => onChange('style', e.target.value)}
+        className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-xs focus:outline-none cursor-pointer flex-shrink-0 appearance-none">
+        <option value="link" className="bg-[#1e1f22]">Grey</option>
+        <option value="primary" className="bg-[#1e1f22]">Blue</option>
+        <option value="success" className="bg-[#1e1f22]">Green</option>
+        <option value="danger" className="bg-[#1e1f22]">Red</option>
+        <option value="secondary" className="bg-[#1e1f22]">Dark</option>
+      </select>
       <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"><Minus className="w-4 h-4" /></button>
     </div>
   );
@@ -2223,7 +2241,28 @@ const CARD_HEIGHT_OPTIONS: { value: string; label: string }[] = [
   { value: 'standard', label: 'Standard (220px)' },
   { value: 'tall',     label: 'Tall (340px)' },
   { value: 'banner',   label: 'Banner (500px)' },
+  { value: 'xl',       label: 'XL Banner (750px)' },
+  { value: 'xxl',      label: 'Poster (1100px)' },
+  { value: 'giant',    label: 'Giant (1500px)' },
 ];
+
+const CARD_SAVES_KEY = 'tb_card_saves_v1';
+
+const CARD_TEMPLATES = [
+  { name: 'Classic',      imagePosition: 'left'       as const, textAlign: 'left'   as const, cardHeight: 'auto',     gradientFrom: '#1a2744', gradientTo: '#0d3d52', gradientFromAlpha: 100, gradientToAlpha: 100 },
+  { name: 'Hero',         imagePosition: 'background' as const, textAlign: 'center' as const, cardHeight: 'standard', gradientFrom: '#0d2e1c', gradientTo: '#0a4020', gradientFromAlpha: 80,  gradientToAlpha: 80  },
+  { name: 'Centered',     imagePosition: 'none'       as const, textAlign: 'center' as const, cardHeight: 'auto',     gradientFrom: '#1a1244', gradientTo: '#2d0d52', gradientFromAlpha: 100, gradientToAlpha: 100 },
+  { name: 'Announcement', imagePosition: 'right'      as const, textAlign: 'left'   as const, cardHeight: 'tall',     gradientFrom: '#2e0d0d', gradientTo: '#520a0a', gradientFromAlpha: 90,  gradientToAlpha: 70  },
+  { name: 'Dark Banner',  imagePosition: 'background' as const, textAlign: 'left'   as const, cardHeight: 'banner',   gradientFrom: '#111218', gradientTo: '#1a1d26', gradientFromAlpha: 60,  gradientToAlpha: 90  },
+  { name: 'Minimal',      imagePosition: 'none'       as const, textAlign: 'left'   as const, cardHeight: 'compact',  gradientFrom: '#111218', gradientTo: '#111218', gradientFromAlpha: 100, gradientToAlpha: 100 },
+];
+
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${(alpha / 100).toFixed(2)})`;
+}
 
 function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 4): string[] {
   if (!text.trim()) return [];
@@ -2275,7 +2314,9 @@ function DiscordCardsTab() {
   const [bodyText, setBodyText] = useState('');
   const [gradientFrom, setGradientFrom] = useState('#1a2744');
   const [gradientTo, setGradientTo] = useState('#0d3d52');
-  const [gradientOpacity, setGradientOpacity] = useState(100);
+  const [gradientFromAlpha, setGradientFromAlpha] = useState(100);
+  const [gradientToAlpha, setGradientToAlpha] = useState(100);
+  const [textBgOpacity, setTextBgOpacity] = useState(0);
   const [imageUrl, setImageUrl] = useState('');
   const [imagePosition, setImagePosition] = useState<'left' | 'right' | 'background' | 'none'>('left');
   const [logoUrl, setLogoUrl] = useState('');
@@ -2286,11 +2327,38 @@ function DiscordCardsTab() {
   const [reactions, setReactions] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [saveName, setSaveName] = useState('');
+  const [saves, setSaves] = useState<CardSave[]>(() => {
+    try { return JSON.parse(localStorage.getItem(CARD_SAVES_KEY) || '[]'); } catch { return []; }
+  });
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const updateRow = (ri: number, r: ButtonData[]) => setComponents((s) => s.map((x, i) => i === ri ? r : x));
   const removeRow = (ri: number) => setComponents((s) => s.filter((_, i) => i !== ri));
   const addRow = () => { if (components.length < MAX_ROWS) setComponents((s) => [...s, [newButton()]]); };
+
+  const applyTemplate = (t: typeof CARD_TEMPLATES[number]) => {
+    setImagePosition(t.imagePosition); setTextAlign(t.textAlign); setCardHeight(t.cardHeight);
+    setGradientFrom(t.gradientFrom); setGradientTo(t.gradientTo);
+    setGradientFromAlpha(t.gradientFromAlpha); setGradientToAlpha(t.gradientToAlpha);
+  };
+
+  const persistSaves = (s: CardSave[]) => { setSaves(s); localStorage.setItem(CARD_SAVES_KEY, JSON.stringify(s)); };
+  const saveDesign = () => {
+    if (!saveName.trim()) return;
+    persistSaves([...saves, { id: uid(), name: saveName.trim(), createdAt: new Date().toISOString(), title, subtitle, bodyText, gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight, components, reactions }]);
+    setSaveName('');
+  };
+  const applySave = (s: CardSave) => {
+    setTitle(s.title); setSubtitle(s.subtitle); setBodyText(s.bodyText);
+    setGradientFrom(s.gradientFrom); setGradientTo(s.gradientTo);
+    setGradientFromAlpha(s.gradientFromAlpha ?? 100); setGradientToAlpha(s.gradientToAlpha ?? 100);
+    setTextBgOpacity(s.textBgOpacity ?? 0);
+    setImageUrl(s.imageUrl); setImagePosition(s.imagePosition); setLogoUrl(s.logoUrl);
+    setFeaturedImageUrl(s.featuredImageUrl); setTextAlign(s.textAlign); setCardHeight(s.cardHeight);
+    setComponents(s.components || []); setReactions(s.reactions || []);
+  };
+  const deleteSave = (id: string) => persistSaves(saves.filter((s) => s.id !== id));
 
   useEffect(() => {
     if (!feedback) return;
@@ -2309,11 +2377,14 @@ function DiscordCardsTab() {
       const W = 680;
       const ICON_SZ = 120, ICON_PAD = 22, GAP = 16, TEXT_PAD = 24;
       const TITLE_SZ = 28, SUB_SZ = 18, BODY_SZ = 15, LINE_H = 26, BODY_LINE_H = 22;
+      const FEAT_PAD = 12;
+      const LOGO_SZ = 52, LOGO_MARGIN = 14;
+      const logoReserve = logoUrl.trim() ? LOGO_SZ + LOGO_MARGIN + 8 : 0;
 
       let textX: number, textMaxW: number, ctxTextAlign: CanvasTextAlign;
-      if (imagePosition === 'left') { textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD; ctxTextAlign = 'left'; }
-      else if (imagePosition === 'right') { textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD; ctxTextAlign = 'left'; }
-      else { ctxTextAlign = textAlign; textX = textAlign === 'center' ? W / 2 : TEXT_PAD; textMaxW = W - TEXT_PAD * 2; }
+      if (imagePosition === 'left') { textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD - logoReserve; ctxTextAlign = 'left'; }
+      else if (imagePosition === 'right') { textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD - logoReserve; ctxTextAlign = 'left'; }
+      else { ctxTextAlign = textAlign; textX = textAlign === 'center' ? W / 2 : TEXT_PAD; textMaxW = W - TEXT_PAD * 2 - logoReserve; }
 
       const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = 100;
       const tmpCtx = tmp.getContext('2d')!;
@@ -2328,14 +2399,22 @@ function DiscordCardsTab() {
       const textContentH = TITLE_H + subH + bodyH;
       const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
 
-      // Featured image aspect-ratio height
       let featuredImg: HTMLImageElement | null = null;
       if (featuredImageUrl) { try { featuredImg = await loadBrowserImage(featuredImageUrl); } catch {} }
       if (!active) return;
-      const FEAT_H = featuredImg ? Math.min(240, Math.round(featuredImg.naturalHeight * W / featuredImg.naturalWidth)) : 0;
+      const featW = W - FEAT_PAD * 2;
+      const FEAT_H = featuredImg ? Math.min(500, Math.round(featuredImg.naturalHeight * featW / featuredImg.naturalWidth)) : 0;
 
-      const heightMap: Record<string, number> = { compact: 164, standard: 220, tall: 340, banner: 500 };
-      const H = cardHeight === 'auto' ? Math.max(164, headerH + (FEAT_H > 0 ? FEAT_H + 12 : 0)) : (heightMap[cardHeight] || headerH);
+      const BTN_H_PX = 34, BTN_VGAP = 8;
+      const btnsAreaH = components.length > 0 ? components.length * (BTN_H_PX + BTN_VGAP) + 16 : 0;
+      const reactAreaH = reactions.length > 0 ? 44 : 0;
+      const extraH = btnsAreaH + reactAreaH;
+
+      const heightMap: Record<string, number> = { compact: 164, standard: 220, tall: 340, banner: 500, xl: 750, xxl: 1100, giant: 1500 };
+      const baseH = cardHeight === 'auto'
+        ? Math.max(164, headerH + (FEAT_H > 0 ? FEAT_PAD + FEAT_H + FEAT_PAD : 0))
+        : Math.max(heightMap[cardHeight] || headerH, headerH) + (FEAT_H > 0 ? FEAT_PAD + FEAT_H + FEAT_PAD : 0);
+      const H = baseH + (extraH > 0 ? extraH : 0);
 
       canvas.width = W; canvas.height = H;
 
@@ -2343,15 +2422,13 @@ function DiscordCardsTab() {
       ctx.fillStyle = '#0a0a0a';
       ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.fill();
 
-      // Gradient with opacity
-      ctx.globalAlpha = gradientOpacity / 100;
+      // Gradient with per-colour alpha
       const bg = ctx.createLinearGradient(0, 0, W, 0);
-      bg.addColorStop(0, gradientFrom); bg.addColorStop(1, gradientTo);
+      bg.addColorStop(0, hexToRgba(gradientFrom, gradientFromAlpha));
+      bg.addColorStop(1, hexToRgba(gradientTo, gradientToAlpha));
       ctx.fillStyle = bg;
-      ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.fill();
-      ctx.globalAlpha = 1.0;
+      ctx.beginPath(); (ctx as any).roundRect(0, 0, W, baseH, 14); ctx.fill();
 
-      // Load images
       let mainImg: HTMLImageElement | null = null;
       let logoImg: HTMLImageElement | null = null;
       if (imageUrl && imagePosition !== 'none') { try { mainImg = await loadBrowserImage(imageUrl); } catch {} }
@@ -2361,19 +2438,18 @@ function DiscordCardsTab() {
       // Background image
       if (imagePosition === 'background' && mainImg) {
         ctx.save(); ctx.globalAlpha = 0.3;
-        ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.clip();
-        const s = Math.max(W / mainImg.naturalWidth, H / mainImg.naturalHeight);
-        ctx.drawImage(mainImg, (W - mainImg.naturalWidth * s) / 2, (H - mainImg.naturalHeight * s) / 2, mainImg.naturalWidth * s, mainImg.naturalHeight * s);
+        ctx.beginPath(); (ctx as any).roundRect(0, 0, W, baseH, 14); ctx.clip();
+        const s = Math.max(W / mainImg.naturalWidth, baseH / mainImg.naturalHeight);
+        ctx.drawImage(mainImg, (W - mainImg.naturalWidth * s) / 2, (baseH - mainImg.naturalHeight * s) / 2, mainImg.naturalWidth * s, mainImg.naturalHeight * s);
         ctx.restore();
-        ctx.globalAlpha = gradientOpacity / 100;
         const ov = ctx.createLinearGradient(0, 0, W, 0);
-        ov.addColorStop(0, gradientFrom + 'cc'); ov.addColorStop(1, gradientTo + 'cc');
-        ctx.fillStyle = ov; ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.fill();
-        ctx.globalAlpha = 1.0;
+        ov.addColorStop(0, hexToRgba(gradientFrom, Math.min(gradientFromAlpha, 80)));
+        ov.addColorStop(1, hexToRgba(gradientTo, Math.min(gradientToAlpha, 80)));
+        ctx.fillStyle = ov; ctx.beginPath(); (ctx as any).roundRect(0, 0, W, baseH, 14); ctx.fill();
       }
 
       // Side icon
-      if ((imagePosition === 'left' || imagePosition === 'right')) {
+      if (imagePosition === 'left' || imagePosition === 'right') {
         const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
         const iconY = Math.round((headerH - ICON_SZ) / 2);
         if (mainImg) {
@@ -2388,17 +2464,18 @@ function DiscordCardsTab() {
         }
       }
 
-      // Logo overlay
-      if (logoImg) {
-        const LOGO_SZ = 52, lx = W - LOGO_SZ - 14, ly = headerH - LOGO_SZ - 14;
-        ctx.save(); ctx.beginPath(); (ctx as any).roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8); ctx.clip();
-        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ); ctx.restore();
+      // Text bg scrim (behind text for readability)
+      const totalTextH = TITLE_H + subH + bodyH;
+      const titleY = Math.round((headerH - totalTextH) / 2);
+      if (textBgOpacity > 0) {
+        const SP = 10;
+        const scrimX = ctxTextAlign === 'center' ? textX - textMaxW / 2 - SP : textX - SP;
+        ctx.fillStyle = `rgba(0,0,0,${(textBgOpacity / 100).toFixed(2)})`;
+        ctx.beginPath(); (ctx as any).roundRect(scrimX, titleY - SP, textMaxW + SP * 2, totalTextH + SP * 2, 8); ctx.fill();
       }
 
       // Text
       ctx.textAlign = ctxTextAlign; ctx.textBaseline = 'top';
-      const totalTextH = TITLE_H + subH + bodyH;
-      const titleY = Math.round((headerH - totalTextH) / 2);
       ctx.font = `bold ${TITLE_SZ}px sans-serif`; ctx.fillStyle = '#ffffff';
       ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
       ctx.fillText(title || 'Title', textX, titleY); ctx.shadowBlur = 0;
@@ -2411,20 +2488,68 @@ function DiscordCardsTab() {
         bodyLines.forEach((l, i) => ctx.fillText(l, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H));
       }
 
-      // Featured image inside card
+      // Logo (drawn AFTER text so it's always on top)
+      if (logoImg) {
+        const lx = W - LOGO_SZ - LOGO_MARGIN, ly = LOGO_MARGIN;
+        ctx.save(); ctx.beginPath(); (ctx as any).roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8); ctx.clip();
+        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ); ctx.restore();
+      }
+
+      // Featured image (with side padding, rounded corners)
       if (featuredImg && FEAT_H > 0) {
-        const imgY = headerH + 8, imgDrawH = H - imgY - 8;
-        if (imgDrawH > 20) {
-          ctx.save(); ctx.beginPath(); (ctx as any).roundRect(0, imgY, W, imgDrawH, [0, 0, 14, 14]); ctx.clip();
-          const s = Math.max(W / featuredImg.naturalWidth, imgDrawH / featuredImg.naturalHeight);
-          ctx.drawImage(featuredImg, (W - featuredImg.naturalWidth * s) / 2, imgY + (imgDrawH - featuredImg.naturalHeight * s) / 2, featuredImg.naturalWidth * s, featuredImg.naturalHeight * s);
-          ctx.restore();
+        const imgY = headerH + FEAT_PAD, imgX = FEAT_PAD, imgW = W - FEAT_PAD * 2;
+        ctx.save(); ctx.beginPath(); (ctx as any).roundRect(imgX, imgY, imgW, FEAT_H, 10); ctx.clip();
+        const s = Math.max(imgW / featuredImg.naturalWidth, FEAT_H / featuredImg.naturalHeight);
+        ctx.drawImage(featuredImg, imgX + (imgW - featuredImg.naturalWidth * s) / 2, imgY + (FEAT_H - featuredImg.naturalHeight * s) / 2, featuredImg.naturalWidth * s, featuredImg.naturalHeight * s);
+        ctx.restore();
+      }
+
+      // Buttons + reactions preview
+      if (extraH > 0) {
+        const BTN_PAD = 14;
+        const styleColors: Record<string, string> = { link: '#4f545c', primary: '#5865f2', secondary: '#2b2d31', success: '#3ba55c', danger: '#ed4245' };
+        let btnY = baseH + 8;
+        for (const row of components) {
+          let btnX = BTN_PAD;
+          for (const btn of row) {
+            if (!btn.label.trim() && !btn.emoji) continue;
+            const isCustom = /\d{15,}/.test(btn.emoji || '');
+            const prefix = btn.emoji && !isCustom ? btn.emoji + ' ' : '';
+            const label = prefix + (btn.label || 'Button');
+            ctx.font = '500 13px sans-serif';
+            const tw = ctx.measureText(label).width;
+            const bw = Math.max(72, tw + 24);
+            ctx.fillStyle = styleColors[btn.style || 'link'] || styleColors.link;
+            ctx.beginPath(); (ctx as any).roundRect(btnX, btnY, bw, BTN_H_PX, 4); ctx.fill();
+            ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(label, btnX + 10, btnY + BTN_H_PX / 2);
+            btnX += bw + 6;
+            if (btnX > W - BTN_PAD - 40) break;
+          }
+          btnY += BTN_H_PX + BTN_VGAP;
+        }
+        if (reactions.length > 0) {
+          const PILL_H = 26, PILL_GAP = 5;
+          let rx = BTN_PAD;
+          const ry = btnY + (components.length > 0 ? 4 : 8);
+          for (const r of reactions) {
+            const isCustom = /\d{15,}/.test(r);
+            const label = isCustom ? '[emoji] 1' : `${r} 1`;
+            ctx.font = '12px sans-serif';
+            const pw = ctx.measureText(label).width + 18;
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.beginPath(); (ctx as any).roundRect(rx, ry, pw, PILL_H, 4); ctx.fill();
+            ctx.fillStyle = '#cccccc'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.fillText(label, rx + 7, ry + PILL_H / 2);
+            rx += pw + PILL_GAP;
+            if (rx > W - BTN_PAD - 40) break;
+          }
         }
       }
     }
     draw();
     return () => { active = false; };
-  }, [title, subtitle, bodyText, gradientFrom, gradientTo, gradientOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight]);
+  }, [title, subtitle, bodyText, gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight, components, reactions]);
 
   const handlePost = async () => {
     if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
@@ -2433,7 +2558,8 @@ function DiscordCardsTab() {
     try {
       await FirebaseDB.saveDiscordCard({
         title: title.trim(), subtitle: subtitle.trim(), bodyText: bodyText.trim(),
-        gradientFrom, gradientTo, gradientOpacity,
+        gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha,
+        textBgOpacity,
         imageUrl: imageUrl.trim(), imagePosition, logoUrl: logoUrl.trim(),
         featuredImageUrl: featuredImageUrl.trim(), textAlign, cardHeight,
         componentsJson: components.length ? JSON.stringify(components) : '',
@@ -2449,6 +2575,20 @@ function DiscordCardsTab() {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.85fr] gap-6 items-start">
       {/* ── Left: Form ── */}
       <div className="space-y-4">
+
+        {/* Templates */}
+        <GlassCard className="p-5 space-y-3">
+          <h4 className="text-sm font-semibold text-gray-300">Templates</h4>
+          <div className="grid grid-cols-3 gap-2">
+            {CARD_TEMPLATES.map((t) => (
+              <button key={t.name} type="button" onClick={() => applyTemplate(t)}
+                className="py-2 px-3 rounded-xl text-xs font-medium border border-white/10 bg-white/5 text-gray-300 hover:text-white hover:bg-white/10 transition-all cursor-pointer">
+                {t.name}
+              </button>
+            ))}
+          </div>
+        </GlassCard>
+
         <GlassCard className="p-5 space-y-4">
           <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2">
             <Image01 className="w-5 h-5 text-green-400" /> Create Discord Card
@@ -2488,6 +2628,11 @@ function DiscordCardsTab() {
             <label className={lbl}>Body Text <span className="text-gray-500 font-normal">(optional, smaller)</span></label>
             <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} placeholder="Longer description, details, etc." className={inp + ' resize-y'} rows={2} maxLength={500} />
           </div>
+          <div>
+            <label className={lbl}>Text Background — {textBgOpacity}% <span className="text-gray-500 font-normal">(dark scrim behind text for readability)</span></label>
+            <input type="range" min={0} max={85} value={textBgOpacity} onChange={(e) => setTextBgOpacity(Number(e.target.value))}
+              className="w-full h-2 appearance-none bg-white/10 rounded-full cursor-pointer accent-green-500" />
+          </div>
 
           {/* Card Size */}
           <div>
@@ -2504,17 +2649,23 @@ function DiscordCardsTab() {
           <h4 className="text-sm font-semibold text-gray-300">Background</h4>
 
           <div>
-            <label className={lbl}>Gradient Colours</label>
-            <div className="flex gap-3 items-center flex-wrap mb-2">
+            <label className={lbl}>Gradient Colours &amp; Opacity</label>
+            <div className="flex flex-col gap-2.5 mb-2">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400">From</label>
-                <input type="color" value={gradientFrom} onChange={(e) => setGradientFrom(e.target.value)} className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
-                <span className="text-xs text-gray-500 font-mono">{gradientFrom}</span>
+                <label className="text-xs text-gray-400 w-5 flex-shrink-0">From</label>
+                <input type="color" value={gradientFrom} onChange={(e) => setGradientFrom(e.target.value)} className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5 flex-shrink-0" />
+                <span className="text-xs text-gray-500 font-mono w-14 flex-shrink-0">{gradientFrom}</span>
+                <span className="text-xs text-gray-500 flex-shrink-0">α {gradientFromAlpha}%</span>
+                <input type="range" min={0} max={100} value={gradientFromAlpha} onChange={(e) => setGradientFromAlpha(Number(e.target.value))}
+                  className="flex-1 h-1.5 appearance-none bg-white/10 rounded-full cursor-pointer accent-green-500" />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400">To</label>
-                <input type="color" value={gradientTo} onChange={(e) => setGradientTo(e.target.value)} className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
-                <span className="text-xs text-gray-500 font-mono">{gradientTo}</span>
+                <label className="text-xs text-gray-400 w-5 flex-shrink-0">To</label>
+                <input type="color" value={gradientTo} onChange={(e) => setGradientTo(e.target.value)} className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5 flex-shrink-0" />
+                <span className="text-xs text-gray-500 font-mono w-14 flex-shrink-0">{gradientTo}</span>
+                <span className="text-xs text-gray-500 flex-shrink-0">α {gradientToAlpha}%</span>
+                <input type="range" min={0} max={100} value={gradientToAlpha} onChange={(e) => setGradientToAlpha(Number(e.target.value))}
+                  className="flex-1 h-1.5 appearance-none bg-white/10 rounded-full cursor-pointer accent-green-500" />
               </div>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -2524,12 +2675,6 @@ function DiscordCardsTab() {
                   className="w-8 h-6 rounded-md border border-white/20 cursor-pointer hover:scale-110 transition-transform" />
               ))}
             </div>
-          </div>
-
-          <div>
-            <label className={lbl}>Gradient Opacity — {gradientOpacity}%</label>
-            <input type="range" min={0} max={100} value={gradientOpacity} onChange={(e) => setGradientOpacity(Number(e.target.value))}
-              className="w-full h-2 appearance-none bg-white/10 rounded-full cursor-pointer accent-green-500" />
           </div>
 
           <div>
@@ -2568,19 +2713,20 @@ function DiscordCardsTab() {
           </div>
 
           <div>
-            <label className={lbl}>Logo / Overlay Icon <span className="text-gray-500 font-normal">(bottom-right corner)</span></label>
+            <label className={lbl}>Logo / Overlay Icon <span className="text-gray-500 font-normal">(top-right corner, over text)</span></label>
             <input type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className={inp} />
           </div>
         </GlassCard>
 
-        {/* Link Buttons — same layout as Announcements tool */}
+        {/* Link Buttons */}
         <GlassCard className="p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5"><Link01 className="w-4 h-4 text-gray-400" /> Link Buttons ({components.length}/{MAX_ROWS})</h4>
+            <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5"><Link01 className="w-4 h-4 text-gray-400" /> Buttons ({components.length}/{MAX_ROWS})</h4>
             {components.length < MAX_ROWS && <button type="button" onClick={addRow} className="text-xs text-green-400 hover:text-green-300 flex items-center gap-1 transition-colors cursor-pointer"><Plus className="w-3 h-3" /> Add Row</button>}
           </div>
           {components.length === 0 && <p className="text-gray-600 text-xs italic">No button rows yet</p>}
           {components.map((row, ri) => <ButtonRowEditor key={ri} row={row} rowIndex={ri} onChange={(u) => updateRow(ri, u)} onRemoveRow={() => removeRow(ri)} />)}
+          <p className="text-xs text-gray-600">Grey = link button (opens URL). Blue/Green/Red = coloured non-link button (no URL).</p>
         </GlassCard>
 
         {/* Reactions */}
@@ -2599,10 +2745,35 @@ function DiscordCardsTab() {
           <Send01 className="w-4 h-4" />
           {sending ? 'Queuing...' : 'Post Card'}
         </button>
+
+        {/* Saved Designs */}
+        <GlassCard className="p-5 space-y-3">
+          <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5"><Save01 className="w-4 h-4 text-gray-400" /> Saved Designs</h4>
+          <div className="flex gap-2">
+            <input type="text" value={saveName} onChange={(e) => setSaveName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && saveDesign()} placeholder="Design name..." className={inpSm + ' flex-1'} maxLength={40} />
+            <button type="button" onClick={saveDesign} disabled={!saveName.trim()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-gray-300 hover:text-white hover:bg-white/10 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0">
+              <Save01 className="w-3.5 h-3.5" /> Save
+            </button>
+          </div>
+          {saves.length === 0 && <p className="text-gray-600 text-xs italic">No saved designs yet</p>}
+          {saves.length > 0 && (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {saves.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-white/5 border border-white/5">
+                  <span className="text-xs text-gray-300 truncate flex-1">{s.name}</span>
+                  <span className="text-xs text-gray-600 flex-shrink-0">{new Date(s.createdAt).toLocaleDateString()}</span>
+                  <button type="button" onClick={() => applySave(s)} className="text-xs text-green-400 hover:text-green-300 transition-colors cursor-pointer flex-shrink-0">Load</button>
+                  <button type="button" onClick={() => deleteSave(s.id)} className="text-xs text-gray-500 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"><XClose className="w-3 h-3" /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
       </div>
 
       {/* ── Right: Preview ── */}
-      <div className="space-y-4 lg:sticky lg:top-4">
+      <div className="space-y-4 lg:sticky lg:top-28">
         <GlassCard className="p-5 space-y-3">
           <h4 className="text-sm font-semibold text-gray-300">Live Preview</h4>
           <div className="rounded-xl overflow-hidden bg-black/20">

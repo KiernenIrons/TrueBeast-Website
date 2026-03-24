@@ -138,7 +138,9 @@ export interface DiscordCard {
   bodyText: string;
   gradientFrom: string;
   gradientTo: string;
-  gradientOpacity: number;
+  gradientFromAlpha: number;
+  gradientToAlpha: number;
+  textBgOpacity: number;
   imageUrl: string;
   imagePosition: 'left' | 'right' | 'background' | 'none';
   logoUrl: string;
