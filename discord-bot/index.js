@@ -501,17 +501,17 @@ const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
-    { name: 'Bronze I',      minMinutes: 0,     color: 0xcd7f32 },
-    { name: 'Bronze II',     minMinutes: 60,    color: 0xb87333 },
-    { name: 'Silver I',      minMinutes: 180,   color: 0xc0c0c0 },
-    { name: 'Silver II',     minMinutes: 360,   color: 0xa8a9ad },
-    { name: 'Gold I',        minMinutes: 600,   color: 0xffd700 },
-    { name: 'Gold II',       minMinutes: 1200,  color: 0xffa500 },
-    { name: 'Platinum',      minMinutes: 2400,  color: 0xe5e4e2 },
-    { name: 'Diamond',       minMinutes: 3600,  color: 0xb9f2ff },
-    { name: 'Master',        minMinutes: 4800,  color: 0x9b59b6 },
-    { name: 'Grandmaster',   minMinutes: 8400,  color: 0xe74c3c },
-    { name: 'Apex Predator', minMinutes: 12000, color: 0x22c55e },
+    { name: '🥉 Bronze I (1s-1h)',        minMinutes: 0,     color: 0xcd7f32 },
+    { name: '🥉 Bronze II (1h-3h)',       minMinutes: 60,    color: 0xb87333 },
+    { name: '🥈 Silver I (3h-6h)',        minMinutes: 180,   color: 0xc0c0c0 },
+    { name: '🥈 Silver II (6h-10h)',      minMinutes: 360,   color: 0xa8a9ad },
+    { name: '🥇 Gold I (10h-20h)',        minMinutes: 600,   color: 0xffd700 },
+    { name: '🥇 Gold II (20h-40h)',       minMinutes: 1200,  color: 0xffa500 },
+    { name: '💠 Platinum (40h-60h)',      minMinutes: 2400,  color: 0xe5e4e2 },
+    { name: '💎 Diamond (60h-80h)',       minMinutes: 3600,  color: 0xb9f2ff },
+    { name: '🔥 Master (80h-140h)',       minMinutes: 4800,  color: 0x9b59b6 },
+    { name: '⚔️ Grandmaster (140h-200h)', minMinutes: 8400,  color: 0xe74c3c },
+    { name: '👑 Apex Predator (200h+)',   minMinutes: 12000, color: 0x22c55e },
 ];
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
