@@ -678,12 +678,13 @@ async function saveMessageDays(userId, daysMap) {
     const dayFields = {};
     for (const [k, v] of daysMap.entries()) dayFields[k] = { integerValue: String(v) };
     try {
-        await fetch(url, {
+        const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fields: { days: { mapValue: { fields: dayFields } } } }),
         });
-    } catch (_) {}
+        if (!res.ok) console.error(`[BeastBot] saveMessageDays failed for ${userId}: ${res.status} ${await res.text()}`);
+    } catch (e) { console.error('[BeastBot] saveMessageDays error:', e.message); }
 }
 
 async function saveVoiceMinutes(userId, data) {
@@ -691,7 +692,7 @@ async function saveVoiceMinutes(userId, data) {
     const dayFields = {};
     for (const [k, v] of Object.entries(data.days)) dayFields[k] = { integerValue: String(v) };
     try {
-        await fetch(url, {
+        const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -701,7 +702,8 @@ async function saveVoiceMinutes(userId, data) {
                 },
             }),
         });
-    } catch (_) {}
+        if (!res.ok) console.error(`[BeastBot] saveVoiceMinutes failed for ${userId}: ${res.status} ${await res.text()}`);
+    } catch (e) { console.error('[BeastBot] saveVoiceMinutes error:', e.message); }
 }
 
 function todayStr() {
@@ -757,11 +759,10 @@ async function checkMessageMilestone(message) {
     if (!dMap) { dMap = new Map(); messageDays.set(userId, dMap); }
     dMap.set(today, (dMap.get(today) ?? 0) + 1);
 
-    // Save every 10 messages to avoid hammering Firestore
-    if (count % 10 === 0) {
-        saveMessageCount(userId, count);
-        saveMessageDays(userId, dMap);
-    }
+    // Always persist daily count so Today leaderboard survives restarts
+    saveMessageDays(userId, dMap);
+    // Total count: save every 10 messages (less critical to be exact)
+    if (count % 10 === 0) saveMessageCount(userId, count);
 
     const idx = MILESTONE_THRESHOLDS.indexOf(count);
     if (idx === -1) return;
@@ -2338,5 +2339,25 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
+
+// Flush active voice sessions to Firestore before Fly.io kills the process
+async function flushVoiceSessions() {
+    const promises = [];
+    for (const [uid] of voiceStartTimes) {
+        const data = creditVoiceTime(uid);
+        if (data) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
+    }
+    if (promises.length > 0) {
+        await Promise.allSettled(promises);
+        console.log(`[BeastBot] Flushed ${promises.length} active voice session(s) before shutdown`);
+    }
+}
+for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, async () => {
+        console.log(`[BeastBot] Received ${sig} — flushing before exit`);
+        await flushVoiceSessions();
+        process.exit(0);
+    });
+}
 
 client.login(TOKEN);
