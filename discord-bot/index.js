@@ -486,10 +486,31 @@ const SPOTLIGHT_CHANNEL_ID = '401913227166089238';
 let spotlightTimer = null;
 
 // ── Member Milestones ─────────────────────────────────────────────────────────
-// userId → message count (in-memory, resets on restart — persistent version could use Firestore)
-const messageCounts = new Map();
+const messageCounts        = new Map(); // userId → total message count
+const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
 const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
+
+// ── Voice time tracking ───────────────────────────────────────────────────────
+const voiceStartTimes    = new Map(); // userId → join timestamp (ms)
+const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
+const voiceRankRoleCache = new Map(); // roleName → Role object
+const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
+const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
+
+const VOICE_RANK_ROLES = [
+    { name: 'Bronze I',      minMinutes: 0,     color: 0xcd7f32 },
+    { name: 'Bronze II',     minMinutes: 60,    color: 0xb87333 },
+    { name: 'Silver I',      minMinutes: 180,   color: 0xc0c0c0 },
+    { name: 'Silver II',     minMinutes: 360,   color: 0xa8a9ad },
+    { name: 'Gold I',        minMinutes: 600,   color: 0xffd700 },
+    { name: 'Gold II',       minMinutes: 1200,  color: 0xffa500 },
+    { name: 'Platinum',      minMinutes: 2400,  color: 0xe5e4e2 },
+    { name: 'Diamond',       minMinutes: 3600,  color: 0xb9f2ff },
+    { name: 'Master',        minMinutes: 4800,  color: 0x9b59b6 },
+    { name: 'Grandmaster',   minMinutes: 8400,  color: 0xe74c3c },
+    { name: 'Apex Predator', minMinutes: 12000, color: 0x22c55e },
+];
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 function scheduleDiscordMeReminder() {
@@ -650,13 +671,81 @@ async function saveMessageCount(userId, count) {
     } catch (_) {}
 }
 
+async function saveMessageDays(userId, daysMap) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=days`;
+    const dayFields = {};
+    for (const [k, v] of daysMap.entries()) dayFields[k] = { integerValue: String(v) };
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { days: { mapValue: { fields: dayFields } } } }),
+        });
+    } catch (_) {}
+}
+
+async function saveVoiceMinutes(userId, data) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceMinutes/${userId}?key=${FIREBASE_API_KEY}`;
+    const dayFields = {};
+    for (const [k, v] of Object.entries(data.days)) dayFields[k] = { integerValue: String(v) };
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fields: {
+                    total: { integerValue: String(data.total) },
+                    days:  { mapValue: { fields: dayFields } },
+                },
+            }),
+        });
+    } catch (_) {}
+}
+
+function todayStr() {
+    return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+function getTotal(daysMap, total, period) {
+    if (period === 'all') return total;
+    const today = todayStr();
+    if (period === 'today') return daysMap.get(today) ?? 0;
+    if (period === 'week') {
+        let sum = 0;
+        for (let i = 0; i < 7; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            sum += daysMap.get(d.toISOString().slice(0, 10)) ?? 0;
+        }
+        return sum;
+    }
+    if (period === 'month') {
+        const prefix = today.slice(0, 7);
+        let sum = 0;
+        for (const [k, v] of daysMap.entries()) {
+            if (k.startsWith(prefix)) sum += v;
+        }
+        return sum;
+    }
+    return 0;
+}
+
 async function checkMessageMilestone(message) {
     const userId = message.author.id;
     const count  = (messageCounts.get(userId) || 0) + 1;
     messageCounts.set(userId, count);
 
+    // Update daily message count
+    const today = todayStr();
+    let dMap = messageDays.get(userId);
+    if (!dMap) { dMap = new Map(); messageDays.set(userId, dMap); }
+    dMap.set(today, (dMap.get(today) ?? 0) + 1);
+
     // Save every 10 messages to avoid hammering Firestore
-    if (count % 10 === 0) saveMessageCount(userId, count);
+    if (count % 10 === 0) {
+        saveMessageCount(userId, count);
+        saveMessageDays(userId, dMap);
+    }
 
     const idx = MILESTONE_THRESHOLDS.indexOf(count);
     if (idx === -1) return;
@@ -1090,6 +1179,31 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     // Ignore mute/deafen/stream changes with no channel change
     if (oldCh === newCh) return;
 
+    // ── Voice time tracking ───────────────────────────────────────────────────
+    const trackingMember = newState.member || oldState.member;
+    if (trackingMember && !trackingMember.user.bot) {
+        const uid = trackingMember.id;
+        // Session end: left a real channel
+        if (oldCh && oldCh !== AFK_CHANNEL_ID && voiceStartTimes.has(uid)) {
+            const elapsed = Math.floor((Date.now() - voiceStartTimes.get(uid)) / 60000);
+            voiceStartTimes.delete(uid);
+            if (elapsed > 0) {
+                const today = todayStr();
+                let vmData = voiceMinutes.get(uid) || { total: 0, days: new Map() };
+                vmData.total += elapsed;
+                vmData.days.set(today, (vmData.days.get(today) ?? 0) + elapsed);
+                voiceMinutes.set(uid, vmData);
+                saveVoiceMinutes(uid, { total: vmData.total, days: Object.fromEntries(vmData.days) });
+                const monthlyMinutes = getTotal(vmData.days, vmData.total, 'month');
+                assignVoiceRank(trackingMember, monthlyMinutes).catch(() => {});
+            }
+        }
+        // Session start: joined a real channel (not AFK, not trigger)
+        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID) {
+            voiceStartTimes.set(uid, Date.now());
+        }
+    }
+
     // ── Someone joined the trigger → create their VC ─────────────────────────
     if (newCh === TEMP_VC_TRIGGER_ID) {
         await logToChannel(`🎙️ **voiceStateUpdate fired** — ${newState.member?.user?.tag} joined trigger channel`);
@@ -1132,6 +1246,180 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
 });
 
+// ── Voice rank role management ────────────────────────────────────────────────
+
+async function ensureVoiceRankRoles(guild) {
+    for (const rankDef of VOICE_RANK_ROLES) {
+        let role = guild.roles.cache.find(r => r.name === rankDef.name);
+        if (!role) {
+            try {
+                role = await guild.roles.create({ name: rankDef.name, color: rankDef.color, reason: 'BeastBot voice rank' });
+                console.log(`[BeastBot] Created voice rank role: ${rankDef.name}`);
+            } catch (e) {
+                console.error(`[BeastBot] Failed to create role ${rankDef.name}:`, e.message);
+                continue;
+            }
+        }
+        voiceRankRoleCache.set(rankDef.name, role);
+    }
+    console.log(`[BeastBot] Voice rank roles ready (${voiceRankRoleCache.size})`);
+}
+
+async function assignVoiceRank(member, monthlyMinutes) {
+    if (voiceRankRoleCache.size === 0) return;
+    let targetRank = VOICE_RANK_ROLES[0];
+    for (const rankDef of VOICE_RANK_ROLES) {
+        if (monthlyMinutes >= rankDef.minMinutes) targetRank = rankDef;
+    }
+    const targetRole = voiceRankRoleCache.get(targetRank.name);
+    if (!targetRole) return;
+    const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
+    const toRemove = member.roles.cache.filter(r => allRankIds.includes(r.id) && r.id !== targetRole.id);
+    for (const [, role] of toRemove) await member.roles.remove(role).catch(() => {});
+    if (!member.roles.cache.has(targetRole.id)) {
+        await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
+    }
+}
+
+async function postMonthlyRecap(guild, oldMonthStr) { // e.g. "2026-02"
+    try {
+        const channel = await client.channels.fetch(MONTHLY_RECAP_CHANNEL);
+        const entries = [];
+        for (const [userId, data] of voiceMinutes.entries()) {
+            let sum = 0;
+            for (const [k, v] of data.days.entries()) {
+                if (k.startsWith(oldMonthStr)) sum += v;
+            }
+            if (sum > 0) entries.push({ userId, value: sum });
+        }
+        entries.sort((a, b) => b.value - a.value);
+        const top10 = [];
+        for (const entry of entries) {
+            if (top10.length >= 10) break;
+            try {
+                const member = await guild.members.fetch(entry.userId);
+                top10.push({ member, value: entry.value });
+            } catch {}
+        }
+        if (top10.length === 0) return;
+        const medals = ['🥇', '🥈', '🥉'];
+        const lines = top10.map(({ member, value }, i) => {
+            const prefix = medals[i] || `**${i + 1}.**`;
+            const display = value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`;
+            return `${prefix} **${member.displayName}** — ${display}`;
+        });
+        const mentions = top10.map(({ member }) => `<@${member.id}>`).join(' ');
+        const oldDate = new Date(oldMonthStr + '-01');
+        const monthLabel = oldDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        await channel.send({
+            content: `🏆 **Voice Chat Top 10 — ${monthLabel}**\n${mentions}`,
+            embeds: [{
+                color: 0xffd700,
+                title: `🏆 Voice Chat Leaderboard — ${monthLabel}`,
+                description: lines.join('\n'),
+                footer: { text: 'Rankings reset for the new month. Keep chatting!' },
+                timestamp: new Date().toISOString(),
+            }],
+        });
+        console.log(`[BeastBot] Posted monthly voice recap for ${monthLabel}`);
+    } catch (e) {
+        console.error('[BeastBot] Failed to post monthly recap:', e.message);
+    }
+}
+
+async function checkMonthlyReset(guild) {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    let stored = null;
+    try {
+        const doc = await firestoreGet('botState', 'currentMonth');
+        stored = doc?.month || null;
+    } catch (_) {}
+    if (stored === currentMonth) return;
+    if (stored) await postMonthlyRecap(guild, stored);
+    try {
+        await guild.members.fetch();
+        const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
+        for (const [, member] of guild.members.cache) {
+            if (member.user.bot) continue;
+            if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
+            await assignVoiceRank(member, 0).catch(() => {});
+        }
+    } catch (e) {
+        console.error('[BeastBot] Monthly reset role assignment failed:', e.message);
+    }
+    await firestoreSet('botState', 'currentMonth', { month: currentMonth });
+    console.log(`[BeastBot] Monthly reset complete — now tracking ${currentMonth}`);
+}
+
+// ── Leaderboard helpers ───────────────────────────────────────────────────────
+
+function buildLeaderboardTitle(type, period) {
+    const typeStr   = type === 'msg' ? 'Messages' : 'Voice Time';
+    const periodStr = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
+    return `🏆 ${typeStr} Leaderboard — ${periodStr}`;
+}
+
+function buildLeaderboardComponents(activeType, activePeriod) {
+    const typeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`lb:msg:${activePeriod}`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:vc:${activePeriod}`).setLabel('🎙️ Voice Time').setStyle(activeType === 'vc' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    );
+    const periodRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`lb:${activeType}:today`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:week`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:month`).setLabel('This Month').setStyle(activePeriod === 'month' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:all`).setLabel('All Time').setStyle(activePeriod === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    );
+    return [typeRow, periodRow];
+}
+
+async function buildLeaderboardEmbed(guild, type, period) {
+    const medals = ['🥇', '🥈', '🥉'];
+    let entries = [];
+    if (type === 'msg') {
+        for (const [userId, count] of messageCounts.entries()) {
+            const daysMap = messageDays.get(userId) || new Map();
+            const value = getTotal(daysMap, count, period);
+            if (value > 0) entries.push({ userId, value });
+        }
+    } else {
+        for (const [userId, data] of voiceMinutes.entries()) {
+            const value = getTotal(data.days, data.total, period);
+            if (value > 0) entries.push({ userId, value });
+        }
+    }
+    entries.sort((a, b) => b.value - a.value);
+    const validEntries = [];
+    for (const entry of entries) {
+        if (validEntries.length >= 10) break;
+        try {
+            const member = await guild.members.fetch(entry.userId);
+            validEntries.push({ member, value: entry.value });
+        } catch {}
+    }
+    if (validEntries.length === 0) {
+        return {
+            color: 0x22c55e,
+            title: buildLeaderboardTitle(type, period),
+            description: 'No data for this period yet.',
+            timestamp: new Date().toISOString(),
+        };
+    }
+    const lines = validEntries.map(({ member, value }, i) => {
+        const prefix = medals[i] || `**${i + 1}.**`;
+        const display = type === 'vc'
+            ? (value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`)
+            : value.toLocaleString() + ' messages';
+        return `${prefix} **${member.displayName}** — ${display}`;
+    });
+    return {
+        color: 0x22c55e,
+        title: buildLeaderboardTitle(type, period),
+        description: lines.join('\n'),
+        timestamp: new Date().toISOString(),
+    };
+}
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
@@ -1155,11 +1443,54 @@ client.once('ready', async () => {
                 const f = doc.fields || {};
                 const uid = doc.name.split('/').pop();
                 messageCounts.set(uid, parseInt(f.count?.integerValue || '0', 10));
+                const dayRaw = f.days?.mapValue?.fields || {};
+                const dMap = new Map();
+                for (const [k, v] of Object.entries(dayRaw)) dMap.set(k, parseInt(v.integerValue || '0', 10));
+                messageDays.set(uid, dMap);
             });
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
         console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
     } catch (_) {}
+
+    // Load voice minutes from Firestore
+    try {
+        let nextPageToken = null;
+        do {
+            let url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceMinutes?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const res = await fetch(url);
+            if (!res.ok) break;
+            const data = await res.json();
+            (data.documents || []).forEach(doc => {
+                const f = doc.fields || {};
+                const uid = doc.name.split('/').pop();
+                const total = parseInt(f.total?.integerValue || '0', 10);
+                const dayRaw = f.days?.mapValue?.fields || {};
+                const dMap = new Map();
+                for (const [k, v] of Object.entries(dayRaw)) dMap.set(k, parseInt(v.integerValue || '0', 10));
+                voiceMinutes.set(uid, { total, days: dMap });
+            });
+            nextPageToken = data.nextPageToken || null;
+        } while (nextPageToken);
+        console.log(`[BeastBot] Loaded ${voiceMinutes.size} voice minute records from Firestore`);
+    } catch (_) {}
+
+    // Set up voice rank roles and monthly reset
+    const guild = client.guilds.cache.first();
+    if (guild) {
+        await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
+        await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
+        setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
+
+        // Resume tracking for members already in voice channels
+        guild.channels.cache
+            .filter(ch => ch.type === ChannelType.GuildVoice && ch.id !== AFK_CHANNEL_ID && ch.id !== TEMP_VC_TRIGGER_ID)
+            .forEach(ch => ch.members.forEach(member => {
+                if (!member.user.bot) voiceStartTimes.set(member.id, Date.now());
+            }));
+        console.log(`[BeastBot] Resumed voice tracking for ${voiceStartTimes.size} active members`);
+    }
 
     // Check for anniversary milestones daily
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
@@ -1271,39 +1602,10 @@ client.on('interactionCreate', async (interaction) => {
     // ── Slash commands ───────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
-            const sorted = [...messageCounts.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 10);
-            if (sorted.length === 0) {
-                await interaction.reply({ content: 'No message data yet!', ephemeral: true });
-                return;
-            }
-            const medals = ['🥇', '🥈', '🥉'];
-            // Filter to current server members only
-            const guild = interaction.guild;
-            const validEntries = [];
-            for (const [userId, count] of sorted) {
-                try {
-                    const member = await guild.members.fetch(userId);
-                    validEntries.push({ member, count });
-                } catch {
-                    // User left the server — skip
-                }
-                if (validEntries.length >= 10) break;
-            }
-            const lines = validEntries.map(({ member, count }, i) => {
-                const prefix = medals[i] || `**${i + 1}.**`;
-                return `${prefix} **${member.displayName}** — ${count.toLocaleString()} messages`;
-            });
-            await interaction.reply({
-                embeds: [{
-                    color: 0x22c55e,
-                    title: '🏆 Message Leaderboard — Top 10',
-                    description: lines.join('\n'),
-                    footer: { text: `${messageCounts.size} members tracked` },
-                    timestamp: new Date().toISOString(),
-                }],
-            });
+            await interaction.deferReply();
+            const embed      = await buildLeaderboardEmbed(interaction.guild, 'msg', 'all');
+            const components = buildLeaderboardComponents('msg', 'all');
+            await interaction.editReply({ embeds: [embed], components });
             return;
         }
 
@@ -1348,6 +1650,8 @@ client.on('interactionCreate', async (interaction) => {
             const minutes = interaction.options.getInteger('minutes');
             const reason = interaction.options.getString('reason') || 'No reason given';
             const delayMs = minutes * 60 * 1000;
+            const leaveAt = Math.floor((Date.now() + delayMs) / 1000);
+            const leaveTimestamp = `<t:${leaveAt}:R>`;
 
             // Cancel existing timer if any
             cancelLeaveTimer(member.id);
@@ -1363,8 +1667,8 @@ client.on('interactionCreate', async (interaction) => {
                     try {
                         await textChannel.send({
                             embeds: [{
-                                color: 0xf59e0b, // amber
-                                description: `⏰ **1 minute left!** ${member} is leaving soon${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}`,
+                                color: 0xf59e0b,
+                                description: `⏰ **1 minute left!** ${member} is leaving ${leaveTimestamp}${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}`,
                             }],
                         });
                     } catch (e) { console.warn('[BeastBot] Leave timer warning failed:', e.message); }
@@ -1408,8 +1712,8 @@ client.on('interactionCreate', async (interaction) => {
             const timeText = minutes === 1 ? '1 minute' : `${minutes} minutes`;
             await textChannel.send({
                 embeds: [{
-                    color: 0x22c55e, // green
-                    description: `🕐 **Heads up!** ${member} needs to leave in **${timeText}**${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}\nWrap up your conversation with them soon!`,
+                    color: 0x22c55e,
+                    description: `🕐 **Heads up!** ${member} needs to leave in **${timeText}** (${leaveTimestamp})${reason !== 'No reason given' ? ' — *' + reason + '*' : ''}\nWrap up your conversation with them soon!`,
                 }],
             });
 
@@ -1535,6 +1839,16 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (!interaction.isButton()) return;
+
+    // ── Leaderboard buttons ───────────────────────────────────────────────────
+    if (interaction.customId.startsWith('lb:')) {
+        const [, type, period] = interaction.customId.split(':');
+        await interaction.deferUpdate();
+        const embed      = await buildLeaderboardEmbed(interaction.guild, type, period);
+        const components = buildLeaderboardComponents(type, period);
+        await interaction.editReply({ embeds: [embed], components });
+        return;
+    }
 
     // Intro delete button — original poster or mod only; shows confirmation first
     if (interaction.customId.startsWith('intro:delete:')) {
