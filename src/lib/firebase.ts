@@ -135,9 +135,16 @@ export interface DiscordCard {
   id: string;
   title: string;
   subtitle: string;
+  gradientFrom: string;
+  gradientTo: string;
+  imageUrl: string;
+  imagePosition: 'left' | 'right' | 'background' | 'none';
+  logoUrl: string;
+  textAlign: 'left' | 'center';
   buttonLabel: string;
   buttonUrl: string;
-  bgPreset: string;
+  buttonEmoji: string;
+  reactions: string[];
   channelId: string;
   status: 'pending' | 'sent' | 'failed';
   createdAt: string;

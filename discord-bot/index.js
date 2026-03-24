@@ -1818,47 +1818,167 @@ const CARD_BG_PRESETS = {
     dark:   ['#111218', '#1a1d26'],
 };
 
-async function generateDiscordCard(title, subtitle, bgPreset = 'teal') {
-    const W = 680, H = 164;
-    const canvas = createCanvas(W, H);
-    const ctx    = canvas.getContext('2d');
+function wrapTextLines(ctx, text, maxWidth, maxLines) {
+    maxLines = maxLines || 4;
+    if (!text || !text.trim()) return [];
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        if (!word) continue;
+        const test = line ? line + ' ' + word : word;
+        if (ctx.measureText(test).width > maxWidth && line) {
+            lines.push(line);
+            if (lines.length >= maxLines) return lines;
+            line = word;
+        } else {
+            line = test;
+        }
+    }
+    if (line) lines.push(line);
+    return lines;
+}
 
-    const colors = CARD_BG_PRESETS[bgPreset] || CARD_BG_PRESETS.teal;
+async function generateDiscordCard(opts) {
+    if (!opts) opts = {};
+    const title         = opts.title         || 'TrueBeast';
+    const subtitle      = opts.subtitle      || '';
+    const gradientFrom  = opts.gradientFrom  || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[0];
+    const gradientTo    = opts.gradientTo    || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[1];
+    const imageUrl      = opts.imageUrl      || null;
+    const imagePosition = opts.imagePosition || 'left';
+    const logoUrl       = opts.logoUrl       || null;
+    const textAlign     = opts.textAlign     || 'left';
+
+    const W = 680;
+    const ICON_SZ = 120, ICON_PAD = 22, GAP = 16, TEXT_PAD = 24;
+    const TITLE_SZ = 28, SUB_SZ = 18, LINE_H = 26;
+    const FONT = 'Noto Sans, sans-serif';
+
+    let textX, textMaxW, ctxTextAlign;
+    if (imagePosition === 'left') {
+        textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD; ctxTextAlign = 'left';
+    } else if (imagePosition === 'right') {
+        textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD; ctxTextAlign = 'left';
+    } else {
+        ctxTextAlign = textAlign;
+        textX = textAlign === 'center' ? W / 2 : TEXT_PAD;
+        textMaxW = W - TEXT_PAD * 2;
+    }
+
+    // Measure subtitle to determine card height
+    const tmpCanvas = createCanvas(W, 400);
+    const tmpCtx = tmpCanvas.getContext('2d');
+    tmpCtx.font = `${SUB_SZ}px ${FONT}`;
+    const subLines = wrapTextLines(tmpCtx, subtitle, textMaxW);
+
+    const TITLE_H = TITLE_SZ + 10;
+    const subH = subLines.length * LINE_H;
+    const H = Math.max(164, 28 + TITLE_H + subH + 28);
+
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext('2d');
+
+    // Background gradient
     const bg = ctx.createLinearGradient(0, 0, W, 0);
-    bg.addColorStop(0, colors[0]);
-    bg.addColorStop(1, colors[1]);
+    bg.addColorStop(0, gradientFrom);
+    bg.addColorStop(1, gradientTo);
     ctx.fillStyle = bg;
     ctx.beginPath();
     ctx.roundRect(0, 0, W, H, 14);
     ctx.fill();
 
-    const iconSize = 120, iconX = 22, iconY = 22;
-    let iconImg = null;
-    try { iconImg = await loadImage(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
-    if (iconImg) {
+    // Load images
+    let mainImg = null;
+    if (imageUrl) {
+        try { mainImg = await loadImage(imageUrl); } catch (_) {}
+    }
+    if (!mainImg && imagePosition === 'left') {
+        try { mainImg = await loadImage(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
+    }
+    let logoImg = null;
+    if (logoUrl) {
+        try { logoImg = await loadImage(logoUrl); } catch (_) {}
+    }
+
+    // Draw background image
+    if (imagePosition === 'background' && mainImg) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        ctx.roundRect(0, 0, W, H, 14);
+        ctx.clip();
+        const scale = Math.max(W / mainImg.width, H / mainImg.height);
+        const sw = mainImg.width * scale, sh = mainImg.height * scale;
+        ctx.drawImage(mainImg, (W - sw) / 2, (H - sh) / 2, sw, sh);
+        ctx.restore();
+        // Re-apply gradient overlay
+        const overlay = ctx.createLinearGradient(0, 0, W, 0);
+        overlay.addColorStop(0, gradientFrom + 'cc');
+        overlay.addColorStop(1, gradientTo + 'cc');
+        ctx.fillStyle = overlay;
+        ctx.beginPath();
+        ctx.roundRect(0, 0, W, H, 14);
+        ctx.fill();
+    }
+
+    // Draw side icon
+    if ((imagePosition === 'left' || imagePosition === 'right') && mainImg) {
+        const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
+        const iconY = Math.round((H - ICON_SZ) / 2);
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(iconX, iconY, iconSize, iconSize, 16);
+        ctx.roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16);
         ctx.clip();
-        ctx.drawImage(iconImg, iconX, iconY, iconSize, iconSize);
+        ctx.drawImage(mainImg, iconX, iconY, ICON_SZ, ICON_SZ);
         ctx.restore();
     }
 
-    const textX = iconX + iconSize + 24;
-    ctx.font = 'bold 28px Noto Sans, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textBaseline = 'top';
-    ctx.fillText(title || 'TrueBeast', textX, 32);
+    // Draw logo (bottom-right corner)
+    if (logoImg) {
+        const LOGO_SZ = 52;
+        const lx = W - LOGO_SZ - 14, ly = H - LOGO_SZ - 14;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8);
+        ctx.clip();
+        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ);
+        ctx.restore();
+    }
 
-    ctx.font = '18px Noto Sans, sans-serif';
-    ctx.fillStyle = '#93b4ca';
-    ctx.fillText(subtitle || '', textX, 72);
+    // Draw text
+    ctx.textAlign = ctxTextAlign;
+    ctx.textBaseline = 'top';
+    const totalTextH = TITLE_H + subH;
+    const titleY = Math.round((H - totalTextH) / 2);
+
+    ctx.font = `bold ${TITLE_SZ}px ${FONT}`;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 6;
+    ctx.fillText(title, textX, titleY);
+    ctx.shadowBlur = 0;
+
+    if (subLines.length) {
+        ctx.font = `${SUB_SZ}px ${FONT}`;
+        ctx.fillStyle = '#93b4ca';
+        subLines.forEach(function(line, i) {
+            ctx.fillText(line, textX, titleY + TITLE_H + i * LINE_H);
+        });
+    }
 
     return canvas.toBuffer('image/png');
 }
 
 async function generateTestCard() {
-    return generateDiscordCard('TrueBeast', 'Game Night! Click below to join the fun.', 'teal');
+    return generateDiscordCard({
+        title: 'TrueBeast',
+        subtitle: 'Game Night! Click below to join the fun.',
+        gradientFrom: '#1a2744',
+        gradientTo: '#0d3d52',
+        imagePosition: 'left',
+    });
 }
 
 // ── Discord card queue poller (Firestore → Discord) ───────────────────────────
@@ -1886,32 +2006,49 @@ async function pollDiscordCards() {
             const status = f.status?.stringValue;
             if (status !== 'pending') continue;
             const docId = doc.name.split('/').pop();
-            const title       = f.title?.stringValue || 'TrueBeast';
-            const subtitle    = f.subtitle?.stringValue || '';
-            const bgPreset    = f.bgPreset?.stringValue || 'teal';
-            const channelId   = f.channelId?.stringValue;
-            const buttonLabel = f.buttonLabel?.stringValue || '';
-            const buttonUrl   = f.buttonUrl?.stringValue || '';
+            const title         = f.title?.stringValue || 'TrueBeast';
+            const subtitle      = f.subtitle?.stringValue || '';
+            const gradientFrom  = f.gradientFrom?.stringValue || '';
+            const gradientTo    = f.gradientTo?.stringValue || '';
+            const bgPreset      = f.bgPreset?.stringValue || 'teal';
+            const imageUrl      = f.imageUrl?.stringValue || null;
+            const imagePosition = f.imagePosition?.stringValue || 'left';
+            const logoUrl       = f.logoUrl?.stringValue || null;
+            const textAlign     = f.textAlign?.stringValue || 'left';
+            const channelId     = f.channelId?.stringValue;
+            const buttonLabel   = f.buttonLabel?.stringValue || '';
+            const buttonUrl     = f.buttonUrl?.stringValue || '';
+            const buttonEmoji   = f.buttonEmoji?.stringValue || '';
+            const reactionsRaw  = f.reactions?.arrayValue?.values || [];
+            const reactions     = reactionsRaw.map(function(v) { return v.stringValue; }).filter(Boolean);
             if (!channelId) continue;
 
             // Mark as sent immediately to prevent double-posting
             await firestoreCardStatus(docId, 'sent');
 
             try {
-                const buffer = await generateDiscordCard(title, subtitle, bgPreset);
+                const buffer = await generateDiscordCard({ title, subtitle, gradientFrom, gradientTo, bgPreset, imageUrl, imagePosition, logoUrl, textAlign });
                 const attachment = new AttachmentBuilder(buffer, { name: 'card.png' });
                 const channel = await client.channels.fetch(channelId);
                 const msgOptions = { files: [attachment] };
                 if (buttonLabel && buttonUrl) {
-                    const row = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setLabel(buttonLabel)
-                            .setURL(buttonUrl)
-                            .setStyle(ButtonStyle.Link)
-                    );
+                    let btn = new ButtonBuilder().setURL(buttonUrl).setStyle(ButtonStyle.Link);
+                    if (buttonLabel) btn = btn.setLabel(buttonLabel);
+                    if (buttonEmoji) {
+                        const m = buttonEmoji.match(/(?:(.+):)?(\d{15,})$/);
+                        if (m) {
+                            btn = btn.setEmoji({ name: m[1] || '_', id: m[2] });
+                        } else {
+                            btn = btn.setEmoji(buttonEmoji);
+                        }
+                    }
+                    const row = new ActionRowBuilder().addComponents(btn);
                     msgOptions.components = [row];
                 }
-                await channel.send(msgOptions);
+                const postedMsg = await channel.send(msgOptions);
+                for (let ri = 0; ri < reactions.length; ri++) {
+                    try { await postedMsg.react(reactions[ri]); } catch (_) {}
+                }
                 console.log(`[BeastBot] Discord card posted to ${channelId}: "${title}"`);
             } catch (e) {
                 console.error('[BeastBot] Failed to post Discord card:', e.message);

@@ -136,13 +136,15 @@ function BotProvider({ children }: { children: React.ReactNode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CHANNEL_KEY = 'tb_dc_channel_id';
-const CARD_BG_PRESETS = [
-  { value: 'teal',   label: 'Dark Teal',   from: '#1a2744', to: '#0d3d52' },
-  { value: 'green',  label: 'Dark Green',  from: '#0d2e1c', to: '#0a4020' },
-  { value: 'purple', label: 'Dark Purple', from: '#1a1244', to: '#2d0d52' },
-  { value: 'orange', label: 'Dark Orange', from: '#2e1a0d', to: '#522d0a' },
-  { value: 'blue',   label: 'Dark Blue',   from: '#0d1a44', to: '#0a2052' },
-  { value: 'dark',   label: 'Charcoal',    from: '#111218', to: '#1a1d26' },
+const CARD_GRADIENT_PRESETS = [
+  { label: 'Teal',   from: '#1a2744', to: '#0d3d52' },
+  { label: 'Green',  from: '#0d2e1c', to: '#0a4020' },
+  { label: 'Purple', from: '#1a1244', to: '#2d0d52' },
+  { label: 'Orange', from: '#2e1a0d', to: '#522d0a' },
+  { label: 'Blue',   from: '#0d1a44', to: '#0a2052' },
+  { label: 'Ink',    from: '#111218', to: '#1a1d26' },
+  { label: 'Red',    from: '#2e0d0d', to: '#520a0a' },
+  { label: 'Gold',   from: '#2e220d', to: '#52380a' },
 ];
 const DEFAULT_COLOR = '#5865f2';
 const MAX_EMBEDS = 10;
@@ -2204,6 +2206,37 @@ function PlaceholderTab({ icon: Icon, label }: { icon: React.ComponentType<{ cla
   );
 }
 
+function loadBrowserImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    setTimeout(() => reject(new Error('timeout')), 5000);
+    img.src = src;
+  });
+}
+
+function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 4): string[] {
+  if (!text.trim()) return [];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (!word) continue;
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      if (lines.length >= maxLines) return lines;
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Discord Cards Tab
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2213,9 +2246,17 @@ function DiscordCardsTab() {
   const [channelId, setChannelId] = useState('');
   const [title, setTitle] = useState('TrueBeast');
   const [subtitle, setSubtitle] = useState('');
-  const [bgPreset, setBgPreset] = useState('teal');
+  const [gradientFrom, setGradientFrom] = useState('#1a2744');
+  const [gradientTo, setGradientTo] = useState('#0d3d52');
+  const [imageUrl, setImageUrl] = useState('');
+  const [imagePosition, setImagePosition] = useState<'left' | 'right' | 'background' | 'none'>('left');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [textAlign, setTextAlign] = useState<'left' | 'center'>('left');
   const [buttonLabel, setButtonLabel] = useState('');
   const [buttonUrl, setButtonUrl] = useState('');
+  const [buttonEmoji, setButtonEmoji] = useState('');
+  const [buttonEmojiPickerOpen, setButtonEmojiPickerOpen] = useState(false);
+  const [reactions, setReactions] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -2228,46 +2269,147 @@ function DiscordCardsTab() {
 
   // Draw browser canvas preview
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const W = 680, H = 164;
-    canvas.width = W;
-    canvas.height = H;
+    let active = true;
 
-    const preset = CARD_BG_PRESETS.find((p) => p.value === bgPreset) ?? CARD_BG_PRESETS[0];
-    const bg = ctx.createLinearGradient(0, 0, W, 0);
-    bg.addColorStop(0, preset.from);
-    bg.addColorStop(1, preset.to);
-    ctx.fillStyle = bg;
-    ctx.beginPath();
-    (ctx as any).roundRect(0, 0, W, H, 14);
-    ctx.fill();
+    async function draw() {
+      const canvas = canvasRef.current;
+      if (!canvas || !active) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    const iconSize = 120, iconX = 22, iconY = 22;
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    ctx.beginPath();
-    (ctx as any).roundRect(iconX, iconY, iconSize, iconSize, 16);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('TB', iconX + iconSize / 2, iconY + iconSize / 2);
-    ctx.restore();
+      const W = 680;
+      const ICON_SZ = 120, ICON_PAD = 22, GAP = 16, TEXT_PAD = 24;
+      const TITLE_SZ = 28, SUB_SZ = 18, LINE_H = 26;
 
-    const textX = iconX + iconSize + 24;
-    ctx.font = 'bold 28px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(title || 'Title', textX, 32);
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#93b4ca';
-    ctx.fillText(subtitle || 'Subtitle text goes here', textX, 72);
-  }, [title, subtitle, bgPreset]);
+      let textX: number, textMaxW: number, ctxTextAlign: CanvasTextAlign;
+      if (imagePosition === 'left') {
+        textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD; ctxTextAlign = 'left';
+      } else if (imagePosition === 'right') {
+        textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD; ctxTextAlign = 'left';
+      } else {
+        ctxTextAlign = textAlign;
+        textX = textAlign === 'center' ? W / 2 : TEXT_PAD;
+        textMaxW = W - TEXT_PAD * 2;
+      }
+
+      // Measure subtitle lines for height
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = W; tmpCanvas.height = 100;
+      const tmpCtx = tmpCanvas.getContext('2d')!;
+      tmpCtx.font = `${SUB_SZ}px sans-serif`;
+      const subLines = wrapCanvasLines(tmpCtx, subtitle, textMaxW);
+
+      const TITLE_H = TITLE_SZ + 10;
+      const subH = subLines.length * LINE_H;
+      const H = Math.max(164, 28 + TITLE_H + subH + 28);
+
+      canvas.width = W;
+      canvas.height = H;
+
+      // Background gradient
+      const bg = ctx.createLinearGradient(0, 0, W, 0);
+      bg.addColorStop(0, gradientFrom);
+      bg.addColorStop(1, gradientTo);
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      (ctx as any).roundRect(0, 0, W, H, 14);
+      ctx.fill();
+
+      // Load images
+      let mainImg: HTMLImageElement | null = null;
+      let logoImg: HTMLImageElement | null = null;
+
+      if (imageUrl && imagePosition !== 'none') {
+        try { mainImg = await loadBrowserImage(imageUrl); } catch {}
+      }
+      if (logoUrl) {
+        try { logoImg = await loadBrowserImage(logoUrl); } catch {}
+      }
+
+      if (!active) return;
+
+      // Background image
+      if (imagePosition === 'background' && mainImg) {
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.beginPath();
+        (ctx as any).roundRect(0, 0, W, H, 14);
+        ctx.clip();
+        const scale = Math.max(W / mainImg.naturalWidth, H / mainImg.naturalHeight);
+        const sw = mainImg.naturalWidth * scale, sh = mainImg.naturalHeight * scale;
+        ctx.drawImage(mainImg, (W - sw) / 2, (H - sh) / 2, sw, sh);
+        ctx.restore();
+        const overlay = ctx.createLinearGradient(0, 0, W, 0);
+        overlay.addColorStop(0, gradientFrom + 'cc');
+        overlay.addColorStop(1, gradientTo + 'cc');
+        ctx.fillStyle = overlay;
+        ctx.beginPath();
+        (ctx as any).roundRect(0, 0, W, H, 14);
+        ctx.fill();
+      }
+
+      // Side icon
+      if ((imagePosition === 'left' || imagePosition === 'right') && mainImg) {
+        const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
+        const iconY = Math.round((H - ICON_SZ) / 2);
+        ctx.save();
+        ctx.beginPath();
+        (ctx as any).roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16);
+        ctx.clip();
+        ctx.drawImage(mainImg, iconX, iconY, ICON_SZ, ICON_SZ);
+        ctx.restore();
+      } else if ((imagePosition === 'left' || imagePosition === 'right') && !mainImg) {
+        // Placeholder box when no image
+        const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
+        const iconY = Math.round((H - ICON_SZ) / 2);
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath();
+        (ctx as any).roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('TB', iconX + ICON_SZ / 2, iconY + ICON_SZ / 2);
+        ctx.restore();
+      }
+
+      // Logo overlay
+      if (logoImg) {
+        const LOGO_SZ = 52;
+        const lx = W - LOGO_SZ - 14, ly = H - LOGO_SZ - 14;
+        ctx.save();
+        ctx.beginPath();
+        (ctx as any).roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8);
+        ctx.clip();
+        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ);
+        ctx.restore();
+      }
+
+      // Text
+      ctx.textAlign = ctxTextAlign;
+      ctx.textBaseline = 'top';
+      const totalTextH = TITLE_H + subH;
+      const titleY = Math.round((H - totalTextH) / 2);
+
+      ctx.font = `bold ${TITLE_SZ}px sans-serif`;
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 6;
+      ctx.fillText(title || 'Title', textX, titleY);
+      ctx.shadowBlur = 0;
+
+      if (subLines.length) {
+        ctx.font = `${SUB_SZ}px sans-serif`;
+        ctx.fillStyle = '#93b4ca';
+        subLines.forEach((line, i) => ctx.fillText(line, textX, titleY + TITLE_H + i * LINE_H));
+      }
+    }
+
+    draw();
+    return () => { active = false; };
+  }, [title, subtitle, gradientFrom, gradientTo, imageUrl, imagePosition, logoUrl, textAlign]);
 
   const handlePost = async () => {
     if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
@@ -2277,9 +2419,16 @@ function DiscordCardsTab() {
       await FirebaseDB.saveDiscordCard({
         title: title.trim(),
         subtitle: subtitle.trim(),
+        gradientFrom,
+        gradientTo,
+        imageUrl: imageUrl.trim(),
+        imagePosition,
+        logoUrl: logoUrl.trim(),
+        textAlign,
         buttonLabel: buttonLabel.trim(),
         buttonUrl: buttonUrl.trim(),
-        bgPreset,
+        buttonEmoji: buttonEmoji.trim(),
+        reactions,
         channelId,
       });
       setFeedback({ type: 'success', message: 'Card queued! The bot will post it within 15 seconds.' });
@@ -2288,29 +2437,29 @@ function DiscordCardsTab() {
     } finally { setSending(false); }
   };
 
+  const renderEmojiDisplay = (r: string) => {
+    const m = r.match(/(?:(.+):)?(\d{15,})$/);
+    if (m) return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.png?size=20`} alt={m[1] || ''} className="w-4 h-4" />;
+    return <span>{r}</span>;
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.85fr] gap-6 items-start">
+      {/* ── Left: Form ── */}
       <div className="space-y-4">
         <GlassCard className="p-5 space-y-4">
           <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2">
             <Image01 className="w-5 h-5 text-green-400" /> Create Discord Card
           </h3>
 
-          {/* Bot status + Channel picker */}
+          {/* Bot + Channel */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400">Bot:</span>
-              {bot.loading ? (
-                <span className="text-xs text-yellow-400">Connecting...</span>
-              ) : bot.ready ? (
-                <span className="text-xs text-green-400 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full" /> Ready
-                </span>
-              ) : (
-                <span className="text-xs text-gray-500">Not connected</span>
-              )}
-              <button type="button" onClick={bot.fetch} disabled={bot.loading}
-                className="text-xs text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+              {bot.loading ? <span className="text-xs text-yellow-400">Connecting...</span>
+                : bot.ready ? <span className="text-xs text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-500 rounded-full" />Ready</span>
+                : <span className="text-xs text-gray-500">Not connected</span>}
+              <button type="button" onClick={bot.fetch} disabled={bot.loading} className="text-xs text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
                 <RefreshCw01 className={`w-3 h-3 ${bot.loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
@@ -2319,9 +2468,7 @@ function DiscordCardsTab() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 cursor-pointer appearance-none">
                 <option value="" className="bg-[#1e1f22]">— Select channel —</option>
                 {bot.channels.map((c) => (
-                  <option key={c.id} value={c.id} className="bg-[#1e1f22]">
-                    {c.type === 5 ? '📢' : '#'} {c.name}
-                  </option>
+                  <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>
                 ))}
               </select>
             </div>
@@ -2329,66 +2476,179 @@ function DiscordCardsTab() {
 
           <hr className="border-white/5" />
 
+          {/* Title + Subtitle */}
           <div>
             <label className={lbl}>Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="TrueBeast" className={inp} maxLength={80} />
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="TrueBeast" className={inp} maxLength={80} />
           </div>
-
           <div>
             <label className={lbl}>Subtitle</label>
-            <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)}
-              placeholder="A short message or call to action..." className={inp} maxLength={120} />
+            <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="A message or call to action..." className={inp} maxLength={200} />
           </div>
 
+          {/* Gradient */}
           <div>
-            <label className={lbl}>Background</label>
-            <select value={bgPreset} onChange={(e) => setBgPreset(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 cursor-pointer appearance-none">
-              {CARD_BG_PRESETS.map((p) => (
-                <option key={p.value} value={p.value} className="bg-[#1e1f22]">{p.label}</option>
+            <label className={lbl}>Gradient</label>
+            <div className="flex gap-2 items-center flex-wrap mb-2">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400">From</label>
+                <input type="color" value={gradientFrom} onChange={(e) => setGradientFrom(e.target.value)}
+                  className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400">To</label>
+                <input type="color" value={gradientTo} onChange={(e) => setGradientTo(e.target.value)}
+                  className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {CARD_GRADIENT_PRESETS.map((p) => (
+                <button key={p.label} type="button" title={p.label}
+                  onClick={() => { setGradientFrom(p.from); setGradientTo(p.to); }}
+                  style={{ background: `linear-gradient(90deg, ${p.from}, ${p.to})` }}
+                  className="w-8 h-6 rounded-md border border-white/20 cursor-pointer hover:scale-110 transition-transform"
+                />
               ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={lbl}>Button Label <span className="text-gray-500 font-normal">(optional)</span></label>
-              <input type="text" value={buttonLabel} onChange={(e) => setButtonLabel(e.target.value)}
-                placeholder="Join Now" className={inp} maxLength={40} />
-            </div>
-            <div>
-              <label className={lbl}>Button URL <span className="text-gray-500 font-normal">(optional)</span></label>
-              <input type="url" value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)}
-                placeholder="https://..." className={inp} />
             </div>
           </div>
 
-          {feedback && (
-            <div className={`px-4 py-3 rounded-xl text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
-              {feedback.message}
+          {/* Image */}
+          <div>
+            <label className={lbl}>Image URL</label>
+            <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://... (leave empty for bot avatar)" className={inp} />
+          </div>
+          <div>
+            <label className={lbl}>Image Position</label>
+            <div className="grid grid-cols-4 gap-2">
+              {(['left', 'right', 'background', 'none'] as const).map((pos) => (
+                <button key={pos} type="button" onClick={() => setImagePosition(pos)}
+                  className={`py-2 rounded-xl text-sm font-medium border transition-all cursor-pointer capitalize ${imagePosition === pos ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                  {pos}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Logo */}
+          <div>
+            <label className={lbl}>Logo URL <span className="text-gray-500 font-normal">(optional overlay, bottom-right)</span></label>
+            <input type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://... (small logo or icon)" className={inp} />
+          </div>
+
+          {/* Text Align */}
+          {(imagePosition === 'background' || imagePosition === 'none') && (
+            <div>
+              <label className={lbl}>Text Alignment</label>
+              <div className="flex gap-2">
+                {(['left', 'center'] as const).map((a) => (
+                  <button key={a} type="button" onClick={() => setTextAlign(a)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all cursor-pointer capitalize ${textAlign === a ? 'bg-green-500/20 border-green-500/40 text-green-400' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                    {a}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
-          <button
-            type="button"
-            onClick={handlePost}
-            disabled={sending}
-            className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-colors text-sm cursor-pointer"
-          >
-            <Send01 className="w-4 h-4" />
-            {sending ? 'Queuing...' : 'Post Card'}
-          </button>
         </GlassCard>
+
+        {/* Button */}
+        <GlassCard className="p-5 space-y-3">
+          <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5"><Link01 className="w-4 h-4 text-gray-400" /> Link Button <span className="text-gray-500 font-normal">(optional)</span></h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Label</label>
+              <input type="text" value={buttonLabel} onChange={(e) => setButtonLabel(e.target.value)} placeholder="Join Now" className={inp} maxLength={40} />
+            </div>
+            <div>
+              <label className={lbl}>URL</label>
+              <input type="url" value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)} placeholder="https://..." className={inp} />
+            </div>
+          </div>
+          <div>
+            <label className={lbl}>Button Emoji <span className="text-gray-500 font-normal">(optional)</span></label>
+            <div className="flex gap-2 items-center relative">
+              <input type="text" value={buttonEmoji} onChange={(e) => setButtonEmoji(e.target.value)}
+                placeholder="Paste emoji or pick below..." className={inp + ' flex-1'} readOnly />
+              {buttonEmoji && (
+                <span className="text-xl px-1">{buttonEmoji.match(/\d{15,}/) ? '🔷' : buttonEmoji}</span>
+              )}
+              <div className="relative">
+                <button type="button" onClick={() => setButtonEmojiPickerOpen(!buttonEmojiPickerOpen)}
+                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-gray-400 hover:text-white transition-colors cursor-pointer">
+                  <FaceSmile className="w-4 h-4" />
+                </button>
+                {buttonEmojiPickerOpen && (
+                  <EmojiPicker
+                    onPick={(e, isCustom) => { setButtonEmoji(isCustom ? e : e); setButtonEmojiPickerOpen(false); }}
+                    onClose={() => setButtonEmojiPickerOpen(false)}
+                  />
+                )}
+              </div>
+              {buttonEmoji && (
+                <button type="button" onClick={() => setButtonEmoji('')}
+                  className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer">
+                  <XClose className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </GlassCard>
+
+        {/* Reactions */}
+        <GlassCard className="p-5">
+          <ReactionsEditor reactions={reactions} onChange={setReactions} />
+        </GlassCard>
+
+        {/* Post */}
+        {feedback && (
+          <div className={`px-4 py-3 rounded-xl text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+            {feedback.message}
+          </div>
+        )}
+        <button type="button" onClick={handlePost} disabled={sending}
+          className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-colors text-sm cursor-pointer">
+          <Send01 className="w-4 h-4" />
+          {sending ? 'Queuing...' : 'Post Card'}
+        </button>
       </div>
 
-      <div className="space-y-4">
+      {/* ── Right: Preview ── */}
+      <div className="space-y-4 lg:sticky lg:top-4">
         <GlassCard className="p-5 space-y-3">
-          <h4 className="text-sm font-semibold text-gray-300">Preview</h4>
-          <div className="rounded-xl overflow-hidden">
+          <h4 className="text-sm font-semibold text-gray-300">Live Preview</h4>
+          <div className="rounded-xl overflow-hidden bg-black/20">
             <canvas ref={canvasRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
           </div>
-          <p className="text-xs text-gray-500">The bot avatar will appear in place of "TB" when posted to Discord.</p>
+          <div className="space-y-1 text-xs text-gray-500">
+            <p>Bot avatar shows when no image URL is set (icon positions).</p>
+            <p>Card height adjusts to fit subtitle text automatically.</p>
+          </div>
         </GlassCard>
+
+        {/* Preview of button */}
+        {buttonLabel && buttonUrl && (
+          <GlassCard className="p-4 space-y-2">
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Button Preview</p>
+            <div className="flex items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 bg-white/10 border border-white/20 rounded-md px-3 py-1.5 text-sm text-white">
+                {buttonEmoji && !buttonEmoji.match(/\d{15,}/) && <span>{buttonEmoji}</span>}
+                {buttonLabel}
+                <Link01 className="w-3 h-3 opacity-50" />
+              </div>
+            </div>
+            {reactions.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1">
+                {reactions.map((r, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-2.5 py-1 text-xs text-gray-300">
+                    {r.match(/\d{15,}/) ? <img src={`https://cdn.discordapp.com/emojis/${r.match(/(\d{15,})/)?.[1]}.png?size=20`} alt="" className="w-3 h-3" /> : r} 1
+                  </span>
+                ))}
+              </div>
+            )}
+          </GlassCard>
+        )}
       </div>
     </div>
   );
