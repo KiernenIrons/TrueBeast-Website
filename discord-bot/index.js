@@ -493,7 +493,8 @@ const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
 const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 
 // ── Voice time tracking ───────────────────────────────────────────────────────
-const voiceStartTimes    = new Map(); // userId → join timestamp (ms)
+const voiceStartTimes    = new Map(); // userId → { startMs, baseTotal, baseToday }
+const leaderboardOwners  = new Map(); // messageId → userId (who invoked /leaderboard)
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
@@ -705,6 +706,20 @@ async function saveVoiceMinutes(userId, data) {
 
 function todayStr() {
     return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+// Update voiceMinutes in-memory for an active session (idempotent — safe to call every minute)
+// Returns the updated data object, or null if no active session
+function creditVoiceTime(uid) {
+    const session = voiceStartTimes.get(uid);
+    if (!session) return null;
+    const elapsed = Math.floor((Date.now() - session.startMs) / 60000);
+    const today = todayStr();
+    let data = voiceMinutes.get(uid) || { total: 0, days: new Map() };
+    data.total = session.baseTotal + elapsed;
+    data.days.set(today, session.baseToday + elapsed);
+    voiceMinutes.set(uid, data);
+    return data;
 }
 
 function getTotal(daysMap, total, period) {
@@ -1191,22 +1206,22 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         const uid = trackingMember.id;
         // Session end: left a real channel
         if (oldCh && oldCh !== AFK_CHANNEL_ID && voiceStartTimes.has(uid)) {
-            const elapsed = Math.floor((Date.now() - voiceStartTimes.get(uid)) / 60000);
+            const finalData = creditVoiceTime(uid);
             voiceStartTimes.delete(uid);
-            if (elapsed > 0) {
-                const today = todayStr();
-                let vmData = voiceMinutes.get(uid) || { total: 0, days: new Map() };
-                vmData.total += elapsed;
-                vmData.days.set(today, (vmData.days.get(today) ?? 0) + elapsed);
-                voiceMinutes.set(uid, vmData);
-                saveVoiceMinutes(uid, { total: vmData.total, days: Object.fromEntries(vmData.days) });
-                const monthlyMinutes = getTotal(vmData.days, vmData.total, 'month');
+            if (finalData) {
+                saveVoiceMinutes(uid, { total: finalData.total, days: Object.fromEntries(finalData.days) });
+                const monthlyMinutes = getTotal(finalData.days, finalData.total, 'month');
                 assignVoiceRank(trackingMember, monthlyMinutes).catch(() => {});
             }
         }
         // Session start: joined a real channel (not AFK, not trigger)
         if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID) {
-            voiceStartTimes.set(uid, Date.now());
+            const existing = voiceMinutes.get(uid) || { total: 0, days: new Map() };
+            voiceStartTimes.set(uid, {
+                startMs: Date.now(),
+                baseTotal: existing.total,
+                baseToday: existing.days.get(todayStr()) || 0,
+            });
         }
     }
 
@@ -1537,9 +1552,29 @@ client.once('ready', async () => {
         guild.channels.cache
             .filter(ch => ch.type === ChannelType.GuildVoice && ch.id !== AFK_CHANNEL_ID && ch.id !== TEMP_VC_TRIGGER_ID)
             .forEach(ch => ch.members.forEach(member => {
-                if (!member.user.bot) voiceStartTimes.set(member.id, Date.now());
+                if (!member.user.bot) {
+                    const existing = voiceMinutes.get(member.id) || { total: 0, days: new Map() };
+                    voiceStartTimes.set(member.id, {
+                        startMs: Date.now(),
+                        baseTotal: existing.total,
+                        baseToday: existing.days.get(todayStr()) || 0,
+                    });
+                }
             }));
         console.log(`[BeastBot] Resumed voice tracking for ${voiceStartTimes.size} active members`);
+
+        // Tick every 60s — update voiceMinutes in memory so leaderboard stays live
+        setInterval(() => {
+            for (const [uid] of voiceStartTimes) creditVoiceTime(uid);
+        }, 60 * 1000);
+
+        // Persist active sessions to Firestore every 5 minutes
+        setInterval(() => {
+            for (const [uid] of voiceStartTimes) {
+                const data = voiceMinutes.get(uid);
+                if (data) saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) });
+            }
+        }, 5 * 60 * 1000);
     }
 
     // Check for anniversary milestones daily
@@ -1653,9 +1688,18 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
             await interaction.deferReply();
-            const { embed, page, totalPages } = buildLeaderboardEmbed('msg', 'all', 0);
-            const components = buildLeaderboardComponents('msg', 'all', page, totalPages);
-            await interaction.editReply({ embeds: [embed], components });
+            const menuEmbed = {
+                color: 0x22c55e,
+                title: '🏆 TrueBeast Leaderboard',
+                description: 'Choose a category to get started:',
+                timestamp: new Date().toISOString(),
+            };
+            const menuComponents = [new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('lbt:msg:all').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('lbt:vc:all').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Primary),
+            )];
+            const reply = await interaction.editReply({ embeds: [menuEmbed], components: menuComponents });
+            leaderboardOwners.set(reply.id, interaction.user.id);
             return;
         }
 
@@ -1893,6 +1937,12 @@ client.on('interactionCreate', async (interaction) => {
     // ── Leaderboard buttons (lbt/lbp/lbn/lbx prefixes) ───────────────────────
     if (/^lb[tpnx]/.test(interaction.customId)) {
         if (interaction.customId === 'lbx') { await interaction.deferUpdate(); return; }
+        // Only the person who invoked /leaderboard can use the buttons
+        const ownerId = leaderboardOwners.get(interaction.message.id);
+        if (ownerId && interaction.user.id !== ownerId) {
+            await interaction.reply({ content: '❌ Only the person who opened this leaderboard can use these buttons.', ephemeral: true });
+            return;
+        }
         // lbt:type:period  |  lbp:type:period  |  lbn:type:period:page
         const parts = interaction.customId.split(':');
         const type   = parts[1];
