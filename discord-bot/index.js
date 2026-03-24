@@ -24,7 +24,8 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle,
     SlashCommandBuilder, REST, Routes, AttachmentBuilder,
 } = require('discord.js');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -1500,17 +1501,17 @@ async function generateLeaderboardImage(type, period, page = 0) {
     ctx.fillRect(0, 0, W, HEADER_H);
 
     // Header text
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = 'bold 28px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'middle';
     ctx.fillText('🏆 TrueBeast Leaderboard', 32, HEADER_H / 2 - 8);
-    ctx.font = '16px sans-serif';
+    ctx.font = '16px Noto Sans, sans-serif';
     ctx.fillStyle = '#8b9ab4';
     ctx.fillText(buildLeaderboardTitle(type, period).replace('🏆 ', ''), 32, HEADER_H / 2 + 16);
 
     // Member count badge (top-right)
     if (allEntries.length > 0) {
-        ctx.font = '13px sans-serif';
+        ctx.font = '13px Noto Sans, sans-serif';
         ctx.fillStyle = '#22c55e';
         const badge = `${allEntries.length} members`;
         ctx.fillText(badge, W - ctx.measureText(badge).width - 32, HEADER_H / 2);
@@ -1523,7 +1524,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
 
     // ── No data ───────────────────────────────────────────────────────────────
     if (allEntries.length === 0) {
-        ctx.font = '18px sans-serif';
+        ctx.font = '18px Noto Sans, sans-serif';
         ctx.fillStyle = '#8b9ab4';
         ctx.textAlign = 'center';
         ctx.fillText('No data for this period yet.', W / 2, HEADER_H + ROW_H * 1.5);
@@ -1572,20 +1573,20 @@ async function generateLeaderboardImage(type, period, page = 0) {
             ctx.arc(x + r - 6, avatarY + r * 2 - 6, 14, 0, Math.PI * 2);
             ctx.fillStyle = colors[i];
             ctx.fill();
-            ctx.font = 'bold 13px sans-serif';
+            ctx.font = 'bold 13px Noto Sans, sans-serif';
             ctx.fillStyle = '#000000';
             ctx.textAlign = 'center';
             ctx.fillText(`#${ranks[i]}`, x + r - 6, avatarY + r * 2 - 6 + 1);
 
             // Name
             const nameY = avatarY + r * 2 + 20;
-            ctx.font = 'bold 15px sans-serif';
+            ctx.font = 'bold 15px Noto Sans, sans-serif';
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
             ctx.fillText(name, x, nameY);
 
             // Score
-            ctx.font = '13px sans-serif';
+            ctx.font = '13px Noto Sans, sans-serif';
             ctx.fillStyle = colors[i];
             ctx.fillText(score, x, nameY + 18);
         }
@@ -1611,7 +1612,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
         ctx.fillRect(0, rowY, W, ROW_H);
 
         // Rank number
-        ctx.font = 'bold 15px sans-serif';
+        ctx.font = 'bold 15px Noto Sans, sans-serif';
         ctx.fillStyle = '#8b9ab4';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
@@ -1622,14 +1623,14 @@ async function generateLeaderboardImage(type, period, page = 0) {
         if (aImg) drawCircularAvatar(ctx, aImg, 96, rowY + ROW_H / 2, 18);
 
         // Name
-        ctx.font = '15px sans-serif';
+        ctx.font = '15px Noto Sans, sans-serif';
         ctx.fillStyle = '#e5e7eb';
         ctx.textAlign = 'left';
         const name = truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 480);
         ctx.fillText(name, 128, rowY + ROW_H / 2);
 
         // Score (right-aligned)
-        ctx.font = 'bold 14px sans-serif';
+        ctx.font = 'bold 14px Noto Sans, sans-serif';
         ctx.fillStyle = '#22c55e';
         ctx.textAlign = 'right';
         ctx.fillText(formatScore(value, type), W - 32, rowY + ROW_H / 2);
@@ -1644,7 +1645,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
     ctx.beginPath(); ctx.moveTo(0, footerY); ctx.lineTo(W, footerY); ctx.stroke();
 
     // Footer: page info
-    ctx.font = '13px sans-serif';
+    ctx.font = '13px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
@@ -1706,13 +1707,13 @@ async function generateProfileImage(userId) {
 
     // Name
     const contentX = AX + AR * 2 + 28;
-    ctx.font = 'bold 26px sans-serif';
+    ctx.font = 'bold 26px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'top';
     ctx.fillText(truncateName(ctx, info.displayName, 400), contentX, 32);
 
     // Rank badge
-    ctx.font = '14px sans-serif';
+    ctx.font = '14px Noto Sans, sans-serif';
     ctx.fillStyle = '#22c55e';
     ctx.fillText(currentRank.name, contentX, 68);
 
@@ -1731,7 +1732,7 @@ async function generateProfileImage(userId) {
     const COL3   = 200;  // voice column
 
     // Header row
-    ctx.font = 'bold 13px sans-serif';
+    ctx.font = 'bold 13px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'top';
     ctx.fillText('Period', gridX, gridY);
@@ -1745,7 +1746,7 @@ async function generateProfileImage(userId) {
 
     statRows.forEach(({ label, msg, vc }, i) => {
         const rowY = gridY + 26 + i * 32;
-        ctx.font = '13px sans-serif';
+        ctx.font = '13px Noto Sans, sans-serif';
         ctx.fillStyle = '#8b9ab4';
         ctx.fillText(label, gridX, rowY);
         ctx.fillStyle = msg > 0 ? '#e5e7eb' : '#4b5563';
@@ -1756,7 +1757,7 @@ async function generateProfileImage(userId) {
 
     // Rank progress bar
     const barX = gridX, barY = H - 58, barW = COL1 + COL2 + COL3, barH = 10;
-    ctx.font = '12px sans-serif';
+    ctx.font = '12px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'bottom';
     ctx.fillText(nextRank ? `${currentRank.name}  →  ${nextRank.name}` : `${currentRank.name} (Max Rank)`, barX, barY - 4);
@@ -1780,7 +1781,7 @@ async function generateProfileImage(userId) {
 
     // Progress label
     const pct = nextRank ? `${Math.round(progress * 100)}%` : '100%';
-    ctx.font = '12px sans-serif';
+    ctx.font = '12px Noto Sans, sans-serif';
     ctx.fillStyle = '#22c55e';
     ctx.textBaseline = 'top';
     ctx.fillText(pct, barX + barW + 10, barY);
