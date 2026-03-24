@@ -1343,7 +1343,7 @@ async function checkMonthlyReset(guild) {
     if (stored === currentMonth) return;
     if (stored) await postMonthlyRecap(guild, stored);
     try {
-        await guild.members.fetch();
+        // Use guild.members.cache — populated at startup, no extra fetch needed
         const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
         for (const [, member] of guild.members.cache) {
             if (member.user.bot) continue;
@@ -1367,21 +1367,26 @@ function buildLeaderboardTitle(type, period) {
 
 const PAGE_SIZE = 10;
 
+// CustomId scheme to avoid duplicates:
+//   lbt:{type}:{period}  — type toggle buttons  (always go to page 0)
+//   lbp:{type}:{period}  — period toggle buttons (always go to page 0)
+//   lbn:{type}:{period}:{page} — nav (prev/next) buttons
+//   lbx                  — disabled noop (page counter)
 function buildLeaderboardComponents(activeType, activePeriod, page, totalPages) {
     const typeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lb:msg:${activePeriod}:0`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:vc:${activePeriod}:0`).setLabel('🎙️ Voice Time').setStyle(activeType === 'vc' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbt:msg:${activePeriod}`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbt:vc:${activePeriod}`).setLabel('🎙️ Voice Time').setStyle(activeType === 'vc' ? ButtonStyle.Primary : ButtonStyle.Secondary),
     );
     const periodRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lb:${activeType}:today:0`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:week:0`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:month:0`).setLabel('This Month').setStyle(activePeriod === 'month' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:all:0`).setLabel('All Time').setStyle(activePeriod === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:today`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:week`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:month`).setLabel('This Month').setStyle(activePeriod === 'month' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:all`).setLabel('All Time').setStyle(activePeriod === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
     );
     const navRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lb:${activeType}:${activePeriod}:${page - 1}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-        new ButtonBuilder().setCustomId('lb:noop').setLabel(`Page ${page + 1} of ${Math.max(1, totalPages)}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:${activePeriod}:${page + 1}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+        new ButtonBuilder().setCustomId(`lbn:${activeType}:${activePeriod}:${page - 1}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+        new ButtonBuilder().setCustomId('lbx').setLabel(`Page ${page + 1} of ${Math.max(1, totalPages)}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+        new ButtonBuilder().setCustomId(`lbn:${activeType}:${activePeriod}:${page + 1}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
     );
     return [typeRow, periodRow, navRow];
 }
@@ -1515,11 +1520,7 @@ client.once('ready', async () => {
     // Set up voice rank roles and monthly reset
     const guild = client.guilds.cache.first();
     if (guild) {
-        await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
-        await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
-        setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
-
-        // Populate member name cache (one-time bulk fetch — keeps leaderboard instant)
+        // Single member fetch at startup — everything reuses guild.members.cache from here
         try {
             await guild.members.fetch();
             for (const [id, member] of guild.members.cache) {
@@ -1527,6 +1528,10 @@ client.once('ready', async () => {
             }
             console.log(`[BeastBot] Cached ${memberNameCache.size} member display names`);
         } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
+
+        await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
+        await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
+        setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
@@ -1885,11 +1890,14 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // ── Leaderboard buttons ───────────────────────────────────────────────────
-    if (interaction.customId.startsWith('lb:')) {
-        if (interaction.customId === 'lb:noop') { await interaction.deferUpdate(); return; }
-        const [, type, period, pageStr] = interaction.customId.split(':');
-        const page = parseInt(pageStr || '0', 10);
+    // ── Leaderboard buttons (lbt/lbp/lbn/lbx prefixes) ───────────────────────
+    if (/^lb[tpnx]/.test(interaction.customId)) {
+        if (interaction.customId === 'lbx') { await interaction.deferUpdate(); return; }
+        // lbt:type:period  |  lbp:type:period  |  lbn:type:period:page
+        const parts = interaction.customId.split(':');
+        const type   = parts[1];
+        const period = parts[2];
+        const page   = parseInt(parts[3] || '0', 10);
         await interaction.deferUpdate();
         const { embed, page: safePage, totalPages } = buildLeaderboardEmbed(type, period, page);
         const components = buildLeaderboardComponents(type, period, safePage, totalPages);
