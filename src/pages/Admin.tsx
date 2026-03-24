@@ -2212,10 +2212,18 @@ function loadBrowserImage(src: string): Promise<HTMLImageElement> {
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = reject;
-    setTimeout(() => reject(new Error('timeout')), 5000);
+    setTimeout(() => reject(new Error('timeout')), 6000);
     img.src = src;
   });
 }
+
+const CARD_HEIGHT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'auto',     label: 'Auto' },
+  { value: 'compact',  label: 'Compact (164px)' },
+  { value: 'standard', label: 'Standard (220px)' },
+  { value: 'tall',     label: 'Tall (340px)' },
+  { value: 'banner',   label: 'Banner (500px)' },
+];
 
 function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 4): string[] {
   if (!text.trim()) return [];
@@ -2241,25 +2249,48 @@ function wrapCanvasLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 // Discord Cards Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
+function wrapCanvasLines2(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines = 8): string[] {
+  if (!text.trim()) return [];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (!word) continue;
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      if (lines.length >= maxLines) return lines;
+      line = word;
+    } else { line = test; }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 function DiscordCardsTab() {
   const bot = useContext(BotCtx);
   const [channelId, setChannelId] = useState('');
   const [title, setTitle] = useState('TrueBeast');
   const [subtitle, setSubtitle] = useState('');
+  const [bodyText, setBodyText] = useState('');
   const [gradientFrom, setGradientFrom] = useState('#1a2744');
   const [gradientTo, setGradientTo] = useState('#0d3d52');
+  const [gradientOpacity, setGradientOpacity] = useState(100);
   const [imageUrl, setImageUrl] = useState('');
   const [imagePosition, setImagePosition] = useState<'left' | 'right' | 'background' | 'none'>('left');
   const [logoUrl, setLogoUrl] = useState('');
+  const [featuredImageUrl, setFeaturedImageUrl] = useState('');
   const [textAlign, setTextAlign] = useState<'left' | 'center'>('left');
-  const [buttonLabel, setButtonLabel] = useState('');
-  const [buttonUrl, setButtonUrl] = useState('');
-  const [buttonEmoji, setButtonEmoji] = useState('');
-  const [buttonEmojiPickerOpen, setButtonEmojiPickerOpen] = useState(false);
+  const [cardHeight, setCardHeight] = useState('auto');
+  const [components, setComponents] = useState<ButtonData[][]>([]);
   const [reactions, setReactions] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const updateRow = (ri: number, r: ButtonData[]) => setComponents((s) => s.map((x, i) => i === ri ? r : x));
+  const removeRow = (ri: number) => setComponents((s) => s.filter((_, i) => i !== ri));
+  const addRow = () => { if (components.length < MAX_ROWS) setComponents((s) => [...s, [newButton()]]); };
 
   useEffect(() => {
     if (!feedback) return;
@@ -2270,146 +2301,130 @@ function DiscordCardsTab() {
   // Draw browser canvas preview
   useEffect(() => {
     let active = true;
-
     async function draw() {
       const canvas = canvasRef.current;
       if (!canvas || !active) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-
       const W = 680;
       const ICON_SZ = 120, ICON_PAD = 22, GAP = 16, TEXT_PAD = 24;
-      const TITLE_SZ = 28, SUB_SZ = 18, LINE_H = 26;
+      const TITLE_SZ = 28, SUB_SZ = 18, BODY_SZ = 15, LINE_H = 26, BODY_LINE_H = 22;
 
       let textX: number, textMaxW: number, ctxTextAlign: CanvasTextAlign;
-      if (imagePosition === 'left') {
-        textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD; ctxTextAlign = 'left';
-      } else if (imagePosition === 'right') {
-        textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD; ctxTextAlign = 'left';
-      } else {
-        ctxTextAlign = textAlign;
-        textX = textAlign === 'center' ? W / 2 : TEXT_PAD;
-        textMaxW = W - TEXT_PAD * 2;
-      }
+      if (imagePosition === 'left') { textX = ICON_PAD + ICON_SZ + GAP; textMaxW = W - textX - TEXT_PAD; ctxTextAlign = 'left'; }
+      else if (imagePosition === 'right') { textX = TEXT_PAD; textMaxW = W - ICON_SZ - ICON_PAD - GAP - TEXT_PAD; ctxTextAlign = 'left'; }
+      else { ctxTextAlign = textAlign; textX = textAlign === 'center' ? W / 2 : TEXT_PAD; textMaxW = W - TEXT_PAD * 2; }
 
-      // Measure subtitle lines for height
-      const tmpCanvas = document.createElement('canvas');
-      tmpCanvas.width = W; tmpCanvas.height = 100;
-      const tmpCtx = tmpCanvas.getContext('2d')!;
+      const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = 100;
+      const tmpCtx = tmp.getContext('2d')!;
       tmpCtx.font = `${SUB_SZ}px sans-serif`;
-      const subLines = wrapCanvasLines(tmpCtx, subtitle, textMaxW);
+      const subLines = wrapCanvasLines2(tmpCtx, subtitle, textMaxW);
+      tmpCtx.font = `${BODY_SZ}px sans-serif`;
+      const bodyLines = wrapCanvasLines2(tmpCtx, bodyText, textMaxW, 8);
 
       const TITLE_H = TITLE_SZ + 10;
       const subH = subLines.length * LINE_H;
-      const H = Math.max(164, 28 + TITLE_H + subH + 28);
+      const bodyH = bodyLines.length > 0 ? bodyLines.length * BODY_LINE_H + 8 : 0;
+      const textContentH = TITLE_H + subH + bodyH;
+      const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
 
-      canvas.width = W;
-      canvas.height = H;
+      // Featured image aspect-ratio height
+      let featuredImg: HTMLImageElement | null = null;
+      if (featuredImageUrl) { try { featuredImg = await loadBrowserImage(featuredImageUrl); } catch {} }
+      if (!active) return;
+      const FEAT_H = featuredImg ? Math.min(240, Math.round(featuredImg.naturalHeight * W / featuredImg.naturalWidth)) : 0;
 
-      // Background gradient
+      const heightMap: Record<string, number> = { compact: 164, standard: 220, tall: 340, banner: 500 };
+      const H = cardHeight === 'auto' ? Math.max(164, headerH + (FEAT_H > 0 ? FEAT_H + 12 : 0)) : (heightMap[cardHeight] || headerH);
+
+      canvas.width = W; canvas.height = H;
+
+      // Dark base
+      ctx.fillStyle = '#0a0a0a';
+      ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.fill();
+
+      // Gradient with opacity
+      ctx.globalAlpha = gradientOpacity / 100;
       const bg = ctx.createLinearGradient(0, 0, W, 0);
-      bg.addColorStop(0, gradientFrom);
-      bg.addColorStop(1, gradientTo);
+      bg.addColorStop(0, gradientFrom); bg.addColorStop(1, gradientTo);
       ctx.fillStyle = bg;
-      ctx.beginPath();
-      (ctx as any).roundRect(0, 0, W, H, 14);
-      ctx.fill();
+      ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.fill();
+      ctx.globalAlpha = 1.0;
 
       // Load images
       let mainImg: HTMLImageElement | null = null;
       let logoImg: HTMLImageElement | null = null;
-
-      if (imageUrl && imagePosition !== 'none') {
-        try { mainImg = await loadBrowserImage(imageUrl); } catch {}
-      }
-      if (logoUrl) {
-        try { logoImg = await loadBrowserImage(logoUrl); } catch {}
-      }
-
+      if (imageUrl && imagePosition !== 'none') { try { mainImg = await loadBrowserImage(imageUrl); } catch {} }
+      if (logoUrl) { try { logoImg = await loadBrowserImage(logoUrl); } catch {} }
       if (!active) return;
 
       // Background image
       if (imagePosition === 'background' && mainImg) {
-        ctx.save();
-        ctx.globalAlpha = 0.3;
-        ctx.beginPath();
-        (ctx as any).roundRect(0, 0, W, H, 14);
-        ctx.clip();
-        const scale = Math.max(W / mainImg.naturalWidth, H / mainImg.naturalHeight);
-        const sw = mainImg.naturalWidth * scale, sh = mainImg.naturalHeight * scale;
-        ctx.drawImage(mainImg, (W - sw) / 2, (H - sh) / 2, sw, sh);
+        ctx.save(); ctx.globalAlpha = 0.3;
+        ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.clip();
+        const s = Math.max(W / mainImg.naturalWidth, H / mainImg.naturalHeight);
+        ctx.drawImage(mainImg, (W - mainImg.naturalWidth * s) / 2, (H - mainImg.naturalHeight * s) / 2, mainImg.naturalWidth * s, mainImg.naturalHeight * s);
         ctx.restore();
-        const overlay = ctx.createLinearGradient(0, 0, W, 0);
-        overlay.addColorStop(0, gradientFrom + 'cc');
-        overlay.addColorStop(1, gradientTo + 'cc');
-        ctx.fillStyle = overlay;
-        ctx.beginPath();
-        (ctx as any).roundRect(0, 0, W, H, 14);
-        ctx.fill();
+        ctx.globalAlpha = gradientOpacity / 100;
+        const ov = ctx.createLinearGradient(0, 0, W, 0);
+        ov.addColorStop(0, gradientFrom + 'cc'); ov.addColorStop(1, gradientTo + 'cc');
+        ctx.fillStyle = ov; ctx.beginPath(); (ctx as any).roundRect(0, 0, W, H, 14); ctx.fill();
+        ctx.globalAlpha = 1.0;
       }
 
       // Side icon
-      if ((imagePosition === 'left' || imagePosition === 'right') && mainImg) {
+      if ((imagePosition === 'left' || imagePosition === 'right')) {
         const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
-        const iconY = Math.round((H - ICON_SZ) / 2);
-        ctx.save();
-        ctx.beginPath();
-        (ctx as any).roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16);
-        ctx.clip();
-        ctx.drawImage(mainImg, iconX, iconY, ICON_SZ, ICON_SZ);
-        ctx.restore();
-      } else if ((imagePosition === 'left' || imagePosition === 'right') && !mainImg) {
-        // Placeholder box when no image
-        const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
-        const iconY = Math.round((H - ICON_SZ) / 2);
-        ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.beginPath();
-        (ctx as any).roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.2)';
-        ctx.font = 'bold 32px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('TB', iconX + ICON_SZ / 2, iconY + ICON_SZ / 2);
-        ctx.restore();
+        const iconY = Math.round((headerH - ICON_SZ) / 2);
+        if (mainImg) {
+          ctx.save(); ctx.beginPath(); (ctx as any).roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16); ctx.clip();
+          ctx.drawImage(mainImg, iconX, iconY, ICON_SZ, ICON_SZ); ctx.restore();
+        } else {
+          ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.08)';
+          ctx.beginPath(); (ctx as any).roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16); ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = 'bold 32px sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('TB', iconX + ICON_SZ / 2, iconY + ICON_SZ / 2); ctx.restore();
+        }
       }
 
       // Logo overlay
       if (logoImg) {
-        const LOGO_SZ = 52;
-        const lx = W - LOGO_SZ - 14, ly = H - LOGO_SZ - 14;
-        ctx.save();
-        ctx.beginPath();
-        (ctx as any).roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8);
-        ctx.clip();
-        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ);
-        ctx.restore();
+        const LOGO_SZ = 52, lx = W - LOGO_SZ - 14, ly = headerH - LOGO_SZ - 14;
+        ctx.save(); ctx.beginPath(); (ctx as any).roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8); ctx.clip();
+        ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ); ctx.restore();
       }
 
       // Text
-      ctx.textAlign = ctxTextAlign;
-      ctx.textBaseline = 'top';
-      const totalTextH = TITLE_H + subH;
-      const titleY = Math.round((H - totalTextH) / 2);
-
-      ctx.font = `bold ${TITLE_SZ}px sans-serif`;
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 6;
-      ctx.fillText(title || 'Title', textX, titleY);
-      ctx.shadowBlur = 0;
-
+      ctx.textAlign = ctxTextAlign; ctx.textBaseline = 'top';
+      const totalTextH = TITLE_H + subH + bodyH;
+      const titleY = Math.round((headerH - totalTextH) / 2);
+      ctx.font = `bold ${TITLE_SZ}px sans-serif`; ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 6;
+      ctx.fillText(title || 'Title', textX, titleY); ctx.shadowBlur = 0;
       if (subLines.length) {
-        ctx.font = `${SUB_SZ}px sans-serif`;
-        ctx.fillStyle = '#93b4ca';
-        subLines.forEach((line, i) => ctx.fillText(line, textX, titleY + TITLE_H + i * LINE_H));
+        ctx.font = `${SUB_SZ}px sans-serif`; ctx.fillStyle = '#93b4ca';
+        subLines.forEach((l, i) => ctx.fillText(l, textX, titleY + TITLE_H + i * LINE_H));
+      }
+      if (bodyLines.length) {
+        ctx.font = `${BODY_SZ}px sans-serif`; ctx.fillStyle = '#6b7f99';
+        bodyLines.forEach((l, i) => ctx.fillText(l, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H));
+      }
+
+      // Featured image inside card
+      if (featuredImg && FEAT_H > 0) {
+        const imgY = headerH + 8, imgDrawH = H - imgY - 8;
+        if (imgDrawH > 20) {
+          ctx.save(); ctx.beginPath(); (ctx as any).roundRect(0, imgY, W, imgDrawH, [0, 0, 14, 14]); ctx.clip();
+          const s = Math.max(W / featuredImg.naturalWidth, imgDrawH / featuredImg.naturalHeight);
+          ctx.drawImage(featuredImg, (W - featuredImg.naturalWidth * s) / 2, imgY + (imgDrawH - featuredImg.naturalHeight * s) / 2, featuredImg.naturalWidth * s, featuredImg.naturalHeight * s);
+          ctx.restore();
+        }
       }
     }
-
     draw();
     return () => { active = false; };
-  }, [title, subtitle, gradientFrom, gradientTo, imageUrl, imagePosition, logoUrl, textAlign]);
+  }, [title, subtitle, bodyText, gradientFrom, gradientTo, gradientOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight]);
 
   const handlePost = async () => {
     if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
@@ -2417,30 +2432,17 @@ function DiscordCardsTab() {
     setSending(true); setFeedback(null);
     try {
       await FirebaseDB.saveDiscordCard({
-        title: title.trim(),
-        subtitle: subtitle.trim(),
-        gradientFrom,
-        gradientTo,
-        imageUrl: imageUrl.trim(),
-        imagePosition,
-        logoUrl: logoUrl.trim(),
-        textAlign,
-        buttonLabel: buttonLabel.trim(),
-        buttonUrl: buttonUrl.trim(),
-        buttonEmoji: buttonEmoji.trim(),
-        reactions,
-        channelId,
+        title: title.trim(), subtitle: subtitle.trim(), bodyText: bodyText.trim(),
+        gradientFrom, gradientTo, gradientOpacity,
+        imageUrl: imageUrl.trim(), imagePosition, logoUrl: logoUrl.trim(),
+        featuredImageUrl: featuredImageUrl.trim(), textAlign, cardHeight,
+        componentsJson: components.length ? JSON.stringify(components) : '',
+        reactions, channelId,
       });
       setFeedback({ type: 'success', message: 'Card queued! The bot will post it within 15 seconds.' });
     } catch (err: any) {
       setFeedback({ type: 'error', message: err?.message ?? 'Failed to queue card.' });
     } finally { setSending(false); }
-  };
-
-  const renderEmojiDisplay = (r: string) => {
-    const m = r.match(/(?:(.+):)?(\d{15,})$/);
-    if (m) return <img src={`https://cdn.discordapp.com/emojis/${m[2]}.png?size=20`} alt={m[1] || ''} className="w-4 h-4" />;
-    return <span>{r}</span>;
   };
 
   return (
@@ -2467,56 +2469,72 @@ function DiscordCardsTab() {
               <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 cursor-pointer appearance-none">
                 <option value="" className="bg-[#1e1f22]">— Select channel —</option>
-                {bot.channels.map((c) => (
-                  <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>
-                ))}
+                {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
               </select>
             </div>
           </div>
-
           <hr className="border-white/5" />
 
-          {/* Title + Subtitle */}
+          {/* Text Content */}
           <div>
             <label className={lbl}>Title</label>
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="TrueBeast" className={inp} maxLength={80} />
           </div>
           <div>
             <label className={lbl}>Subtitle</label>
-            <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="A message or call to action..." className={inp} maxLength={200} />
+            <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Short headline or call to action..." className={inp} maxLength={200} />
+          </div>
+          <div>
+            <label className={lbl}>Body Text <span className="text-gray-500 font-normal">(optional, smaller)</span></label>
+            <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} placeholder="Longer description, details, etc." className={inp + ' resize-y'} rows={2} maxLength={500} />
           </div>
 
-          {/* Gradient */}
+          {/* Card Size */}
           <div>
-            <label className={lbl}>Gradient</label>
-            <div className="flex gap-2 items-center flex-wrap mb-2">
+            <label className={lbl}>Card Size</label>
+            <select value={cardHeight} onChange={(e) => setCardHeight(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 cursor-pointer appearance-none">
+              {CARD_HEIGHT_OPTIONS.map((o) => <option key={o.value} value={o.value} className="bg-[#1e1f22]">{o.label}</option>)}
+            </select>
+          </div>
+        </GlassCard>
+
+        {/* Gradient & Background */}
+        <GlassCard className="p-5 space-y-4">
+          <h4 className="text-sm font-semibold text-gray-300">Background</h4>
+
+          <div>
+            <label className={lbl}>Gradient Colours</label>
+            <div className="flex gap-3 items-center flex-wrap mb-2">
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400">From</label>
-                <input type="color" value={gradientFrom} onChange={(e) => setGradientFrom(e.target.value)}
-                  className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
+                <input type="color" value={gradientFrom} onChange={(e) => setGradientFrom(e.target.value)} className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
+                <span className="text-xs text-gray-500 font-mono">{gradientFrom}</span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400">To</label>
-                <input type="color" value={gradientTo} onChange={(e) => setGradientTo(e.target.value)}
-                  className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
+                <input type="color" value={gradientTo} onChange={(e) => setGradientTo(e.target.value)} className="w-10 h-8 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5" />
+                <span className="text-xs text-gray-500 font-mono">{gradientTo}</span>
               </div>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {CARD_GRADIENT_PRESETS.map((p) => (
-                <button key={p.label} type="button" title={p.label}
-                  onClick={() => { setGradientFrom(p.from); setGradientTo(p.to); }}
+                <button key={p.label} type="button" title={p.label} onClick={() => { setGradientFrom(p.from); setGradientTo(p.to); }}
                   style={{ background: `linear-gradient(90deg, ${p.from}, ${p.to})` }}
-                  className="w-8 h-6 rounded-md border border-white/20 cursor-pointer hover:scale-110 transition-transform"
-                />
+                  className="w-8 h-6 rounded-md border border-white/20 cursor-pointer hover:scale-110 transition-transform" />
               ))}
             </div>
           </div>
 
-          {/* Image */}
           <div>
-            <label className={lbl}>Image URL</label>
-            <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://... (leave empty for bot avatar)" className={inp} />
+            <label className={lbl}>Gradient Opacity — {gradientOpacity}%</label>
+            <input type="range" min={0} max={100} value={gradientOpacity} onChange={(e) => setGradientOpacity(Number(e.target.value))}
+              className="w-full h-2 appearance-none bg-white/10 rounded-full cursor-pointer accent-green-500" />
+          </div>
+
+          <div>
+            <label className={lbl}>Background Image URL <span className="text-gray-500 font-normal">(icon, side, or full-bleed)</span></label>
+            <input type="url" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://... (empty = bot avatar for left/right)" className={inp} />
           </div>
           <div>
             <label className={lbl}>Image Position</label>
@@ -2530,14 +2548,6 @@ function DiscordCardsTab() {
             </div>
           </div>
 
-          {/* Logo */}
-          <div>
-            <label className={lbl}>Logo URL <span className="text-gray-500 font-normal">(optional overlay, bottom-right)</span></label>
-            <input type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://... (small logo or icon)" className={inp} />
-          </div>
-
-          {/* Text Align */}
           {(imagePosition === 'background' || imagePosition === 'none') && (
             <div>
               <label className={lbl}>Text Alignment</label>
@@ -2551,49 +2561,26 @@ function DiscordCardsTab() {
               </div>
             </div>
           )}
+
+          <div>
+            <label className={lbl}>Featured Image <span className="text-gray-500 font-normal">(shown inside card, below text)</span></label>
+            <input type="url" value={featuredImageUrl} onChange={(e) => setFeaturedImageUrl(e.target.value)} placeholder="https://... (game screenshot, banner, etc.)" className={inp} />
+          </div>
+
+          <div>
+            <label className={lbl}>Logo / Overlay Icon <span className="text-gray-500 font-normal">(bottom-right corner)</span></label>
+            <input type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." className={inp} />
+          </div>
         </GlassCard>
 
-        {/* Button */}
+        {/* Link Buttons — same layout as Announcements tool */}
         <GlassCard className="p-5 space-y-3">
-          <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5"><Link01 className="w-4 h-4 text-gray-400" /> Link Button <span className="text-gray-500 font-normal">(optional)</span></h4>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={lbl}>Label</label>
-              <input type="text" value={buttonLabel} onChange={(e) => setButtonLabel(e.target.value)} placeholder="Join Now" className={inp} maxLength={40} />
-            </div>
-            <div>
-              <label className={lbl}>URL</label>
-              <input type="url" value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)} placeholder="https://..." className={inp} />
-            </div>
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-1.5"><Link01 className="w-4 h-4 text-gray-400" /> Link Buttons ({components.length}/{MAX_ROWS})</h4>
+            {components.length < MAX_ROWS && <button type="button" onClick={addRow} className="text-xs text-green-400 hover:text-green-300 flex items-center gap-1 transition-colors cursor-pointer"><Plus className="w-3 h-3" /> Add Row</button>}
           </div>
-          <div>
-            <label className={lbl}>Button Emoji <span className="text-gray-500 font-normal">(optional)</span></label>
-            <div className="flex gap-2 items-center relative">
-              <input type="text" value={buttonEmoji} onChange={(e) => setButtonEmoji(e.target.value)}
-                placeholder="Paste emoji or pick below..." className={inp + ' flex-1'} readOnly />
-              {buttonEmoji && (
-                <span className="text-xl px-1">{buttonEmoji.match(/\d{15,}/) ? '🔷' : buttonEmoji}</span>
-              )}
-              <div className="relative">
-                <button type="button" onClick={() => setButtonEmojiPickerOpen(!buttonEmojiPickerOpen)}
-                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-gray-400 hover:text-white transition-colors cursor-pointer">
-                  <FaceSmile className="w-4 h-4" />
-                </button>
-                {buttonEmojiPickerOpen && (
-                  <EmojiPicker
-                    onPick={(e, isCustom) => { setButtonEmoji(isCustom ? e : e); setButtonEmojiPickerOpen(false); }}
-                    onClose={() => setButtonEmojiPickerOpen(false)}
-                  />
-                )}
-              </div>
-              {buttonEmoji && (
-                <button type="button" onClick={() => setButtonEmoji('')}
-                  className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer">
-                  <XClose className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
+          {components.length === 0 && <p className="text-gray-600 text-xs italic">No button rows yet</p>}
+          {components.map((row, ri) => <ButtonRowEditor key={ri} row={row} rowIndex={ri} onChange={(u) => updateRow(ri, u)} onRemoveRow={() => removeRow(ri)} />)}
         </GlassCard>
 
         {/* Reactions */}
@@ -2621,34 +2608,8 @@ function DiscordCardsTab() {
           <div className="rounded-xl overflow-hidden bg-black/20">
             <canvas ref={canvasRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
           </div>
-          <div className="space-y-1 text-xs text-gray-500">
-            <p>Bot avatar shows when no image URL is set (icon positions).</p>
-            <p>Card height adjusts to fit subtitle text automatically.</p>
-          </div>
+          <p className="text-xs text-gray-500">Bot avatar shows for icon positions when no image URL is set.</p>
         </GlassCard>
-
-        {/* Preview of button */}
-        {buttonLabel && buttonUrl && (
-          <GlassCard className="p-4 space-y-2">
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Button Preview</p>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex items-center gap-1.5 bg-white/10 border border-white/20 rounded-md px-3 py-1.5 text-sm text-white">
-                {buttonEmoji && !buttonEmoji.match(/\d{15,}/) && <span>{buttonEmoji}</span>}
-                {buttonLabel}
-                <Link01 className="w-3 h-3 opacity-50" />
-              </div>
-            </div>
-            {reactions.length > 0 && (
-              <div className="flex flex-wrap gap-1 pt-1">
-                {reactions.map((r, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-2.5 py-1 text-xs text-gray-300">
-                    {r.match(/\d{15,}/) ? <img src={`https://cdn.discordapp.com/emojis/${r.match(/(\d{15,})/)?.[1]}.png?size=20`} alt="" className="w-3 h-3" /> : r} 1
-                  </span>
-                ))}
-              </div>
-            )}
-          </GlassCard>
-        )}
       </div>
     </div>
   );

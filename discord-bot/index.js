@@ -1842,18 +1842,22 @@ function wrapTextLines(ctx, text, maxWidth, maxLines) {
 
 async function generateDiscordCard(opts) {
     if (!opts) opts = {};
-    const title         = opts.title         || 'TrueBeast';
-    const subtitle      = opts.subtitle      || '';
-    const gradientFrom  = opts.gradientFrom  || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[0];
-    const gradientTo    = opts.gradientTo    || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[1];
-    const imageUrl      = opts.imageUrl      || null;
-    const imagePosition = opts.imagePosition || 'left';
-    const logoUrl       = opts.logoUrl       || null;
-    const textAlign     = opts.textAlign     || 'left';
+    const title            = opts.title            || 'TrueBeast';
+    const subtitle         = opts.subtitle         || '';
+    const bodyText         = opts.bodyText         || '';
+    const gradientFrom     = opts.gradientFrom     || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[0];
+    const gradientTo       = opts.gradientTo       || (CARD_BG_PRESETS[opts.bgPreset || 'teal'] || CARD_BG_PRESETS.teal)[1];
+    const gradientOpacity  = Math.min(1, Math.max(0, (opts.gradientOpacity !== undefined ? opts.gradientOpacity : 100) / 100));
+    const imageUrl         = opts.imageUrl         || null;
+    const imagePosition    = opts.imagePosition    || 'left';
+    const logoUrl          = opts.logoUrl          || null;
+    const featuredImageUrl = opts.featuredImageUrl || null;
+    const textAlign        = opts.textAlign        || 'left';
+    const cardHeightOpt    = opts.cardHeight       || 'auto';
 
     const W = 680;
     const ICON_SZ = 120, ICON_PAD = 22, GAP = 16, TEXT_PAD = 24;
-    const TITLE_SZ = 28, SUB_SZ = 18, LINE_H = 26;
+    const TITLE_SZ = 28, SUB_SZ = 18, BODY_SZ = 15, LINE_H = 26, BODY_LINE_H = 22;
     const FONT = 'Noto Sans, sans-serif';
 
     let textX, textMaxW, ctxTextAlign;
@@ -1867,105 +1871,130 @@ async function generateDiscordCard(opts) {
         textMaxW = W - TEXT_PAD * 2;
     }
 
-    // Measure subtitle to determine card height
-    const tmpCanvas = createCanvas(W, 400);
+    // Measure text for height calculation
+    const tmpCanvas = createCanvas(W, 1000);
     const tmpCtx = tmpCanvas.getContext('2d');
     tmpCtx.font = `${SUB_SZ}px ${FONT}`;
     const subLines = wrapTextLines(tmpCtx, subtitle, textMaxW);
+    tmpCtx.font = `${BODY_SZ}px ${FONT}`;
+    const bodyLines = wrapTextLines(tmpCtx, bodyText, textMaxW, 8);
 
     const TITLE_H = TITLE_SZ + 10;
-    const subH = subLines.length * LINE_H;
-    const H = Math.max(164, 28 + TITLE_H + subH + 28);
+    const subH    = subLines.length * LINE_H;
+    const bodyH   = bodyLines.length > 0 ? bodyLines.length * BODY_LINE_H + 8 : 0;
+
+    // Load featured image to get aspect ratio
+    let featuredImg = null;
+    if (featuredImageUrl) {
+        try { featuredImg = await loadImage(featuredImageUrl); } catch (_) {}
+    }
+    const FEAT_W = W;
+    const FEAT_H = featuredImg ? Math.min(240, Math.round(featuredImg.height * FEAT_W / featuredImg.width)) : 0;
+
+    // Header section height
+    const textContentH = TITLE_H + subH + bodyH;
+    const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
+
+    // Card height
+    const heightMap = { compact: 164, standard: 220, tall: 340, banner: 500 };
+    let H;
+    if (cardHeightOpt === 'auto') {
+        H = Math.max(164, headerH + (FEAT_H > 0 ? FEAT_H + 12 : 0));
+    } else {
+        H = heightMap[cardHeightOpt] || headerH;
+    }
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
-    // Background gradient
+    // Dark base
+    ctx.fillStyle = '#0a0a0a';
+    ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
+
+    // Gradient overlay with opacity
+    ctx.globalAlpha = gradientOpacity;
     const bg = ctx.createLinearGradient(0, 0, W, 0);
-    bg.addColorStop(0, gradientFrom);
-    bg.addColorStop(1, gradientTo);
+    bg.addColorStop(0, gradientFrom); bg.addColorStop(1, gradientTo);
     ctx.fillStyle = bg;
-    ctx.beginPath();
-    ctx.roundRect(0, 0, W, H, 14);
-    ctx.fill();
+    ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
+    ctx.globalAlpha = 1.0;
 
     // Load images
     let mainImg = null;
-    if (imageUrl) {
-        try { mainImg = await loadImage(imageUrl); } catch (_) {}
-    }
+    if (imageUrl) { try { mainImg = await loadImage(imageUrl); } catch (_) {} }
     if (!mainImg && imagePosition === 'left') {
         try { mainImg = await loadImage(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
     }
     let logoImg = null;
-    if (logoUrl) {
-        try { logoImg = await loadImage(logoUrl); } catch (_) {}
-    }
+    if (logoUrl) { try { logoImg = await loadImage(logoUrl); } catch (_) {} }
 
-    // Draw background image
+    // Background image
     if (imagePosition === 'background' && mainImg) {
         ctx.save();
         ctx.globalAlpha = 0.3;
-        ctx.beginPath();
-        ctx.roundRect(0, 0, W, H, 14);
-        ctx.clip();
+        ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.clip();
         const scale = Math.max(W / mainImg.width, H / mainImg.height);
-        const sw = mainImg.width * scale, sh = mainImg.height * scale;
-        ctx.drawImage(mainImg, (W - sw) / 2, (H - sh) / 2, sw, sh);
+        ctx.drawImage(mainImg, (W - mainImg.width * scale) / 2, (H - mainImg.height * scale) / 2, mainImg.width * scale, mainImg.height * scale);
         ctx.restore();
-        // Re-apply gradient overlay
-        const overlay = ctx.createLinearGradient(0, 0, W, 0);
-        overlay.addColorStop(0, gradientFrom + 'cc');
-        overlay.addColorStop(1, gradientTo + 'cc');
-        ctx.fillStyle = overlay;
-        ctx.beginPath();
-        ctx.roundRect(0, 0, W, H, 14);
-        ctx.fill();
+        ctx.globalAlpha = gradientOpacity;
+        const ov = ctx.createLinearGradient(0, 0, W, 0);
+        ov.addColorStop(0, gradientFrom + 'cc'); ov.addColorStop(1, gradientTo + 'cc');
+        ctx.fillStyle = ov;
+        ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
+        ctx.globalAlpha = 1.0;
     }
 
-    // Draw side icon
+    // Side icon
     if ((imagePosition === 'left' || imagePosition === 'right') && mainImg) {
         const iconX = imagePosition === 'left' ? ICON_PAD : W - ICON_PAD - ICON_SZ;
-        const iconY = Math.round((H - ICON_SZ) / 2);
+        const iconY = Math.round((headerH - ICON_SZ) / 2);
         ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16);
-        ctx.clip();
+        ctx.beginPath(); ctx.roundRect(iconX, iconY, ICON_SZ, ICON_SZ, 16); ctx.clip();
         ctx.drawImage(mainImg, iconX, iconY, ICON_SZ, ICON_SZ);
         ctx.restore();
     }
 
-    // Draw logo (bottom-right corner)
+    // Logo overlay (bottom-right of header)
     if (logoImg) {
         const LOGO_SZ = 52;
-        const lx = W - LOGO_SZ - 14, ly = H - LOGO_SZ - 14;
+        const lx = W - LOGO_SZ - 14, ly = headerH - LOGO_SZ - 14;
         ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8);
-        ctx.clip();
+        ctx.beginPath(); ctx.roundRect(lx, ly, LOGO_SZ, LOGO_SZ, 8); ctx.clip();
         ctx.drawImage(logoImg, lx, ly, LOGO_SZ, LOGO_SZ);
         ctx.restore();
     }
 
-    // Draw text
-    ctx.textAlign = ctxTextAlign;
-    ctx.textBaseline = 'top';
-    const totalTextH = TITLE_H + subH;
-    const titleY = Math.round((H - totalTextH) / 2);
+    // Text
+    ctx.textAlign = ctxTextAlign; ctx.textBaseline = 'top';
+    const totalTextH = TITLE_H + subH + bodyH;
+    const titleY = Math.round((headerH - totalTextH) / 2);
 
     ctx.font = `bold ${TITLE_SZ}px ${FONT}`;
     ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = 6;
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 6;
     ctx.fillText(title, textX, titleY);
     ctx.shadowBlur = 0;
 
     if (subLines.length) {
-        ctx.font = `${SUB_SZ}px ${FONT}`;
-        ctx.fillStyle = '#93b4ca';
-        subLines.forEach(function(line, i) {
-            ctx.fillText(line, textX, titleY + TITLE_H + i * LINE_H);
-        });
+        ctx.font = `${SUB_SZ}px ${FONT}`; ctx.fillStyle = '#93b4ca';
+        subLines.forEach(function(line, i) { ctx.fillText(line, textX, titleY + TITLE_H + i * LINE_H); });
+    }
+    if (bodyLines.length) {
+        ctx.font = `${BODY_SZ}px ${FONT}`; ctx.fillStyle = '#6b7f99';
+        bodyLines.forEach(function(line, i) { ctx.fillText(line, textX, titleY + TITLE_H + subH + 8 + i * BODY_LINE_H); });
+    }
+
+    // Featured image inside card (below header)
+    if (featuredImg && FEAT_H > 0) {
+        const imgY = headerH + 8;
+        const imgDrawH = H - imgY - 8;
+        if (imgDrawH > 20) {
+            ctx.save();
+            ctx.beginPath(); ctx.roundRect(0, imgY, W, imgDrawH, [0, 0, 14, 14]); ctx.clip();
+            const s = Math.max(W / featuredImg.width, imgDrawH / featuredImg.height);
+            ctx.drawImage(featuredImg, (W - featuredImg.width * s) / 2, imgY + (imgDrawH - featuredImg.height * s) / 2, featuredImg.width * s, featuredImg.height * s);
+            ctx.restore();
+        }
     }
 
     return canvas.toBuffer('image/png');
@@ -1982,6 +2011,9 @@ async function generateTestCard() {
 }
 
 // ── Discord card queue poller (Firestore → Discord) ───────────────────────────
+
+// In-memory dedup — prevents re-posting within this session even if Firestore write fails
+const processedCardIds = new Set();
 
 async function firestoreCardStatus(docId, status) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=status`;
@@ -2003,48 +2035,77 @@ async function pollDiscordCards() {
         const docs = data.documents || [];
         for (const doc of docs) {
             const f = doc.fields || {};
-            const status = f.status?.stringValue;
-            if (status !== 'pending') continue;
             const docId = doc.name.split('/').pop();
-            const title         = f.title?.stringValue || 'TrueBeast';
-            const subtitle      = f.subtitle?.stringValue || '';
-            const gradientFrom  = f.gradientFrom?.stringValue || '';
-            const gradientTo    = f.gradientTo?.stringValue || '';
-            const bgPreset      = f.bgPreset?.stringValue || 'teal';
-            const imageUrl      = f.imageUrl?.stringValue || null;
-            const imagePosition = f.imagePosition?.stringValue || 'left';
-            const logoUrl       = f.logoUrl?.stringValue || null;
-            const textAlign     = f.textAlign?.stringValue || 'left';
-            const channelId     = f.channelId?.stringValue;
-            const buttonLabel   = f.buttonLabel?.stringValue || '';
-            const buttonUrl     = f.buttonUrl?.stringValue || '';
-            const buttonEmoji   = f.buttonEmoji?.stringValue || '';
-            const reactionsRaw  = f.reactions?.arrayValue?.values || [];
-            const reactions     = reactionsRaw.map(function(v) { return v.stringValue; }).filter(Boolean);
+            const status = f.status?.stringValue;
+
+            // Skip already-processed or non-pending (in-memory dedup prevents re-posting even if Firestore write fails)
+            if (processedCardIds.has(docId)) continue;
+            if (status !== 'pending') continue;
+
+            // Mark locally FIRST — prevents re-processing on next poll regardless of Firestore success
+            processedCardIds.add(docId);
+            await firestoreCardStatus(docId, 'sent'); // best-effort (requires Firestore rule: allow write: if true)
+
+            const title            = f.title?.stringValue            || 'TrueBeast';
+            const subtitle         = f.subtitle?.stringValue         || '';
+            const bodyText         = f.bodyText?.stringValue         || '';
+            const gradientFrom     = f.gradientFrom?.stringValue     || '';
+            const gradientTo       = f.gradientTo?.stringValue       || '';
+            const bgPreset         = f.bgPreset?.stringValue         || 'teal';
+            const gradientOpacity  = f.gradientOpacity?.integerValue !== undefined
+                ? Number(f.gradientOpacity.integerValue)
+                : (f.gradientOpacity?.doubleValue !== undefined ? Number(f.gradientOpacity.doubleValue) : 100);
+            const imageUrl         = f.imageUrl?.stringValue         || null;
+            const imagePosition    = f.imagePosition?.stringValue    || 'left';
+            const logoUrl          = f.logoUrl?.stringValue          || null;
+            const featuredImageUrl = f.featuredImageUrl?.stringValue || null;
+            const textAlign        = f.textAlign?.stringValue        || 'left';
+            const cardHeight       = f.cardHeight?.stringValue       || 'auto';
+            const channelId        = f.channelId?.stringValue;
+            const componentsJson   = f.componentsJson?.stringValue   || '';
+            const buttonLabel      = f.buttonLabel?.stringValue      || '';
+            const buttonUrl        = f.buttonUrl?.stringValue        || '';
+            const buttonEmoji      = f.buttonEmoji?.stringValue      || '';
+            const reactionsRaw     = f.reactions?.arrayValue?.values || [];
+            const reactions        = reactionsRaw.map(function(v) { return v.stringValue; }).filter(Boolean);
             if (!channelId) continue;
 
-            // Mark as sent immediately to prevent double-posting
-            await firestoreCardStatus(docId, 'sent');
-
             try {
-                const buffer = await generateDiscordCard({ title, subtitle, gradientFrom, gradientTo, bgPreset, imageUrl, imagePosition, logoUrl, textAlign });
+                const buffer = await generateDiscordCard({ title, subtitle, bodyText, gradientFrom, gradientTo, bgPreset, gradientOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight });
                 const attachment = new AttachmentBuilder(buffer, { name: 'card.png' });
                 const channel = await client.channels.fetch(channelId);
                 const msgOptions = { files: [attachment] };
-                if (buttonLabel && buttonUrl) {
-                    let btn = new ButtonBuilder().setURL(buttonUrl).setStyle(ButtonStyle.Link);
-                    if (buttonLabel) btn = btn.setLabel(buttonLabel);
+
+                // Build Discord components from componentsJson or legacy single-button
+                const discordRows = [];
+                if (componentsJson) {
+                    try {
+                        const rows = JSON.parse(componentsJson);
+                        for (const row of rows) {
+                            const btns = row.filter(function(b) { return b.url && (b.label || b.emoji); }).map(function(b) {
+                                let btn = new ButtonBuilder().setURL(b.url).setStyle(ButtonStyle.Link);
+                                if (b.label) btn = btn.setLabel(b.label);
+                                if (b.emoji) {
+                                    const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
+                                    if (m) btn = btn.setEmoji({ name: m[1] || '_', id: m[2] });
+                                    else btn = btn.setEmoji(b.emoji);
+                                }
+                                return btn;
+                            });
+                            if (btns.length) discordRows.push(new ActionRowBuilder().addComponents(...btns));
+                        }
+                    } catch (_) {}
+                } else if (buttonLabel && buttonUrl) {
+                    let btn = new ButtonBuilder().setURL(buttonUrl).setStyle(ButtonStyle.Link).setLabel(buttonLabel);
                     if (buttonEmoji) {
                         const m = buttonEmoji.match(/(?:(.+):)?(\d{15,})$/);
-                        if (m) {
-                            btn = btn.setEmoji({ name: m[1] || '_', id: m[2] });
-                        } else {
-                            btn = btn.setEmoji(buttonEmoji);
-                        }
+                        if (m) btn = btn.setEmoji({ name: m[1] || '_', id: m[2] });
+                        else btn = btn.setEmoji(buttonEmoji);
                     }
-                    const row = new ActionRowBuilder().addComponents(btn);
-                    msgOptions.components = [row];
+                    discordRows.push(new ActionRowBuilder().addComponents(btn));
                 }
+                if (discordRows.length) msgOptions.components = discordRows;
+
                 const postedMsg = await channel.send(msgOptions);
                 for (let ri = 0; ri < reactions.length; ri++) {
                     try { await postedMsg.react(reactions[ri]); } catch (_) {}
