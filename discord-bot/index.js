@@ -1036,10 +1036,19 @@ async function createTempVC(state) {
                         {
                             name: '💤 AFK',
                             value:
-                                '`!!afk [reason]` — works in **any** voice chat\n' +
-                                '- Adds `[AFK]` to your name\n' +
-                                '- Announces your return when you type\n' +
-                                '- Notifies you if someone pings an AFK member',
+                                '`/afk [reason]`\n' +
+                                '> Adds `[AFK]` to your name\n' +
+                                '> Announces your return when you type\n' +
+                                '> Notifies others if they ping an AFK member',
+                        },
+                        {
+                            name: '⏰ Leave Timer',
+                            value:
+                                '`/leavetimer [time] [reason]`\n' +
+                                '> Sets a countdown before you auto-leave the VC\n' +
+                                '> Gives the channel a 1 min heads-up before you go\n' +
+                                '`/cleartimer`\n' +
+                                '> Cancels your active leave timer',
                         },
                     ],
                     footer: { text: 'Only you, mods, and the server owner can manage this channel' },
