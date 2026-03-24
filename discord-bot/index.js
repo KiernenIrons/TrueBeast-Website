@@ -501,17 +501,17 @@ const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
-    { name: '🥉 Bronze I (1s-1h)',        minMinutes: 0,     color: 0xcd7f32 },
-    { name: '🥉 Bronze II (1h-3h)',       minMinutes: 60,    color: 0xb87333 },
-    { name: '🥈 Silver I (3h-6h)',        minMinutes: 180,   color: 0xc0c0c0 },
-    { name: '🥈 Silver II (6h-10h)',      minMinutes: 360,   color: 0xa8a9ad },
-    { name: '🥇 Gold I (10h-20h)',        minMinutes: 600,   color: 0xffd700 },
-    { name: '🥇 Gold II (20h-40h)',       minMinutes: 1200,  color: 0xffa500 },
-    { name: '💠 Platinum (40h-60h)',      minMinutes: 2400,  color: 0xe5e4e2 },
-    { name: '💎 Diamond (60h-80h)',       minMinutes: 3600,  color: 0xb9f2ff },
-    { name: '🔥 Master (80h-140h)',       minMinutes: 4800,  color: 0x9b59b6 },
-    { name: '⚔️ Grandmaster (140h-200h)', minMinutes: 8400,  color: 0xe74c3c },
-    { name: '👑 Apex Predator (200h+)',   minMinutes: 12000, color: 0x22c55e },
+    { id: '1486023901330018335', name: '🥉 Bronze I (1s-1h)',        minMinutes: 0     },
+    { id: '1486023902231527597', name: '🥉 Bronze II (1h-3h)',       minMinutes: 60    },
+    { id: '1486023903150342204', name: '🥈 Silver I (3h-6h)',        minMinutes: 180   },
+    { id: '1486023903691276408', name: '🥈 Silver II (6h-10h)',      minMinutes: 360   },
+    { id: '1486023904412569660', name: '🥇 Gold I (10h-20h)',        minMinutes: 600   },
+    { id: '1486023904777470204', name: '🥇 Gold II (20h-40h)',       minMinutes: 1200  },
+    { id: '1486023905867993168', name: '💠 Platinum (40h-60h)',      minMinutes: 2400  },
+    { id: '1486023907004911808', name: '💎 Diamond (60h-80h)',       minMinutes: 3600  },
+    { id: '1486023909181751296', name: '🔥 Master (80h-140h)',       minMinutes: 4800  },
+    { id: '1486023909944983592', name: '⚔️ Grandmaster (140h-200h)', minMinutes: 8400  },
+    { id: '1486023910205165579', name: '👑 Apex Predator (200h+)',   minMinutes: 12000 },
 ];
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
@@ -1269,36 +1269,32 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 // ── Voice rank role management ────────────────────────────────────────────────
 
-async function ensureBeastRole(guild) {
-    try {
-        let role = guild.roles.cache.find(r => r.name === 'Beast');
-        if (!role) {
-            role = await guild.roles.create({ name: 'Beast', color: 0x22c55e, reason: 'BeastBot — owner role' });
-            console.log('[BeastBot] Created Beast role');
-        }
-        const owner = await guild.fetchOwner();
-        if (!owner.roles.cache.has(role.id)) {
-            await owner.roles.add(role);
-            console.log(`[BeastBot] Beast role assigned to ${owner.displayName}`);
-        }
-    } catch (e) { console.error('[BeastBot] ensureBeastRole failed:', e.message); }
-}
-
 async function ensureVoiceRankRoles(guild) {
+    // Look up each role by its fixed ID — never create new roles
     for (const rankDef of VOICE_RANK_ROLES) {
-        let role = guild.roles.cache.find(r => r.name === rankDef.name);
-        if (!role) {
-            try {
-                role = await guild.roles.create({ name: rankDef.name, color: rankDef.color, reason: 'BeastBot voice rank' });
-                console.log(`[BeastBot] Created voice rank role: ${rankDef.name}`);
-            } catch (e) {
-                console.error(`[BeastBot] Failed to create role ${rankDef.name}:`, e.message);
-                continue;
-            }
+        const role = guild.roles.cache.get(rankDef.id);
+        if (role) {
+            voiceRankRoleCache.set(rankDef.name, role);
+        } else {
+            console.warn(`[BeastBot] Could not find role ${rankDef.name} (${rankDef.id})`);
         }
-        voiceRankRoleCache.set(rankDef.name, role);
     }
-    console.log(`[BeastBot] Voice rank roles ready (${voiceRankRoleCache.size})`);
+    console.log(`[BeastBot] Voice rank roles ready (${voiceRankRoleCache.size}/${VOICE_RANK_ROLES.length})`);
+
+    // Assign Bronze I to every member who has none of the rank roles
+    const allRankIds = new Set(VOICE_RANK_ROLES.map(r => r.id));
+    const bronzeRole = guild.roles.cache.get(VOICE_RANK_ROLES[0].id);
+    if (!bronzeRole) return;
+    let assigned = 0;
+    for (const [, member] of guild.members.cache) {
+        if (member.user.bot) continue;
+        const hasRank = member.roles.cache.some(r => allRankIds.has(r.id));
+        if (!hasRank) {
+            await member.roles.add(bronzeRole).catch(() => {});
+            assigned++;
+        }
+    }
+    if (assigned > 0) console.log(`[BeastBot] Assigned Bronze I to ${assigned} members`);
 }
 
 async function assignVoiceRank(member, monthlyMinutes) {
@@ -1558,7 +1554,6 @@ client.once('ready', async () => {
             console.log(`[BeastBot] Cached ${memberNameCache.size} member display names`);
         } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
 
-        await ensureBeastRole(guild);
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
