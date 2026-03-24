@@ -488,6 +488,7 @@ let spotlightTimer = null;
 // ── Member Milestones ─────────────────────────────────────────────────────────
 const messageCounts        = new Map(); // userId → total message count
 const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
+const memberNameCache      = new Map(); // userId → displayName (populated at startup, kept fresh)
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
 const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 
@@ -1168,6 +1169,11 @@ function cancelLeaveTimer(userId) {
     leaveTimers.delete(userId);
 }
 
+// Keep member name cache fresh when someone changes their nickname
+client.on('guildMemberUpdate', (_old, newMember) => {
+    if (!newMember.user.bot) memberNameCache.set(newMember.id, newMember.displayName);
+});
+
 client.on('voiceStateUpdate', async (oldState, newState) => {
     // ── Cancel leave timer if user manually leaves VC ────────────────────────
     if (oldState.channelId && !newState.channelId && leaveTimers.has(oldState.member?.id)) {
@@ -1359,77 +1365,93 @@ function buildLeaderboardTitle(type, period) {
     return `🏆 ${typeStr} Leaderboard — ${periodStr}`;
 }
 
-function buildLeaderboardComponents(activeType, activePeriod) {
+const PAGE_SIZE = 10;
+
+function buildLeaderboardComponents(activeType, activePeriod, page, totalPages) {
     const typeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lb:msg:${activePeriod}`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:vc:${activePeriod}`).setLabel('🎙️ Voice Time').setStyle(activeType === 'vc' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:msg:${activePeriod}:0`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:vc:${activePeriod}:0`).setLabel('🎙️ Voice Time').setStyle(activeType === 'vc' ? ButtonStyle.Primary : ButtonStyle.Secondary),
     );
     const periodRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lb:${activeType}:today`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:week`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:month`).setLabel('This Month').setStyle(activePeriod === 'month' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lb:${activeType}:all`).setLabel('All Time').setStyle(activePeriod === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:today:0`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:week:0`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:month:0`).setLabel('This Month').setStyle(activePeriod === 'month' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:all:0`).setLabel('All Time').setStyle(activePeriod === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
     );
-    return [typeRow, periodRow];
+    const navRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`lb:${activeType}:${activePeriod}:${page - 1}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+        new ButtonBuilder().setCustomId('lb:noop').setLabel(`Page ${page + 1} of ${Math.max(1, totalPages)}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+        new ButtonBuilder().setCustomId(`lb:${activeType}:${activePeriod}:${page + 1}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+    );
+    return [typeRow, periodRow, navRow];
 }
 
-async function buildLeaderboardEmbed(guild, type, period) {
+function buildLeaderboardEmbed(type, period, page = 0) {
     const medals = ['🥇', '🥈', '🥉'];
     try {
-        // Fetch all members into cache once — far faster than individual fetches
-        await guild.members.fetch();
-
         let entries = [];
         if (type === 'msg') {
             for (const [userId, count] of messageCounts.entries()) {
                 const daysMap = messageDays.get(userId) || new Map();
                 const value = getTotal(daysMap, count, period);
-                if (value > 0) entries.push({ userId, value });
+                if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
             }
         } else {
             for (const [userId, data] of voiceMinutes.entries()) {
                 const value = getTotal(data.days, data.total, period);
-                if (value > 0) entries.push({ userId, value });
+                if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
             }
         }
         entries.sort((a, b) => b.value - a.value);
 
-        // Synchronous cache lookups — no API calls per user
-        const validEntries = [];
-        for (const entry of entries) {
-            if (validEntries.length >= 10) break;
-            const member = guild.members.cache.get(entry.userId);
-            if (member) validEntries.push({ member, value: entry.value });
-        }
+        const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+        const safePage = Math.max(0, Math.min(page, totalPages - 1));
+        const pageEntries = entries.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+        const globalOffset = safePage * PAGE_SIZE;
 
-        if (validEntries.length === 0) {
+        if (pageEntries.length === 0) {
             return {
-                color: 0x22c55e,
-                title: buildLeaderboardTitle(type, period),
-                description: 'No data for this period yet.',
-                timestamp: new Date().toISOString(),
+                embed: {
+                    color: 0x22c55e,
+                    title: buildLeaderboardTitle(type, period),
+                    description: 'No data for this period yet.',
+                    timestamp: new Date().toISOString(),
+                },
+                page: safePage,
+                totalPages,
             };
         }
-        const lines = validEntries.map(({ member, value }, i) => {
-            const prefix = medals[i] || `**${i + 1}.**`;
+        const lines = pageEntries.map(({ userId, value }, i) => {
+            const rank = globalOffset + i;
+            const prefix = rank < 3 ? medals[rank] : `**${rank + 1}.**`;
+            const name = memberNameCache.get(userId) || 'Unknown';
             const display = type === 'vc'
                 ? (value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`)
                 : value.toLocaleString() + ' messages';
-            return `${prefix} **${member.displayName}** — ${display}`;
+            return `${prefix} **${name}** — ${display}`;
         });
         return {
-            color: 0x22c55e,
-            title: buildLeaderboardTitle(type, period),
-            description: lines.join('\n'),
-            timestamp: new Date().toISOString(),
+            embed: {
+                color: 0x22c55e,
+                title: buildLeaderboardTitle(type, period),
+                description: lines.join('\n'),
+                footer: { text: `${entries.length} tracked members` },
+                timestamp: new Date().toISOString(),
+            },
+            page: safePage,
+            totalPages,
         };
     } catch (e) {
         console.error('[BeastBot] buildLeaderboardEmbed failed:', e.message);
         return {
-            color: 0xff0000,
-            title: buildLeaderboardTitle(type, period),
-            description: 'Failed to load leaderboard. Try again in a moment.',
-            timestamp: new Date().toISOString(),
+            embed: {
+                color: 0xff0000,
+                title: buildLeaderboardTitle(type, period),
+                description: 'Failed to load leaderboard. Try again in a moment.',
+                timestamp: new Date().toISOString(),
+            },
+            page: 0,
+            totalPages: 1,
         };
     }
 }
@@ -1496,6 +1518,15 @@ client.once('ready', async () => {
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
+
+        // Populate member name cache (one-time bulk fetch — keeps leaderboard instant)
+        try {
+            await guild.members.fetch();
+            for (const [id, member] of guild.members.cache) {
+                if (!member.user.bot) memberNameCache.set(id, member.displayName);
+            }
+            console.log(`[BeastBot] Cached ${memberNameCache.size} member display names`);
+        } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
@@ -1617,8 +1648,8 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
             await interaction.deferReply();
-            const embed      = await buildLeaderboardEmbed(interaction.guild, 'msg', 'all');
-            const components = buildLeaderboardComponents('msg', 'all');
+            const { embed, page, totalPages } = buildLeaderboardEmbed('msg', 'all', 0);
+            const components = buildLeaderboardComponents('msg', 'all', page, totalPages);
             await interaction.editReply({ embeds: [embed], components });
             return;
         }
@@ -1856,10 +1887,12 @@ client.on('interactionCreate', async (interaction) => {
 
     // ── Leaderboard buttons ───────────────────────────────────────────────────
     if (interaction.customId.startsWith('lb:')) {
-        const [, type, period] = interaction.customId.split(':');
+        if (interaction.customId === 'lb:noop') { await interaction.deferUpdate(); return; }
+        const [, type, period, pageStr] = interaction.customId.split(':');
+        const page = parseInt(pageStr || '0', 10);
         await interaction.deferUpdate();
-        const embed      = await buildLeaderboardEmbed(interaction.guild, type, period);
-        const components = buildLeaderboardComponents(type, period);
+        const { embed, page: safePage, totalPages } = buildLeaderboardEmbed(type, period, page);
+        const components = buildLeaderboardComponents(type, period, safePage, totalPages);
         await interaction.editReply({ embeds: [embed], components });
         return;
     }
