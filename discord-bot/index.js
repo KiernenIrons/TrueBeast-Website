@@ -1375,49 +1375,63 @@ function buildLeaderboardComponents(activeType, activePeriod) {
 
 async function buildLeaderboardEmbed(guild, type, period) {
     const medals = ['🥇', '🥈', '🥉'];
-    let entries = [];
-    if (type === 'msg') {
-        for (const [userId, count] of messageCounts.entries()) {
-            const daysMap = messageDays.get(userId) || new Map();
-            const value = getTotal(daysMap, count, period);
-            if (value > 0) entries.push({ userId, value });
+    try {
+        // Fetch all members into cache once — far faster than individual fetches
+        await guild.members.fetch();
+
+        let entries = [];
+        if (type === 'msg') {
+            for (const [userId, count] of messageCounts.entries()) {
+                const daysMap = messageDays.get(userId) || new Map();
+                const value = getTotal(daysMap, count, period);
+                if (value > 0) entries.push({ userId, value });
+            }
+        } else {
+            for (const [userId, data] of voiceMinutes.entries()) {
+                const value = getTotal(data.days, data.total, period);
+                if (value > 0) entries.push({ userId, value });
+            }
         }
-    } else {
-        for (const [userId, data] of voiceMinutes.entries()) {
-            const value = getTotal(data.days, data.total, period);
-            if (value > 0) entries.push({ userId, value });
+        entries.sort((a, b) => b.value - a.value);
+
+        // Synchronous cache lookups — no API calls per user
+        const validEntries = [];
+        for (const entry of entries) {
+            if (validEntries.length >= 10) break;
+            const member = guild.members.cache.get(entry.userId);
+            if (member) validEntries.push({ member, value: entry.value });
         }
-    }
-    entries.sort((a, b) => b.value - a.value);
-    const validEntries = [];
-    for (const entry of entries) {
-        if (validEntries.length >= 10) break;
-        try {
-            const member = await guild.members.fetch(entry.userId);
-            validEntries.push({ member, value: entry.value });
-        } catch {}
-    }
-    if (validEntries.length === 0) {
+
+        if (validEntries.length === 0) {
+            return {
+                color: 0x22c55e,
+                title: buildLeaderboardTitle(type, period),
+                description: 'No data for this period yet.',
+                timestamp: new Date().toISOString(),
+            };
+        }
+        const lines = validEntries.map(({ member, value }, i) => {
+            const prefix = medals[i] || `**${i + 1}.**`;
+            const display = type === 'vc'
+                ? (value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`)
+                : value.toLocaleString() + ' messages';
+            return `${prefix} **${member.displayName}** — ${display}`;
+        });
         return {
             color: 0x22c55e,
             title: buildLeaderboardTitle(type, period),
-            description: 'No data for this period yet.',
+            description: lines.join('\n'),
+            timestamp: new Date().toISOString(),
+        };
+    } catch (e) {
+        console.error('[BeastBot] buildLeaderboardEmbed failed:', e.message);
+        return {
+            color: 0xff0000,
+            title: buildLeaderboardTitle(type, period),
+            description: 'Failed to load leaderboard. Try again in a moment.',
             timestamp: new Date().toISOString(),
         };
     }
-    const lines = validEntries.map(({ member, value }, i) => {
-        const prefix = medals[i] || `**${i + 1}.**`;
-        const display = type === 'vc'
-            ? (value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`)
-            : value.toLocaleString() + ' messages';
-        return `${prefix} **${member.displayName}** — ${display}`;
-    });
-    return {
-        color: 0x22c55e,
-        title: buildLeaderboardTitle(type, period),
-        description: lines.join('\n'),
-        timestamp: new Date().toISOString(),
-    };
 }
 
 client.once('ready', async () => {
