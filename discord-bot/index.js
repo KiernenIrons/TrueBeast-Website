@@ -22,8 +22,9 @@ const {
     Client, GatewayIntentBits, Partials, ChannelType, PermissionFlagsBits,
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     ModalBuilder, TextInputBuilder, TextInputStyle,
-    SlashCommandBuilder, REST, Routes,
+    SlashCommandBuilder, REST, Routes, AttachmentBuilder,
 } = require('discord.js');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -489,6 +490,7 @@ let spotlightTimer = null;
 const messageCounts        = new Map(); // userId → total message count
 const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
 const memberNameCache      = new Map(); // userId → displayName (populated at startup, kept fresh)
+const memberCache          = new Map(); // userId → { displayName, avatarUrl } (for image generation)
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
 const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 
@@ -1187,7 +1189,13 @@ function cancelLeaveTimer(userId) {
 
 // Keep member name cache fresh when someone changes their nickname
 client.on('guildMemberUpdate', (_old, newMember) => {
-    if (!newMember.user.bot) memberNameCache.set(newMember.id, newMember.displayName);
+    if (!newMember.user.bot) {
+        memberNameCache.set(newMember.id, newMember.displayName);
+        memberCache.set(newMember.id, {
+            displayName: newMember.displayName,
+            avatarUrl: newMember.user.displayAvatarURL({ size: 128, extension: 'png' }),
+        });
+    }
 });
 
 client.on('voiceStateUpdate', async (oldState, newState) => {
@@ -1399,77 +1407,385 @@ function buildLeaderboardComponents(activeType, activePeriod, page, totalPages) 
         new ButtonBuilder().setCustomId(`lbn:${activeType}:${activePeriod}:${page - 1}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
         new ButtonBuilder().setCustomId('lbx').setLabel(`Page ${page + 1} of ${Math.max(1, totalPages)}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
         new ButtonBuilder().setCustomId(`lbn:${activeType}:${activePeriod}:${page + 1}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+        new ButtonBuilder().setCustomId('lbclose').setLabel('✕ Close').setStyle(ButtonStyle.Danger),
     );
     return [typeRow, periodRow, navRow];
 }
 
-function buildLeaderboardEmbed(type, period, page = 0) {
-    const medals = ['🥇', '🥈', '🥉'];
-    try {
-        let entries = [];
-        if (type === 'msg') {
-            for (const [userId, count] of messageCounts.entries()) {
-                const daysMap = messageDays.get(userId) || new Map();
-                const value = getTotal(daysMap, count, period);
-                if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
-            }
-        } else {
-            for (const [userId, data] of voiceMinutes.entries()) {
-                const value = getTotal(data.days, data.total, period);
-                if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
-            }
+function buildLeaderboardEntries(type, period) {
+    const entries = [];
+    if (type === 'msg') {
+        for (const [userId, count] of messageCounts.entries()) {
+            const daysMap = messageDays.get(userId) || new Map();
+            const value = getTotal(daysMap, count, period);
+            if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
         }
-        entries.sort((a, b) => b.value - a.value);
-
-        const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
-        const safePage = Math.max(0, Math.min(page, totalPages - 1));
-        const pageEntries = entries.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
-        const globalOffset = safePage * PAGE_SIZE;
-
-        if (pageEntries.length === 0) {
-            return {
-                embed: {
-                    color: 0x22c55e,
-                    title: buildLeaderboardTitle(type, period),
-                    description: 'No data for this period yet.',
-                    timestamp: new Date().toISOString(),
-                },
-                page: safePage,
-                totalPages,
-            };
+    } else {
+        for (const [userId, data] of voiceMinutes.entries()) {
+            const value = getTotal(data.days, data.total, period);
+            if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
         }
-        const lines = pageEntries.map(({ userId, value }, i) => {
-            const rank = globalOffset + i;
-            const prefix = rank < 3 ? medals[rank] : `**${rank + 1}.**`;
-            const display = type === 'vc'
-                ? (value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`)
-                : value.toLocaleString() + ' messages';
-            return `${prefix} <@${userId}> — ${display}`;
-        });
-        return {
-            embed: {
-                color: 0x22c55e,
-                title: buildLeaderboardTitle(type, period),
-                description: lines.join('\n'),
-                footer: { text: `${entries.length} tracked members` },
-                timestamp: new Date().toISOString(),
-            },
-            page: safePage,
-            totalPages,
-        };
-    } catch (e) {
-        console.error('[BeastBot] buildLeaderboardEmbed failed:', e.message);
-        return {
-            embed: {
-                color: 0xff0000,
-                title: buildLeaderboardTitle(type, period),
-                description: 'Failed to load leaderboard. Try again in a moment.',
-                timestamp: new Date().toISOString(),
-            },
-            page: 0,
-            totalPages: 1,
-        };
     }
+    entries.sort((a, b) => b.value - a.value);
+    return entries;
+}
+
+function formatScore(value, type) {
+    if (type === 'vc') return value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`;
+    return value.toLocaleString();
+}
+
+async function loadAvatar(userId) {
+    const info = memberCache.get(userId);
+    const url  = info?.avatarUrl;
+    try {
+        if (url) return await loadImage(url);
+    } catch (_) {}
+    // Discord default avatar fallback (grey silhouette)
+    try {
+        return await loadImage(`https://cdn.discordapp.com/embed/avatars/${Number(userId) % 5}.png`);
+    } catch (_) { return null; }
+}
+
+function drawCircularAvatar(ctx, img, cx, cy, r) {
+    if (!img) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+}
+
+function truncateName(ctx, name, maxWidth) {
+    if (ctx.measureText(name).width <= maxWidth) return name;
+    let n = name;
+    while (n.length > 1 && ctx.measureText(n + '…').width > maxWidth) n = n.slice(0, -1);
+    return n + '…';
+}
+
+// ── Leaderboard image ─────────────────────────────────────────────────────────
+
+async function generateLeaderboardImage(type, period, page = 0) {
+    const allEntries = buildLeaderboardEntries(type, period);
+    const totalPages = Math.max(1, Math.ceil(allEntries.length / PAGE_SIZE));
+    const safePage   = Math.max(0, Math.min(page, totalPages - 1));
+    const pageEntries = allEntries.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+    const globalOffset = safePage * PAGE_SIZE;
+
+    const W = 900;
+    const HEADER_H    = 90;
+    const PODIUM_H    = safePage === 0 && allEntries.length > 0 ? 240 : 0;
+    const ROW_H       = 56;
+    const FOOTER_H    = 44;
+    const listEntries = safePage === 0 ? pageEntries.slice(3) : pageEntries;
+    const H = HEADER_H + PODIUM_H + Math.max(listEntries.length, 1) * ROW_H + FOOTER_H;
+
+    const canvas = createCanvas(W, H);
+    const ctx    = canvas.getContext('2d');
+
+    // Background gradient
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#111827');
+    bg.addColorStop(1, '#0d1117');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle top stripe
+    const stripe = ctx.createLinearGradient(0, 0, W, 0);
+    stripe.addColorStop(0, 'rgba(34,197,94,0.15)');
+    stripe.addColorStop(0.5, 'rgba(34,197,94,0.04)');
+    stripe.addColorStop(1, 'rgba(34,197,94,0.15)');
+    ctx.fillStyle = stripe;
+    ctx.fillRect(0, 0, W, HEADER_H);
+
+    // Header text
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🏆 TrueBeast Leaderboard', 32, HEADER_H / 2 - 8);
+    ctx.font = '16px sans-serif';
+    ctx.fillStyle = '#8b9ab4';
+    ctx.fillText(buildLeaderboardTitle(type, period).replace('🏆 ', ''), 32, HEADER_H / 2 + 16);
+
+    // Member count badge (top-right)
+    if (allEntries.length > 0) {
+        ctx.font = '13px sans-serif';
+        ctx.fillStyle = '#22c55e';
+        const badge = `${allEntries.length} members`;
+        ctx.fillText(badge, W - ctx.measureText(badge).width - 32, HEADER_H / 2);
+    }
+
+    // Separator line
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, HEADER_H); ctx.lineTo(W, HEADER_H); ctx.stroke();
+
+    // ── No data ───────────────────────────────────────────────────────────────
+    if (allEntries.length === 0) {
+        ctx.font = '18px sans-serif';
+        ctx.fillStyle = '#8b9ab4';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data for this period yet.', W / 2, HEADER_H + ROW_H * 1.5);
+        ctx.textAlign = 'left';
+        return { buffer: canvas.toBuffer('image/png'), page: 0, totalPages: 1 };
+    }
+
+    // ── Podium (page 0 only, top 3) ───────────────────────────────────────────
+    if (safePage === 0) {
+        const podiumEntries = pageEntries.slice(0, 3);
+        // Order: 2nd (left), 1st (center), 3rd (right)
+        const slots    = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
+        const ranks    = [2, 1, 3];
+        const colors   = ['#c0c0c0', '#ffd700', '#cd7f32'];
+        const avatarR  = [44, 52, 44];
+        const cx       = [195, 450, 705];
+        const topY     = HEADER_H + 20;
+
+        // Load avatars in parallel
+        const avatarImgs = await Promise.all(slots.map(e => e ? loadAvatar(e.userId) : Promise.resolve(null)));
+
+        for (let i = 0; i < 3; i++) {
+            const entry = slots[i];
+            if (!entry) continue;
+            const name   = truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 140);
+            const score  = formatScore(entry.value, type);
+            const r      = avatarR[i];
+            const x      = cx[i];
+            const avatarY = topY + (i === 1 ? 0 : 20); // 1st place slightly higher
+
+            // Avatar glow
+            ctx.save();
+            ctx.shadowColor = colors[i];
+            ctx.shadowBlur  = 18;
+            ctx.beginPath();
+            ctx.arc(x, avatarY + r, r + 3, 0, Math.PI * 2);
+            ctx.strokeStyle = colors[i];
+            ctx.lineWidth   = 2.5;
+            ctx.stroke();
+            ctx.restore();
+
+            drawCircularAvatar(ctx, avatarImgs[i], x, avatarY + r, r);
+
+            // Rank badge
+            ctx.beginPath();
+            ctx.arc(x + r - 6, avatarY + r * 2 - 6, 14, 0, Math.PI * 2);
+            ctx.fillStyle = colors[i];
+            ctx.fill();
+            ctx.font = 'bold 13px sans-serif';
+            ctx.fillStyle = '#000000';
+            ctx.textAlign = 'center';
+            ctx.fillText(`#${ranks[i]}`, x + r - 6, avatarY + r * 2 - 6 + 1);
+
+            // Name
+            const nameY = avatarY + r * 2 + 20;
+            ctx.font = 'bold 15px sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(name, x, nameY);
+
+            // Score
+            ctx.font = '13px sans-serif';
+            ctx.fillStyle = colors[i];
+            ctx.fillText(score, x, nameY + 18);
+        }
+        ctx.textAlign = 'left';
+
+        // Separator below podium
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, HEADER_H + PODIUM_H); ctx.lineTo(W, HEADER_H + PODIUM_H); ctx.stroke();
+    }
+
+    // ── List rows ─────────────────────────────────────────────────────────────
+    const listY = HEADER_H + PODIUM_H;
+    const avatarImgs = await Promise.all(listEntries.map(e => loadAvatar(e.userId)));
+
+    listEntries.forEach(({ userId, value }, i) => {
+        const rank    = globalOffset + (safePage === 0 ? i + 3 : i);
+        const rowY    = listY + i * ROW_H;
+        const isOdd   = i % 2 === 0;
+
+        // Row background
+        ctx.fillStyle = isOdd ? 'rgba(255,255,255,0.02)' : 'transparent';
+        ctx.fillRect(0, rowY, W, ROW_H);
+
+        // Rank number
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillStyle = '#8b9ab4';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.fillText(`#${rank + 1}`, 68, rowY + ROW_H / 2);
+
+        // Avatar (small)
+        const aImg = avatarImgs[i];
+        if (aImg) drawCircularAvatar(ctx, aImg, 96, rowY + ROW_H / 2, 18);
+
+        // Name
+        ctx.font = '15px sans-serif';
+        ctx.fillStyle = '#e5e7eb';
+        ctx.textAlign = 'left';
+        const name = truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 480);
+        ctx.fillText(name, 128, rowY + ROW_H / 2);
+
+        // Score (right-aligned)
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#22c55e';
+        ctx.textAlign = 'right';
+        ctx.fillText(formatScore(value, type), W - 32, rowY + ROW_H / 2);
+    });
+
+    ctx.textAlign = 'left';
+
+    // Separator above footer
+    const footerY = H - FOOTER_H;
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, footerY); ctx.lineTo(W, footerY); ctx.stroke();
+
+    // Footer: page info
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = '#4b5563';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Page ${safePage + 1} of ${totalPages}`, W / 2, footerY + FOOTER_H / 2);
+    ctx.textAlign = 'left';
+
+    return { buffer: canvas.toBuffer('image/png'), page: safePage, totalPages };
+}
+
+// ── Profile card ──────────────────────────────────────────────────────────────
+
+async function generateProfileImage(userId) {
+    const info = memberCache.get(userId) || { displayName: 'Unknown', avatarUrl: null };
+    const msgCount  = messageCounts.get(userId) || 0;
+    const msgDMap   = messageDays.get(userId) || new Map();
+    const vcData    = voiceMinutes.get(userId) || { total: 0, days: new Map() };
+
+    // Current rank
+    const monthlyVc = getTotal(vcData.days, vcData.total, 'month');
+    let rankIdx = 0;
+    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+        if (monthlyVc >= VOICE_RANK_ROLES[i].minMinutes) rankIdx = i;
+    }
+    const currentRank = VOICE_RANK_ROLES[rankIdx];
+    const nextRank    = VOICE_RANK_ROLES[rankIdx + 1] || null;
+    const progress    = nextRank
+        ? Math.min(1, (monthlyVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
+        : 1;
+
+    const W = 860, H = 340;
+    const canvas = createCanvas(W, H);
+    const ctx    = canvas.getContext('2d');
+
+    // Background
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#111827');
+    bg.addColorStop(1, '#0d1117');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Left accent strip
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(0, 0, 4, H);
+
+    // Avatar
+    const avatarImg = await loadAvatar(userId);
+    const AX = 50, AY = H / 2, AR = 70;
+    // Avatar border ring
+    ctx.save();
+    ctx.shadowColor = '#22c55e';
+    ctx.shadowBlur = 20;
+    ctx.beginPath();
+    ctx.arc(AX + AR, AY, AR + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
+    drawCircularAvatar(ctx, avatarImg, AX + AR, AY, AR);
+
+    // Name
+    const contentX = AX + AR * 2 + 28;
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textBaseline = 'top';
+    ctx.fillText(truncateName(ctx, info.displayName, 400), contentX, 32);
+
+    // Rank badge
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#22c55e';
+    ctx.fillText(currentRank.name, contentX, 68);
+
+    // Stats grid (2 cols × 4 rows)
+    const statRows = [
+        { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today')  },
+        { label: 'This Week',  msg: getTotal(msgDMap, msgCount, 'week'),   vc: getTotal(vcData.days, vcData.total, 'week')   },
+        { label: 'This Month', msg: getTotal(msgDMap, msgCount, 'month'),  vc: getTotal(vcData.days, vcData.total, 'month')  },
+        { label: 'All Time',   msg: getTotal(msgDMap, msgCount, 'all'),    vc: getTotal(vcData.days, vcData.total, 'all')    },
+    ];
+
+    const gridX  = contentX;
+    const gridY  = 100;
+    const COL1   = 180;  // width of period label column
+    const COL2   = 200;  // messages column
+    const COL3   = 200;  // voice column
+
+    // Header row
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = '#4b5563';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Period', gridX, gridY);
+    ctx.fillText('Messages', gridX + COL1, gridY);
+    ctx.fillText('Voice Time', gridX + COL1 + COL2, gridY);
+
+    // Separator
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(gridX, gridY + 18); ctx.lineTo(gridX + COL1 + COL2 + COL3, gridY + 18); ctx.stroke();
+
+    statRows.forEach(({ label, msg, vc }, i) => {
+        const rowY = gridY + 26 + i * 32;
+        ctx.font = '13px sans-serif';
+        ctx.fillStyle = '#8b9ab4';
+        ctx.fillText(label, gridX, rowY);
+        ctx.fillStyle = msg > 0 ? '#e5e7eb' : '#4b5563';
+        ctx.fillText(msg.toLocaleString(), gridX + COL1, rowY);
+        ctx.fillStyle = vc > 0 ? '#e5e7eb' : '#4b5563';
+        ctx.fillText(formatScore(vc, 'vc'), gridX + COL1 + COL2, rowY);
+    });
+
+    // Rank progress bar
+    const barX = gridX, barY = H - 58, barW = COL1 + COL2 + COL3, barH = 10;
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#4b5563';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(nextRank ? `${currentRank.name}  →  ${nextRank.name}` : `${currentRank.name} (Max Rank)`, barX, barY - 4);
+
+    // Track
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 5);
+    ctx.fill();
+
+    // Fill
+    if (progress > 0) {
+        const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+        grad.addColorStop(0, '#16a34a');
+        grad.addColorStop(1, '#22c55e');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(barX, barY, Math.max(barH, barW * progress), barH, 5);
+        ctx.fill();
+    }
+
+    // Progress label
+    const pct = nextRank ? `${Math.round(progress * 100)}%` : '100%';
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#22c55e';
+    ctx.textBaseline = 'top';
+    ctx.fillText(pct, barX + barW + 10, barY);
+
+    return canvas.toBuffer('image/png');
 }
 
 client.once('ready', async () => {
@@ -1535,7 +1851,13 @@ client.once('ready', async () => {
         try {
             await guild.members.fetch();
             for (const [id, member] of guild.members.cache) {
-                if (!member.user.bot) memberNameCache.set(id, member.displayName);
+                if (!member.user.bot) {
+                    memberNameCache.set(id, member.displayName);
+                    memberCache.set(id, {
+                        displayName: member.displayName,
+                        avatarUrl: member.user.displayAvatarURL({ size: 128, extension: 'png' }),
+                    });
+                }
             }
             console.log(`[BeastBot] Cached ${memberNameCache.size} member display names`);
         } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
@@ -1609,6 +1931,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('scanmessages')
                 .setDescription('(Owner only) Scan all channels for the last 30 days and rebuild message counts'),
+            new SlashCommandBuilder()
+                .setName('me')
+                .setDescription('View your stats and rank'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -1690,18 +2015,16 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
             await interaction.deferReply();
-            const menuEmbed = {
-                color: 0x22c55e,
-                title: '🏆 TrueBeast Leaderboard',
-                description: 'Choose a category to get started:',
-                timestamp: new Date().toISOString(),
-            };
-            const menuComponents = [new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('lbt:msg:all').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('lbt:vc:all').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Primary),
-            )];
-            const reply = await interaction.editReply({ embeds: [menuEmbed], components: menuComponents });
-            leaderboardOwners.set(reply.id, interaction.user.id);
+            try {
+                const { buffer, page, totalPages } = await generateLeaderboardImage('msg', 'all', 0);
+                const attachment = new AttachmentBuilder(buffer, { name: 'leaderboard.png' });
+                const components = buildLeaderboardComponents('msg', 'all', page, totalPages);
+                const reply = await interaction.editReply({ files: [attachment], components });
+                leaderboardOwners.set(reply.id, interaction.user.id);
+            } catch (e) {
+                console.error('[BeastBot] /leaderboard image failed:', e.message);
+                await interaction.editReply({ content: '❌ Failed to generate leaderboard. Try again in a moment.' });
+            }
             return;
         }
 
@@ -1730,6 +2053,20 @@ client.on('interactionCreate', async (interaction) => {
                     timestamp: new Date().toISOString(),
                 }],
             });
+            return;
+        }
+
+        // ── /me ───────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'me') {
+            await interaction.deferReply();
+            try {
+                const buffer = await generateProfileImage(interaction.user.id);
+                const attachment = new AttachmentBuilder(buffer, { name: 'profile.png' });
+                await interaction.editReply({ files: [attachment] });
+            } catch (e) {
+                console.error('[BeastBot] /me image failed:', e.message);
+                await interaction.editReply({ content: '❌ Failed to generate profile card. Try again in a moment.' });
+            }
             return;
         }
 
@@ -2038,9 +2375,15 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
-    // ── Leaderboard buttons (lbt/lbp/lbn/lbx prefixes) ───────────────────────
-    if (/^lb[tpnx]/.test(interaction.customId)) {
+    // ── Leaderboard buttons (lbt/lbp/lbn/lbx/lbclose prefixes) ──────────────
+    if (/^lb[tpnx]/.test(interaction.customId) || interaction.customId === 'lbclose') {
         if (interaction.customId === 'lbx') { await interaction.deferUpdate(); return; }
+        if (interaction.customId === 'lbclose') {
+            await interaction.deferUpdate();
+            leaderboardOwners.delete(interaction.message.id);
+            await interaction.deleteReply();
+            return;
+        }
         // Only the person who invoked /leaderboard can use the buttons
         const ownerId = leaderboardOwners.get(interaction.message.id);
         if (ownerId && interaction.user.id !== ownerId) {
@@ -2053,9 +2396,14 @@ client.on('interactionCreate', async (interaction) => {
         const period = parts[2];
         const page   = parseInt(parts[3] || '0', 10);
         await interaction.deferUpdate();
-        const { embed, page: safePage, totalPages } = buildLeaderboardEmbed(type, period, page);
-        const components = buildLeaderboardComponents(type, period, safePage, totalPages);
-        await interaction.editReply({ embeds: [embed], components });
+        try {
+            const { buffer, page: safePage, totalPages } = await generateLeaderboardImage(type, period, page);
+            const attachment = new AttachmentBuilder(buffer, { name: 'leaderboard.png' });
+            const components = buildLeaderboardComponents(type, period, safePage, totalPages);
+            await interaction.editReply({ files: [attachment], components });
+        } catch (e) {
+            console.error('[BeastBot] leaderboard button image failed:', e.message);
+        }
         return;
     }
 
