@@ -1606,6 +1606,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('assignbronze')
                 .setDescription('(Owner only) Assign Bronze I to every member without a rank role'),
+            new SlashCommandBuilder()
+                .setName('scanmessages')
+                .setDescription('(Owner only) Scan all channels for the last 30 days and rebuild message counts'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -1890,6 +1893,84 @@ client.on('interactionCreate', async (interaction) => {
                 catch (_) { failed++; }
             }
             await interaction.followUp({ content: `✅ Done! **${success}** assigned, **${failed}** failed.`, ephemeral: true });
+            return;
+        }
+
+        // ── /scanmessages ─────────────────────────────────────────────────────
+        if (interaction.commandName === 'scanmessages') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+
+            const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+            const sinceStr = new Date(since).toISOString().slice(0, 10);
+            const botMember = interaction.guild.members.me;
+            const channels = interaction.guild.channels.cache.filter(ch =>
+                ch.isTextBased() &&
+                !ch.isDMBased?.() &&
+                ch.permissionsFor(botMember)?.has('ReadMessageHistory')
+            );
+
+            await interaction.editReply(`⏳ Starting scan of **${channels.size}** channels for the last 30 days...`);
+
+            // Build fresh per-day counts from the scan
+            const scanned = new Map(); // userId → Map<dateStr, count>
+            let totalMsgs = 0, chDone = 0;
+
+            for (const [, channel] of channels) {
+                let lastId = null;
+                let keepGoing = true;
+                while (keepGoing) {
+                    try {
+                        const opts = { limit: 100 };
+                        if (lastId) opts.before = lastId;
+                        const batch = await channel.messages.fetch(opts);
+                        if (batch.size === 0) break;
+                        for (const [, msg] of batch) {
+                            if (msg.createdTimestamp < since) { keepGoing = false; break; }
+                            if (msg.author.bot) continue;
+                            const ds = new Date(msg.createdTimestamp).toISOString().slice(0, 10);
+                            if (!scanned.has(msg.author.id)) scanned.set(msg.author.id, new Map());
+                            const dm = scanned.get(msg.author.id);
+                            dm.set(ds, (dm.get(ds) || 0) + 1);
+                            totalMsgs++;
+                        }
+                        lastId = batch.last()?.id;
+                        if (batch.size < 100) break;
+                    } catch (_) { break; }
+                }
+                chDone++;
+                if (chDone % 10 === 0) {
+                    await interaction.editReply(`⏳ **${chDone}/${channels.size}** channels scanned, **${totalMsgs.toLocaleString()}** messages so far...`).catch(() => {});
+                }
+            }
+
+            // Merge into messageDays — overwrite dates within scan window, keep older dates
+            for (const [userId, dMap] of scanned) {
+                let existing = messageDays.get(userId);
+                if (!existing) { existing = new Map(); messageDays.set(userId, existing); }
+                for (const [k] of [...existing]) if (k >= sinceStr) existing.delete(k);
+                for (const [k, v] of dMap) existing.set(k, v);
+            }
+
+            // Save all updated users to Firestore (fire-and-forget batches)
+            const userIds = [...scanned.keys()];
+            for (let i = 0; i < userIds.length; i += 20) {
+                await Promise.allSettled(
+                    userIds.slice(i, i + 20).map(uid => {
+                        const dm = messageDays.get(uid);
+                        return dm ? saveMessageDays(uid, dm) : Promise.resolve();
+                    })
+                );
+            }
+
+            await interaction.editReply(
+                `✅ Scan complete!\n` +
+                `📨 **${totalMsgs.toLocaleString()}** messages across **${chDone}** channels\n` +
+                `👥 **${scanned.size}** users' daily counts updated in Firestore`
+            );
             return;
         }
     }
