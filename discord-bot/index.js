@@ -1280,21 +1280,6 @@ async function ensureVoiceRankRoles(guild) {
         }
     }
     console.log(`[BeastBot] Voice rank roles ready (${voiceRankRoleCache.size}/${VOICE_RANK_ROLES.length})`);
-
-    // Assign Bronze I to every member who has none of the rank roles
-    const allRankIds = new Set(VOICE_RANK_ROLES.map(r => r.id));
-    const bronzeRole = guild.roles.cache.get(VOICE_RANK_ROLES[0].id);
-    if (!bronzeRole) return;
-    let assigned = 0;
-    for (const [, member] of guild.members.cache) {
-        if (member.user.bot) continue;
-        const hasRank = member.roles.cache.some(r => allRankIds.has(r.id));
-        if (!hasRank) {
-            await member.roles.add(bronzeRole).catch(() => {});
-            assigned++;
-        }
-    }
-    if (assigned > 0) console.log(`[BeastBot] Assigned Bronze I to ${assigned} members`);
 }
 
 async function assignVoiceRank(member, monthlyMinutes) {
@@ -1617,6 +1602,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('cleanvcs')
                 .setDescription('Clean up empty temporary voice channels (admin only)'),
+            new SlashCommandBuilder()
+                .setName('assignbronze')
+                .setDescription('(Owner only) Assign Bronze I to every member without a rank role'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -1877,6 +1865,30 @@ client.on('interactionCreate', async (interaction) => {
                 tempVoiceChannels.delete(chId);
             }
             await interaction.reply({ content: `🧹 Cleaned up **${deleted}** temp voice channel(s).`, ephemeral: true });
+            return;
+        }
+
+        // ── /assignbronze (TEMP — remove after confirmed working) ────────────
+        if (interaction.commandName === 'assignbronze') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            const bronzeRole = interaction.guild.roles.cache.get(VOICE_RANK_ROLES[0].id);
+            if (!bronzeRole) { await interaction.editReply('❌ Bronze I role not found by ID.'); return; }
+            // Fresh full member fetch to make sure we have everyone
+            await interaction.guild.members.fetch();
+            const allRankIds = new Set(VOICE_RANK_ROLES.map(r => r.id));
+            const toAssign = [...interaction.guild.members.cache.values()]
+                .filter(m => !m.user.bot && !m.roles.cache.some(r => allRankIds.has(r.id)));
+            await interaction.editReply(`⏳ Assigning Bronze I to **${toAssign.length}** members — this may take a minute...`);
+            let success = 0, failed = 0;
+            for (const member of toAssign) {
+                try { await member.roles.add(bronzeRole); success++; }
+                catch (_) { failed++; }
+            }
+            await interaction.followUp({ content: `✅ Done! **${success}** assigned, **${failed}** failed.`, ephemeral: true });
             return;
         }
     }
