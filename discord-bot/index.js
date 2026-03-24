@@ -1269,6 +1269,21 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 // ── Voice rank role management ────────────────────────────────────────────────
 
+async function ensureBeastRole(guild) {
+    try {
+        let role = guild.roles.cache.find(r => r.name === 'Beast');
+        if (!role) {
+            role = await guild.roles.create({ name: 'Beast', color: 0x22c55e, reason: 'BeastBot — owner role' });
+            console.log('[BeastBot] Created Beast role');
+        }
+        const owner = await guild.fetchOwner();
+        if (!owner.roles.cache.has(role.id)) {
+            await owner.roles.add(role);
+            console.log(`[BeastBot] Beast role assigned to ${owner.displayName}`);
+        }
+    } catch (e) { console.error('[BeastBot] ensureBeastRole failed:', e.message); }
+}
+
 async function ensureVoiceRankRoles(guild) {
     for (const rankDef of VOICE_RANK_ROLES) {
         let role = guild.roles.cache.find(r => r.name === rankDef.name);
@@ -1444,11 +1459,10 @@ function buildLeaderboardEmbed(type, period, page = 0) {
         const lines = pageEntries.map(({ userId, value }, i) => {
             const rank = globalOffset + i;
             const prefix = rank < 3 ? medals[rank] : `**${rank + 1}.**`;
-            const name = memberNameCache.get(userId) || 'Unknown';
             const display = type === 'vc'
                 ? (value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`)
                 : value.toLocaleString() + ' messages';
-            return `${prefix} **${name}** — ${display}`;
+            return `${prefix} <@${userId}> — ${display}`;
         });
         return {
             embed: {
@@ -1544,6 +1558,7 @@ client.once('ready', async () => {
             console.log(`[BeastBot] Cached ${memberNameCache.size} member display names`);
         } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
 
+        await ensureBeastRole(guild);
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
@@ -2177,7 +2192,22 @@ client.on('messageCreate', async (message) => {
             }
         }
 
-        // Old !! commands removed — now using slash commands
+        // !! prefix commands
+        const msgContent = message.content.trim();
+        if (msgContent.toLowerCase().startsWith('!!afk')) {
+            const voiceChannel = message.member?.voice?.channel;
+            if (!voiceChannel) {
+                await message.reply('❌ You need to be in a voice channel to go AFK!');
+                return;
+            }
+            const reason = msgContent.slice(5).trim() || 'No reason given';
+            const currentNick = message.member.displayName;
+            const afkNick = `[AFK] ${currentNick}`.slice(0, 32);
+            afkUsers.set(message.author.id, { reason, originalNickname: currentNick, timestamp: Date.now() });
+            try { await message.member.setNickname(afkNick); } catch (_) {}
+            await message.reply({ embeds: [{ color: 0x22c55e, description: `💤 **${currentNick}** is now AFK: *${reason}*\nI'll announce their return when they send a message.` }] });
+            return;
+        }
 
         // Track message count for milestones
         await checkMessageMilestone(message);
