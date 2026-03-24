@@ -1807,23 +1807,31 @@ async function generateProfileImage(userId) {
     return canvas.toBuffer('image/png');
 }
 
-// ── Test card (demo of closest-achievable MEE6-style) ─────────────────────────
+// ── Discord card canvas image ─────────────────────────────────────────────────
 
-async function generateTestCard() {
+const CARD_BG_PRESETS = {
+    teal:   ['#1a2744', '#0d3d52'],
+    green:  ['#0d2e1c', '#0a4020'],
+    purple: ['#1a1244', '#2d0d52'],
+    orange: ['#2e1a0d', '#522d0a'],
+    blue:   ['#0d1a44', '#0a2052'],
+    dark:   ['#111218', '#1a1d26'],
+};
+
+async function generateDiscordCard(title, subtitle, bgPreset = 'teal') {
     const W = 680, H = 164;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
-    // Gradient background matching MEE6's dark teal style
+    const colors = CARD_BG_PRESETS[bgPreset] || CARD_BG_PRESETS.teal;
     const bg = ctx.createLinearGradient(0, 0, W, 0);
-    bg.addColorStop(0, '#1a2744');
-    bg.addColorStop(1, '#0d3d52');
+    bg.addColorStop(0, colors[0]);
+    bg.addColorStop(1, colors[1]);
     ctx.fillStyle = bg;
     ctx.beginPath();
     ctx.roundRect(0, 0, W, H, 14);
     ctx.fill();
 
-    // App icon (bot avatar) — rounded square on the left
     const iconSize = 120, iconX = 22, iconY = 22;
     let iconImg = null;
     try { iconImg = await loadImage(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
@@ -1836,19 +1844,83 @@ async function generateTestCard() {
         ctx.restore();
     }
 
-    // Title
     const textX = iconX + iconSize + 24;
     ctx.font = 'bold 28px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'top';
-    ctx.fillText('TrueBeast', textX, 32);
+    ctx.fillText(title || 'TrueBeast', textX, 32);
 
-    // Subtitle
     ctx.font = '18px Noto Sans, sans-serif';
     ctx.fillStyle = '#93b4ca';
-    ctx.fillText('Game Night! Click below to join the fun.', textX, 72);
+    ctx.fillText(subtitle || '', textX, 72);
 
     return canvas.toBuffer('image/png');
+}
+
+async function generateTestCard() {
+    return generateDiscordCard('TrueBeast', 'Game Night! Click below to join the fun.', 'teal');
+}
+
+// ── Discord card queue poller (Firestore → Discord) ───────────────────────────
+
+async function firestoreCardStatus(docId, status) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=status`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { status: { stringValue: status } } }),
+        });
+    } catch (e) { console.error('[BeastBot] firestoreCardStatus failed:', e.message); }
+}
+
+async function pollDiscordCards() {
+    try {
+        const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards?key=${FIREBASE_API_KEY}&pageSize=20`;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        const docs = data.documents || [];
+        for (const doc of docs) {
+            const f = doc.fields || {};
+            const status = f.status?.stringValue;
+            if (status !== 'pending') continue;
+            const docId = doc.name.split('/').pop();
+            const title       = f.title?.stringValue || 'TrueBeast';
+            const subtitle    = f.subtitle?.stringValue || '';
+            const bgPreset    = f.bgPreset?.stringValue || 'teal';
+            const channelId   = f.channelId?.stringValue;
+            const buttonLabel = f.buttonLabel?.stringValue || '';
+            const buttonUrl   = f.buttonUrl?.stringValue || '';
+            if (!channelId) continue;
+
+            // Mark as sent immediately to prevent double-posting
+            await firestoreCardStatus(docId, 'sent');
+
+            try {
+                const buffer = await generateDiscordCard(title, subtitle, bgPreset);
+                const attachment = new AttachmentBuilder(buffer, { name: 'card.png' });
+                const channel = await client.channels.fetch(channelId);
+                const msgOptions = { files: [attachment] };
+                if (buttonLabel && buttonUrl) {
+                    const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setLabel(buttonLabel)
+                            .setURL(buttonUrl)
+                            .setStyle(ButtonStyle.Link)
+                    );
+                    msgOptions.components = [row];
+                }
+                await channel.send(msgOptions);
+                console.log(`[BeastBot] Discord card posted to ${channelId}: "${title}"`);
+            } catch (e) {
+                console.error('[BeastBot] Failed to post Discord card:', e.message);
+                await firestoreCardStatus(docId, 'failed');
+            }
+        }
+    } catch (e) {
+        console.error('[BeastBot] pollDiscordCards error:', e.message);
+    }
 }
 
 client.once('ready', async () => {
@@ -2064,6 +2136,10 @@ client.once('ready', async () => {
     } catch (e) {
         console.error('[BeastBot] Temp VC cleanup failed:', e.message);
     }
+
+    // Poll Firestore for queued Discord cards every 15s
+    setInterval(() => pollDiscordCards().catch(() => {}), 15 * 1000);
+    setTimeout(() => pollDiscordCards().catch(() => {}), 3000); // first poll 3s after ready
 
     // Heartbeat every 30 min so we can detect silent crashes
     setInterval(() => {

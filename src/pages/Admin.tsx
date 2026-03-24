@@ -24,6 +24,7 @@ import {
   AtSign,
   Users01,
   ShieldTick,
+  Image01,
 } from '@untitledui/icons';
 import { Tabs, TabList, TabPanel, Tab } from '@/components/application/tabs/tabs';
 import { Button } from '@/components/base/buttons/button';
@@ -135,6 +136,14 @@ function BotProvider({ children }: { children: React.ReactNode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CHANNEL_KEY = 'tb_dc_channel_id';
+const CARD_BG_PRESETS = [
+  { value: 'teal',   label: 'Dark Teal',   from: '#1a2744', to: '#0d3d52' },
+  { value: 'green',  label: 'Dark Green',  from: '#0d2e1c', to: '#0a4020' },
+  { value: 'purple', label: 'Dark Purple', from: '#1a1244', to: '#2d0d52' },
+  { value: 'orange', label: 'Dark Orange', from: '#2e1a0d', to: '#522d0a' },
+  { value: 'blue',   label: 'Dark Blue',   from: '#0d1a44', to: '#0a2052' },
+  { value: 'dark',   label: 'Charcoal',    from: '#111218', to: '#1a1d26' },
+];
 const DEFAULT_COLOR = '#5865f2';
 const MAX_EMBEDS = 10;
 const MAX_ROWS = 5;
@@ -2195,8 +2204,199 @@ function PlaceholderTab({ icon: Icon, label }: { icon: React.ComponentType<{ cla
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Discord Cards Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+function DiscordCardsTab() {
+  const bot = useContext(BotCtx);
+  const [channelId, setChannelId] = useState('');
+  const [title, setTitle] = useState('TrueBeast');
+  const [subtitle, setSubtitle] = useState('');
+  const [bgPreset, setBgPreset] = useState('teal');
+  const [buttonLabel, setButtonLabel] = useState('');
+  const [buttonUrl, setButtonUrl] = useState('');
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const t = setTimeout(() => setFeedback(null), 5000);
+    return () => clearTimeout(t);
+  }, [feedback]);
+
+  // Draw browser canvas preview
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const W = 680, H = 164;
+    canvas.width = W;
+    canvas.height = H;
+
+    const preset = CARD_BG_PRESETS.find((p) => p.value === bgPreset) ?? CARD_BG_PRESETS[0];
+    const bg = ctx.createLinearGradient(0, 0, W, 0);
+    bg.addColorStop(0, preset.from);
+    bg.addColorStop(1, preset.to);
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    (ctx as any).roundRect(0, 0, W, H, 14);
+    ctx.fill();
+
+    const iconSize = 120, iconX = 22, iconY = 22;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    (ctx as any).roundRect(iconX, iconY, iconSize, iconSize, 16);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('TB', iconX + iconSize / 2, iconY + iconSize / 2);
+    ctx.restore();
+
+    const textX = iconX + iconSize + 24;
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(title || 'Title', textX, 32);
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = '#93b4ca';
+    ctx.fillText(subtitle || 'Subtitle text goes here', textX, 72);
+  }, [title, subtitle, bgPreset]);
+
+  const handlePost = async () => {
+    if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
+    if (!title.trim()) { setFeedback({ type: 'error', message: 'Title is required.' }); return; }
+    setSending(true); setFeedback(null);
+    try {
+      await FirebaseDB.saveDiscordCard({
+        title: title.trim(),
+        subtitle: subtitle.trim(),
+        buttonLabel: buttonLabel.trim(),
+        buttonUrl: buttonUrl.trim(),
+        bgPreset,
+        channelId,
+      });
+      setFeedback({ type: 'success', message: 'Card queued! The bot will post it within 15 seconds.' });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Failed to queue card.' });
+    } finally { setSending(false); }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
+      <div className="space-y-4">
+        <GlassCard className="p-5 space-y-4">
+          <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2">
+            <Image01 className="w-5 h-5 text-green-400" /> Create Discord Card
+          </h3>
+
+          {/* Bot status + Channel picker */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Bot:</span>
+              {bot.loading ? (
+                <span className="text-xs text-yellow-400">Connecting...</span>
+              ) : bot.ready ? (
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full" /> Ready
+                </span>
+              ) : (
+                <span className="text-xs text-gray-500">Not connected</span>
+              )}
+              <button type="button" onClick={bot.fetch} disabled={bot.loading}
+                className="text-xs text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+                <RefreshCw01 className={`w-3 h-3 ${bot.loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 cursor-pointer appearance-none">
+                <option value="" className="bg-[#1e1f22]">— Select channel —</option>
+                {bot.channels.map((c) => (
+                  <option key={c.id} value={c.id} className="bg-[#1e1f22]">
+                    {c.type === 5 ? '📢' : '#'} {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <hr className="border-white/5" />
+
+          <div>
+            <label className={lbl}>Title</label>
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+              placeholder="TrueBeast" className={inp} maxLength={80} />
+          </div>
+
+          <div>
+            <label className={lbl}>Subtitle</label>
+            <input type="text" value={subtitle} onChange={(e) => setSubtitle(e.target.value)}
+              placeholder="A short message or call to action..." className={inp} maxLength={120} />
+          </div>
+
+          <div>
+            <label className={lbl}>Background</label>
+            <select value={bgPreset} onChange={(e) => setBgPreset(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500/50 cursor-pointer appearance-none">
+              {CARD_BG_PRESETS.map((p) => (
+                <option key={p.value} value={p.value} className="bg-[#1e1f22]">{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={lbl}>Button Label <span className="text-gray-500 font-normal">(optional)</span></label>
+              <input type="text" value={buttonLabel} onChange={(e) => setButtonLabel(e.target.value)}
+                placeholder="Join Now" className={inp} maxLength={40} />
+            </div>
+            <div>
+              <label className={lbl}>Button URL <span className="text-gray-500 font-normal">(optional)</span></label>
+              <input type="url" value={buttonUrl} onChange={(e) => setButtonUrl(e.target.value)}
+                placeholder="https://..." className={inp} />
+            </div>
+          </div>
+
+          {feedback && (
+            <div className={`px-4 py-3 rounded-xl text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+              {feedback.message}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={handlePost}
+            disabled={sending}
+            className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-colors text-sm cursor-pointer"
+          >
+            <Send01 className="w-4 h-4" />
+            {sending ? 'Queuing...' : 'Post Card'}
+          </button>
+        </GlassCard>
+      </div>
+
+      <div className="space-y-4">
+        <GlassCard className="p-5 space-y-3">
+          <h4 className="text-sm font-semibold text-gray-300">Preview</h4>
+          <div className="rounded-xl overflow-hidden">
+            <canvas ref={canvasRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
+          </div>
+          <p className="text-xs text-gray-500">The bot avatar will appear in place of "TB" when posted to Discord.</p>
+        </GlassCard>
+      </div>
+    </div>
+  );
+}
+
 const TAB_ITEMS = [
   { id: 'announcements', label: 'Announcements' },
+  { id: 'cards', label: 'Discord Cards' },
   { id: 'tickets', label: 'Tickets' },
   { id: 'reviews', label: 'Reviews' },
   { id: 'analytics', label: 'Analytics' },
@@ -2231,6 +2431,7 @@ function AdminDashboard() {
               {TAB_ITEMS.map((tab) => (
                 <Tab key={tab.id} id={tab.id}>
                   {tab.id === 'announcements' && <Bell01 className="w-4 h-4 mr-1.5 inline-block" />}
+                  {tab.id === 'cards' && <Image01 className="w-4 h-4 mr-1.5 inline-block" />}
                   {tab.id === 'tickets' && <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />}
                   {tab.id === 'reviews' && <Star01 className="w-4 h-4 mr-1.5 inline-block" />}
                   {tab.id === 'analytics' && <BarChart01 className="w-4 h-4 mr-1.5 inline-block" />}
@@ -2240,6 +2441,7 @@ function AdminDashboard() {
               ))}
             </TabList>
             <TabPanel id="announcements" className="mt-2"><AnnouncementsTab /></TabPanel>
+            <TabPanel id="cards" className="mt-2"><DiscordCardsTab /></TabPanel>
             <TabPanel id="tickets" className="mt-2"><TicketsTab /></TabPanel>
             <TabPanel id="reviews" className="mt-2"><ReviewsTab /></TabPanel>
             <TabPanel id="analytics" className="mt-2"><AnalyticsTab /></TabPanel>

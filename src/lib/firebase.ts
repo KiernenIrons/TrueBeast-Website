@@ -131,6 +131,19 @@ export interface GiveawayEntry {
   enteredAt: string;    // ISO timestamp
 }
 
+export interface DiscordCard {
+  id: string;
+  title: string;
+  subtitle: string;
+  buttonLabel: string;
+  buttonUrl: string;
+  bgPreset: string;
+  channelId: string;
+  status: 'pending' | 'sent' | 'failed';
+  createdAt: string;
+  [key: string]: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
@@ -545,6 +558,24 @@ export const FirebaseDB = {
       createdAt: new Date().toISOString(),
     } as Announcement;
     await _withTimeout(setDoc(doc(_db, 'announcements', id), document));
+    return document;
+  },
+
+  // -----------------------------------------------------------------------
+  // Discord Cards (canvas card queue — bot polls and posts)
+  // -----------------------------------------------------------------------
+
+  async saveDiscordCard(card: Omit<DiscordCard, 'id' | 'createdAt' | 'status'>): Promise<DiscordCard> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
+    const id = 'dc-' + Date.now();
+    const document = {
+      ...card,
+      id,
+      status: 'pending' as const,
+      createdAt: new Date().toISOString(),
+    } as DiscordCard;
+    await _withTimeout(setDoc(doc(_db, 'discordCards', id), document));
     return document;
   },
 
