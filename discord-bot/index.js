@@ -1383,7 +1383,7 @@ async function checkMonthlyReset(guild) {
 function buildLeaderboardTitle(type, period) {
     const typeStr   = type === 'msg' ? 'Messages' : 'Voice Time';
     const periodStr = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
-    return `🏆 ${typeStr} Leaderboard — ${periodStr}`;
+    return `🏆 ${typeStr} Leaderboard · ${periodStr}`;
 }
 
 const PAGE_SIZE = 10;
@@ -1461,70 +1461,104 @@ function drawCircularAvatar(ctx, img, cx, cy, r) {
 function truncateName(ctx, name, maxWidth) {
     if (ctx.measureText(name).width <= maxWidth) return name;
     let n = name;
-    while (n.length > 1 && ctx.measureText(n + '…').width > maxWidth) n = n.slice(0, -1);
-    return n + '…';
+    while (n.length > 1 && ctx.measureText(n + '...').width > maxWidth) n = n.slice(0, -1);
+    return n + '...';
+}
+
+// Draw a simple crown shape above cx, with its bottom edge at bottomY
+function drawCrown(ctx, cx, bottomY, size, color) {
+    const w = size * 2;
+    const h = size;
+    const bx = cx - w / 2;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(bx, bottomY);
+    ctx.lineTo(bx, bottomY - h * 0.42);
+    ctx.lineTo(bx + w * 0.11, bottomY - h * 0.95);
+    ctx.lineTo(bx + w * 0.28, bottomY - h * 0.48);
+    ctx.lineTo(bx + w * 0.5,  bottomY - h * 1.25);  // center tallest peak
+    ctx.lineTo(bx + w * 0.72, bottomY - h * 0.48);
+    ctx.lineTo(bx + w * 0.89, bottomY - h * 0.95);
+    ctx.lineTo(bx + w,        bottomY - h * 0.42);
+    ctx.lineTo(bx + w,        bottomY);
+    ctx.closePath();
+    ctx.fill();
+    // Gem dots on each peak tip
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    [[bx + w * 0.11, bottomY - h * 0.95], [bx + w * 0.5, bottomY - h * 1.25], [bx + w * 0.89, bottomY - h * 0.95]].forEach(([px, py]) => {
+        ctx.beginPath(); ctx.arc(px, py, size * 0.14, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.restore();
 }
 
 // ── Leaderboard image ─────────────────────────────────────────────────────────
 
 async function generateLeaderboardImage(type, period, page = 0) {
-    const allEntries = buildLeaderboardEntries(type, period);
-    const totalPages = Math.max(1, Math.ceil(allEntries.length / PAGE_SIZE));
-    const safePage   = Math.max(0, Math.min(page, totalPages - 1));
+    const allEntries  = buildLeaderboardEntries(type, period);
+    const totalPages  = Math.max(1, Math.ceil(allEntries.length / PAGE_SIZE));
+    const safePage    = Math.max(0, Math.min(page, totalPages - 1));
     const pageEntries = allEntries.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
     const globalOffset = safePage * PAGE_SIZE;
 
-    const W = 900;
-    const HEADER_H    = 90;
-    const PODIUM_H    = safePage === 0 && allEntries.length > 0 ? 240 : 0;
-    const ROW_H       = 56;
-    const FOOTER_H    = 44;
+    const W          = 1000;
+    const HEADER_H   = 110;
+    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 350 : 0;
+    const ROW_H      = 72;
+    const FOOTER_H   = 54;
     const listEntries = safePage === 0 ? pageEntries.slice(3) : pageEntries;
     const H = HEADER_H + PODIUM_H + Math.max(listEntries.length, 1) * ROW_H + FOOTER_H;
 
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
-    // Background gradient
+    // Background
     const bg = ctx.createLinearGradient(0, 0, 0, H);
     bg.addColorStop(0, '#111827');
     bg.addColorStop(1, '#0d1117');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    // Subtle top stripe
+    // Header stripe
     const stripe = ctx.createLinearGradient(0, 0, W, 0);
-    stripe.addColorStop(0, 'rgba(34,197,94,0.15)');
-    stripe.addColorStop(0.5, 'rgba(34,197,94,0.04)');
-    stripe.addColorStop(1, 'rgba(34,197,94,0.15)');
+    stripe.addColorStop(0,   'rgba(34,197,94,0.18)');
+    stripe.addColorStop(0.5, 'rgba(34,197,94,0.05)');
+    stripe.addColorStop(1,   'rgba(34,197,94,0.18)');
     ctx.fillStyle = stripe;
     ctx.fillRect(0, 0, W, HEADER_H);
 
-    // Header text
-    ctx.font = 'bold 28px Noto Sans, sans-serif';
+    // Header title
+    ctx.font = 'bold 34px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🏆 TrueBeast Leaderboard', 32, HEADER_H / 2 - 8);
-    ctx.font = '16px Noto Sans, sans-serif';
+    ctx.fillText('TrueBeast Leaderboard', 36, HEADER_H / 2 - 10);
+
+    // Header subtitle (type + period)
+    const typeLabel   = type === 'msg' ? 'Messages' : 'Voice Time';
+    const periodLabel = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
+    ctx.font = '19px Noto Sans, sans-serif';
     ctx.fillStyle = '#8b9ab4';
-    ctx.fillText(buildLeaderboardTitle(type, period).replace('🏆 ', ''), 32, HEADER_H / 2 + 16);
+    ctx.fillText(`${typeLabel}  ·  ${periodLabel}`, 36, HEADER_H / 2 + 16);
 
     // Member count badge (top-right)
     if (allEntries.length > 0) {
-        ctx.font = '13px Noto Sans, sans-serif';
+        ctx.font = 'bold 16px Noto Sans, sans-serif';
         ctx.fillStyle = '#22c55e';
         const badge = `${allEntries.length} members`;
-        ctx.fillText(badge, W - ctx.measureText(badge).width - 32, HEADER_H / 2);
+        ctx.fillText(badge, W - ctx.measureText(badge).width - 36, HEADER_H / 2);
     }
 
-    // Separator line
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    // Separator
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, HEADER_H); ctx.lineTo(W, HEADER_H); ctx.stroke();
 
-    // ── No data ───────────────────────────────────────────────────────────────
+    // No data
     if (allEntries.length === 0) {
-        ctx.font = '18px Noto Sans, sans-serif';
+        ctx.font = '22px Noto Sans, sans-serif';
         ctx.fillStyle = '#8b9ab4';
         ctx.textAlign = 'center';
         ctx.fillText('No data for this period yet.', W / 2, HEADER_H + ROW_H * 1.5);
@@ -1532,120 +1566,108 @@ async function generateLeaderboardImage(type, period, page = 0) {
         return { buffer: canvas.toBuffer('image/png'), page: 0, totalPages: 1 };
     }
 
-    // ── Podium (page 0 only, top 3) ───────────────────────────────────────────
+    // ── Podium (page 0, top 3) ────────────────────────────────────────────────
     if (safePage === 0) {
         const podiumEntries = pageEntries.slice(0, 3);
-        // Order: 2nd (left), 1st (center), 3rd (right)
-        const slots    = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
-        const ranks    = [2, 1, 3];
-        const colors   = ['#c0c0c0', '#ffd700', '#cd7f32'];
-        const avatarR  = [44, 52, 44];
-        const cx       = [195, 450, 705];
-        const topY     = HEADER_H + 20;
+        // order: 2nd left, 1st center, 3rd right
+        const slots  = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
+        const colors = ['#c0c0c0', '#ffd700', '#cd7f32'];
+        const radii  = [64, 78, 64];
+        const posX   = [220, 500, 780];
+        const offsetY = [30, 0, 30]; // 1st sits higher
 
-        // Load avatars in parallel
         const avatarImgs = await Promise.all(slots.map(e => e ? loadAvatar(e.userId) : Promise.resolve(null)));
 
         for (let i = 0; i < 3; i++) {
             const entry = slots[i];
             if (!entry) continue;
-            const name   = truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 140);
-            const score  = formatScore(entry.value, type);
-            const r      = avatarR[i];
-            const x      = cx[i];
-            const avatarY = topY + (i === 1 ? 0 : 20); // 1st place slightly higher
+            const r      = radii[i];
+            const x      = posX[i];
+            const avatarCY = HEADER_H + offsetY[i] + 50 + r; // avatar center y
 
-            // Avatar glow
+            // Crown above avatar
+            drawCrown(ctx, x, avatarCY - r - 6, i === 1 ? 22 : 17, colors[i]);
+
+            // Glow ring
             ctx.save();
             ctx.shadowColor = colors[i];
-            ctx.shadowBlur  = 18;
+            ctx.shadowBlur  = 24;
             ctx.beginPath();
-            ctx.arc(x, avatarY + r, r + 3, 0, Math.PI * 2);
+            ctx.arc(x, avatarCY, r + 4, 0, Math.PI * 2);
             ctx.strokeStyle = colors[i];
-            ctx.lineWidth   = 2.5;
+            ctx.lineWidth   = 3;
             ctx.stroke();
             ctx.restore();
 
-            drawCircularAvatar(ctx, avatarImgs[i], x, avatarY + r, r);
-
-            // Rank badge
-            ctx.beginPath();
-            ctx.arc(x + r - 6, avatarY + r * 2 - 6, 14, 0, Math.PI * 2);
-            ctx.fillStyle = colors[i];
-            ctx.fill();
-            ctx.font = 'bold 13px Noto Sans, sans-serif';
-            ctx.fillStyle = '#000000';
-            ctx.textAlign = 'center';
-            ctx.fillText(`#${ranks[i]}`, x + r - 6, avatarY + r * 2 - 6 + 1);
+            drawCircularAvatar(ctx, avatarImgs[i], x, avatarCY, r);
 
             // Name
-            const nameY = avatarY + r * 2 + 20;
-            ctx.font = 'bold 15px Noto Sans, sans-serif';
+            const name  = truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 200);
+            const score = formatScore(entry.value, type);
+            const nameY = avatarCY + r + 24;
+            ctx.font = 'bold 20px Noto Sans, sans-serif';
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
             ctx.fillText(name, x, nameY);
 
             // Score
-            ctx.font = '13px Noto Sans, sans-serif';
+            ctx.font = '17px Noto Sans, sans-serif';
             ctx.fillStyle = colors[i];
-            ctx.fillText(score, x, nameY + 18);
+            ctx.fillText(score, x, nameY + 26);
         }
         ctx.textAlign = 'left';
 
         // Separator below podium
-        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, HEADER_H + PODIUM_H); ctx.lineTo(W, HEADER_H + PODIUM_H); ctx.stroke();
     }
 
     // ── List rows ─────────────────────────────────────────────────────────────
-    const listY = HEADER_H + PODIUM_H;
-    const avatarImgs = await Promise.all(listEntries.map(e => loadAvatar(e.userId)));
+    const listY      = HEADER_H + PODIUM_H;
+    const listAvatars = await Promise.all(listEntries.map(e => loadAvatar(e.userId)));
 
     listEntries.forEach(({ userId, value }, i) => {
-        const rank    = globalOffset + (safePage === 0 ? i + 3 : i);
-        const rowY    = listY + i * ROW_H;
-        const isOdd   = i % 2 === 0;
+        const rank  = globalOffset + (safePage === 0 ? i + 3 : i);
+        const rowY  = listY + i * ROW_H;
+        const midY  = rowY + ROW_H / 2;
 
-        // Row background
-        ctx.fillStyle = isOdd ? 'rgba(255,255,255,0.02)' : 'transparent';
+        ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent';
         ctx.fillRect(0, rowY, W, ROW_H);
 
-        // Rank number
-        ctx.font = 'bold 15px Noto Sans, sans-serif';
-        ctx.fillStyle = '#8b9ab4';
+        // Rank
+        ctx.font = 'bold 18px Noto Sans, sans-serif';
+        ctx.fillStyle = '#6b7280';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
-        ctx.fillText(`#${rank + 1}`, 68, rowY + ROW_H / 2);
+        ctx.fillText(`#${rank + 1}`, 76, midY);
 
-        // Avatar (small)
-        const aImg = avatarImgs[i];
-        if (aImg) drawCircularAvatar(ctx, aImg, 96, rowY + ROW_H / 2, 18);
+        // Avatar
+        const aImg = listAvatars[i];
+        if (aImg) drawCircularAvatar(ctx, aImg, 106, midY, 24);
 
         // Name
-        ctx.font = '15px Noto Sans, sans-serif';
+        ctx.font = '18px Noto Sans, sans-serif';
         ctx.fillStyle = '#e5e7eb';
         ctx.textAlign = 'left';
-        const name = truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 480);
-        ctx.fillText(name, 128, rowY + ROW_H / 2);
+        ctx.fillText(truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 530), 148, midY);
 
-        // Score (right-aligned)
-        ctx.font = 'bold 14px Noto Sans, sans-serif';
+        // Score
+        ctx.font = 'bold 17px Noto Sans, sans-serif';
         ctx.fillStyle = '#22c55e';
         ctx.textAlign = 'right';
-        ctx.fillText(formatScore(value, type), W - 32, rowY + ROW_H / 2);
+        ctx.fillText(formatScore(value, type), W - 40, midY);
     });
 
     ctx.textAlign = 'left';
 
-    // Separator above footer
+    // Footer
     const footerY = H - FOOTER_H;
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, footerY); ctx.lineTo(W, footerY); ctx.stroke();
 
-    // Footer: page info
-    ctx.font = '13px Noto Sans, sans-serif';
+    ctx.font = '16px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
@@ -1658,12 +1680,11 @@ async function generateLeaderboardImage(type, period, page = 0) {
 // ── Profile card ──────────────────────────────────────────────────────────────
 
 async function generateProfileImage(userId) {
-    const info = memberCache.get(userId) || { displayName: 'Unknown', avatarUrl: null };
+    const info      = memberCache.get(userId) || { displayName: 'Unknown', avatarUrl: null };
     const msgCount  = messageCounts.get(userId) || 0;
     const msgDMap   = messageDays.get(userId) || new Map();
     const vcData    = voiceMinutes.get(userId) || { total: 0, days: new Map() };
 
-    // Current rank
     const monthlyVc = getTotal(vcData.days, vcData.total, 'month');
     let rankIdx = 0;
     for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
@@ -1675,7 +1696,7 @@ async function generateProfileImage(userId) {
         ? Math.min(1, (monthlyVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
         : 1;
 
-    const W = 860, H = 340;
+    const W = 980, H = 430;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
@@ -1686,38 +1707,54 @@ async function generateProfileImage(userId) {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    // Left accent strip
+    // Left green accent strip
     ctx.fillStyle = '#22c55e';
-    ctx.fillRect(0, 0, 4, H);
+    ctx.fillRect(0, 0, 5, H);
 
-    // Avatar
+    // Avatar (big)
     const avatarImg = await loadAvatar(userId);
-    const AX = 50, AY = H / 2, AR = 70;
-    // Avatar border ring
+    const AR = 90, AX = 60 + AR, AY = H / 2;
     ctx.save();
     ctx.shadowColor = '#22c55e';
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur  = 24;
     ctx.beginPath();
-    ctx.arc(AX + AR, AY, AR + 3, 0, Math.PI * 2);
+    ctx.arc(AX, AY, AR + 4, 0, Math.PI * 2);
     ctx.strokeStyle = '#22c55e';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth   = 3;
     ctx.stroke();
     ctx.restore();
-    drawCircularAvatar(ctx, avatarImg, AX + AR, AY, AR);
+    drawCircularAvatar(ctx, avatarImg, AX, AY, AR);
+
+    // Content area
+    const CX = AX + AR + 36;
 
     // Name
-    const contentX = AX + AR * 2 + 28;
-    ctx.font = 'bold 26px Noto Sans, sans-serif';
+    ctx.font = 'bold 34px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'top';
-    ctx.fillText(truncateName(ctx, info.displayName, 400), contentX, 32);
+    ctx.fillText(truncateName(ctx, info.displayName, W - CX - 30), CX, 36);
 
-    // Rank badge
-    ctx.font = '14px Noto Sans, sans-serif';
+    // Rank
+    ctx.font = '18px Noto Sans, sans-serif';
     ctx.fillStyle = '#22c55e';
-    ctx.fillText(currentRank.name, contentX, 68);
+    ctx.fillText(currentRank.name, CX, 84);
 
-    // Stats grid (2 cols × 4 rows)
+    // Stats grid
+    const GY   = 130;
+    const COL1 = 200; // period label width
+    const COL2 = 220; // messages width
+    const COL3 = 220; // voice width
+
+    ctx.font = 'bold 16px Noto Sans, sans-serif';
+    ctx.fillStyle = '#4b5563';
+    ctx.fillText('Period',     CX,              GY);
+    ctx.fillText('Messages',   CX + COL1,       GY);
+    ctx.fillText('Voice Time', CX + COL1 + COL2, GY);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(CX, GY + 22); ctx.lineTo(CX + COL1 + COL2 + COL3, GY + 22); ctx.stroke();
+
     const statRows = [
         { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today')  },
         { label: 'This Week',  msg: getTotal(msgDMap, msgCount, 'week'),   vc: getTotal(vcData.days, vcData.total, 'week')   },
@@ -1725,48 +1762,30 @@ async function generateProfileImage(userId) {
         { label: 'All Time',   msg: getTotal(msgDMap, msgCount, 'all'),    vc: getTotal(vcData.days, vcData.total, 'all')    },
     ];
 
-    const gridX  = contentX;
-    const gridY  = 100;
-    const COL1   = 180;  // width of period label column
-    const COL2   = 200;  // messages column
-    const COL3   = 200;  // voice column
-
-    // Header row
-    ctx.font = 'bold 13px Noto Sans, sans-serif';
-    ctx.fillStyle = '#4b5563';
-    ctx.textBaseline = 'top';
-    ctx.fillText('Period', gridX, gridY);
-    ctx.fillText('Messages', gridX + COL1, gridY);
-    ctx.fillText('Voice Time', gridX + COL1 + COL2, gridY);
-
-    // Separator
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(gridX, gridY + 18); ctx.lineTo(gridX + COL1 + COL2 + COL3, gridY + 18); ctx.stroke();
-
     statRows.forEach(({ label, msg, vc }, i) => {
-        const rowY = gridY + 26 + i * 32;
-        ctx.font = '13px Noto Sans, sans-serif';
+        const rY = GY + 32 + i * 44;
+        ctx.font = '17px Noto Sans, sans-serif';
         ctx.fillStyle = '#8b9ab4';
-        ctx.fillText(label, gridX, rowY);
-        ctx.fillStyle = msg > 0 ? '#e5e7eb' : '#4b5563';
-        ctx.fillText(msg.toLocaleString(), gridX + COL1, rowY);
-        ctx.fillStyle = vc > 0 ? '#e5e7eb' : '#4b5563';
-        ctx.fillText(formatScore(vc, 'vc'), gridX + COL1 + COL2, rowY);
+        ctx.textBaseline = 'top';
+        ctx.fillText(label, CX, rY);
+        ctx.font = 'bold 17px Noto Sans, sans-serif';
+        ctx.fillStyle = msg > 0 ? '#e5e7eb' : '#374151';
+        ctx.fillText(msg.toLocaleString(), CX + COL1, rY);
+        ctx.fillStyle = vc > 0 ? '#e5e7eb' : '#374151';
+        ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
     });
 
-    // Rank progress bar
-    const barX = gridX, barY = H - 58, barW = COL1 + COL2 + COL3, barH = 10;
-    ctx.font = '12px Noto Sans, sans-serif';
+    // Progress bar
+    const barX = CX, barY = H - 74, barW = COL1 + COL2 + COL3, barH = 14;
+    ctx.font = '15px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(nextRank ? `${currentRank.name}  →  ${nextRank.name}` : `${currentRank.name} (Max Rank)`, barX, barY - 4);
+    const barLabel = nextRank ? `${currentRank.name}  to  ${nextRank.name}` : `${currentRank.name} (Max Rank)`;
+    ctx.fillText(barLabel, barX, barY - 6);
 
     // Track
     ctx.fillStyle = 'rgba(255,255,255,0.07)';
-    ctx.beginPath();
-    ctx.roundRect(barX, barY, barW, barH, 5);
-    ctx.fill();
+    ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 7); ctx.fill();
 
     // Fill
     if (progress > 0) {
@@ -1774,17 +1793,16 @@ async function generateProfileImage(userId) {
         grad.addColorStop(0, '#16a34a');
         grad.addColorStop(1, '#22c55e');
         ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.roundRect(barX, barY, Math.max(barH, barW * progress), barH, 5);
-        ctx.fill();
+        ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(barH, barW * progress), barH, 7); ctx.fill();
     }
 
-    // Progress label
-    const pct = nextRank ? `${Math.round(progress * 100)}%` : '100%';
-    ctx.font = '12px Noto Sans, sans-serif';
+    // Percentage
+    ctx.font = 'bold 15px Noto Sans, sans-serif';
     ctx.fillStyle = '#22c55e';
     ctx.textBaseline = 'top';
-    ctx.fillText(pct, barX + barW + 10, barY);
+    ctx.textAlign = 'right';
+    ctx.fillText(nextRank ? `${Math.round(progress * 100)}%` : '100%', barX + barW, barY + barH + 6);
+    ctx.textAlign = 'left';
 
     return canvas.toBuffer('image/png');
 }
