@@ -2567,6 +2567,21 @@ client.once('ready', async () => {
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
 
+        // ── ONE-TIME MESSAGE RESET — wipe ALL message data for everyone ──────
+        try {
+            const allUids = [...new Set([...messageCounts.keys(), ...messageDays.keys()])];
+            messageCounts.clear();
+            messageDays.clear();
+            for (let i = 0; i < allUids.length; i += 20) {
+                await Promise.allSettled(allUids.slice(i, i + 20).map(uid => {
+                    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${uid}?key=${FIREBASE_API_KEY}`;
+                    return fetch(url, { method: 'DELETE' });
+                }));
+            }
+            console.log(`[BeastBot] ONE-TIME MESSAGE RESET complete — deleted ${allUids.length} users`);
+        } catch (e) { console.error('[BeastBot] One-time message reset failed:', e.message); }
+        // ── END ONE-TIME RESET (remove this block after confirmed) ───────────
+
         // Assign correct voice rank to every member based on monthly activity score
         try {
             let assigned = 0;
