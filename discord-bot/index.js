@@ -2189,6 +2189,380 @@ async function pollDiscordCards() {
     }
 }
 
+// ── Embed Demo Helpers ────────────────────────────────────────────────────────
+
+function lerpColor(a, b, t) {
+    const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+    const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+    return (
+        (Math.round(ar + (br - ar) * t) << 16) |
+        (Math.round(ag + (bg - ag) * t) << 8) |
+        Math.round(ab + (bb - ab) * t)
+    );
+}
+
+function progressBar(current, max, width = 12) {
+    const pct   = Math.min(current / max, 1);
+    const fills = ['▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'];
+    const full  = Math.floor(pct * width);
+    const frac  = Math.round((pct * width - full) * 8);
+    let bar = '█'.repeat(full);
+    if (frac > 0 && full < width) bar += fills[frac - 1];
+    bar += '░'.repeat(Math.max(0, width - bar.length));
+    return `${bar} ${Math.round(pct * 100)}%`;
+}
+
+function encodeZWS(text) {
+    return text.split('').map((char) =>
+        char.charCodeAt(0).toString(2).padStart(8, '0')
+            .split('').map((bit) => bit === '0' ? '\u200b' : '\u200c').join('')
+    ).join('');
+}
+
+function decodeZWS(hidden) {
+    const bits = [...hidden].filter((c) => c === '\u200b' || c === '\u200c')
+        .map((c) => c === '\u200c' ? '1' : '0').join('');
+    const chars = [];
+    for (let i = 0; i < bits.length; i += 8) {
+        const byte = bits.slice(i, i + 8);
+        if (byte.length === 8) chars.push(String.fromCharCode(parseInt(byte, 2)));
+    }
+    return chars.join('');
+}
+
+function encodeColorState(page, type, flags = 0) {
+    return (page << 16) | (type << 8) | flags;
+}
+
+function decodeColorState(color) {
+    return { page: (color >> 16) & 0xff, type: (color >> 8) & 0xff, flags: color & 0xff };
+}
+
+async function sendEmbedDemos(channel) {
+    const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // ── Demo 1: Invisible embed (color matches Discord dark bg) ───────────────
+    await channel.send({
+        content: '**[Demo 1/16] — Invisible embed** *(color `#313338` = Discord bg + zero-width space)*',
+        embeds: [{
+            color: 0x313338,
+            description: '\u200b',
+            footer: { text: 'This embed is "invisible" — stripe and content blend into the background' },
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 2: Gradient stripe (8 embeds, green → purple) ────────────────────
+    const gradEmbeds = Array.from({ length: 8 }, (_, i) => ({
+        color: lerpColor(0x22c55e, 0x7c3aed, i / 7),
+        description: i === 0 ? '**[Demo 2/16] — Gradient stripe** *(8 embeds, same message, `lerpColor` green → purple)*' : '\u200b',
+    }));
+    await channel.send({ embeds: gradEmbeds });
+    await delay(1500);
+
+    // ── Demo 3: Syntax highlight color text ───────────────────────────────────
+    await channel.send({
+        embeds: [{
+            color: 0x5865f2,
+            title: '[Demo 3/16] — Syntax highlight color text',
+            description: 'Three code-block languages give you colored text inside embed fields:',
+            fields: [
+                {
+                    name: '`diff` — green / red lines',
+                    value: '```diff\n+ Jackbox: LIVE\n- Phasmophobia: OFFLINE\n+ Lethal Company: LIVE\n```',
+                    inline: false,
+                },
+                {
+                    name: '`fix` — goldenrod yellow',
+                    value: '```fix\nGame night starts in 30 minutes\n```',
+                    inline: false,
+                },
+                {
+                    name: '`yaml` — key red, value white',
+                    value: '```yaml\nstatus: LIVE\nplayers: 18\ngame: Jackbox\n```',
+                    inline: false,
+                },
+            ],
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 4: Spoiler tags inside embed ─────────────────────────────────────
+    await channel.send({
+        embeds: [{
+            color: 0xed4245,
+            title: "[Demo 4/16] — Spoiler tags work inside embeds",
+            description: "Tonight's game is... ||**Jackbox Games — Quiplash 3**||",
+            fields: [
+                { name: 'Secret prize', value: '||Steam gift card for the winner||', inline: false },
+                { name: 'Hidden lore', value: '||The host chose this game because nobody expects it||', inline: false },
+            ],
+            footer: { text: 'Click the blurred boxes above to reveal' },
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 5: Hover tooltips on markdown links ──────────────────────────────
+    await channel.send({
+        embeds: [{
+            color: 0xfee75c,
+            title: '[Demo 5/16] — Hover tooltips on links',
+            description: [
+                '[TrueBeast Discord](https://discord.gg/truebeast "Click to join the TrueBeast community")',
+                '[Twitch Stream](https://twitch.tv/truebeast "Live every Friday at 8PM CST")',
+                '[Merch Store](https://truebeast.io "Hoodies, shirts, and more — link goes to truebeast.io")',
+            ].join('\n'),
+            footer: { text: 'Hover over each link on desktop to see the tooltip (third param in markdown link syntax)' },
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 6: Unicode progress bars ────────────────────────────────────────
+    await channel.send({
+        embeds: [{
+            color: 0x22c55e,
+            title: '[Demo 6/16] — Unicode progress bars (8-level precision)',
+            description: 'Built from block characters `▏▎▍▌▋▊▉█` + `░` for empty — sub-character fill precision.',
+            fields: [
+                { name: 'Voice — Gold III → Platinum', value: progressBar(7320, 10000), inline: false },
+                { name: 'Messages this week',           value: progressBar(234, 500),    inline: false },
+                { name: 'Giveaway entries',             value: progressBar(3, 5),        inline: false },
+                { name: 'XP to next rank',              value: progressBar(9999, 10000), inline: false },
+            ],
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 7: Zero-width space layout control ───────────────────────────────
+    await channel.send({
+        embeds: [{
+            color: 0x57f287,
+            title: '[Demo 7/16] — Zero-width space (`\\u200b`) layout control',
+            description: 'Fields can\'t have empty names/values (API rejects them). `\\u200b` passes validation and renders blank — acts like CSS padding/spacer.',
+            fields: [
+                { name: 'Messages Today', value: '1,247', inline: true },
+                { name: 'Voice Minutes',  value: '340',   inline: true },
+                { name: '\u200b',         value: '\u200b', inline: true },
+                { name: 'Top Game',       value: 'Jackbox Party Pack', inline: false },
+                { name: '\u200b',         value: '\u200b', inline: false },
+                { name: 'Server Status',  value: '🟢 Online', inline: true },
+                { name: 'Members',        value: '247',   inline: true },
+            ],
+            footer: { text: 'The invisible row between "Voice Minutes" and "Top Game" is a \\u200b spacer field' },
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 8: Timestamps (past, future, far future) ─────────────────────────
+    const futureDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    await channel.send({
+        embeds: [
+            {
+                color: 0x4f545c,
+                title: '[Demo 8/16] — Timestamp set to any date (past or future)',
+                description: 'The `timestamp` field accepts any ISO 8601 date — not just "now". Discord renders it in the footer in the user\'s local timezone with relative time.',
+                fields: [
+                    { name: 'Embed below this', value: 'timestamp = Jan 1, 2000 (Y2K embed)', inline: false },
+                ],
+                timestamp: new Date('2000-01-01').toISOString(),
+                footer: { text: 'Posted January 1, 2000 · Y2K' },
+            },
+            {
+                color: 0x22c55e,
+                description: 'Game night event in 3 days ↓',
+                timestamp: futureDate.toISOString(),
+                footer: { text: 'Event starts' },
+            },
+            {
+                color: 0xed4245,
+                description: 'Far-future embed — timestamp year 2099',
+                timestamp: '2099-12-31T23:59:59.000Z',
+                footer: { text: 'See you in 2099' },
+            },
+        ],
+    });
+    await delay(1500);
+
+    // ── Demo 9: 4-image gallery (undocumented URL grouping) ───────────────────
+    const imgUrls = [
+        'https://picsum.photos/seed/beast1/800/450',
+        'https://picsum.photos/seed/beast2/800/450',
+        'https://picsum.photos/seed/beast3/800/450',
+        'https://picsum.photos/seed/beast4/800/450',
+    ];
+    const sharedUrl = 'https://truebeast.io';
+    const galleryEmbeds = imgUrls.map((imgUrl, i) => ({
+        url: sharedUrl,
+        image: { url: imgUrl },
+        color: 0x22c55e,
+    }));
+    galleryEmbeds[0].title = '[Demo 9/16] — 4-image gallery (undocumented API behavior)';
+    galleryEmbeds[0].description = 'Multiple embeds with the **same `url` field** in one message → Discord groups images into a 2×2 tile grid. Completely undocumented, has worked for years.';
+    await channel.send({ embeds: galleryEmbeds });
+    await delay(1500);
+
+    // ── Demo 10: ASCII table in code block ────────────────────────────────────
+    const table = [
+        '╔═══════════════╦═══════╦════════╗',
+        '║ Player        ║ Score ║  Rank  ║',
+        '╠═══════════════╬═══════╬════════╣',
+        '║ TrueBeast     ║ 48040 ║ 🥇 #1  ║',
+        '║ MarsKooty     ║ 10150 ║ 🥈 #2  ║',
+        '║ CaptainMorgan ║  7320 ║ 🥉 #3  ║',
+        '╚═══════════════╩═══════╩════════╝',
+    ].join('\n');
+    await channel.send({
+        embeds: [{
+            color: 0xffd700,
+            title: '[Demo 10/16] — ASCII table in monospace code block',
+            description: `Box-drawing characters + fixed-width code block = perfectly aligned grid inside an embed.\n\`\`\`\n${table}\n\`\`\``,
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 11: State encoded in embed color ─────────────────────────────────
+    const encodedColor = encodeColorState(5, 1, 42);
+    const decoded      = decodeColorState(encodedColor);
+    await channel.send({
+        embeds: [{
+            color: encodedColor,
+            title: '[Demo 11/16] — State encoded IN the embed color',
+            description: [
+                'The `color` field is a 24-bit integer. You can store data in R, G, B channels individually.',
+                '',
+                `**Encoded:** page=5, type=1, flags=42 → color int \`${encodedColor}\` (0x${encodedColor.toString(16).padStart(6, '0').toUpperCase()})`,
+                `**Decoded back:** page=${decoded.page}, type=${decoded.type}, flags=${decoded.flags}`,
+                '',
+                'A bot can read its own embed\'s color to know which page it\'s on — no database, no Map().',
+            ].join('\n'),
+            footer: { text: `The stripe color of this embed IS the state: page=${decoded.page} type=${decoded.type} flags=${decoded.flags}` },
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 12: ZWS steganography watermark ──────────────────────────────────
+    const secretId    = 'dc-1711234567890';
+    const hiddenZWS   = encodeZWS(secretId);
+    const footerText  = `Posted by Beast Bot${hiddenZWS}`;
+    const recovered   = decodeZWS(footerText);
+    await channel.send({
+        embeds: [{
+            color: 0x2c2f33,
+            title: '[Demo 12/16] — Invisible watermark via ZWS steganography',
+            description: [
+                'Zero-width space (`\\u200b` = 0) and zero-width non-joiner (`\\u200c` = 1) are inserted between visible characters in the footer.',
+                'They look like nothing. The bot reads them back and recovers the original string.',
+                '',
+                `**Hidden in footer:** \`${secretId}\``,
+                `**Footer text (visible):** "Posted by Beast Bot" *(+ ${hiddenZWS.length} invisible chars)*`,
+                `**Recovered by bot:** \`${recovered}\``,
+                '',
+                'Use case: every embed the bot posts carries a hidden Firestore document ID. No external state needed.',
+            ].join('\n'),
+            footer: { text: footerText },
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 13: Footer-only timestamp divider ────────────────────────────────
+    await channel.send({
+        content: '**[Demo 13/16] — Footer-only timestamp divider** *(embed with ONLY a footer + timestamp — acts as a visual section break)*',
+        embeds: [{
+            color: 0x2b2d31,
+            footer: { text: 'Daily reset ·' },
+            timestamp: new Date().toISOString(),
+        }],
+    });
+    await delay(1500);
+
+    // ── Demo 14: Typewriter animation ────────────────────────────────────────
+    const typeMsg = await channel.send({
+        content: '**[Demo 14/16] — Typewriter animation** *(rapid message edits, ~120ms per char, `▮` cursor)*',
+        embeds: [{ description: '▮', color: 0x22c55e }],
+    });
+    const finalText = "Tonight's winner: **TrueBeast**  🏆";
+    for (let i = 1; i <= finalText.length; i++) {
+        await delay(120);
+        const partial = finalText.slice(0, i) + (i < finalText.length ? '▮' : '');
+        await typeMsg.edit({ embeds: [{ description: partial, color: 0x22c55e }] }).catch(() => {});
+    }
+    await delay(1500);
+
+    // ── Demo 15: Live poll with reaction-driven progress bars ────────────────
+    const pollMsg = await channel.send({
+        content: '**[Demo 15/16] — Live reaction poll** *(reactions drive real-time % bars — auto-updates 5× over 30s)*',
+        embeds: [{
+            color: 0x5865f2,
+            title: 'What game tonight?',
+            fields: [
+                { name: '👻 Phasmophobia', value: progressBar(0, 1), inline: false },
+                { name: '🎭 Jackbox',       value: progressBar(0, 1), inline: false },
+                { name: '💀 Lethal Co.',    value: progressBar(0, 1), inline: false },
+            ],
+            footer: { text: 'React below — bars update every 6s for 30s' },
+        }],
+    });
+    await pollMsg.react('👻').catch(() => {});
+    await pollMsg.react('🎭').catch(() => {});
+    await pollMsg.react('💀').catch(() => {});
+
+    for (let tick = 0; tick < 5; tick++) {
+        await delay(6000);
+        try {
+            const fresh = await pollMsg.fetch();
+            const [a, b, c] = ['👻', '🎭', '💀'].map((r) =>
+                Math.max(0, (fresh.reactions.cache.get(r)?.count || 1) - 1)
+            );
+            const total = Math.max(a + b + c, 1);
+            await pollMsg.edit({
+                embeds: [{
+                    color: 0x5865f2,
+                    title: 'What game tonight? (live)',
+                    fields: [
+                        { name: `👻 Phasmophobia (${a})`, value: progressBar(a, total), inline: false },
+                        { name: `🎭 Jackbox (${b})`,       value: progressBar(b, total), inline: false },
+                        { name: `💀 Lethal Co. (${c})`,    value: progressBar(c, total), inline: false },
+                    ],
+                    footer: { text: `Live · updated ${tick + 1}/5` },
+                    timestamp: new Date().toISOString(),
+                }],
+            });
+        } catch (_) {}
+    }
+    await delay(1000);
+
+    // ── Demo 16: Summary ──────────────────────────────────────────────────────
+    await channel.send({
+        embeds: [{
+            color: 0x22c55e,
+            title: '[Demo 16/16] — Summary',
+            description: 'All 16 embed techniques demonstrated above:',
+            fields: [
+                { name: '1', value: 'Invisible embed (color = Discord bg)',          inline: true },
+                { name: '2', value: 'Gradient stripe (10 embeds, lerpColor)',        inline: true },
+                { name: '3', value: 'Syntax highlight: diff/fix/yaml color text',    inline: true },
+                { name: '4', value: 'Spoiler tags inside descriptions + fields',      inline: true },
+                { name: '5', value: 'Hover tooltips on markdown links',              inline: true },
+                { name: '6', value: 'Unicode progress bars (8-level precision)',     inline: true },
+                { name: '7', value: '\\u200b zero-width space layout control',       inline: true },
+                { name: '8', value: 'Timestamp: past (Y2K), future, year 2099',      inline: true },
+                { name: '9', value: '4-image 2×2 gallery (undocumented URL trick)',  inline: true },
+                { name: '10', value: 'ASCII table in monospace code block',          inline: true },
+                { name: '11', value: 'State encoded in embed color integer',         inline: true },
+                { name: '12', value: 'ZWS steganography watermark in footer',        inline: true },
+                { name: '13', value: 'Footer-only timestamp divider embed',          inline: true },
+                { name: '14', value: 'Typewriter animation (rapid edits + cursor)',  inline: true },
+                { name: '15', value: 'Live poll — reactions drive progress bars',    inline: true },
+                { name: '16', value: 'This summary :)',                              inline: true },
+            ],
+            footer: { text: 'Beast Bot embed research — truebeast.io' },
+            timestamp: new Date().toISOString(),
+        }],
+    });
+}
+
+// ── Bot Ready ─────────────────────────────────────────────────────────────────
+
 client.once('ready', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
@@ -2411,6 +2785,17 @@ client.once('ready', async () => {
     setInterval(() => {
         console.log(`[BeastBot] 💓 heartbeat — uptime ${Math.round(process.uptime() / 60)}m`);
     }, 30 * 60 * 1000);
+
+    // Send embed demo showcase to test channel (5s delay so everything else is settled)
+    setTimeout(async () => {
+        try {
+            const demoCh = await client.channels.fetch('1486021237548257330');
+            await sendEmbedDemos(demoCh);
+            console.log('[BeastBot] ✅  Embed demos sent to test channel');
+        } catch (e) {
+            console.error('[BeastBot] Embed demos failed:', e.message);
+        }
+    }, 5000);
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
