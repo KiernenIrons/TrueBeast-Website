@@ -1861,6 +1861,10 @@ async function generateProfileImage(userId) {
     }
     ctx.fillText(rankTextClean, pillX, rankPillY + rankPillH / 2);
 
+    // Layout constants (used for Peak alignment and stats grid)
+    const COL1 = 230, COL2 = 250, COL3 = 250;
+    const panelW = COL1 + COL2 + COL3;
+
     // Peak rank + Apex count — right-aligned, vertically centred with rank pill
     const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
     const peakRank  = VOICE_RANK_ROLES[ach.highestRankIdx];
@@ -1873,7 +1877,7 @@ async function generateProfileImage(userId) {
     const peakCleanW = ctx.measureText(peakClean).width;
     const peakEmojiW = peakEmoji ? EPEAK + 6 : 0;
     const apexStrW   = ctx.measureText(apexStr).width;
-    let pkX = W - 36 - (peakLblW + peakEmojiW + peakCleanW + apexStrW);
+    let pkX = (CX + panelW) - (peakLblW + peakEmojiW + peakCleanW + apexStrW);
     const pkY = rankPillY + rankPillH / 2;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
@@ -1892,10 +1896,6 @@ async function generateProfileImage(userId) {
 
     // Stats grid
     const GY   = 175;
-    const COL1 = 230;
-    const COL2 = 250;
-    const COL3 = 250;
-    const panelW = COL1 + COL2 + COL3;
 
     // Subtle stats panel bg
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
