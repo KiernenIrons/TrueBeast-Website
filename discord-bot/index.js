@@ -711,13 +711,7 @@ async function saveCountingState() {
                 current:    { integerValue: String(countingState.current) },
                 lastUserId: { stringValue: countingState.lastUserId || '' },
                 record:     { integerValue: String(countingState.record) },
-                ruinedBy:   { arrayValue: { values: countingState.ruinedBy.map(r => ({
-                    mapValue: { fields: {
-                        userId: { stringValue: r.userId },
-                        count:  { integerValue: String(r.count) },
-                        at:     { integerValue: String(r.at) },
-                    }},
-                })) } },
+                ruinedBy:   { stringValue: JSON.stringify(countingState.ruinedBy) },
             }}),
         });
     } catch (e) { console.error('[BeastBot] saveCountingState error:', e.message); }
@@ -2611,11 +2605,7 @@ client.once('clientReady', async () => {
                 countingState.current    = parseInt(f.current?.integerValue    || '0', 10);
                 countingState.lastUserId = f.lastUserId?.stringValue           || null;
                 countingState.record     = parseInt(f.record?.integerValue     || '0', 10);
-                countingState.ruinedBy   = (f.ruinedBy?.arrayValue?.values || []).map(v => ({
-                    userId: v.mapValue.fields.userId.stringValue,
-                    count:  parseInt(v.mapValue.fields.count.integerValue, 10),
-                    at:     parseInt(v.mapValue.fields.at.integerValue, 10),
-                }));
+                try { countingState.ruinedBy = JSON.parse(f.ruinedBy?.stringValue || '[]'); } catch { countingState.ruinedBy = []; }
             }
             console.log(`[BeastBot] Counting loaded — current: ${countingState.current}, record: ${countingState.record}`);
         } catch (e) { console.error('[BeastBot] loadCountingState error:', e.message); }
