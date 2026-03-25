@@ -1594,6 +1594,10 @@ async function generateLeaderboardImage(type, period, page = 0) {
             const x        = posX[i];
             const avatarCY = HEADER_H + offsetY[i] + 56 + r;
 
+            // Crown above avatar
+            const crownSize = i === 1 ? 26 : 20;
+            drawCrown(ctx, x, avatarCY - r - 8, crownSize, colors[i]);
+
             // Glow ring
             ctx.save();
             ctx.shadowColor = colors[i];
@@ -1601,7 +1605,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
             ctx.beginPath();
             ctx.arc(x, avatarCY, r + 5, 0, Math.PI * 2);
             ctx.strokeStyle = colors[i];
-            ctx.lineWidth   = i === 1 ? 5 : 3;
+            ctx.lineWidth   = i === 1 ? 8 : 6;
             ctx.stroke();
             ctx.restore();
 
@@ -1756,7 +1760,7 @@ async function generateProfileImage(userId) {
     ctx.beginPath();
     ctx.arc(AX, AY, AR + 5, 0, Math.PI * 2);
     ctx.strokeStyle = '#22c55e';
-    ctx.lineWidth   = 4;
+    ctx.lineWidth   = 8;
     ctx.stroke();
     ctx.restore();
     drawCircularAvatar(ctx, avatarImg, AX, AY, AR);
