@@ -1515,7 +1515,7 @@ function buildLeaderboardComponents(activeType, activePeriod, page, totalPages) 
         new ButtonBuilder().setCustomId('lbclose').setLabel('✕ Close').setStyle(ButtonStyle.Danger),
     );
     const infoRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('lbranks').setLabel('🏆 How Ranks Work').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('lbranks').setLabel('❓ Help').setStyle(ButtonStyle.Success),
     );
     return [typeRow, periodRow, navRow, infoRow];
 }
@@ -2661,7 +2661,7 @@ client.once('ready', async () => {
                 .setName('me')
                 .setDescription('View your stats and rank'),
             new SlashCommandBuilder()
-                .setName('ranks')
+                .setName('rank-tutorial')
                 .setDescription('Learn how the TrueBeast ranking system works'),
             new SlashCommandBuilder()
                 .setName('restart')
@@ -2754,14 +2754,14 @@ client.on('interactionCreate', async (interaction) => {
             const pickRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('lbt:msg:week').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('lbt:vc:week').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('lbranks').setLabel('🏆 How Ranks Work').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('lbranks').setLabel('❓ Help').setStyle(ButtonStyle.Success),
             );
             const { resource } = await interaction.reply({ content: '**Choose a leaderboard:**', components: [pickRow], withResponse: true });
             leaderboardOwners.set(resource.message.id, interaction.user.id);
             return;
         }
 
-        if (interaction.commandName === 'ranks') {
+        if (interaction.commandName === 'rank-tutorial') {
             await interaction.reply({ embeds: [buildRanksEmbed()], ephemeral: true });
             return;
         }
