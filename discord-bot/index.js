@@ -499,23 +499,25 @@ const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 const voiceStartTimes    = new Map(); // userId → { startMs, baseTotal, baseToday }
 const leaderboardOwners  = new Map(); // messageId → userId (who invoked /leaderboard)
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
+const voiceBonusXp       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", xp> } — camera/stream bonus
+const voiceEnhancements  = new Map(); // userId → { camera: boolean, stream: boolean }
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
-    { id: '1486023901330018335', name: '🥉 Bronze I',      minXp: 0     },
-    { id: '1486023902231527597', name: '🥉 Bronze II',     minXp: 60    },
-    { id: '1486023903150342204', name: '🥈 Silver I',      minXp: 180   },
-    { id: '1486023903691276408', name: '🥈 Silver II',     minXp: 360   },
-    { id: '1486023904412569660', name: '🥇 Gold I',        minXp: 600   },
-    { id: '1486023904777470204', name: '🥇 Gold II',       minXp: 1200  },
-    { id: '1486023905867993168', name: '💠 Platinum',      minXp: 2400  },
-    { id: '1486023907004911808', name: '💎 Diamond',       minXp: 3600  },
-    { id: '1486023909181751296', name: '🔥 Master',        minXp: 4800  },
-    { id: '1486023909944983592', name: '⚔️ Grandmaster',   minXp: 8400  },
-    { id: '1486023910205165579', name: '👑 Apex Predator', minXp: 12000 },
+    { id: '1486023901330018335', name: '🥉 Bronze I',      minXp: 0      },
+    { id: '1486023902231527597', name: '🥉 Bronze II',     minXp: 80     },
+    { id: '1486023903150342204', name: '🥈 Silver I',      minXp: 240    },
+    { id: '1486023903691276408', name: '🥈 Silver II',     minXp: 500    },
+    { id: '1486023904412569660', name: '🥇 Gold I',        minXp: 850    },
+    { id: '1486023904777470204', name: '🥇 Gold II',       minXp: 1700   },
+    { id: '1486023905867993168', name: '💠 Platinum',      minXp: 3500   },
+    { id: '1486023907004911808', name: '💎 Diamond',       minXp: 5500   },
+    { id: '1486023909181751296', name: '🔥 Master',        minXp: 8000   },
+    { id: '1486023909944983592', name: '⚔️ Grandmaster',   minXp: 13000  },
+    { id: '1486023910205165579', name: '👑 Apex Predator', minXp: 20000  },
 ];
 
 // 1 message = 2 equivalent voice minutes → 30 msgs ≡ 1h in VC
@@ -711,6 +713,22 @@ async function saveVoiceMinutes(userId, data) {
         });
         if (!res.ok) console.error(`[BeastBot] saveVoiceMinutes FAILED for ${userId}: ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveVoiceMinutes error:', e.message); }
+}
+
+async function saveVoiceBonusXp(userId, data) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceBonusXp/${userId}?key=${FIREBASE_API_KEY}`;
+    const dayFields = {};
+    for (const [k, v] of Object.entries(data.days)) dayFields[k] = { integerValue: String(Math.floor(v)) };
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                total: { integerValue: String(Math.floor(data.total)) },
+                days:  { mapValue: { fields: dayFields } },
+            }}),
+        });
+    } catch (e) { console.error('[BeastBot] saveVoiceBonusXp error:', e.message); }
 }
 
 async function saveRankAchievements(userId, ach) {
@@ -1228,8 +1246,14 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const oldCh = oldState.channelId;
     const newCh = newState.channelId;
 
-    // Ignore mute/deafen/stream changes with no channel change
-    if (oldCh === newCh) return;
+    // Handle camera/stream toggles without channel change (also mute/deafen — harmless to update)
+    if (oldCh === newCh) {
+        const m = newState.member || oldState.member;
+        if (m && !m.user.bot && newCh) {
+            voiceEnhancements.set(m.id, { camera: newState.selfVideo || false, stream: newState.selfStream || false });
+        }
+        return;
+    }
 
     // ── Voice time tracking ───────────────────────────────────────────────────
     const trackingMember = newState.member || oldState.member;
@@ -1239,6 +1263,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         if (oldCh && oldCh !== AFK_CHANNEL_ID && voiceStartTimes.has(uid)) {
             const finalData = creditVoiceTime(uid);
             voiceStartTimes.delete(uid);
+            voiceEnhancements.delete(uid);
             if (finalData) {
                 saveVoiceMinutes(uid, { total: finalData.total, days: Object.fromEntries(finalData.days) });
                 assignVoiceRank(trackingMember, monthlyActivityScore(uid)).catch(() => {});
@@ -1252,6 +1277,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 baseTotal: existing.total,
                 baseToday: existing.days.get(todayStr()) || 0,
             });
+            voiceEnhancements.set(uid, { camera: newState.selfVideo || false, stream: newState.selfStream || false });
         }
     }
 
@@ -1501,11 +1527,22 @@ function stripEmoji(str) {
     return str.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/\s+/g, ' ').trim();
 }
 
+// Returns 2.0 if camera+stream, 1.5 if either alone, 1.0 otherwise
+function getXpMultiplier(uid) {
+    const e = voiceEnhancements.get(uid) || { camera: false, stream: false };
+    if (e.camera && e.stream) return 2.0;
+    if (e.camera || e.stream) return 1.5;
+    return 1.0;
+}
+
 function monthlyActivityScore(userId) {
-    const vcData = voiceMinutes.get(userId) || { total: 0, days: new Map() };
-    const dMap   = messageDays.get(userId)  || new Map();
+    const vcData = voiceMinutes.get(userId)  || { total: 0, days: new Map() };
+    const bData  = voiceBonusXp.get(userId)  || { total: 0, days: new Map() };
+    const dMap   = messageDays.get(userId)   || new Map();
     const mCount = messageCounts.get(userId) || 0;
-    return getTotal(vcData.days, vcData.total, 'month') + getTotal(dMap, mCount, 'month') * MSGS_TO_MIN;
+    return getTotal(vcData.days, vcData.total, 'month')
+         + getTotal(bData.days, bData.total, 'month')
+         + getTotal(dMap, mCount, 'month') * MSGS_TO_MIN;
 }
 
 // ── Twemoji emoji image helpers ───────────────────────────────────────────────
@@ -2398,6 +2435,29 @@ client.once('ready', async () => {
         console.error('[BeastBot] voiceMinutes load threw:', e.message);
     }
 
+    // Load voice bonus XP from Firestore
+    try {
+        let nextPageToken = null;
+        do {
+            let url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceBonusXp?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const res = await fetch(url);
+            if (!res.ok) break;
+            const data = await res.json();
+            (data.documents || []).forEach(doc => {
+                const f = doc.fields || {};
+                const uid = doc.name.split('/').pop();
+                const total = parseFloat(f.total?.integerValue || f.total?.doubleValue || '0');
+                const dayRaw = f.days?.mapValue?.fields || {};
+                const dMap = new Map();
+                for (const [k, v] of Object.entries(dayRaw)) dMap.set(k, parseFloat(v.integerValue || v.doubleValue || '0'));
+                voiceBonusXp.set(uid, { total, days: dMap });
+            });
+            nextPageToken = data.nextPageToken || null;
+        } while (nextPageToken);
+        console.log(`[BeastBot] Loaded ${voiceBonusXp.size} voice bonus XP records`);
+    } catch (e) { console.error('[BeastBot] voiceBonusXp load threw:', e.message); }
+
     // Load rank achievements from Firestore
     try {
         let nextPageToken = null;
@@ -2471,13 +2531,28 @@ client.once('ready', async () => {
                         baseTotal: existing.total,
                         baseToday: existing.days.get(todayStr()) || 0,
                     });
+                    voiceEnhancements.set(member.id, {
+                        camera: member.voice.selfVideo || false,
+                        stream: member.voice.selfStream || false,
+                    });
                 }
             }));
         console.log(`[BeastBot] Resumed voice tracking for ${voiceStartTimes.size} active members`);
 
-        // Tick every 60s — update voiceMinutes in memory so leaderboard stays live
+        // Tick every 60s — update voiceMinutes + accumulate camera/stream bonus XP
         setInterval(() => {
-            for (const [uid] of voiceStartTimes) creditVoiceTime(uid);
+            const today = todayStr();
+            for (const [uid] of voiceStartTimes) {
+                creditVoiceTime(uid);
+                // Bonus XP: camera=+0.5/min, stream=+0.5/min, both=+1.0/min
+                const bonus = getXpMultiplier(uid) - 1.0;
+                if (bonus > 0) {
+                    const bData = voiceBonusXp.get(uid) || { total: 0, days: new Map() };
+                    bData.total += bonus;
+                    bData.days.set(today, (bData.days.get(today) || 0) + bonus);
+                    voiceBonusXp.set(uid, bData);
+                }
+            }
         }, 60 * 1000);
 
         // Persist active sessions to Firestore every 60 seconds
@@ -2487,6 +2562,8 @@ client.once('ready', async () => {
             for (const uid of active) {
                 const data = voiceMinutes.get(uid);
                 if (data) saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) });
+                const bData = voiceBonusXp.get(uid);
+                if (bData) saveVoiceBonusXp(uid, { total: bData.total, days: Object.fromEntries(bData.days) });
             }
             console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
         }, 60 * 1000);
