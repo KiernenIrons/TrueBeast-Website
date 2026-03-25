@@ -3831,46 +3831,23 @@ client.on('messageCreate', async (message) => {
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
 
 // Flush active voice sessions to Firestore before Fly.io kills the process
-async function flushVoiceSessions() {
+async function flushBeforeExit() {
+    console.log('[BeastBot] Flushing state before shutdown...');
     const promises = [];
     for (const [uid] of voiceStartTimes) {
         const data = creditVoiceTime(uid);
         if (data) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
     }
-    if (promises.length > 0) {
-        await Promise.allSettled(promises);
-        console.log(`[BeastBot] Flushed ${promises.length} active voice session(s) before shutdown`);
-    }
+    promises.push(saveCountingState());
+    await Promise.allSettled(promises);
+    console.log('[BeastBot] Flush complete');
 }
+
 for (const sig of ['SIGTERM', 'SIGINT']) {
     process.on(sig, async () => {
-        console.log(`[BeastBot] Received ${sig} — flushing before exit`);
-        await flushVoiceSessions();
+        await flushBeforeExit();
         process.exit(0);
     });
 }
-
-// Flush all active voice sessions to Firestore before shutdown
-async function flushVoiceOnExit() {
-    if (voiceStartTimes.size === 0) return;
-    console.log(`[BeastBot] 💾 Flushing ${voiceStartTimes.size} active voice session(s) before exit...`);
-    const saves = [];
-    for (const [uid] of voiceStartTimes) {
-        const data = creditVoiceTime(uid);
-        if (data) saves.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
-    }
-    await Promise.allSettled(saves);
-    console.log('[BeastBot] 💾 Voice flush complete');
-}
-
-process.on('SIGTERM', async () => {
-    await flushVoiceOnExit();
-    process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-    await flushVoiceOnExit();
-    process.exit(0);
-});
 
 client.login(TOKEN);
