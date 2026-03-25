@@ -2709,6 +2709,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('me')
                 .setDescription('View your stats and rank'),
+            new SlashCommandBuilder()
+                .setName('embeddemos')
+                .setDescription('(Owner only) Send all 16 embed technique demos to this channel'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -2786,16 +2789,6 @@ client.once('ready', async () => {
         console.log(`[BeastBot] 💓 heartbeat — uptime ${Math.round(process.uptime() / 60)}m`);
     }, 30 * 60 * 1000);
 
-    // Send embed demo showcase to test channel (5s delay so everything else is settled)
-    setTimeout(async () => {
-        try {
-            const demoCh = await client.channels.fetch('1486021237548257330');
-            await sendEmbedDemos(demoCh);
-            console.log('[BeastBot] ✅  Embed demos sent to test channel');
-        } catch (e) {
-            console.error('[BeastBot] Embed demos failed:', e.message);
-        }
-    }, 5000);
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
@@ -2847,6 +2840,18 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         // ── /me ───────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'embeddemos') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.reply({ content: '▶️ Sending embed demos to this channel...', ephemeral: true });
+            sendEmbedDemos(interaction.channel).catch((e) =>
+                console.error('[BeastBot] /embeddemos failed:', e.message)
+            );
+            return;
+        }
+
         if (interaction.commandName === 'me') {
             await interaction.deferReply();
             try {
