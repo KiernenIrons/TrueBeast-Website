@@ -825,7 +825,7 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
         onChange={(e) => onChange('url', e.target.value)}
         disabled={!!(btn.style && btn.style !== 'link')}
         className={inpSm + (btn.style && btn.style !== 'link' ? ' opacity-30 cursor-not-allowed' : '')} />
-      <select value={btn.style || 'link'} onChange={(e) => onChange('style', e.target.value)}
+      <select value={btn.style || 'link'} onChange={(e) => { onChange('style', e.target.value); if (e.target.value !== 'link') onChange('url', ''); }}
         className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-xs focus:outline-none cursor-pointer flex-shrink-0 appearance-none">
         <option value="link" className="bg-[#1e1f22]">Grey</option>
         <option value="primary" className="bg-[#1e1f22]">Blue</option>
