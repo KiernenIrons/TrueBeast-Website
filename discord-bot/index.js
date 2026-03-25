@@ -696,6 +696,8 @@ async function saveCountingState() {
         if (!res.ok) {
             const body = await res.text().catch(() => '');
             console.error(`[BeastBot] saveCountingState HTTP ${res.status}: ${body}`);
+        } else {
+            console.log(`[BeastBot] 💾 Counting state saved — current: ${countingState.current}, record: ${countingState.record}`);
         }
     } catch (e) { console.error('[BeastBot] saveCountingState error:', e.message); }
 }
