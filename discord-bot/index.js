@@ -519,7 +519,7 @@ function scheduleCountingRename(channel) {
         countingLastRenameAt  = Date.now();
         countingRenameTimeout = null;
         const name = countingState.current > 0
-            ? `💯│counting [${countingState.current}]`
+            ? `💯│counting ${countingState.current}`
             : '💯│counting';
         await channel.setName(name).catch(() => {});
     };
@@ -787,7 +787,7 @@ async function handleCountingMessage(message) {
             footer: { text: 'Type 1 to start a new round!' },
         }] });
 
-        await message.channel.setName(`💯│counting [max: ${countingState.record}]`).catch(() => {});
+        await message.channel.setName(`💯│counting ${countingState.record}`).catch(() => {});
         return;
     }
 
