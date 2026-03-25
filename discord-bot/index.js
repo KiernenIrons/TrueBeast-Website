@@ -500,21 +500,22 @@ const voiceStartTimes    = new Map(); // userId → { startMs, baseTotal, baseTo
 const leaderboardOwners  = new Map(); // messageId → userId (who invoked /leaderboard)
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
 const voiceRankRoleCache = new Map(); // roleName → Role object
+const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
-    { id: '1486023901330018335', name: '🥉 Bronze I (1s-1h)',        minMinutes: 0     },
-    { id: '1486023902231527597', name: '🥉 Bronze II (1h-3h)',       minMinutes: 60    },
-    { id: '1486023903150342204', name: '🥈 Silver I (3h-6h)',        minMinutes: 180   },
-    { id: '1486023903691276408', name: '🥈 Silver II (6h-10h)',      minMinutes: 360   },
-    { id: '1486023904412569660', name: '🥇 Gold I (10h-20h)',        minMinutes: 600   },
-    { id: '1486023904777470204', name: '🥇 Gold II (20h-40h)',       minMinutes: 1200  },
-    { id: '1486023905867993168', name: '💠 Platinum (40h-60h)',      minMinutes: 2400  },
-    { id: '1486023907004911808', name: '💎 Diamond (60h-80h)',       minMinutes: 3600  },
-    { id: '1486023909181751296', name: '🔥 Master (80h-140h)',       minMinutes: 4800  },
-    { id: '1486023909944983592', name: '⚔️ Grandmaster (140h-200h)', minMinutes: 8400  },
-    { id: '1486023910205165579', name: '👑 Apex Predator (200h+)',   minMinutes: 12000 },
+    { id: '1486023901330018335', name: '🥉 Bronze I',      minXp: 0     },
+    { id: '1486023902231527597', name: '🥉 Bronze II',     minXp: 60    },
+    { id: '1486023903150342204', name: '🥈 Silver I',      minXp: 180   },
+    { id: '1486023903691276408', name: '🥈 Silver II',     minXp: 360   },
+    { id: '1486023904412569660', name: '🥇 Gold I',        minXp: 600   },
+    { id: '1486023904777470204', name: '🥇 Gold II',       minXp: 1200  },
+    { id: '1486023905867993168', name: '💠 Platinum',      minXp: 2400  },
+    { id: '1486023907004911808', name: '💎 Diamond',       minXp: 3600  },
+    { id: '1486023909181751296', name: '🔥 Master',        minXp: 4800  },
+    { id: '1486023909944983592', name: '⚔️ Grandmaster',   minXp: 8400  },
+    { id: '1486023910205165579', name: '👑 Apex Predator', minXp: 12000 },
 ];
 
 // 1 message = 2 equivalent voice minutes → 30 msgs ≡ 1h in VC
@@ -710,6 +711,20 @@ async function saveVoiceMinutes(userId, data) {
         });
         if (!res.ok) console.error(`[BeastBot] saveVoiceMinutes FAILED for ${userId}: ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveVoiceMinutes error:', e.message); }
+}
+
+async function saveRankAchievements(userId, ach) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/rankAchievements/${userId}?key=${FIREBASE_API_KEY}`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                highestRankIdx: { integerValue: String(ach.highestRankIdx) },
+                apexCount:      { integerValue: String(ach.apexCount) },
+            }}),
+        });
+    } catch (e) { console.error('[BeastBot] saveRankAchievements error:', e.message); }
 }
 
 function todayStr() {
@@ -1297,12 +1312,13 @@ async function ensureVoiceRankRoles(guild) {
     console.log(`[BeastBot] Voice rank roles ready (${voiceRankRoleCache.size}/${VOICE_RANK_ROLES.length})`);
 }
 
-async function assignVoiceRank(member, monthlyMinutes) {
+async function assignVoiceRank(member, xp) {
     if (voiceRankRoleCache.size === 0) return;
-    let targetRank = VOICE_RANK_ROLES[0];
-    for (const rankDef of VOICE_RANK_ROLES) {
-        if (monthlyMinutes >= rankDef.minMinutes) targetRank = rankDef;
+    let targetIdx = 0;
+    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+        if (xp >= VOICE_RANK_ROLES[i].minXp) targetIdx = i;
     }
+    const targetRank = VOICE_RANK_ROLES[targetIdx];
     const targetRole = voiceRankRoleCache.get(targetRank.name);
     if (!targetRole) return;
     const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
@@ -1311,6 +1327,12 @@ async function assignVoiceRank(member, monthlyMinutes) {
     if (!member.roles.cache.has(targetRole.id)) {
         await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
     }
+    // Track achievements: highest rank ever + Apex hits
+    const ach = rankAchievements.get(member.id) || { highestRankIdx: 0, apexCount: 0, hitApexThisMonth: false };
+    let changed = false;
+    if (targetIdx > ach.highestRankIdx) { ach.highestRankIdx = targetIdx; changed = true; }
+    if (targetIdx === VOICE_RANK_ROLES.length - 1 && !ach.hitApexThisMonth) { ach.hitApexThisMonth = true; changed = true; }
+    if (changed) { rankAchievements.set(member.id, ach); saveRankAchievements(member.id, ach); }
 }
 
 async function postMonthlyRecap(guild, oldMonthStr) { // e.g. "2026-02"
@@ -1368,11 +1390,18 @@ async function checkMonthlyReset(guild) {
     } catch (_) {}
     if (stored === currentMonth) return;
     if (stored) await postMonthlyRecap(guild, stored);
-    // Reset all ranked members to Bronze I — ranks are monthly
+    // Finalise Apex count for anyone who hit it this month, then reset roles to Bronze I
     try {
         const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
         for (const [, member] of guild.members.cache) {
             if (member.user.bot) continue;
+            const ach = rankAchievements.get(member.id);
+            if (ach?.hitApexThisMonth) {
+                ach.apexCount++;
+                ach.hitApexThisMonth = false;
+                rankAchievements.set(member.id, ach);
+                saveRankAchievements(member.id, ach);
+            }
             if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
             await assignVoiceRank(member, 0).catch(() => {});
         }
@@ -1717,12 +1746,12 @@ async function generateProfileImage(userId) {
     const activityScore = monthlyActivityScore(userId);
     let rankIdx = 0;
     for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
-        if (activityScore >= VOICE_RANK_ROLES[i].minMinutes) rankIdx = i;
+        if (activityScore >= VOICE_RANK_ROLES[i].minXp) rankIdx = i;
     }
     const currentRank = VOICE_RANK_ROLES[rankIdx];
     const nextRank    = VOICE_RANK_ROLES[rankIdx + 1] || null;
     const progress    = nextRank
-        ? Math.min(1, (activityScore - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
+        ? Math.min(1, (activityScore - currentRank.minXp) / (nextRank.minXp - currentRank.minXp))
         : 1;
 
     const W = 1100, H = 580;
@@ -1795,6 +1824,12 @@ async function generateProfileImage(userId) {
     }
     ctx.fillText(rankTextClean, pillX, rankPillY + rankPillH / 2);
 
+    // XP this month (small line under pill)
+    ctx.font = '19px "Noto Sans", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.38)';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`${activityScore.toLocaleString()} XP this month`, CX, rankPillY + rankPillH + 10);
+
     // Stats grid
     const GY   = 175;
     const COL1 = 230;
@@ -1838,6 +1873,34 @@ async function generateProfileImage(userId) {
         ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
     });
 
+    // Peak rank + Apex count (between stats table and progress bar)
+    const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
+    const peakRank = VOICE_RANK_ROLES[ach.highestRankIdx];
+    const peakEmoji = extractFirstEmoji(peakRank.name);
+    const peakText  = stripEmoji(peakRank.name);
+    const achY = H - 115;
+    ctx.font = '19px "Noto Sans", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.textBaseline = 'top';
+    let achX = CX;
+    ctx.fillText('Peak: ', achX, achY);
+    achX += ctx.measureText('Peak: ').width;
+    if (peakEmoji) {
+        const peImg = await loadEmojiImage(peakEmoji);
+        if (peImg) { ctx.drawImage(peImg, achX, achY - 1, 20, 20); achX += 24; }
+    }
+    ctx.fillStyle = '#e5e7eb';
+    ctx.fillText(peakText, achX, achY);
+    if (ach.apexCount > 0) {
+        achX += ctx.measureText(peakText).width + 20;
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillText('Apex Predator x', achX, achY);
+        achX += ctx.measureText('Apex Predator x').width;
+        ctx.fillStyle = '#ffd700';
+        ctx.font = 'bold 19px "Noto Sans", sans-serif';
+        ctx.fillText(String(ach.apexCount), achX, achY);
+    }
+
     // Progress bar
     const barX = CX, barY = H - 72, barW = panelW, barH = 18;
 
@@ -1849,8 +1912,8 @@ async function generateProfileImage(userId) {
     let progX = barX;
     for (const [rObj, fallback] of [[currentRank, ''], [null, '→'], [nextRank || null, 'Max Rank']]) {
         if (fallback === '→') {
-            ctx.fillText('  →  ', progX, barY - 10);
-            progX += ctx.measureText('  →  ').width;
+            ctx.fillText('  >  ', progX, barY - 10);
+            progX += ctx.measureText('  >  ').width;
             continue;
         }
         const e = rObj ? extractFirstEmoji(rObj.name) : null;
@@ -2334,6 +2397,29 @@ client.once('ready', async () => {
     } catch (e) {
         console.error('[BeastBot] voiceMinutes load threw:', e.message);
     }
+
+    // Load rank achievements from Firestore
+    try {
+        let nextPageToken = null;
+        do {
+            let url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/rankAchievements?key=${FIREBASE_API_KEY}&pageSize=300`;
+            if (nextPageToken) url += `&pageToken=${nextPageToken}`;
+            const res = await fetch(url);
+            if (!res.ok) break;
+            const data = await res.json();
+            (data.documents || []).forEach(doc => {
+                const f = doc.fields || {};
+                const uid = doc.name.split('/').pop();
+                rankAchievements.set(uid, {
+                    highestRankIdx: parseInt(f.highestRankIdx?.integerValue || '0', 10),
+                    apexCount:      parseInt(f.apexCount?.integerValue || '0', 10),
+                    hitApexThisMonth: false,
+                });
+            });
+            nextPageToken = data.nextPageToken || null;
+        } while (nextPageToken);
+        console.log(`[BeastBot] Loaded ${rankAchievements.size} rank achievement records`);
+    } catch (e) { console.error('[BeastBot] rankAchievements load threw:', e.message); }
 
     // Set up voice rank roles and monthly reset
     const guild = client.guilds.cache.first();
