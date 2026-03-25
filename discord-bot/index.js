@@ -517,6 +517,9 @@ const VOICE_RANK_ROLES = [
     { id: '1486023910205165579', name: '👑 Apex Predator (200h+)',   minMinutes: 12000 },
 ];
 
+// 1 message = 2 equivalent voice minutes → 30 msgs ≡ 1h in VC
+const MSGS_TO_MIN = 2;
+
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 function scheduleDiscordMeReminder() {
     const now         = new Date();
@@ -764,8 +767,11 @@ async function checkMessageMilestone(message) {
 
     // Always persist daily count so Today leaderboard survives restarts
     saveMessageDays(userId, dMap);
-    // Total count: save every 10 messages (less critical to be exact)
-    if (count % 10 === 0) saveMessageCount(userId, count);
+    // Every 10 messages: persist total + sync rank (messages contribute to activity score)
+    if (count % 10 === 0) {
+        saveMessageCount(userId, count);
+        if (message.member) assignVoiceRank(message.member, monthlyActivityScore(userId)).catch(() => {});
+    }
 
     const idx = MILESTONE_THRESHOLDS.indexOf(count);
     if (idx === -1) return;
@@ -1220,7 +1226,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             voiceStartTimes.delete(uid);
             if (finalData) {
                 saveVoiceMinutes(uid, { total: finalData.total, days: Object.fromEntries(finalData.days) });
-                assignVoiceRank(trackingMember, finalData.total).catch(() => {});
+                assignVoiceRank(trackingMember, monthlyActivityScore(uid)).catch(() => {});
             }
         }
         // Session start: joined a real channel (not AFK, not trigger)
@@ -1362,7 +1368,15 @@ async function checkMonthlyReset(guild) {
     } catch (_) {}
     if (stored === currentMonth) return;
     if (stored) await postMonthlyRecap(guild, stored);
-    // Ranks are cumulative (all-time total), so no role reset on month change
+    // Reset all ranked members to Bronze I — ranks are monthly
+    try {
+        const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
+        for (const [, member] of guild.members.cache) {
+            if (member.user.bot) continue;
+            if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
+            await assignVoiceRank(member, 0).catch(() => {});
+        }
+    } catch (e) { console.error('[BeastBot] Monthly reset role assignment failed:', e.message); }
     await firestoreSet('botState', 'currentMonth', { month: currentMonth });
     console.log(`[BeastBot] Monthly reset complete — now tracking ${currentMonth}`);
 }
@@ -1456,6 +1470,38 @@ function truncateName(ctx, name, maxWidth) {
 
 function stripEmoji(str) {
     return str.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
+function monthlyActivityScore(userId) {
+    const vcData = voiceMinutes.get(userId) || { total: 0, days: new Map() };
+    const dMap   = messageDays.get(userId)  || new Map();
+    const mCount = messageCounts.get(userId) || 0;
+    return getTotal(vcData.days, vcData.total, 'month') + getTotal(dMap, mCount, 'month') * MSGS_TO_MIN;
+}
+
+// ── Twemoji emoji image helpers ───────────────────────────────────────────────
+const emojiImageCache = new Map();
+
+function emojiToTwemojiFilename(emoji) {
+    return [...emoji]
+        .map(c => c.codePointAt(0).toString(16))
+        .filter(cp => cp !== 'fe0f') // drop variation selector-16
+        .join('-') + '.png';
+}
+
+async function loadEmojiImage(emoji) {
+    if (emojiImageCache.has(emoji)) return emojiImageCache.get(emoji);
+    const filename = emojiToTwemojiFilename(emoji);
+    try {
+        const img = await loadImage(`https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${filename}`);
+        emojiImageCache.set(emoji, img);
+        return img;
+    } catch { emojiImageCache.set(emoji, null); return null; }
+}
+
+function extractFirstEmoji(str) {
+    const m = str.match(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/u);
+    return m ? m[0] : null;
 }
 
 // Draw a simple crown shape above cx, with its bottom edge at bottomY
@@ -1668,15 +1714,15 @@ async function generateProfileImage(userId) {
     const msgDMap   = messageDays.get(userId) || new Map();
     const vcData    = voiceMinutes.get(userId) || { total: 0, days: new Map() };
 
-    const totalVc = vcData.total;
+    const activityScore = monthlyActivityScore(userId);
     let rankIdx = 0;
     for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
-        if (totalVc >= VOICE_RANK_ROLES[i].minMinutes) rankIdx = i;
+        if (activityScore >= VOICE_RANK_ROLES[i].minMinutes) rankIdx = i;
     }
     const currentRank = VOICE_RANK_ROLES[rankIdx];
     const nextRank    = VOICE_RANK_ROLES[rankIdx + 1] || null;
     const progress    = nextRank
-        ? Math.min(1, (totalVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
+        ? Math.min(1, (activityScore - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
         : 1;
 
     const W = 1100, H = 580;
@@ -1726,10 +1772,13 @@ async function generateProfileImage(userId) {
     ctx.textAlign = 'left';
     ctx.fillText(truncateName(ctx, info.displayName, W - CX - 36), CX, 34);
 
-    // Rank badge (pill)
-    const rankText = currentRank.name;
-    ctx.font = 'bold 24px "Noto Sans", "Noto Emoji", sans-serif';
-    const rankPillW = ctx.measureText(rankText).width + 36;
+    // Rank badge (pill) — emoji drawn as Twemoji PNG image
+    const rankEmoji     = extractFirstEmoji(currentRank.name);
+    const rankTextClean = stripEmoji(currentRank.name);
+    const EPILL = 26;
+    ctx.font = 'bold 24px "Noto Sans", sans-serif';
+    const emojiGap  = rankEmoji ? EPILL + 8 : 0;
+    const rankPillW = emojiGap + ctx.measureText(rankTextClean).width + 36;
     const rankPillH = 38;
     const rankPillY = 108;
     ctx.fillStyle = 'rgba(34,197,94,0.15)';
@@ -1739,7 +1788,12 @@ async function generateProfileImage(userId) {
     ctx.beginPath(); ctx.roundRect(CX, rankPillY, rankPillW, rankPillH, rankPillH / 2); ctx.stroke();
     ctx.fillStyle = '#4ade80';
     ctx.textBaseline = 'middle';
-    ctx.fillText(rankText, CX + 15, rankPillY + rankPillH / 2);
+    let pillX = CX + 15;
+    if (rankEmoji) {
+        const eImg = await loadEmojiImage(rankEmoji);
+        if (eImg) { ctx.drawImage(eImg, pillX, rankPillY + (rankPillH - EPILL) / 2, EPILL, EPILL); pillX += EPILL + 8; }
+    }
+    ctx.fillText(rankTextClean, pillX, rankPillY + rankPillH / 2);
 
     // Stats grid
     const GY   = 175;
@@ -1787,12 +1841,27 @@ async function generateProfileImage(userId) {
     // Progress bar
     const barX = CX, barY = H - 72, barW = panelW, barH = 18;
 
-    ctx.font = '20px "Noto Sans", "Noto Emoji", sans-serif';
+    // Progress bar rank labels with Twemoji images
+    ctx.font = '20px "Noto Sans", sans-serif';
     ctx.fillStyle = '#6b7280';
     ctx.textBaseline = 'bottom';
-    const fromLabel = currentRank.name;
-    const toLabel   = nextRank ? nextRank.name : 'Max Rank';
-    ctx.fillText(`${fromLabel}  →  ${toLabel}`, barX, barY - 10);
+    const EPROG = 22;
+    let progX = barX;
+    for (const [rObj, fallback] of [[currentRank, ''], [null, '→'], [nextRank || null, 'Max Rank']]) {
+        if (fallback === '→') {
+            ctx.fillText('  →  ', progX, barY - 10);
+            progX += ctx.measureText('  →  ').width;
+            continue;
+        }
+        const e = rObj ? extractFirstEmoji(rObj.name) : null;
+        const t = rObj ? stripEmoji(rObj.name) : fallback;
+        if (e) {
+            const eImg = await loadEmojiImage(e);
+            if (eImg) { ctx.drawImage(eImg, progX, barY - 10 - EPROG, EPROG, EPROG); progX += EPROG + 5; }
+        }
+        ctx.fillText(t, progX, barY - 10);
+        progX += ctx.measureText(t).width;
+    }
 
     // Track
     ctx.fillStyle = 'rgba(255,255,255,0.07)';
@@ -2287,17 +2356,22 @@ client.once('ready', async () => {
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
 
-        // Assign correct voice rank to every member based on their all-time total
+        // Assign correct voice rank to every member based on monthly activity score
         try {
             let assigned = 0;
             for (const [, member] of guild.members.cache) {
                 if (member.user.bot) continue;
-                const vcData = voiceMinutes.get(member.id) || { total: 0, days: new Map() };
-                await assignVoiceRank(member, vcData.total).catch(() => {});
+                await assignVoiceRank(member, monthlyActivityScore(member.id)).catch(() => {});
                 assigned++;
             }
             console.log(`[BeastBot] Startup role sync complete for ${assigned} members`);
         } catch (e) { console.error('[BeastBot] Startup role sync failed:', e.message); }
+
+        // Pre-warm emoji image cache for rank pill rendering
+        Promise.all(VOICE_RANK_ROLES.map(r => {
+            const e = extractFirstEmoji(r.name);
+            return e ? loadEmojiImage(e) : null;
+        })).then(() => console.log('[BeastBot] Emoji image cache warmed'));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
 
         // Resume tracking for members already in voice channels
