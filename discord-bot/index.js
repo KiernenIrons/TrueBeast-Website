@@ -2820,6 +2820,9 @@ client.once('ready', async () => {
                 .setName('counting')
                 .setDescription('View counting game stats and wall of shame'),
             new SlashCommandBuilder()
+                .setName('resetcounting')
+                .setDescription('(Owner only) Reset the counting game to zero'),
+            new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
         ].map(c => c.toJSON());
@@ -2944,6 +2947,22 @@ client.on('interactionCreate', async (interaction) => {
                 ],
                 footer: { text: `${countingState.ruinedBy.length} total ruins recorded` },
             }], ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'resetcounting') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            countingState.current = 0;
+            countingState.lastUserId = null;
+            countingState.record = 0;
+            countingState.ruinedBy = [];
+            await saveCountingState();
+            const ch = interaction.guild.channels.cache.get(COUNTING_CHANNEL_ID);
+            if (ch) await ch.setName('💯│counting').catch(() => {});
+            await interaction.reply({ content: '✅ Counting game reset to zero — channel name restored.', ephemeral: true });
             return;
         }
 
