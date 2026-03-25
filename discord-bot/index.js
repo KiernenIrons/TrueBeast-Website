@@ -705,7 +705,7 @@ async function saveVoiceMinutes(userId, data) {
                 },
             }),
         });
-        if (!res.ok) console.error(`[BeastBot] saveVoiceMinutes failed for ${userId}: ${res.status} ${await res.text()}`);
+        if (!res.ok) console.error(`[BeastBot] saveVoiceMinutes FAILED for ${userId}: ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveVoiceMinutes error:', e.message); }
 }
 
@@ -2231,21 +2231,29 @@ client.once('ready', async () => {
             let url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceMinutes?key=${FIREBASE_API_KEY}&pageSize=300`;
             if (nextPageToken) url += `&pageToken=${nextPageToken}`;
             const res = await fetch(url);
-            if (!res.ok) break;
+            if (!res.ok) {
+                console.error(`[BeastBot] voiceMinutes load failed: ${res.status} ${await res.text()}`);
+                break;
+            }
             const data = await res.json();
             (data.documents || []).forEach(doc => {
                 const f = doc.fields || {};
                 const uid = doc.name.split('/').pop();
-                const total = parseInt(f.total?.integerValue || '0', 10);
+                const total = parseInt(f.total?.integerValue || f.total?.doubleValue || '0', 10);
                 const dayRaw = f.days?.mapValue?.fields || {};
                 const dMap = new Map();
-                for (const [k, v] of Object.entries(dayRaw)) dMap.set(k, parseInt(v.integerValue || '0', 10));
+                for (const [k, v] of Object.entries(dayRaw)) {
+                    dMap.set(k, parseInt(v.integerValue || v.doubleValue || '0', 10));
+                }
                 voiceMinutes.set(uid, { total, days: dMap });
             });
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
-        console.log(`[BeastBot] Loaded ${voiceMinutes.size} voice minute records from Firestore`);
-    } catch (_) {}
+        const totalMinutes = [...voiceMinutes.values()].reduce((s, d) => s + d.total, 0);
+        console.log(`[BeastBot] Loaded ${voiceMinutes.size} voice minute records from Firestore (${totalMinutes} total minutes across all users)`);
+    } catch (e) {
+        console.error('[BeastBot] voiceMinutes load threw:', e.message);
+    }
 
     // Set up voice rank roles and monthly reset
     const guild = client.guilds.cache.first();
@@ -2291,10 +2299,13 @@ client.once('ready', async () => {
 
         // Persist active sessions to Firestore every 60 seconds
         setInterval(() => {
-            for (const [uid] of voiceStartTimes) {
+            const active = [...voiceStartTimes.keys()];
+            if (active.length === 0) return;
+            for (const uid of active) {
                 const data = voiceMinutes.get(uid);
                 if (data) saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) });
             }
+            console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
         }, 60 * 1000);
     }
 
