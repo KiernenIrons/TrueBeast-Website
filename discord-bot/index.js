@@ -1465,6 +1465,10 @@ function truncateName(ctx, name, maxWidth) {
     return n + '...';
 }
 
+function stripEmoji(str) {
+    return str.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
 // Draw a simple crown shape above cx, with its bottom edge at bottomY
 function drawCrown(ctx, cx, bottomY, size, color) {
     const w = size * 2;
@@ -1506,7 +1510,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
 
     const W          = 1100;
     const HEADER_H   = 150;
-    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 400 : 0;
+    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 420 : 0;
     const ROW_H      = 88;
     const FOOTER_H   = 70;
     const listEntries = safePage === 0 ? pageEntries.slice(3) : pageEntries;
@@ -1516,11 +1520,21 @@ async function generateLeaderboardImage(type, period, page = 0) {
     const ctx    = canvas.getContext('2d');
 
     // Background
-    ctx.fillStyle = '#0a0a0f';
+    ctx.fillStyle = '#0d0f14';
     ctx.fillRect(0, 0, W, H);
 
-    // Green left accent bar
-    ctx.fillStyle = '#22c55e';
+    // Subtle green glow behind header
+    const topGlow = ctx.createLinearGradient(0, 0, 0, HEADER_H + 60);
+    topGlow.addColorStop(0, 'rgba(34,197,94,0.10)');
+    topGlow.addColorStop(1, 'rgba(34,197,94,0)');
+    ctx.fillStyle = topGlow;
+    ctx.fillRect(0, 0, W, HEADER_H + 60);
+
+    // Left accent bar (gradient)
+    const accentGrad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
+    accentGrad.addColorStop(0, '#4ade80');
+    accentGrad.addColorStop(1, '#16a34a');
+    ctx.fillStyle = accentGrad;
     ctx.fillRect(0, 0, 7, HEADER_H);
 
     // Title
@@ -1534,20 +1548,20 @@ async function generateLeaderboardImage(type, period, page = 0) {
     const typeLabel   = type === 'msg' ? 'Messages' : 'Voice Time';
     const periodLabel = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
     ctx.font = '26px Noto Sans, sans-serif';
-    ctx.fillStyle = '#9ca3af';
+    ctx.fillStyle = '#6b7280';
     ctx.fillText(`${typeLabel}  ·  ${periodLabel}`, 36, HEADER_H / 2 + 24);
 
     // Member count (top-right)
     if (allEntries.length > 0) {
-        ctx.font = 'bold 24px Noto Sans, sans-serif';
-        ctx.fillStyle = '#22c55e';
+        ctx.font = 'bold 22px Noto Sans, sans-serif';
+        ctx.fillStyle = '#4ade80';
         ctx.textAlign = 'right';
         ctx.fillText(`${allEntries.length} members`, W - 36, HEADER_H / 2);
         ctx.textAlign = 'left';
     }
 
     // Separator
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, HEADER_H); ctx.lineTo(W, HEADER_H); ctx.stroke();
 
@@ -1564,12 +1578,11 @@ async function generateLeaderboardImage(type, period, page = 0) {
     // ── Podium (page 0, top 3) ────────────────────────────────────────────────
     if (safePage === 0) {
         const podiumEntries = pageEntries.slice(0, 3);
-        // order: 2nd left, 1st center, 3rd right
         const slots   = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
         const colors  = ['#9ca3af', '#22c55e', '#cd7f32'];
         const labels  = ['2ND', '1ST', '3RD'];
-        const radii   = [68, 84, 68];
-        const posX    = [230, 550, 870];
+        const radii   = [68, 86, 68];
+        const posX    = [220, 550, 880];
         const offsetY = [40, 0, 40];
 
         const avatarImgs = await Promise.all(slots.map(e => e ? loadAvatar(e.userId) : Promise.resolve(null)));
@@ -1579,43 +1592,55 @@ async function generateLeaderboardImage(type, period, page = 0) {
             if (!entry) continue;
             const r        = radii[i];
             const x        = posX[i];
-            const avatarCY = HEADER_H + offsetY[i] + 60 + r;
+            const avatarCY = HEADER_H + offsetY[i] + 56 + r;
 
             // Glow ring
             ctx.save();
             ctx.shadowColor = colors[i];
-            ctx.shadowBlur  = i === 1 ? 32 : 20;
+            ctx.shadowBlur  = i === 1 ? 40 : 24;
             ctx.beginPath();
             ctx.arc(x, avatarCY, r + 5, 0, Math.PI * 2);
             ctx.strokeStyle = colors[i];
-            ctx.lineWidth   = i === 1 ? 4 : 3;
+            ctx.lineWidth   = i === 1 ? 5 : 3;
             ctx.stroke();
             ctx.restore();
 
             drawCircularAvatar(ctx, avatarImgs[i], x, avatarCY, r);
 
-            const nameY = avatarCY + r + 22;
+            // Position badge pill
+            const lblText = labels[i];
+            const lblFont = `bold ${i === 1 ? 24 : 20}px Noto Sans, sans-serif`;
+            ctx.font = lblFont;
+            const lblW  = ctx.measureText(lblText).width + 26;
+            const lblH  = i === 1 ? 34 : 28;
+            const lblY  = avatarCY + r + 18;
 
-            // Position label
-            ctx.font = `bold ${i === 1 ? 28 : 24}px Noto Sans, sans-serif`;
+            ctx.fillStyle = i === 1 ? 'rgba(34,197,94,0.2)' : i === 0 ? 'rgba(156,163,175,0.15)' : 'rgba(205,127,50,0.15)';
+            ctx.beginPath(); ctx.roundRect(x - lblW / 2, lblY, lblW, lblH, lblH / 2); ctx.fill();
+            ctx.strokeStyle = colors[i];
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.roundRect(x - lblW / 2, lblY, lblW, lblH, lblH / 2); ctx.stroke();
             ctx.fillStyle = colors[i];
             ctx.textAlign = 'center';
-            ctx.fillText(labels[i], x, nameY + 14);
+            ctx.textBaseline = 'middle';
+            ctx.fillText(lblText, x, lblY + lblH / 2);
 
             // Name
             ctx.font = `bold ${i === 1 ? 30 : 26}px Noto Sans, sans-serif`;
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 230), x, nameY + 50);
+            ctx.textBaseline = 'top';
+            ctx.fillText(truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 220), x, lblY + lblH + 14);
 
             // Score
-            ctx.font = `${i === 1 ? 26 : 22}px Noto Sans, sans-serif`;
-            ctx.fillStyle = '#9ca3af';
-            ctx.fillText(formatScore(entry.value, type), x, nameY + 82);
+            ctx.font = `${i === 1 ? 24 : 21}px Noto Sans, sans-serif`;
+            ctx.fillStyle = '#6b7280';
+            ctx.fillText(formatScore(entry.value, type), x, lblY + lblH + 14 + (i === 1 ? 38 : 34));
         }
         ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
 
         // Separator below podium
-        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, HEADER_H + PODIUM_H); ctx.lineTo(W, HEADER_H + PODIUM_H); ctx.stroke();
     }
@@ -1630,13 +1655,13 @@ async function generateLeaderboardImage(type, period, page = 0) {
         const midY = rowY + ROW_H / 2;
 
         if (i % 2 === 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.025)';
+            ctx.fillStyle = 'rgba(255,255,255,0.03)';
             ctx.fillRect(0, rowY, W, ROW_H);
         }
 
         // Rank
-        ctx.font = 'bold 26px Noto Sans, sans-serif';
-        ctx.fillStyle = '#4b5563';
+        ctx.font = 'bold 24px Noto Sans, sans-serif';
+        ctx.fillStyle = '#374151';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
         ctx.fillText(`#${rank + 1}`, 90, midY);
@@ -1646,7 +1671,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
 
         // Name
         ctx.font = '28px Noto Sans, sans-serif';
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = '#e5e7eb';
         ctx.textAlign = 'left';
         ctx.fillText(truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 580), 174, midY);
 
@@ -1699,16 +1724,27 @@ async function generateProfileImage(userId) {
         ? Math.min(1, (monthlyVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
         : 1;
 
-    const W = 1100, H = 560;
+    const W = 1100, H = 580;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
     // Background
-    ctx.fillStyle = '#0a0a0f';
+    ctx.fillStyle = '#0d0f14';
     ctx.fillRect(0, 0, W, H);
 
-    // Green left accent bar
-    ctx.fillStyle = '#22c55e';
+    // Subtle radial glow (top-right)
+    const radGlow = ctx.createRadialGradient(W, 0, 0, W, 0, W * 0.7);
+    radGlow.addColorStop(0, 'rgba(34,197,94,0.07)');
+    radGlow.addColorStop(1, 'rgba(34,197,94,0)');
+    ctx.fillStyle = radGlow;
+    ctx.fillRect(0, 0, W, H);
+
+    // Left accent bar (gradient)
+    const barAccent = ctx.createLinearGradient(0, 0, 0, H);
+    barAccent.addColorStop(0, '#4ade80');
+    barAccent.addColorStop(0.5, '#22c55e');
+    barAccent.addColorStop(1, '#16a34a');
+    ctx.fillStyle = barAccent;
     ctx.fillRect(0, 0, 7, H);
 
     // Avatar
@@ -1716,7 +1752,7 @@ async function generateProfileImage(userId) {
     const AR = 96, AX = 54 + AR, AY = H / 2;
     ctx.save();
     ctx.shadowColor = '#22c55e';
-    ctx.shadowBlur  = 28;
+    ctx.shadowBlur  = 40;
     ctx.beginPath();
     ctx.arc(AX, AY, AR + 5, 0, Math.PI * 2);
     ctx.strokeStyle = '#22c55e';
@@ -1726,35 +1762,52 @@ async function generateProfileImage(userId) {
     drawCircularAvatar(ctx, avatarImg, AX, AY, AR);
 
     // Content area
-    const CX = AX + AR + 44;
+    const CX = AX + AR + 48;
 
     // Name
-    ctx.font = 'bold 54px Noto Sans, sans-serif';
+    ctx.font = 'bold 58px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
-    ctx.fillText(truncateName(ctx, info.displayName, W - CX - 36), CX, 36);
+    ctx.fillText(truncateName(ctx, info.displayName, W - CX - 36), CX, 34);
 
-    // Rank
-    ctx.font = 'bold 28px Noto Sans, sans-serif';
-    ctx.fillStyle = '#22c55e';
-    ctx.fillText(currentRank.name, CX, 106);
+    // Rank badge (pill)
+    const rankText = stripEmoji(currentRank.name);
+    ctx.font = 'bold 24px Noto Sans, sans-serif';
+    const rankPillW = ctx.measureText(rankText).width + 30;
+    const rankPillH = 38;
+    const rankPillY = 108;
+    ctx.fillStyle = 'rgba(34,197,94,0.15)';
+    ctx.beginPath(); ctx.roundRect(CX, rankPillY, rankPillW, rankPillH, rankPillH / 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(34,197,94,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(CX, rankPillY, rankPillW, rankPillH, rankPillH / 2); ctx.stroke();
+    ctx.fillStyle = '#4ade80';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(rankText, CX + 15, rankPillY + rankPillH / 2);
 
     // Stats grid
-    const GY   = 172;
+    const GY   = 175;
     const COL1 = 230;
     const COL2 = 250;
     const COL3 = 250;
+    const panelW = COL1 + COL2 + COL3;
 
-    ctx.font = 'bold 20px Noto Sans, sans-serif';
+    // Subtle stats panel bg
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    ctx.beginPath(); ctx.roundRect(CX - 16, GY - 10, panelW + 32, 280, 12); ctx.fill();
+
+    // Column headers
+    ctx.font = 'bold 18px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
+    ctx.textBaseline = 'top';
     ctx.fillText('PERIOD',      CX,               GY);
     ctx.fillText('MESSAGES',    CX + COL1,        GY);
     ctx.fillText('VOICE TIME',  CX + COL1 + COL2, GY);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(CX, GY + 26); ctx.lineTo(CX + COL1 + COL2 + COL3, GY + 26); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX - 16, GY + 26); ctx.lineTo(CX + panelW + 16, GY + 26); ctx.stroke();
 
     const statRows = [
         { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today')  },
@@ -1764,8 +1817,8 @@ async function generateProfileImage(userId) {
     ];
 
     statRows.forEach(({ label, msg, vc }, i) => {
-        const rY = GY + 44 + i * 58;
-        ctx.font = '24px Noto Sans, sans-serif';
+        const rY = GY + 38 + i * 56;
+        ctx.font = '23px Noto Sans, sans-serif';
         ctx.fillStyle = '#6b7280';
         ctx.textBaseline = 'top';
         ctx.fillText(label, CX, rY);
@@ -1777,30 +1830,34 @@ async function generateProfileImage(userId) {
     });
 
     // Progress bar
-    const barX = CX, barY = H - 76, barW = COL1 + COL2 + COL3, barH = 18;
+    const barX = CX, barY = H - 72, barW = panelW, barH = 18;
 
     ctx.font = '20px Noto Sans, sans-serif';
-    ctx.fillStyle = '#4b5563';
+    ctx.fillStyle = '#6b7280';
     ctx.textBaseline = 'bottom';
-    const barLabel = nextRank ? `${currentRank.name}  →  ${nextRank.name}` : `${currentRank.name} (Max Rank)`;
-    ctx.fillText(barLabel, barX, barY - 10);
+    const fromLabel = stripEmoji(currentRank.name);
+    const toLabel   = nextRank ? stripEmoji(nextRank.name) : 'Max Rank';
+    ctx.fillText(`${fromLabel}  →  ${toLabel}`, barX, barY - 10);
 
     // Track
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
     ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 9); ctx.fill();
 
-    // Fill
+    // Fill (gradient)
     if (progress > 0) {
-        ctx.fillStyle = '#22c55e';
+        const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+        fillGrad.addColorStop(0, '#16a34a');
+        fillGrad.addColorStop(1, '#4ade80');
+        ctx.fillStyle = fillGrad;
         ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(barH, barW * progress), barH, 9); ctx.fill();
     }
 
     // Percentage
     ctx.font = 'bold 20px Noto Sans, sans-serif';
-    ctx.fillStyle = '#22c55e';
+    ctx.fillStyle = '#4ade80';
     ctx.textBaseline = 'top';
     ctx.textAlign = 'right';
-    ctx.fillText(nextRank ? `${Math.round(progress * 100)}%` : '100%', barX + barW, barY + barH + 10);
+    ctx.fillText(nextRank ? `${Math.round(progress * 100)}%` : '100%', barX + barW, barY + barH + 8);
     ctx.textAlign = 'left';
 
     return canvas.toBuffer('image/png');
