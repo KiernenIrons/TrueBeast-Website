@@ -681,7 +681,7 @@ function scheduleSpotlight() {
 // ── Counting game ─────────────────────────────────────────────────────────────
 
 async function saveCountingState() {
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/counting/state?key=${FIREBASE_API_KEY}`;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`;
     try {
         const res = await fetch(url, {
             method: 'PATCH',
@@ -2577,7 +2577,7 @@ client.once('clientReady', async () => {
 
         // Load counting game state
         try {
-            const res = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/counting/state?key=${FIREBASE_API_KEY}`);
+            const res = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`);
             if (res.ok) {
                 const data = await res.json();
                 const f = data.fields || {};
