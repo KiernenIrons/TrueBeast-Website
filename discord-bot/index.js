@@ -1861,11 +1861,34 @@ async function generateProfileImage(userId) {
     }
     ctx.fillText(rankTextClean, pillX, rankPillY + rankPillH / 2);
 
-    // XP this month (small line under pill)
-    ctx.font = '19px "Noto Sans", sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.38)';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`${activityScore.toLocaleString()} XP this month`, CX, rankPillY + rankPillH + 10);
+    // Peak rank + Apex count — right-aligned, vertically centred with rank pill
+    const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
+    const peakRank  = VOICE_RANK_ROLES[ach.highestRankIdx];
+    const peakEmoji = extractFirstEmoji(peakRank.name);
+    const peakClean = stripEmoji(peakRank.name);
+    const EPEAK = 24;
+    ctx.font = '20px "Noto Sans", sans-serif';
+    const apexStr    = `   ·   Apex ×${ach.apexCount}`;
+    const peakLblW   = ctx.measureText('Peak:  ').width;
+    const peakCleanW = ctx.measureText(peakClean).width;
+    const peakEmojiW = peakEmoji ? EPEAK + 6 : 0;
+    const apexStrW   = ctx.measureText(apexStr).width;
+    let pkX = W - 36 - (peakLblW + peakEmojiW + peakCleanW + apexStrW);
+    const pkY = rankPillY + rankPillH / 2;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillText('Peak:  ', pkX, pkY); pkX += peakLblW;
+    if (peakEmoji) {
+        const peImg = await loadEmojiImage(peakEmoji);
+        if (peImg) { ctx.drawImage(peImg, pkX, pkY - EPEAK / 2, EPEAK, EPEAK); pkX += EPEAK + 6; }
+    }
+    ctx.fillStyle = '#e5e7eb';
+    ctx.fillText(peakClean, pkX, pkY); pkX += peakCleanW;
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillText('   ·   Apex ×', pkX, pkY); pkX += ctx.measureText('   ·   Apex ×').width;
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 20px "Noto Sans", sans-serif';
+    ctx.fillText(String(ach.apexCount), pkX, pkY);
 
     // Stats grid
     const GY   = 175;
@@ -1910,36 +1933,16 @@ async function generateProfileImage(userId) {
         ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
     });
 
-    // Peak rank + Apex count (between stats table and progress bar)
-    const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
-    const peakRank = VOICE_RANK_ROLES[ach.highestRankIdx];
-    const peakEmoji = extractFirstEmoji(peakRank.name);
-    const peakText  = stripEmoji(peakRank.name);
-    const achY = H - 115;
-    ctx.font = '19px "Noto Sans", sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.textBaseline = 'top';
-    let achX = CX;
-    ctx.fillText('Peak: ', achX, achY);
-    achX += ctx.measureText('Peak: ').width;
-    if (peakEmoji) {
-        const peImg = await loadEmojiImage(peakEmoji);
-        if (peImg) { ctx.drawImage(peImg, achX, achY - 1, 20, 20); achX += 24; }
-    }
-    ctx.fillStyle = '#e5e7eb';
-    ctx.fillText(peakText, achX, achY);
-    if (ach.apexCount > 0) {
-        achX += ctx.measureText(peakText).width + 20;
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.fillText('Apex Predator x', achX, achY);
-        achX += ctx.measureText('Apex Predator x').width;
-        ctx.fillStyle = '#ffd700';
-        ctx.font = 'bold 19px "Noto Sans", sans-serif';
-        ctx.fillText(String(ach.apexCount), achX, achY);
-    }
-
     // Progress bar
     const barX = CX, barY = H - 72, barW = panelW, barH = 18;
+
+    // XP this month — right-aligned above bar
+    ctx.font = '19px "Noto Sans", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${activityScore.toLocaleString()} XP`, barX + barW, barY - 10);
+    ctx.textAlign = 'left';
 
     // Progress bar rank labels with Twemoji images
     ctx.font = '20px "Noto Sans", sans-serif';
