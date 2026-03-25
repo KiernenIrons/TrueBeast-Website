@@ -510,27 +510,6 @@ let countingState = {
     record: 0,         // all-time highest count reached before a fail
     ruinedBy: [],      // [{ userId, count, at }] — up to 20, most recent first
 };
-let countingRenameTimeout = null;
-let countingLastRenameAt  = 0;
-const COUNTING_RENAME_THROTTLE = 5 * 60 * 1000; // Discord allows ~2 renames per 10 min
-
-function scheduleCountingRename(channel) {
-    const doRename = async () => {
-        countingLastRenameAt  = Date.now();
-        countingRenameTimeout = null;
-        const name = countingState.current > 0
-            ? `💯│counting ${countingState.current}`
-            : '💯│counting';
-        await channel.setName(name).catch(() => {});
-    };
-    const sinceLast = Date.now() - countingLastRenameAt;
-    if (sinceLast >= COUNTING_RENAME_THROTTLE) {
-        doRename();
-    } else if (!countingRenameTimeout) {
-        countingRenameTimeout = setTimeout(doRename, COUNTING_RENAME_THROTTLE - sinceLast);
-    }
-    // If already scheduled, it will pick up the latest countingState.current when it fires
-}
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
@@ -750,8 +729,6 @@ async function handleCountingMessage(message) {
         if (countingState.ruinedBy.length > 20) countingState.ruinedBy.pop();
         countingState.current = 0;
         countingState.lastUserId = null;
-        if (countingRenameTimeout) { clearTimeout(countingRenameTimeout); countingRenameTimeout = null; }
-        countingLastRenameAt = Date.now(); // lock out schedule until throttle expires
         await saveCountingState();
 
         await message.react('❌').catch(() => {});
@@ -781,7 +758,6 @@ async function handleCountingMessage(message) {
             footer: { text: 'Type 1 to start a new round!' },
         }] });
 
-        await message.channel.setName('💯│counting').catch(() => {});
         return;
     }
 
@@ -790,7 +766,6 @@ async function handleCountingMessage(message) {
     countingState.lastUserId = message.author.id;
     if (num > countingState.record) countingState.record = num;
 
-    scheduleCountingRename(message.channel);
     await saveCountingState();
     if (num % 10 === 0) await message.react('🎉').catch(() => {});
 }
@@ -2970,9 +2945,7 @@ client.on('interactionCreate', async (interaction) => {
             countingState.record = 0;
             countingState.ruinedBy = [];
             await saveCountingState();
-            const ch = interaction.guild.channels.cache.get(COUNTING_CHANNEL_ID);
-            if (ch) await ch.setName('💯│counting').catch(() => {});
-            await interaction.reply({ content: '✅ Counting game reset to zero — channel name restored.', ephemeral: true });
+            await interaction.reply({ content: '✅ Counting game reset to zero.', ephemeral: true });
             return;
         }
 
