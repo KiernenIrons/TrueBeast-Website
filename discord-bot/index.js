@@ -1220,8 +1220,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             voiceStartTimes.delete(uid);
             if (finalData) {
                 saveVoiceMinutes(uid, { total: finalData.total, days: Object.fromEntries(finalData.days) });
-                const monthlyMinutes = getTotal(finalData.days, finalData.total, 'month');
-                assignVoiceRank(trackingMember, monthlyMinutes).catch(() => {});
+                assignVoiceRank(trackingMember, finalData.total).catch(() => {});
             }
         }
         // Session start: joined a real channel (not AFK, not trigger)
@@ -1363,17 +1362,7 @@ async function checkMonthlyReset(guild) {
     } catch (_) {}
     if (stored === currentMonth) return;
     if (stored) await postMonthlyRecap(guild, stored);
-    try {
-        // Use guild.members.cache — populated at startup, no extra fetch needed
-        const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
-        for (const [, member] of guild.members.cache) {
-            if (member.user.bot) continue;
-            if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
-            await assignVoiceRank(member, 0).catch(() => {});
-        }
-    } catch (e) {
-        console.error('[BeastBot] Monthly reset role assignment failed:', e.message);
-    }
+    // Ranks are cumulative (all-time total), so no role reset on month change
     await firestoreSet('botState', 'currentMonth', { month: currentMonth });
     console.log(`[BeastBot] Monthly reset complete — now tracking ${currentMonth}`);
 }
@@ -1679,15 +1668,15 @@ async function generateProfileImage(userId) {
     const msgDMap   = messageDays.get(userId) || new Map();
     const vcData    = voiceMinutes.get(userId) || { total: 0, days: new Map() };
 
-    const monthlyVc = getTotal(vcData.days, vcData.total, 'month');
+    const totalVc = vcData.total;
     let rankIdx = 0;
     for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
-        if (monthlyVc >= VOICE_RANK_ROLES[i].minMinutes) rankIdx = i;
+        if (totalVc >= VOICE_RANK_ROLES[i].minMinutes) rankIdx = i;
     }
     const currentRank = VOICE_RANK_ROLES[rankIdx];
     const nextRank    = VOICE_RANK_ROLES[rankIdx + 1] || null;
     const progress    = nextRank
-        ? Math.min(1, (monthlyVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
+        ? Math.min(1, (totalVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
         : 1;
 
     const W = 1100, H = 580;
@@ -1738,9 +1727,9 @@ async function generateProfileImage(userId) {
     ctx.fillText(truncateName(ctx, info.displayName, W - CX - 36), CX, 34);
 
     // Rank badge (pill)
-    const rankText = stripEmoji(currentRank.name);
-    ctx.font = 'bold 24px Noto Sans, sans-serif';
-    const rankPillW = ctx.measureText(rankText).width + 30;
+    const rankText = currentRank.name;
+    ctx.font = 'bold 24px "Noto Sans", "Noto Emoji", sans-serif';
+    const rankPillW = ctx.measureText(rankText).width + 36;
     const rankPillH = 38;
     const rankPillY = 108;
     ctx.fillStyle = 'rgba(34,197,94,0.15)';
@@ -1798,11 +1787,11 @@ async function generateProfileImage(userId) {
     // Progress bar
     const barX = CX, barY = H - 72, barW = panelW, barH = 18;
 
-    ctx.font = '20px Noto Sans, sans-serif';
+    ctx.font = '20px "Noto Sans", "Noto Emoji", sans-serif';
     ctx.fillStyle = '#6b7280';
     ctx.textBaseline = 'bottom';
-    const fromLabel = stripEmoji(currentRank.name);
-    const toLabel   = nextRank ? stripEmoji(nextRank.name) : 'Max Rank';
+    const fromLabel = currentRank.name;
+    const toLabel   = nextRank ? nextRank.name : 'Max Rank';
     ctx.fillText(`${fromLabel}  →  ${toLabel}`, barX, barY - 10);
 
     // Track
@@ -2297,6 +2286,18 @@ client.once('ready', async () => {
 
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
+
+        // Assign correct voice rank to every member based on their all-time total
+        try {
+            let assigned = 0;
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                const vcData = voiceMinutes.get(member.id) || { total: 0, days: new Map() };
+                await assignVoiceRank(member, vcData.total).catch(() => {});
+                assigned++;
+            }
+            console.log(`[BeastBot] Startup role sync complete for ${assigned} members`);
+        } catch (e) { console.error('[BeastBot] Startup role sync failed:', e.message); }
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
 
         // Resume tracking for members already in voice channels
