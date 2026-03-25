@@ -98,6 +98,22 @@ export interface WebhookBackup {
   [key: string]: unknown;
 }
 
+export interface CardSaveRecord {
+  id: string;
+  name: string;
+  createdAt: string;
+  title: string; subtitle: string; bodyText: string;
+  gradientFrom: string; gradientTo: string;
+  gradientFromAlpha: number; gradientToAlpha: number;
+  textBgOpacity: number;
+  imageUrl: string; imagePosition: string;
+  logoUrl: string; featuredImageUrl: string;
+  textAlign: string; cardHeight: string;
+  componentsJson: string;
+  reactions: string[];
+  [key: string]: unknown;
+}
+
 export interface Announcement {
   id: string;
   title: string;
@@ -553,6 +569,33 @@ export const FirebaseDB = {
     _ensureApp();
     if (!_isConfigured() || !_db) return;
     await _withTimeout(deleteDoc(doc(_db, 'webhookBackups', id)));
+  },
+
+  // -----------------------------------------------------------------------
+  // Card Saves (Discord Cards tab — persistent named design saves)
+  // -----------------------------------------------------------------------
+
+  async saveCardSave(save: Omit<CardSaveRecord, 'id' | 'createdAt'>): Promise<CardSaveRecord> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
+    const id = 'cs-' + Date.now();
+    const document = { ...save, id, createdAt: new Date().toISOString() } as CardSaveRecord;
+    await _withTimeout(setDoc(doc(_db, 'cardSaves', id), document));
+    return document;
+  },
+
+  async getAllCardSaves(): Promise<CardSaveRecord[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return [];
+    const q = query(collection(_db, 'cardSaves'), orderBy('createdAt', 'desc'));
+    const snap = await _withTimeout(getDocs(q));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as CardSaveRecord);
+  },
+
+  async deleteCardSave(id: string): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    await _withTimeout(deleteDoc(doc(_db, 'cardSaves', id)));
   },
 
   // -----------------------------------------------------------------------

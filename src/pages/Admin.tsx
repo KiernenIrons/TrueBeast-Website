@@ -31,7 +31,7 @@ import { Button } from '@/components/base/buttons/button';
 import { GlassCard } from '@/components/shared/GlassCard';
 import PageLayout from '@/components/layout/PageLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { FirebaseDB } from '@/lib/firebase';
+import { FirebaseDB, type CardSaveRecord } from '@/lib/firebase';
 import { SITE_CONFIG } from '@/config';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -46,17 +46,7 @@ interface EmbedData {
   description: string; author: EmbedAuthor; fields: EmbedField[];
   image: string; thumbnail: string; footer: EmbedFooter;
 }
-interface ButtonData { label: string; url: string; emoji: string; style?: string }
-interface CardSave {
-  id: string; name: string; createdAt: string;
-  title: string; subtitle: string; bodyText: string;
-  gradientFrom: string; gradientTo: string; gradientFromAlpha: number; gradientToAlpha: number;
-  textBgOpacity: number;
-  imageUrl: string; imagePosition: 'left' | 'right' | 'background' | 'none';
-  logoUrl: string; featuredImageUrl: string;
-  textAlign: 'left' | 'center'; cardHeight: string;
-  components: ButtonData[][]; reactions: string[];
-}
+interface ButtonData { label: string; url: string; emoji: string }
 interface ComposerState {
   content: string; embeds: EmbedData[]; components: ButtonData[][];
   reactions: string[];
@@ -820,19 +810,7 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
         {pickerOpen && <EmojiPicker onPick={(em) => onChange('emoji', em)} onClose={() => setPickerOpen(false)} />}
       </div>
       <input type="text" placeholder="Label" value={btn.label} onChange={(e) => onChange('label', e.target.value)} className={inpSm + ' !w-32'} />
-      <input type="url" placeholder={btn.style && btn.style !== 'link' ? 'No URL (coloured button)' : 'https://...'}
-        value={btn.style && btn.style !== 'link' ? '' : btn.url}
-        onChange={(e) => onChange('url', e.target.value)}
-        disabled={!!(btn.style && btn.style !== 'link')}
-        className={inpSm + (btn.style && btn.style !== 'link' ? ' opacity-30 cursor-not-allowed' : '')} />
-      <select value={btn.style || 'link'} onChange={(e) => { onChange('style', e.target.value); if (e.target.value !== 'link') onChange('url', ''); }}
-        className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-white text-xs focus:outline-none cursor-pointer flex-shrink-0 appearance-none">
-        <option value="link" className="bg-[#1e1f22]">Grey</option>
-        <option value="primary" className="bg-[#1e1f22]">Blue</option>
-        <option value="success" className="bg-[#1e1f22]">Green</option>
-        <option value="danger" className="bg-[#1e1f22]">Red</option>
-        <option value="secondary" className="bg-[#1e1f22]">Dark</option>
-      </select>
+      <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange('url', e.target.value)} className={inpSm} />
       <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"><Minus className="w-4 h-4" /></button>
     </div>
   );
@@ -2250,7 +2228,6 @@ const CARD_HEIGHT_OPTIONS: { value: string; label: string }[] = [
   { value: 'giant',    label: 'Giant (1500px)' },
 ];
 
-const CARD_SAVES_KEY = 'tb_card_saves_v1';
 
 const CARD_TEMPLATES = [
   { name: 'Classic',      imagePosition: 'left'       as const, textAlign: 'left'   as const, cardHeight: 'auto',     gradientFrom: '#1a2744', gradientTo: '#0d3d52', gradientFromAlpha: 100, gradientToAlpha: 100 },
@@ -2378,9 +2355,8 @@ function DiscordCardsTab() {
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [saveName, setSaveName] = useState('');
-  const [saves, setSaves] = useState<CardSave[]>(() => {
-    try { return JSON.parse(localStorage.getItem(CARD_SAVES_KEY) || '[]'); } catch { return []; }
-  });
+  const [saves, setSaves] = useState<CardSaveRecord[]>([]);
+  const [savesLoading, setSavesLoading] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const updateRow = (ri: number, r: ButtonData[]) => setComponents((s) => s.map((x, i) => i === ri ? r : x));
@@ -2393,22 +2369,41 @@ function DiscordCardsTab() {
     setGradientFromAlpha(t.gradientFromAlpha); setGradientToAlpha(t.gradientToAlpha);
   };
 
-  const persistSaves = (s: CardSave[]) => { setSaves(s); localStorage.setItem(CARD_SAVES_KEY, JSON.stringify(s)); };
-  const saveDesign = () => {
+  useEffect(() => {
+    setSavesLoading(true);
+    FirebaseDB.getAllCardSaves().then(setSaves).catch(() => {}).finally(() => setSavesLoading(false));
+  }, []);
+
+  const saveDesign = async () => {
     if (!saveName.trim()) return;
-    persistSaves([...saves, { id: uid(), name: saveName.trim(), createdAt: new Date().toISOString(), title, subtitle, bodyText, gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight, components, reactions }]);
-    setSaveName('');
+    try {
+      const record = await FirebaseDB.saveCardSave({
+        name: saveName.trim(), title, subtitle, bodyText,
+        gradientFrom, gradientTo, gradientFromAlpha, gradientToAlpha, textBgOpacity,
+        imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight,
+        componentsJson: components.length ? JSON.stringify(components) : '',
+        reactions,
+      });
+      setSaves((s) => [record, ...s]);
+      setSaveName('');
+    } catch { /* silent */ }
   };
-  const applySave = (s: CardSave) => {
+  const applySave = (s: CardSaveRecord) => {
     setTitle(s.title); setSubtitle(s.subtitle); setBodyText(s.bodyText);
     setGradientFrom(s.gradientFrom); setGradientTo(s.gradientTo);
-    setGradientFromAlpha(s.gradientFromAlpha ?? 100); setGradientToAlpha(s.gradientToAlpha ?? 100);
-    setTextBgOpacity(s.textBgOpacity ?? 0);
-    setImageUrl(s.imageUrl); setImagePosition(s.imagePosition); setLogoUrl(s.logoUrl);
-    setFeaturedImageUrl(s.featuredImageUrl); setTextAlign(s.textAlign); setCardHeight(s.cardHeight);
-    setComponents(s.components || []); setReactions(s.reactions || []);
+    setGradientFromAlpha((s.gradientFromAlpha as number) ?? 100);
+    setGradientToAlpha((s.gradientToAlpha as number) ?? 100);
+    setTextBgOpacity((s.textBgOpacity as number) ?? 0);
+    setImageUrl(s.imageUrl); setImagePosition(s.imagePosition as any);
+    setLogoUrl(s.logoUrl); setFeaturedImageUrl(s.featuredImageUrl);
+    setTextAlign(s.textAlign as any); setCardHeight(s.cardHeight);
+    try { setComponents(JSON.parse(s.componentsJson || '[]')); } catch { setComponents([]); }
+    setReactions((s.reactions as string[]) || []);
   };
-  const deleteSave = (id: string) => persistSaves(saves.filter((s) => s.id !== id));
+  const deleteSave = async (id: string) => {
+    setSaves((s) => s.filter((x) => x.id !== id));
+    await FirebaseDB.deleteCardSave(id).catch(() => {});
+  };
 
   useEffect(() => {
     if (!feedback) return;
@@ -2730,7 +2725,7 @@ function DiscordCardsTab() {
           </div>
           {components.length === 0 && <p className="text-gray-600 text-xs italic">No button rows yet</p>}
           {components.map((row, ri) => <ButtonRowEditor key={ri} row={row} rowIndex={ri} onChange={(u) => updateRow(ri, u)} onRemoveRow={() => removeRow(ri)} />)}
-          <p className="text-xs text-gray-600">Grey = link button (opens URL). Blue/Green/Red = coloured non-link button (no URL).</p>
+          <p className="text-xs text-gray-600">Buttons require a URL — they open the link when clicked.</p>
         </GlassCard>
 
         {/* Reactions */}
@@ -2760,12 +2755,13 @@ function DiscordCardsTab() {
               <Save01 className="w-3.5 h-3.5" /> Save
             </button>
           </div>
-          {saves.length === 0 && <p className="text-gray-600 text-xs italic">No saved designs yet</p>}
+          {savesLoading && <p className="text-gray-600 text-xs italic">Loading saves...</p>}
+          {!savesLoading && saves.length === 0 && <p className="text-gray-600 text-xs italic">No saved designs yet</p>}
           {saves.length > 0 && (
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {saves.map((s) => (
                 <div key={s.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-white/5 border border-white/5">
-                  <span className="text-xs text-gray-300 truncate flex-1">{s.name}</span>
+                  <span className="text-xs text-gray-300 truncate flex-1">{s.name as string}</span>
                   <span className="text-xs text-gray-600 flex-shrink-0">{new Date(s.createdAt).toLocaleDateString()}</span>
                   <button type="button" onClick={() => applySave(s)} className="text-xs text-green-400 hover:text-green-300 transition-colors cursor-pointer flex-shrink-0">Load</button>
                   <button type="button" onClick={() => deleteSave(s.id)} className="text-xs text-gray-500 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"><XClose className="w-3 h-3" /></button>
@@ -2790,13 +2786,6 @@ function DiscordCardsTab() {
               {components.map((row, ri) => {
                 const visible = row.filter((b) => b.label.trim() || b.emoji);
                 if (!visible.length) return null;
-                const styleClasses: Record<string, string> = {
-                  link: 'bg-[#4f545c]',
-                  primary: 'bg-[#5865f2]',
-                  secondary: 'bg-[#2b2d31] border border-white/10',
-                  success: 'bg-[#3ba55c]',
-                  danger: 'bg-[#ed4245]',
-                };
                 return (
                   <div key={ri} className="flex gap-2 flex-wrap">
                     {visible.map((btn, bi) => {
@@ -2804,7 +2793,7 @@ function DiscordCardsTab() {
                       const eid = cm?.[2];
                       const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
                       return (
-                        <div key={bi} className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-white text-xs font-medium select-none ${styleClasses[btn.style || 'link'] ?? styleClasses.link}`}>
+                        <div key={bi} className="flex items-center gap-1.5 px-3 py-1.5 rounded text-white text-xs font-medium select-none bg-[#4f545c]">
                           {eid ? (
                             <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=32`} alt="" className="w-4 h-4 object-contain flex-shrink-0" />
                           ) : btn.emoji ? (
