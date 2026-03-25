@@ -2459,8 +2459,8 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
             const pickRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('lbt:msg:all').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('lbt:vc:all').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('lbt:msg:week').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('lbt:vc:week').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Secondary),
             );
             const reply = await interaction.reply({ content: '**Choose a leaderboard:**', components: [pickRow], fetchReply: true });
             leaderboardOwners.set(reply.id, interaction.user.id);
