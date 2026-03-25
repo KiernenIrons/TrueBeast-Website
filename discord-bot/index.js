@@ -683,7 +683,7 @@ function scheduleSpotlight() {
 async function saveCountingState() {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/counting/state?key=${FIREBASE_API_KEY}`;
     try {
-        await fetch(url, {
+        const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fields: {
@@ -693,6 +693,10 @@ async function saveCountingState() {
                 ruinedBy:   { stringValue: JSON.stringify(countingState.ruinedBy) },
             }}),
         });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            console.error(`[BeastBot] saveCountingState HTTP ${res.status}: ${body}`);
+        }
     } catch (e) { console.error('[BeastBot] saveCountingState error:', e.message); }
 }
 
@@ -2750,6 +2754,7 @@ client.once('clientReady', async () => {
                 if (bData) saveVoiceBonusXp(uid, { total: bData.total, days: Object.fromEntries(bData.days) });
             }
             console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
+            saveCountingState();
         }, 60 * 1000);
     }
 
