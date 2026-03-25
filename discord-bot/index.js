@@ -1509,12 +1509,11 @@ async function generateLeaderboardImage(type, period, page = 0) {
     const globalOffset = safePage * PAGE_SIZE;
 
     const W          = 1100;
-    const HEADER_H   = 150;
-    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 420 : 0;
-    const ROW_H      = 88;
+    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 430 : 0;
+    const ROW_H      = 96;
     const FOOTER_H   = 70;
     const listEntries = safePage === 0 ? pageEntries.slice(3) : pageEntries;
-    const H = HEADER_H + PODIUM_H + Math.max(listEntries.length, 1) * ROW_H + FOOTER_H;
+    const H = PODIUM_H + Math.max(listEntries.length, 1) * ROW_H + FOOTER_H;
 
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
@@ -1523,54 +1522,20 @@ async function generateLeaderboardImage(type, period, page = 0) {
     ctx.fillStyle = '#0d0f14';
     ctx.fillRect(0, 0, W, H);
 
-    // Subtle green glow behind header
-    const topGlow = ctx.createLinearGradient(0, 0, 0, HEADER_H + 60);
-    topGlow.addColorStop(0, 'rgba(34,197,94,0.10)');
+    // Subtle top glow
+    const topGlow = ctx.createLinearGradient(0, 0, 0, 120);
+    topGlow.addColorStop(0, 'rgba(34,197,94,0.08)');
     topGlow.addColorStop(1, 'rgba(34,197,94,0)');
     ctx.fillStyle = topGlow;
-    ctx.fillRect(0, 0, W, HEADER_H + 60);
-
-    // Left accent bar (gradient)
-    const accentGrad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
-    accentGrad.addColorStop(0, '#4ade80');
-    accentGrad.addColorStop(1, '#16a34a');
-    ctx.fillStyle = accentGrad;
-    ctx.fillRect(0, 0, 7, HEADER_H);
-
-    // Title
-    ctx.font = 'bold 62px Noto Sans, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText('LEADERBOARD', 36, HEADER_H / 2 - 16);
-
-    // Subtitle
-    const typeLabel   = type === 'msg' ? 'Messages' : 'Voice Time';
-    const periodLabel = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
-    ctx.font = '26px Noto Sans, sans-serif';
-    ctx.fillStyle = '#6b7280';
-    ctx.fillText(`${typeLabel}  ·  ${periodLabel}`, 36, HEADER_H / 2 + 24);
-
-    // Member count (top-right)
-    if (allEntries.length > 0) {
-        ctx.font = 'bold 22px Noto Sans, sans-serif';
-        ctx.fillStyle = '#4ade80';
-        ctx.textAlign = 'right';
-        ctx.fillText(`${allEntries.length} members`, W - 36, HEADER_H / 2);
-        ctx.textAlign = 'left';
-    }
-
-    // Separator
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, HEADER_H); ctx.lineTo(W, HEADER_H); ctx.stroke();
+    ctx.fillRect(0, 0, W, 120);
 
     // No data
     if (allEntries.length === 0) {
         ctx.font = '30px Noto Sans, sans-serif';
         ctx.fillStyle = '#4b5563';
         ctx.textAlign = 'center';
-        ctx.fillText('No data for this period yet.', W / 2, HEADER_H + ROW_H * 1.5);
+        ctx.textBaseline = 'middle';
+        ctx.fillText('No data for this period yet.', W / 2, H / 2);
         ctx.textAlign = 'left';
         return { buffer: canvas.toBuffer('image/png'), page: 0, totalPages: 1 };
     }
@@ -1579,7 +1544,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
     if (safePage === 0) {
         const podiumEntries = pageEntries.slice(0, 3);
         const slots   = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
-        const colors  = ['#9ca3af', '#22c55e', '#cd7f32'];
+        const colors  = ['#9ca3af', '#ffd700', '#cd7f32'];
         const labels  = ['2ND', '1ST', '3RD'];
         const radii   = [68, 86, 68];
         const posX    = [220, 550, 880];
@@ -1592,11 +1557,10 @@ async function generateLeaderboardImage(type, period, page = 0) {
             if (!entry) continue;
             const r        = radii[i];
             const x        = posX[i];
-            const avatarCY = HEADER_H + offsetY[i] + 56 + r;
+            const avatarCY = offsetY[i] + 80 + r;
 
             // Crown above avatar
-            const crownSize = i === 1 ? 26 : 20;
-            drawCrown(ctx, x, avatarCY - r - 8, crownSize, colors[i]);
+            drawCrown(ctx, x, avatarCY - r - 8, i === 1 ? 26 : 20, colors[i]);
 
             // Glow ring
             ctx.save();
@@ -1612,14 +1576,12 @@ async function generateLeaderboardImage(type, period, page = 0) {
             drawCircularAvatar(ctx, avatarImgs[i], x, avatarCY, r);
 
             // Position badge pill
-            const lblText = labels[i];
-            const lblFont = `bold ${i === 1 ? 24 : 20}px Noto Sans, sans-serif`;
-            ctx.font = lblFont;
-            const lblW  = ctx.measureText(lblText).width + 26;
-            const lblH  = i === 1 ? 34 : 28;
-            const lblY  = avatarCY + r + 18;
+            ctx.font = `bold ${i === 1 ? 24 : 20}px Noto Sans, sans-serif`;
+            const lblW = ctx.measureText(labels[i]).width + 26;
+            const lblH = i === 1 ? 34 : 28;
+            const lblY = avatarCY + r + 18;
 
-            ctx.fillStyle = i === 1 ? 'rgba(34,197,94,0.2)' : i === 0 ? 'rgba(156,163,175,0.15)' : 'rgba(205,127,50,0.15)';
+            ctx.fillStyle = i === 1 ? 'rgba(255,215,0,0.18)' : i === 0 ? 'rgba(156,163,175,0.15)' : 'rgba(205,127,50,0.15)';
             ctx.beginPath(); ctx.roundRect(x - lblW / 2, lblY, lblW, lblH, lblH / 2); ctx.fill();
             ctx.strokeStyle = colors[i];
             ctx.lineWidth = 1;
@@ -1627,7 +1589,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
             ctx.fillStyle = colors[i];
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(lblText, x, lblY + lblH / 2);
+            ctx.fillText(labels[i], x, lblY + lblH / 2);
 
             // Name
             ctx.font = `bold ${i === 1 ? 30 : 26}px Noto Sans, sans-serif`;
@@ -1637,7 +1599,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
 
             // Score
             ctx.font = `${i === 1 ? 24 : 21}px Noto Sans, sans-serif`;
-            ctx.fillStyle = '#6b7280';
+            ctx.fillStyle = '#9ca3af';
             ctx.fillText(formatScore(entry.value, type), x, lblY + lblH + 14 + (i === 1 ? 38 : 34));
         }
         ctx.textAlign = 'left';
@@ -1646,11 +1608,11 @@ async function generateLeaderboardImage(type, period, page = 0) {
         // Separator below podium
         ctx.strokeStyle = 'rgba(255,255,255,0.07)';
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, HEADER_H + PODIUM_H); ctx.lineTo(W, HEADER_H + PODIUM_H); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, PODIUM_H); ctx.lineTo(W, PODIUM_H); ctx.stroke();
     }
 
     // ── List rows ─────────────────────────────────────────────────────────────
-    const listY       = HEADER_H + PODIUM_H;
+    const listY       = PODIUM_H;
     const listAvatars = await Promise.all(listEntries.map(e => loadAvatar(e.userId)));
 
     listEntries.forEach(({ userId, value }, i) => {
@@ -1664,24 +1626,24 @@ async function generateLeaderboardImage(type, period, page = 0) {
         }
 
         // Rank
-        ctx.font = 'bold 24px Noto Sans, sans-serif';
+        ctx.font = 'bold 28px Noto Sans, sans-serif';
         ctx.fillStyle = '#374151';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
         ctx.fillText(`#${rank + 1}`, 90, midY);
 
         // Avatar
-        if (listAvatars[i]) drawCircularAvatar(ctx, listAvatars[i], 126, midY, 30);
+        if (listAvatars[i]) drawCircularAvatar(ctx, listAvatars[i], 130, midY, 32);
 
         // Name
-        ctx.font = '28px Noto Sans, sans-serif';
-        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '34px Noto Sans, sans-serif';
+        ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'left';
-        ctx.fillText(truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 580), 174, midY);
+        ctx.fillText(truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 560), 182, midY);
 
         // Score
-        ctx.font = 'bold 28px Noto Sans, sans-serif';
-        ctx.fillStyle = '#22c55e';
+        ctx.font = 'bold 34px Noto Sans, sans-serif';
+        ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'right';
         ctx.fillText(formatScore(value, type), W - 40, midY);
 
@@ -2496,17 +2458,12 @@ client.on('interactionCreate', async (interaction) => {
     // ── Slash commands ───────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
-            await interaction.deferReply();
-            try {
-                const { buffer, page, totalPages } = await generateLeaderboardImage('msg', 'all', 0);
-                const attachment = new AttachmentBuilder(buffer, { name: 'leaderboard.png' });
-                const components = buildLeaderboardComponents('msg', 'all', page, totalPages);
-                const reply = await interaction.editReply({ files: [attachment], components });
-                leaderboardOwners.set(reply.id, interaction.user.id);
-            } catch (e) {
-                console.error('[BeastBot] /leaderboard image failed:', e.message);
-                await interaction.editReply({ content: '❌ Failed to generate leaderboard. Try again in a moment.' });
-            }
+            const pickRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('lbt:msg:all').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('lbt:vc:all').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Secondary),
+            );
+            const reply = await interaction.reply({ content: '**Choose a leaderboard:**', components: [pickRow], fetchReply: true });
+            leaderboardOwners.set(reply.id, interaction.user.id);
             return;
         }
 
