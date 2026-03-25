@@ -781,7 +781,7 @@ async function handleCountingMessage(message) {
             footer: { text: 'Type 1 to start a new round!' },
         }] });
 
-        await message.channel.setName(`💯│counting ${countingState.record}`).catch(() => {});
+        await message.channel.setName('💯│counting').catch(() => {});
         return;
     }
 
