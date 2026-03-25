@@ -2746,14 +2746,15 @@ client.once('clientReady', async () => {
         // Persist active sessions to Firestore every 60 seconds
         setInterval(() => {
             const active = [...voiceStartTimes.keys()];
-            if (active.length === 0) return;
-            for (const uid of active) {
-                const data = voiceMinutes.get(uid);
-                if (data) saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) });
-                const bData = voiceBonusXp.get(uid);
-                if (bData) saveVoiceBonusXp(uid, { total: bData.total, days: Object.fromEntries(bData.days) });
+            if (active.length > 0) {
+                for (const uid of active) {
+                    const data = voiceMinutes.get(uid);
+                    if (data) saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) });
+                    const bData = voiceBonusXp.get(uid);
+                    if (bData) saveVoiceBonusXp(uid, { total: bData.total, days: Object.fromEntries(bData.days) });
+                }
+                console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
             }
-            console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
             saveCountingState();
         }, 60 * 1000);
     }
