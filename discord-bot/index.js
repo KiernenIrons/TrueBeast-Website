@@ -1505,10 +1505,10 @@ async function generateLeaderboardImage(type, period, page = 0) {
     const globalOffset = safePage * PAGE_SIZE;
 
     const W          = 1100;
-    const HEADER_H   = 130;
-    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 390 : 0;
-    const ROW_H      = 84;
-    const FOOTER_H   = 60;
+    const HEADER_H   = 150;
+    const PODIUM_H   = safePage === 0 && allEntries.length > 0 ? 400 : 0;
+    const ROW_H      = 88;
+    const FOOTER_H   = 70;
     const listEntries = safePage === 0 ? pageEntries.slice(3) : pageEntries;
     const H = HEADER_H + PODIUM_H + Math.max(listEntries.length, 1) * ROW_H + FOOTER_H;
 
@@ -1516,50 +1516,45 @@ async function generateLeaderboardImage(type, period, page = 0) {
     const ctx    = canvas.getContext('2d');
 
     // Background
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#111827');
-    bg.addColorStop(1, '#0d1117');
-    ctx.fillStyle = bg;
+    ctx.fillStyle = '#0a0a0f';
     ctx.fillRect(0, 0, W, H);
 
-    // Header stripe
-    const stripe = ctx.createLinearGradient(0, 0, W, 0);
-    stripe.addColorStop(0,   'rgba(34,197,94,0.18)');
-    stripe.addColorStop(0.5, 'rgba(34,197,94,0.05)');
-    stripe.addColorStop(1,   'rgba(34,197,94,0.18)');
-    ctx.fillStyle = stripe;
-    ctx.fillRect(0, 0, W, HEADER_H);
+    // Green left accent bar
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(0, 0, 7, HEADER_H);
 
-    // Header title
-    ctx.font = 'bold 42px Noto Sans, sans-serif';
+    // Title
+    ctx.font = 'bold 62px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'middle';
-    ctx.fillText('TrueBeast Leaderboard', 40, HEADER_H / 2 - 12);
+    ctx.textAlign = 'left';
+    ctx.fillText('LEADERBOARD', 36, HEADER_H / 2 - 16);
 
-    // Header subtitle (type + period)
+    // Subtitle
     const typeLabel   = type === 'msg' ? 'Messages' : 'Voice Time';
     const periodLabel = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
-    ctx.font = '24px Noto Sans, sans-serif';
-    ctx.fillStyle = '#8b9ab4';
-    ctx.fillText(`${typeLabel}  ·  ${periodLabel}`, 40, HEADER_H / 2 + 20);
+    ctx.font = '26px Noto Sans, sans-serif';
+    ctx.fillStyle = '#9ca3af';
+    ctx.fillText(`${typeLabel}  ·  ${periodLabel}`, 36, HEADER_H / 2 + 24);
 
-    // Member count badge (top-right)
+    // Member count (top-right)
     if (allEntries.length > 0) {
-        ctx.font = 'bold 20px Noto Sans, sans-serif';
+        ctx.font = 'bold 24px Noto Sans, sans-serif';
         ctx.fillStyle = '#22c55e';
-        const badge = `${allEntries.length} members`;
-        ctx.fillText(badge, W - ctx.measureText(badge).width - 40, HEADER_H / 2);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${allEntries.length} members`, W - 36, HEADER_H / 2);
+        ctx.textAlign = 'left';
     }
 
     // Separator
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, HEADER_H); ctx.lineTo(W, HEADER_H); ctx.stroke();
 
     // No data
     if (allEntries.length === 0) {
-        ctx.font = '26px Noto Sans, sans-serif';
-        ctx.fillStyle = '#8b9ab4';
+        ctx.font = '30px Noto Sans, sans-serif';
+        ctx.fillStyle = '#4b5563';
         ctx.textAlign = 'center';
         ctx.fillText('No data for this period yet.', W / 2, HEADER_H + ROW_H * 1.5);
         ctx.textAlign = 'left';
@@ -1570,104 +1565,112 @@ async function generateLeaderboardImage(type, period, page = 0) {
     if (safePage === 0) {
         const podiumEntries = pageEntries.slice(0, 3);
         // order: 2nd left, 1st center, 3rd right
-        const slots  = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
-        const colors = ['#c0c0c0', '#ffd700', '#cd7f32'];
-        const radii  = [64, 78, 64];
-        const posX   = [220, 500, 780];
-        const offsetY = [30, 0, 30]; // 1st sits higher
+        const slots   = [podiumEntries[1], podiumEntries[0], podiumEntries[2]];
+        const colors  = ['#9ca3af', '#22c55e', '#cd7f32'];
+        const labels  = ['2ND', '1ST', '3RD'];
+        const radii   = [68, 84, 68];
+        const posX    = [230, 550, 870];
+        const offsetY = [40, 0, 40];
 
         const avatarImgs = await Promise.all(slots.map(e => e ? loadAvatar(e.userId) : Promise.resolve(null)));
 
         for (let i = 0; i < 3; i++) {
             const entry = slots[i];
             if (!entry) continue;
-            const r      = radii[i];
-            const x      = posX[i];
-            const avatarCY = HEADER_H + offsetY[i] + 50 + r; // avatar center y
-
-            // Crown above avatar
-            drawCrown(ctx, x, avatarCY - r - 6, i === 1 ? 22 : 17, colors[i]);
+            const r        = radii[i];
+            const x        = posX[i];
+            const avatarCY = HEADER_H + offsetY[i] + 60 + r;
 
             // Glow ring
             ctx.save();
             ctx.shadowColor = colors[i];
-            ctx.shadowBlur  = 24;
+            ctx.shadowBlur  = i === 1 ? 32 : 20;
             ctx.beginPath();
-            ctx.arc(x, avatarCY, r + 4, 0, Math.PI * 2);
+            ctx.arc(x, avatarCY, r + 5, 0, Math.PI * 2);
             ctx.strokeStyle = colors[i];
-            ctx.lineWidth   = 3;
+            ctx.lineWidth   = i === 1 ? 4 : 3;
             ctx.stroke();
             ctx.restore();
 
             drawCircularAvatar(ctx, avatarImgs[i], x, avatarCY, r);
 
-            // Name
-            const name  = truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 220);
-            const score = formatScore(entry.value, type);
-            const nameY = avatarCY + r + 28;
-            ctx.font = 'bold 26px Noto Sans, sans-serif';
-            ctx.fillStyle = '#ffffff';
+            const nameY = avatarCY + r + 22;
+
+            // Position label
+            ctx.font = `bold ${i === 1 ? 28 : 24}px Noto Sans, sans-serif`;
+            ctx.fillStyle = colors[i];
             ctx.textAlign = 'center';
-            ctx.fillText(name, x, nameY);
+            ctx.fillText(labels[i], x, nameY + 14);
+
+            // Name
+            ctx.font = `bold ${i === 1 ? 30 : 26}px Noto Sans, sans-serif`;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(truncateName(ctx, memberNameCache.get(entry.userId) || 'Unknown', 230), x, nameY + 50);
 
             // Score
-            ctx.font = '22px Noto Sans, sans-serif';
-            ctx.fillStyle = colors[i];
-            ctx.fillText(score, x, nameY + 32);
+            ctx.font = `${i === 1 ? 26 : 22}px Noto Sans, sans-serif`;
+            ctx.fillStyle = '#9ca3af';
+            ctx.fillText(formatScore(entry.value, type), x, nameY + 82);
         }
         ctx.textAlign = 'left';
 
         // Separator below podium
-        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, HEADER_H + PODIUM_H); ctx.lineTo(W, HEADER_H + PODIUM_H); ctx.stroke();
     }
 
     // ── List rows ─────────────────────────────────────────────────────────────
-    const listY      = HEADER_H + PODIUM_H;
+    const listY       = HEADER_H + PODIUM_H;
     const listAvatars = await Promise.all(listEntries.map(e => loadAvatar(e.userId)));
 
     listEntries.forEach(({ userId, value }, i) => {
-        const rank  = globalOffset + (safePage === 0 ? i + 3 : i);
-        const rowY  = listY + i * ROW_H;
-        const midY  = rowY + ROW_H / 2;
+        const rank = globalOffset + (safePage === 0 ? i + 3 : i);
+        const rowY = listY + i * ROW_H;
+        const midY = rowY + ROW_H / 2;
 
-        ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'transparent';
-        ctx.fillRect(0, rowY, W, ROW_H);
+        if (i % 2 === 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.025)';
+            ctx.fillRect(0, rowY, W, ROW_H);
+        }
 
         // Rank
-        ctx.font = 'bold 22px Noto Sans, sans-serif';
-        ctx.fillStyle = '#6b7280';
+        ctx.font = 'bold 26px Noto Sans, sans-serif';
+        ctx.fillStyle = '#4b5563';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
-        ctx.fillText(`#${rank + 1}`, 82, midY);
+        ctx.fillText(`#${rank + 1}`, 90, midY);
 
         // Avatar
-        const aImg = listAvatars[i];
-        if (aImg) drawCircularAvatar(ctx, aImg, 116, midY, 28);
+        if (listAvatars[i]) drawCircularAvatar(ctx, listAvatars[i], 126, midY, 30);
 
         // Name
-        ctx.font = '22px Noto Sans, sans-serif';
-        ctx.fillStyle = '#e5e7eb';
+        ctx.font = '28px Noto Sans, sans-serif';
+        ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'left';
-        ctx.fillText(truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 600), 162, midY);
+        ctx.fillText(truncateName(ctx, memberNameCache.get(userId) || 'Unknown', 580), 174, midY);
 
         // Score
-        ctx.font = 'bold 22px Noto Sans, sans-serif';
+        ctx.font = 'bold 28px Noto Sans, sans-serif';
         ctx.fillStyle = '#22c55e';
         ctx.textAlign = 'right';
-        ctx.fillText(formatScore(value, type), W - 44, midY);
+        ctx.fillText(formatScore(value, type), W - 40, midY);
+
+        // Row divider
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(36, rowY + ROW_H); ctx.lineTo(W - 36, rowY + ROW_H); ctx.stroke();
     });
 
     ctx.textAlign = 'left';
 
     // Footer
     const footerY = H - FOOTER_H;
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, footerY); ctx.lineTo(W, footerY); ctx.stroke();
 
-    ctx.font = '20px Noto Sans, sans-serif';
+    ctx.font = '22px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
@@ -1696,64 +1699,62 @@ async function generateProfileImage(userId) {
         ? Math.min(1, (monthlyVc - currentRank.minMinutes) / (nextRank.minMinutes - currentRank.minMinutes))
         : 1;
 
-    const W = 1100, H = 500;
+    const W = 1100, H = 560;
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
 
     // Background
-    const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, '#111827');
-    bg.addColorStop(1, '#0d1117');
-    ctx.fillStyle = bg;
+    ctx.fillStyle = '#0a0a0f';
     ctx.fillRect(0, 0, W, H);
 
-    // Left green accent strip
+    // Green left accent bar
     ctx.fillStyle = '#22c55e';
-    ctx.fillRect(0, 0, 5, H);
+    ctx.fillRect(0, 0, 7, H);
 
-    // Avatar (big)
+    // Avatar
     const avatarImg = await loadAvatar(userId);
-    const AR = 90, AX = 60 + AR, AY = H / 2;
+    const AR = 96, AX = 54 + AR, AY = H / 2;
     ctx.save();
     ctx.shadowColor = '#22c55e';
-    ctx.shadowBlur  = 24;
+    ctx.shadowBlur  = 28;
     ctx.beginPath();
-    ctx.arc(AX, AY, AR + 4, 0, Math.PI * 2);
+    ctx.arc(AX, AY, AR + 5, 0, Math.PI * 2);
     ctx.strokeStyle = '#22c55e';
-    ctx.lineWidth   = 3;
+    ctx.lineWidth   = 4;
     ctx.stroke();
     ctx.restore();
     drawCircularAvatar(ctx, avatarImg, AX, AY, AR);
 
     // Content area
-    const CX = AX + AR + 36;
+    const CX = AX + AR + 44;
 
     // Name
-    ctx.font = 'bold 42px Noto Sans, sans-serif';
+    ctx.font = 'bold 54px Noto Sans, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'top';
-    ctx.fillText(truncateName(ctx, info.displayName, W - CX - 30), CX, 40);
+    ctx.textAlign = 'left';
+    ctx.fillText(truncateName(ctx, info.displayName, W - CX - 36), CX, 36);
 
     // Rank
-    ctx.font = '24px Noto Sans, sans-serif';
+    ctx.font = 'bold 28px Noto Sans, sans-serif';
     ctx.fillStyle = '#22c55e';
-    ctx.fillText(currentRank.name, CX, 98);
+    ctx.fillText(currentRank.name, CX, 106);
 
     // Stats grid
-    const GY   = 155;
-    const COL1 = 220; // period label width
-    const COL2 = 240; // messages width
-    const COL3 = 240; // voice width
+    const GY   = 172;
+    const COL1 = 230;
+    const COL2 = 250;
+    const COL3 = 250;
 
     ctx.font = 'bold 20px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
-    ctx.fillText('Period',     CX,              GY);
-    ctx.fillText('Messages',   CX + COL1,       GY);
-    ctx.fillText('Voice Time', CX + COL1 + COL2, GY);
+    ctx.fillText('PERIOD',      CX,               GY);
+    ctx.fillText('MESSAGES',    CX + COL1,        GY);
+    ctx.fillText('VOICE TIME',  CX + COL1 + COL2, GY);
 
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(CX, GY + 22); ctx.lineTo(CX + COL1 + COL2 + COL3, GY + 22); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(CX, GY + 26); ctx.lineTo(CX + COL1 + COL2 + COL3, GY + 26); ctx.stroke();
 
     const statRows = [
         { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today')  },
@@ -1763,45 +1764,43 @@ async function generateProfileImage(userId) {
     ];
 
     statRows.forEach(({ label, msg, vc }, i) => {
-        const rY = GY + 38 + i * 54;
-        ctx.font = '21px Noto Sans, sans-serif';
-        ctx.fillStyle = '#8b9ab4';
+        const rY = GY + 44 + i * 58;
+        ctx.font = '24px Noto Sans, sans-serif';
+        ctx.fillStyle = '#6b7280';
         ctx.textBaseline = 'top';
         ctx.fillText(label, CX, rY);
-        ctx.font = 'bold 21px Noto Sans, sans-serif';
-        ctx.fillStyle = msg > 0 ? '#e5e7eb' : '#374151';
+        ctx.font = 'bold 26px Noto Sans, sans-serif';
+        ctx.fillStyle = msg > 0 ? '#ffffff' : '#374151';
         ctx.fillText(msg.toLocaleString(), CX + COL1, rY);
-        ctx.fillStyle = vc > 0 ? '#e5e7eb' : '#374151';
+        ctx.fillStyle = vc > 0 ? '#ffffff' : '#374151';
         ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
     });
 
     // Progress bar
-    const barX = CX, barY = H - 82, barW = COL1 + COL2 + COL3, barH = 16;
-    ctx.font = '19px Noto Sans, sans-serif';
+    const barX = CX, barY = H - 76, barW = COL1 + COL2 + COL3, barH = 18;
+
+    ctx.font = '20px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'bottom';
-    const barLabel = nextRank ? `${currentRank.name}  to  ${nextRank.name}` : `${currentRank.name} (Max Rank)`;
-    ctx.fillText(barLabel, barX, barY - 8);
+    const barLabel = nextRank ? `${currentRank.name}  →  ${nextRank.name}` : `${currentRank.name} (Max Rank)`;
+    ctx.fillText(barLabel, barX, barY - 10);
 
     // Track
-    ctx.fillStyle = 'rgba(255,255,255,0.07)';
-    ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 9); ctx.fill();
 
     // Fill
     if (progress > 0) {
-        const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-        grad.addColorStop(0, '#16a34a');
-        grad.addColorStop(1, '#22c55e');
-        ctx.fillStyle = grad;
-        ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(barH, barW * progress), barH, 7); ctx.fill();
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath(); ctx.roundRect(barX, barY, Math.max(barH, barW * progress), barH, 9); ctx.fill();
     }
 
     // Percentage
-    ctx.font = 'bold 19px Noto Sans, sans-serif';
+    ctx.font = 'bold 20px Noto Sans, sans-serif';
     ctx.fillStyle = '#22c55e';
     ctx.textBaseline = 'top';
     ctx.textAlign = 'right';
-    ctx.fillText(nextRank ? `${Math.round(progress * 100)}%` : '100%', barX + barW, barY + barH + 8);
+    ctx.fillText(nextRank ? `${Math.round(progress * 100)}%` : '100%', barX + barW, barY + barH + 10);
     ctx.textAlign = 'left';
 
     return canvas.toBuffer('image/png');
