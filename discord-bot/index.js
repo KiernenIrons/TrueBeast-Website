@@ -448,6 +448,7 @@ const client = new Client({
     partials: [Partials.Channel],
 });
 
+const COUNTING_CHANNEL_ID = '1486479498248585277';
 const BUMP_CHANNEL_ID    = '1477361149862482053';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
@@ -500,7 +501,15 @@ const voiceStartTimes    = new Map(); // userId → { startMs, baseTotal, baseTo
 const leaderboardOwners  = new Map(); // messageId → userId (who invoked /leaderboard)
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
 const voiceBonusXp       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", xp> } — camera/stream bonus
-const voiceEnhancements  = new Map(); // userId → { camera: boolean, stream: boolean }
+const voiceEnhancements  = new Map(); // userId → { camera: boolean, stream: boolean, inStage: boolean }
+
+// ── Counting game ─────────────────────────────────────────────────────────────
+let countingState = {
+    current: 0,       // current count (0 = not started / just reset)
+    lastUserId: null,  // userId who sent the last correct number
+    record: 0,         // all-time highest count reached before a fail
+    ruinedBy: [],      // [{ userId, count, at }] — up to 20, most recent first
+};
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
@@ -667,6 +676,109 @@ function scheduleSpotlight() {
         scheduleSpotlight(); // re-schedule for next Thursday
     }, delay);
     console.log(`[BeastBot] Member Spotlight scheduled for ${next.toUTCString()}`);
+}
+
+// ── Counting game ─────────────────────────────────────────────────────────────
+
+async function saveCountingState() {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/counting/state?key=${FIREBASE_API_KEY}`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                current:    { integerValue: String(countingState.current) },
+                lastUserId: { stringValue: countingState.lastUserId || '' },
+                record:     { integerValue: String(countingState.record) },
+                ruinedBy:   { arrayValue: { values: countingState.ruinedBy.map(r => ({
+                    mapValue: { fields: {
+                        userId: { stringValue: r.userId },
+                        count:  { integerValue: String(r.count) },
+                        at:     { integerValue: String(r.at) },
+                    }},
+                })) } },
+            }}),
+        });
+    } catch (e) { console.error('[BeastBot] saveCountingState error:', e.message); }
+}
+
+async function handleCountingMessage(message) {
+    if (message.author.bot) return;
+
+    const trimmed = message.content.trim();
+    const num = parseInt(trimmed, 10);
+    const isValidNumber = !isNaN(num) && String(num) === trimmed && num > 0;
+
+    // Not a valid positive integer — delete silently
+    if (!isValidNumber) {
+        await message.delete().catch(() => {});
+        return;
+    }
+
+    // Same person sent twice in a row — delete and warn
+    if (message.author.id === countingState.lastUserId) {
+        await message.delete().catch(() => {});
+        const w = await message.channel.send(`<@${message.author.id}> You can't count twice in a row — wait for someone else!`);
+        setTimeout(() => w.delete().catch(() => {}), 6000);
+        return;
+    }
+
+    const expected = countingState.current + 1;
+
+    // Wrong number — fail!
+    if (num !== expected) {
+        const ruinedAt = countingState.current;
+        const isNewRecord = ruinedAt > countingState.record;
+        if (isNewRecord) countingState.record = ruinedAt;
+
+        countingState.ruinedBy.unshift({ userId: message.author.id, count: ruinedAt, at: Date.now() });
+        if (countingState.ruinedBy.length > 20) countingState.ruinedBy.pop();
+        countingState.current = 0;
+        countingState.lastUserId = null;
+        await saveCountingState();
+
+        await message.react('❌').catch(() => {});
+
+        // Tally wall of shame
+        const shameTally = {};
+        for (const r of countingState.ruinedBy) {
+            if (!shameTally[r.userId]) shameTally[r.userId] = { count: 0, highest: 0 };
+            shameTally[r.userId].count++;
+            if (r.count > shameTally[r.userId].highest) shameTally[r.userId].highest = r.count;
+        }
+        const shameList = Object.entries(shameTally)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 5)
+            .map(([uid, d], i) => `${i + 1}. <@${uid}> — ruined **${d.count}x** (highest at **${d.highest}**)`)
+            .join('\n');
+
+        await message.channel.send({ embeds: [{
+            color: 0xff4444,
+            title: '💥 Counting Failed!',
+            description: `<@${message.author.id}> sent **${num}** but the next number was **${expected}**.\nThe count resets to **0**. Type **1** to start again!`,
+            fields: [
+                { name: `🏆 Best Run${isNewRecord ? ' 🎉 New Record!' : ''}`, value: `**${countingState.record}**`, inline: true },
+                { name: '💀 Ruined At', value: `**${ruinedAt}**`, inline: true },
+                ...(shameList ? [{ name: '🪦 Wall of Shame', value: shameList }] : []),
+            ],
+            footer: { text: 'Type 1 to start a new round!' },
+        }] });
+
+        await message.channel.setName(`💯│counting [max: ${countingState.record}]`).catch(() => {});
+        return;
+    }
+
+    // Correct number!
+    countingState.current = num;
+    countingState.lastUserId = message.author.id;
+    if (num > countingState.record) countingState.record = num;
+
+    if (num === 1) {
+        await message.channel.setName('💯│counting').catch(() => {});
+    }
+
+    await saveCountingState();
+    if (num % 10 === 0) await message.react('🎉').catch(() => {});
 }
 
 // ── Member Milestones ─────────────────────────────────────────────────────────
@@ -1250,7 +1362,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     if (oldCh === newCh) {
         const m = newState.member || oldState.member;
         if (m && !m.user.bot && newCh) {
-            voiceEnhancements.set(m.id, { camera: newState.selfVideo || false, stream: newState.selfStream || false });
+            const chType = (newState.channel || oldState.channel)?.type;
+            voiceEnhancements.set(m.id, { camera: newState.selfVideo || false, stream: newState.selfStream || false, inStage: chType === ChannelType.GuildStageVoice });
         }
         return;
     }
@@ -1277,7 +1390,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 baseTotal: existing.total,
                 baseToday: existing.days.get(todayStr()) || 0,
             });
-            voiceEnhancements.set(uid, { camera: newState.selfVideo || false, stream: newState.selfStream || false });
+            voiceEnhancements.set(uid, { camera: newState.selfVideo || false, stream: newState.selfStream || false, inStage: newState.channel?.type === ChannelType.GuildStageVoice });
         }
     }
 
@@ -1578,9 +1691,10 @@ function stripEmoji(str) {
 
 // Returns 2.0 if camera+stream, 1.5 if either alone, 1.0 otherwise
 function getXpMultiplier(uid) {
-    const e = voiceEnhancements.get(uid) || { camera: false, stream: false };
-    if (e.camera && e.stream) return 2.0;
-    if (e.camera || e.stream) return 1.5;
+    const e = voiceEnhancements.get(uid) || { camera: false, stream: false, inStage: false };
+    if (e.inStage && e.stream) return 2.0;  // stage screen share = 2×
+    if (e.camera && e.stream)  return 2.0;  // camera + stream = 2×
+    if (e.camera || e.stream)  return 1.5;  // either alone = 1.5×
     return 1.0;
 }
 
@@ -2467,6 +2581,24 @@ client.once('ready', async () => {
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
         console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
+
+        // Load counting game state
+        try {
+            const res = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/counting/state?key=${FIREBASE_API_KEY}`);
+            if (res.ok) {
+                const data = await res.json();
+                const f = data.fields || {};
+                countingState.current    = parseInt(f.current?.integerValue    || '0', 10);
+                countingState.lastUserId = f.lastUserId?.stringValue           || null;
+                countingState.record     = parseInt(f.record?.integerValue     || '0', 10);
+                countingState.ruinedBy   = (f.ruinedBy?.arrayValue?.values || []).map(v => ({
+                    userId: v.mapValue.fields.userId.stringValue,
+                    count:  parseInt(v.mapValue.fields.count.integerValue, 10),
+                    at:     parseInt(v.mapValue.fields.at.integerValue, 10),
+                }));
+            }
+            console.log(`[BeastBot] Counting loaded — current: ${countingState.current}, record: ${countingState.record}`);
+        } catch (e) { console.error('[BeastBot] loadCountingState error:', e.message); }
     } catch (_) {}
 
     // Load voice minutes from Firestore
@@ -2588,7 +2720,7 @@ client.once('ready', async () => {
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
-            .filter(ch => ch.type === ChannelType.GuildVoice && ch.id !== AFK_CHANNEL_ID && ch.id !== TEMP_VC_TRIGGER_ID)
+            .filter(ch => (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice) && ch.id !== AFK_CHANNEL_ID && ch.id !== TEMP_VC_TRIGGER_ID)
             .forEach(ch => ch.members.forEach(member => {
                 if (!member.user.bot) {
                     const existing = voiceMinutes.get(member.id) || { total: 0, days: new Map() };
@@ -2600,6 +2732,7 @@ client.once('ready', async () => {
                     voiceEnhancements.set(member.id, {
                         camera: member.voice.selfVideo || false,
                         stream: member.voice.selfStream || false,
+                        inStage: ch.type === ChannelType.GuildStageVoice,
                     });
                 }
             }));
@@ -2683,6 +2816,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('rank-tutorial')
                 .setDescription('Learn how the TrueBeast ranking system works'),
+            new SlashCommandBuilder()
+                .setName('counting')
+                .setDescription('View counting game stats and wall of shame'),
             new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
@@ -2783,6 +2919,31 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.commandName === 'rank-tutorial') {
             await interaction.reply({ embeds: [buildRanksEmbed()], ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'counting') {
+            const shameTally = {};
+            for (const r of countingState.ruinedBy) {
+                if (!shameTally[r.userId]) shameTally[r.userId] = { count: 0, highest: 0 };
+                shameTally[r.userId].count++;
+                if (r.count > shameTally[r.userId].highest) shameTally[r.userId].highest = r.count;
+            }
+            const shameList = Object.entries(shameTally)
+                .sort((a, b) => b[1].count - a[1].count)
+                .slice(0, 10)
+                .map(([uid, d], i) => `${i + 1}. <@${uid}> — ruined **${d.count}x** (highest ruin at **${d.highest}**)`)
+                .join('\n') || 'No ruins yet — keep counting!';
+            await interaction.reply({ embeds: [{
+                color: 0x4ade80,
+                title: '💯 Counting Stats',
+                fields: [
+                    { name: '🔢 Current Count', value: `**${countingState.current}**`, inline: true },
+                    { name: '🏆 All-Time Record', value: `**${countingState.record}**`, inline: true },
+                    { name: '🪦 Wall of Shame', value: shameList },
+                ],
+                footer: { text: `${countingState.ruinedBy.length} total ruins recorded` },
+            }], ephemeral: true });
             return;
         }
 
@@ -3391,6 +3552,12 @@ client.on('interactionCreate', async (interaction) => {
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 client.on('messageCreate', async (message) => {
+    // Counting channel game
+    if (message.channel.id === COUNTING_CHANNEL_ID) {
+        await handleCountingMessage(message);
+        return;
+    }
+
     // Detect Disboard bump success — reset the 2h reminder timer
     if (message.author.id === DISBOARD_BOT_ID && message.channel.id === BUMP_CHANNEL_ID) {
         const hasBumpDone = message.embeds?.some(e =>
