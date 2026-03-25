@@ -728,6 +728,39 @@ export default function Ripple() {
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[] | null>(null);
 
+  const DRAFT_KEY = 'ripple-draft';
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(() => {
+    try { const d = localStorage.getItem('ripple-draft'); return d ? (JSON.parse(d).savedAt ?? null) : null; } catch { return null; }
+  });
+  const [draftFlash, setDraftFlash] = useState('');
+  const saveDraft = () => {
+    const state = { msg, dc, tg, bs, enabled, savedAt: Date.now() };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
+    setDraftSavedAt(state.savedAt);
+    setDraftFlash('saved');
+    setTimeout(() => setDraftFlash(''), 1600);
+  };
+  const loadDraft = () => {
+    try {
+      const d = localStorage.getItem(DRAFT_KEY);
+      if (!d) return;
+      const s = JSON.parse(d);
+      if (s.msg) setMsg(s.msg);
+      if (s.dc) setDc(s.dc);
+      if (s.tg) setTg(s.tg);
+      if (s.bs) setBs(s.bs);
+      if (s.enabled) setEnabled(s.enabled);
+      setDraftFlash('loaded');
+      setTimeout(() => setDraftFlash(''), 1600);
+    } catch {}
+  };
+  const clearDraft = () => { localStorage.removeItem(DRAFT_KEY); setDraftSavedAt(null); };
+  const fmtDraftTime = (ts: number) => {
+    const d = new Date(ts), now = new Date();
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   const saveCreds = (nc: Creds) => { setCreds(nc); localStorage.setItem(CREDS_KEY, JSON.stringify(nc)); };
   const hasCreds = (p: 'discord' | 'telegram' | 'bluesky') => {
     if (p === 'discord') return !!creds.discord?.webhookUrl;
@@ -839,6 +872,28 @@ export default function Ripple() {
                       <span style={{ fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, padding: '2px 8px', color: 'rgba(255,255,255,0.4)' }}>Soon</span>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Draft Saver */}
+              <div className="glass rounded-2xl p-5 mt-6">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <StepLabel>Draft</StepLabel>
+                  {draftSavedAt && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Last saved {fmtDraftTime(draftSavedAt)}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button onClick={saveDraft} style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: '#c084fc', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {draftFlash === 'saved' ? '✓ Saved!' : '💾 Save Draft'}
+                  </button>
+                  {draftSavedAt && <>
+                    <button onClick={loadDraft} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      {draftFlash === 'loaded' ? '✓ Loaded!' : '↩ Load Draft'}
+                    </button>
+                    <button onClick={clearDraft} style={{ background: 'none', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: '#f87171', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Clear
+                    </button>
+                  </>}
+                  {!draftSavedAt && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>No draft saved yet</span>}
                 </div>
               </div>
 
