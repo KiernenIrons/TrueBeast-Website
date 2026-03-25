@@ -2348,6 +2348,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('me')
                 .setDescription('View your stats and rank'),
+            new SlashCommandBuilder()
+                .setName('restart')
+                .setDescription('(Owner only) Restart the bot'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -2486,6 +2489,17 @@ client.on('interactionCreate', async (interaction) => {
                 console.error('[BeastBot] /me image failed:', e.message);
                 await interaction.editReply({ content: '❌ Failed to generate profile card. Try again in a moment.' });
             }
+            return;
+        }
+
+        // ── /restart ──────────────────────────────────────────────────────────
+        if (interaction.commandName === 'restart') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Only the owner can restart the bot.', ephemeral: true });
+                return;
+            }
+            await interaction.reply({ content: '🔄 Restarting bot...', ephemeral: true });
+            setTimeout(() => process.exit(0), 1000);
             return;
         }
 
