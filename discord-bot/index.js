@@ -2451,20 +2451,21 @@ client.once('ready', async () => {
             (data.documents || []).forEach(doc => {
                 const f = doc.fields || {};
                 const uid = doc.name.split('/').pop();
-                messageCounts.set(uid, parseInt(f.count?.integerValue || '0', 10));
                 const dayRaw = f.days?.mapValue?.fields || {};
                 const dMap = new Map();
-                for (const [k, v] of Object.entries(dayRaw)) dMap.set(k, parseInt(v.integerValue || '0', 10));
+                let daySum = 0;
+                for (const [k, v] of Object.entries(dayRaw)) {
+                    const n = parseInt(v.integerValue || '0', 10);
+                    dMap.set(k, n);
+                    daySum += n;
+                }
                 messageDays.set(uid, dMap);
+                // Always derive total from daily counts — stored count field is ignored
+                // so resets (which clear days) are always reflected correctly
+                messageCounts.set(uid, daySum);
             });
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
-        // Reconcile: ensure total >= sum of daily counts (scan can update days without updating total)
-        for (const [uid, dMap] of messageDays.entries()) {
-            let daySum = 0;
-            for (const v of dMap.values()) daySum += v;
-            if (daySum > (messageCounts.get(uid) || 0)) messageCounts.set(uid, daySum);
-        }
         console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
     } catch (_) {}
 
@@ -2676,6 +2677,9 @@ client.once('ready', async () => {
                 .setName('me')
                 .setDescription('View your stats and rank'),
             new SlashCommandBuilder()
+                .setName('profile')
+                .setDescription('View your stats and rank'),
+            new SlashCommandBuilder()
                 .setName('rank-tutorial')
                 .setDescription('Learn how the TrueBeast ranking system works'),
             new SlashCommandBuilder()
@@ -2810,7 +2814,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         // ── /me ───────────────────────────────────────────────────────────────
-        if (interaction.commandName === 'me') {
+        if (interaction.commandName === 'me' || interaction.commandName === 'profile') {
             await interaction.deferReply();
             try {
                 const buffer = await generateProfileImage(interaction.user.id);
