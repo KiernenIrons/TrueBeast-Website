@@ -1919,14 +1919,18 @@ async function generateProfileImage(userId) {
     const peakRank  = VOICE_RANK_ROLES[ach.highestRankIdx];
     const peakEmoji = extractFirstEmoji(peakRank.name);
     const peakClean = stripEmoji(peakRank.name);
-    const EPEAK = 24;
+    const EPEAK = 24, ECROWN = 22;
     ctx.font = '20px "Noto Sans", sans-serif';
-    const apexStr    = `   ·   Apex ×${ach.apexCount}`;
+    const apexPrefix  = '   ·   Apex ×  ';
+    const apexPrefixW = ctx.measureText(apexPrefix).width;
+    ctx.font = 'bold 20px "Noto Sans", sans-serif';
+    const apexCountW  = ctx.measureText(String(ach.apexCount)).width;
+    ctx.font = '20px "Noto Sans", sans-serif';
     const peakLblW   = ctx.measureText('Peak:  ').width;
     const peakCleanW = ctx.measureText(peakClean).width;
     const peakEmojiW = peakEmoji ? EPEAK + 6 : 0;
-    const apexStrW   = ctx.measureText(apexStr).width;
-    let pkX = (CX + panelW) - (peakLblW + peakEmojiW + peakCleanW + apexStrW);
+    const totalApexW = apexPrefixW + ECROWN + 6 + apexCountW;
+    let pkX = (CX + panelW) - (peakLblW + peakEmojiW + peakCleanW + totalApexW);
     const pkY = rankPillY + rankPillH / 2;
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
@@ -1938,7 +1942,9 @@ async function generateProfileImage(userId) {
     ctx.fillStyle = '#e5e7eb';
     ctx.fillText(peakClean, pkX, pkY); pkX += peakCleanW;
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillText('   ·   Apex ×', pkX, pkY); pkX += ctx.measureText('   ·   Apex ×').width;
+    ctx.fillText(apexPrefix, pkX, pkY); pkX += apexPrefixW;
+    const crownImg = await loadEmojiImage('👑');
+    if (crownImg) { ctx.drawImage(crownImg, pkX, pkY - ECROWN / 2, ECROWN, ECROWN); } pkX += ECROWN + 6;
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 20px "Noto Sans", sans-serif';
     ctx.fillText(String(ach.apexCount), pkX, pkY);
@@ -2453,6 +2459,12 @@ client.once('ready', async () => {
             });
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
+        // Reconcile: ensure total >= sum of daily counts (scan can update days without updating total)
+        for (const [uid, dMap] of messageDays.entries()) {
+            let daySum = 0;
+            for (const v of dMap.values()) daySum += v;
+            if (daySum > (messageCounts.get(uid) || 0)) messageCounts.set(uid, daySum);
+        }
         console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
     } catch (_) {}
 
@@ -2657,6 +2669,9 @@ client.once('ready', async () => {
             new SlashCommandBuilder()
                 .setName('scanmessages')
                 .setDescription('(Owner only) Scan all channels for the last 30 days and rebuild message counts'),
+            new SlashCommandBuilder()
+                .setName('resetmessages')
+                .setDescription('(Owner only) Wipe all message counts to zero and re-sync ranks'),
             new SlashCommandBuilder()
                 .setName('me')
                 .setDescription('View your stats and rank'),
@@ -3041,13 +3056,25 @@ client.on('interactionCreate', async (interaction) => {
                 for (const [k, v] of dMap) existing.set(k, v);
             }
 
-            // Save all updated users to Firestore (fire-and-forget batches)
+            // Rebuild in-memory totals from days (so All Time stays consistent)
+            for (const [userId] of scanned) {
+                const dMap = messageDays.get(userId);
+                if (!dMap) continue;
+                let sum = 0;
+                for (const v of dMap.values()) sum += v;
+                if (sum > (messageCounts.get(userId) || 0)) messageCounts.set(userId, sum);
+            }
+
+            // Save all updated users to Firestore (days + reconciled total)
             const userIds = [...scanned.keys()];
             for (let i = 0; i < userIds.length; i += 20) {
                 await Promise.allSettled(
-                    userIds.slice(i, i + 20).map(uid => {
+                    userIds.slice(i, i + 20).flatMap(uid => {
                         const dm = messageDays.get(uid);
-                        return dm ? saveMessageDays(uid, dm) : Promise.resolve();
+                        return [
+                            dm ? saveMessageDays(uid, dm) : Promise.resolve(),
+                            saveMessageCount(uid, messageCounts.get(uid) || 0),
+                        ];
                     })
                 );
             }
@@ -3056,6 +3083,52 @@ client.on('interactionCreate', async (interaction) => {
                 `✅ Scan complete!\n` +
                 `📨 **${totalMsgs.toLocaleString()}** messages across **${chDone}** channels\n` +
                 `👥 **${scanned.size}** users' daily counts updated in Firestore`
+            );
+            return;
+        }
+
+        // ── /resetmessages ────────────────────────────────────────────────────
+        if (interaction.commandName === 'resetmessages') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+
+            const userIds = [...new Set([...messageCounts.keys(), ...messageDays.keys()])];
+            messageCounts.clear();
+            messageDays.clear();
+
+            // Zero out Firestore for every known user
+            for (let i = 0; i < userIds.length; i += 20) {
+                await Promise.allSettled(
+                    userIds.slice(i, i + 20).map(uid => {
+                        const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${uid}?key=${FIREBASE_API_KEY}`;
+                        return fetch(url, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ fields: { count: { integerValue: '0' }, days: { mapValue: { fields: {} } } } }),
+                        });
+                    })
+                );
+            }
+
+            // Re-sync ranks so message-based XP is removed from roles
+            let synced = 0;
+            try {
+                await interaction.guild.members.fetch();
+                for (const [, member] of interaction.guild.members.cache) {
+                    if (member.user.bot) continue;
+                    await assignVoiceRank(member, monthlyActivityScore(member.id)).catch(() => {});
+                    synced++;
+                }
+            } catch (e) {
+                console.error('[BeastBot] resetmessages rank sync failed:', e.message);
+            }
+
+            await interaction.editReply(
+                `✅ Message counts reset to zero for **${userIds.length}** users.\n` +
+                `🔄 Re-synced ranks for **${synced}** members.`
             );
             return;
         }
