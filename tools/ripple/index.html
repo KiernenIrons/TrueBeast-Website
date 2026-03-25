@@ -1237,24 +1237,24 @@
         function DraftSaver({ getState, loadState }) {
             const DRAFT_KEY = 'ripple-draft';
             const [draftInfo, setDraftInfo] = React.useState(() => {
-                try { const d = localStorage.getItem(DRAFT_KEY); return d ? { savedAt: JSON.parse(d).savedAt } : null; } catch { return null; }
+                try { const d = localStorage.getItem(DRAFT_KEY); return d ? { savedAt: JSON.parse(d).savedAt } : null; } catch(e) { return null; }
             });
             const [flash, setFlash] = React.useState('');
 
             const saveDraft = () => {
-                const state = { ...getState(), savedAt: Date.now() };
+                const state = Object.assign({}, getState(), { savedAt: Date.now() });
                 localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
                 setDraftInfo({ savedAt: state.savedAt });
-                setFlash('saved'); setTimeout(() => setFlash(''), 1600);
+                setFlash('saved'); setTimeout(function(){ setFlash(''); }, 1600);
             };
             const loadDraft = () => {
                 try {
                     const d = localStorage.getItem(DRAFT_KEY);
                     if (!d) return;
-                    const { savedAt, ...state } = JSON.parse(d);
-                    loadState(state);
-                    setFlash('loaded'); setTimeout(() => setFlash(''), 1600);
-                } catch {}
+                    const parsed = JSON.parse(d);
+                    loadState({ msg: parsed.msg, dc: parsed.dc, tg: parsed.tg, bs: parsed.bs, enabled: parsed.enabled });
+                    setFlash('loaded'); setTimeout(function(){ setFlash(''); }, 1600);
+                } catch(e) {}
             };
             const clearDraft = () => { localStorage.removeItem(DRAFT_KEY); setDraftInfo(null); };
 
@@ -1265,21 +1265,21 @@
             };
 
             return (
-                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'10px 14px',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,marginBottom:10}}>
-                    <button className="btn-sm" onClick={saveDraft} style={{flexShrink:0}}>
-                        {flash === 'saved' ? '✓ Saved!' : '💾 Save Draft'}
-                    </button>
-                    {draftInfo ? (
-                        <>
-                            <button className="btn-sm" onClick={loadDraft} style={{flexShrink:0}}>
-                                {flash === 'loaded' ? '✓ Loaded!' : '↩ Load Draft'}
-                            </button>
-                            <span style={{fontSize:11,color:'rgba(255,255,255,0.3)',flex:1}}>Last saved {fmtTime(draftInfo.savedAt)}</span>
-                            <button onClick={clearDraft} title="Clear draft" style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.25)',padding:'2px 4px',fontFamily:'inherit',fontSize:14,lineHeight:1}} onMouseEnter={e=>e.currentTarget.style.color='#f87171'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.25)'}>✕</button>
-                        </>
-                    ) : (
-                        <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>No draft saved</span>
-                    )}
+                <div className="section-card" style={{marginTop:12}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+                        <span className="step-label" style={{marginBottom:0}}>💾 Draft</span>
+                        {draftInfo && <span style={{fontSize:11,color:'rgba(255,255,255,0.3)'}}>Last saved {fmtTime(draftInfo.savedAt)}</span>}
+                    </div>
+                    <div style={{display:'flex',gap:8,marginTop:10,flexWrap:'wrap'}}>
+                        <button className="btn-sm" onClick={saveDraft}>{flash === 'saved' ? '✓ Saved!' : 'Save Draft'}</button>
+                        {draftInfo && (
+                            <React.Fragment>
+                                <button className="btn-sm" onClick={loadDraft}>{flash === 'loaded' ? '✓ Loaded!' : 'Load Draft'}</button>
+                                <button className="btn-xs" onClick={clearDraft} style={{color:'#f87171',borderColor:'rgba(248,113,113,0.3)'}}>Clear</button>
+                            </React.Fragment>
+                        )}
+                        {!draftInfo && <span style={{fontSize:12,color:'rgba(255,255,255,0.25)',alignSelf:'center'}}>No draft saved yet</span>}
+                    </div>
                 </div>
             );
         }
@@ -1399,9 +1399,9 @@
                                         <DisabledPlatform icon={<ThreadsIcon />} name="Threads" desc="Meta API - coming soon" />
                                     </div>
                                 </div>
-                                <div style={{marginTop:16}}>
+                                <DraftSaver getState={getState} loadState={loadState} />
+                                <div style={{marginTop:12}}>
                                     {bskyOver && enabled.bluesky && <div style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:10,padding:'8px 14px',fontSize:12,color:'#f87171',marginBottom:10}}>Bluesky post exceeds 300 grapheme limit - trim the text before sending.</div>}
-                                    <DraftSaver getState={getState} loadState={loadState} />
                                     <button className="send-btn" disabled={!canSend} onClick={doSend}>{sending?'Sending...':'Send Ripple'}</button>
                                 </div>
                                 <ResultsPanel results={results} onClear={() => setResults(null)} />
