@@ -520,8 +520,8 @@ const VOICE_RANK_ROLES = [
     { id: '1486023910205165579', name: '👑 Apex Predator', minXp: 20000  },
 ];
 
-// 1 message = 2 equivalent voice minutes → 30 msgs ≡ 1h in VC
-const MSGS_TO_MIN = 2;
+// 1 message = 1 equivalent voice minute → 60 msgs ≡ 1h in VC
+const MSGS_TO_MIN = 1;
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 function scheduleDiscordMeReminder() {
@@ -1457,7 +1457,7 @@ function buildRanksEmbed() {
                 name: '🎙️ How to Earn XP',
                 value: [
                     '**Voice chat** — 1 XP per minute spent in a voice channel',
-                    '**Messages** — 2 XP per message (~30 messages ≈ 1 hour of VC)',
+                    '**Messages** — 1 XP per message (~60 messages ≈ 1 hour of VC)',
                 ].join('\n'),
             },
             {
