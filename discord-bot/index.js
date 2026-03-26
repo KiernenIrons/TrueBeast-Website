@@ -1813,6 +1813,24 @@ async function loadEmojiImage(emoji) {
     } catch { emojiImageCache.set(emoji, null); return null; }
 }
 
+// Loads an emoji image for canvas rendering — handles both unicode (Twemoji) and
+// custom Discord emoji (fetched from Discord CDN by ID).
+async function loadEmojiImageByKey(emojiKey) {
+    if (!emojiKey) return null;
+    const customMatch = emojiKey.match(/^<a?:([^:]+):(\d+)>$/);
+    if (customMatch) {
+        const id = customMatch[2];
+        const cacheKey = `discord:${id}`;
+        if (emojiImageCache.has(cacheKey)) return emojiImageCache.get(cacheKey);
+        try {
+            const img = await loadImage(`https://cdn.discordapp.com/emojis/${id}.png`);
+            emojiImageCache.set(cacheKey, img);
+            return img;
+        } catch { emojiImageCache.set(cacheKey, null); return null; }
+    }
+    return loadEmojiImage(emojiKey);
+}
+
 function extractFirstEmoji(str) {
     const m = str.match(/\p{Emoji_Presentation}|\p{Extended_Pictographic}/u);
     return m ? m[0] : null;
@@ -2157,14 +2175,15 @@ async function generateProfileImage(userId) {
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     ctx.beginPath(); ctx.roundRect(CX - 16, GY - 10, panelW + 32, 280, 12); ctx.fill();
 
-    // Most-used emoji (computed here, used in All Time row below)
-    const topEmoji = (() => {
+    // Most-used emoji — supports both unicode and custom Discord emoji
+    const topEmojiKey = (() => {
         const em = emojiTally.get(userId);
         if (!em || em.size === 0) return '';
         let best = '', bestN = 0;
         for (const [k, v] of em) { if (v > bestN) { bestN = v; best = k; } }
-        return best.startsWith('<:') ? '' : best; // skip custom Discord emoji (can't render on canvas)
+        return best;
     })();
+    const topEmojiImg = await loadEmojiImageByKey(topEmojiKey);
 
     // Column headers
     ctx.font = 'bold 18px Noto Sans, sans-serif';
@@ -2174,6 +2193,13 @@ async function generateProfileImage(userId) {
     ctx.fillText('MESSAGES',    CX + COL1,                      GY);
     ctx.fillText('VOICE CHAT',  CX + COL1 + COL2,               GY);
     ctx.fillText('REACTIONS',   CX + COL1 + COL2 + COL3,        GY);
+    // Most-used emoji shown inline after header text as an image — works for both
+    // standard unicode emoji (Twemoji) and custom server emoji (Discord CDN)
+    if (topEmojiImg) {
+        const rxHeaderW = ctx.measureText('REACTIONS').width;
+        const eSize = 16;
+        ctx.drawImage(topEmojiImg, CX + COL1 + COL2 + COL3 + rxHeaderW + 5, GY + 1, eSize, eSize);
+    }
 
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
@@ -2198,14 +2224,7 @@ async function generateProfileImage(userId) {
         ctx.fillStyle = vc > 0 ? '#ffffff' : '#374151';
         ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
         ctx.fillStyle = rx > 0 ? '#ffffff' : '#374151';
-        const rxStr = rx.toLocaleString();
-        ctx.fillText(rxStr, CX + COL1 + COL2 + COL3, rY);
-        // Show most-used emoji next to All Time count (i===3), where there is room
-        if (i === 3 && rx > 0 && topEmoji) {
-            const countW = ctx.measureText(rxStr).width;
-            ctx.font = '22px "Noto Color Emoji", "Noto Sans", sans-serif';
-            ctx.fillText(topEmoji, CX + COL1 + COL2 + COL3 + countW + 8, rY + 2);
-        }
+        ctx.fillText(rx.toLocaleString(), CX + COL1 + COL2 + COL3, rY);
     });
 
     // Progress bar
