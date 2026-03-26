@@ -2882,7 +2882,8 @@ client.once('clientReady', async () => {
                 .setDescription('(Owner only) Assign Bronze I to every member without a rank role'),
             new SlashCommandBuilder()
                 .setName('scanmessages')
-                .setDescription('(Owner only) Scan all channels for the last 30 days and rebuild message counts'),
+                .setDescription('(Owner only) Scan all channels and rebuild message counts from Discord history')
+                .addIntegerOption(opt => opt.setName('days').setDescription('How many days back to scan (default 30)').setRequired(false).setMinValue(1).setMaxValue(90)),
             new SlashCommandBuilder()
                 .setName('resetmessages')
                 .setDescription('(Owner only) Wipe all message counts to zero and re-sync ranks'),
@@ -3041,6 +3042,81 @@ client.on('interactionCreate', async (interaction) => {
             countingState.ruinedBy = [];
             await saveCountingState();
             await interaction.reply({ content: '✅ Counting game reset to zero.', ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'scanmessages') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const days = interaction.options.getInteger('days') || 30;
+            await interaction.deferReply({ ephemeral: true });
+
+            const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+            const guild = interaction.guild;
+            const channels = [...guild.channels.cache.values()].filter(c =>
+                c.type === ChannelType.GuildText && c.viewable
+            );
+
+            const scanned = new Map(); // userId → Map<day, count>
+            let totalMessages = 0;
+
+            for (const channel of channels) {
+                let lastId = null;
+                let done = false;
+                while (!done) {
+                    try {
+                        const options = { limit: 100 };
+                        if (lastId) options.before = lastId;
+                        const msgs = await channel.messages.fetch(options).catch(() => null);
+                        if (!msgs || msgs.size === 0) break;
+                        let reachedCutoff = false;
+                        for (const msg of msgs.values()) {
+                            if (msg.createdTimestamp < cutoff) { reachedCutoff = true; break; }
+                            if (msg.author.bot) continue;
+                            const uid = msg.author.id;
+                            const day = new Date(msg.createdTimestamp).toISOString().slice(0, 10);
+                            if (!scanned.has(uid)) scanned.set(uid, new Map());
+                            const dMap = scanned.get(uid);
+                            dMap.set(day, (dMap.get(day) || 0) + 1);
+                            totalMessages++;
+                        }
+                        if (reachedCutoff) break;
+                        const oldest = [...msgs.values()].reduce((a, b) => a.createdTimestamp < b.createdTimestamp ? a : b);
+                        lastId = oldest.id;
+                        if (oldest.createdTimestamp < cutoff) done = true;
+                    } catch { break; }
+                }
+            }
+
+            // Merge scanned data — take the HIGHER of scanned vs existing for each day
+            let updated = 0;
+            for (const [uid, dMap] of scanned.entries()) {
+                const existing = messageDays.get(uid) || new Map();
+                let changed = false;
+                for (const [day, count] of dMap.entries()) {
+                    if ((existing.get(day) || 0) < count) {
+                        existing.set(day, count);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    messageDays.set(uid, existing);
+                    let total = 0;
+                    for (const v of existing.values()) total += v;
+                    messageCounts.set(uid, total);
+                    saveMessageDays(uid, existing);
+                    // Re-sync rank
+                    const member = guild.members.cache.get(uid);
+                    if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
+                    updated++;
+                }
+            }
+
+            await saveMessageBackup();
+            console.log(`[BeastBot] /scanmessages: scanned ${channels.length} channels, found ${totalMessages} msgs, updated ${updated} users`);
+            await interaction.editReply(`✅ Scanned ${channels.length} channels for the last **${days} days**.\nFound **${totalMessages} messages** across all users.\nUpdated counts for **${updated} users** and re-synced their ranks.`);
             return;
         }
 
