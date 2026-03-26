@@ -793,21 +793,23 @@ async function saveMessageCount(userId, count) {
 }
 
 async function saveReactionData(userId, rMap, eMap) {
+    // emojiTally is stored as a JSON string to avoid Firestore field name restrictions
+    // on emoji characters and custom emoji format <:name:id> which contain special chars
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=reactionDays&updateMask.fieldPaths=emojiTally`;
     const dayFields = {};
     for (const [k, v] of rMap.entries()) dayFields[k] = { integerValue: String(v) };
-    const emojiFields = {};
-    for (const [k, v] of eMap.entries()) emojiFields[k] = { integerValue: String(v) };
+    const emojiObj = {};
+    for (const [k, v] of eMap.entries()) emojiObj[k] = v;
     try {
         const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fields: {
                 reactionDays: { mapValue: { fields: dayFields } },
-                emojiTally:   { mapValue: { fields: emojiFields } },
+                emojiTally:   { stringValue: JSON.stringify(emojiObj) },
             }}),
         });
-        if (!res.ok) console.error(`[BeastBot] saveReactionData failed for ${userId}: ${res.status}`);
+        if (!res.ok) console.error(`[BeastBot] saveReactionData failed for ${userId}: ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveReactionData error:', e.message); }
 }
 
@@ -2709,14 +2711,19 @@ client.once('clientReady', async () => {
                 for (const [k, v] of Object.entries(rdRaw)) rMap.set(k, parseInt(v.integerValue || '0', 10));
                 if (rMap.size > 0) reactionDays.set(uid, rMap);
 
-                const etRaw = f.emojiTally?.mapValue?.fields || {};
-                const eMap = new Map();
-                for (const [k, v] of Object.entries(etRaw)) eMap.set(k, parseInt(v.integerValue || '0', 10));
-                if (eMap.size > 0) emojiTally.set(uid, eMap);
+                // emojiTally is stored as a JSON string (to avoid field name char restrictions)
+                const etStr = f.emojiTally?.stringValue;
+                if (etStr) {
+                    try {
+                        const etObj = JSON.parse(etStr);
+                        const eMap = new Map(Object.entries(etObj).map(([k, v]) => [k, Number(v)]));
+                        if (eMap.size > 0) emojiTally.set(uid, eMap);
+                    } catch (_) {}
+                }
             });
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
-        console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
+        console.log(`[BeastBot] Loaded ${messageCounts.size} message counts, ${reactionDays.size} reaction records from Firestore`);
 
         // Merge backup — restores any data that was higher in the backup than live Firestore
         // (covers collection-deleted scenarios, crashes, etc.)
