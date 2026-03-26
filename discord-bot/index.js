@@ -492,6 +492,8 @@ let spotlightTimer = null;
 // ── Member Milestones ─────────────────────────────────────────────────────────
 const messageCounts        = new Map(); // userId → total message count
 const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
+const reactionDays         = new Map(); // userId → Map<"YYYY-MM-DD", count>  (reactions given)
+const emojiTally           = new Map(); // userId → Map<emojiKey, count>       (most-used emoji)
 const memberNameCache      = new Map(); // userId → displayName (populated at startup, kept fresh)
 const memberCache          = new Map(); // userId → { displayName, avatarUrl } (for image generation)
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
@@ -788,6 +790,25 @@ async function saveMessageCount(userId, count) {
             body: JSON.stringify({ fields: { count: { integerValue: String(count) } } }),
         });
     } catch (_) {}
+}
+
+async function saveReactionData(userId, rMap, eMap) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=reactionDays&updateMask.fieldPaths=emojiTally`;
+    const dayFields = {};
+    for (const [k, v] of rMap.entries()) dayFields[k] = { integerValue: String(v) };
+    const emojiFields = {};
+    for (const [k, v] of eMap.entries()) emojiFields[k] = { integerValue: String(v) };
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                reactionDays: { mapValue: { fields: dayFields } },
+                emojiTally:   { mapValue: { fields: emojiFields } },
+            }}),
+        });
+        if (!res.ok) console.error(`[BeastBot] saveReactionData failed for ${userId}: ${res.status}`);
+    } catch (e) { console.error('[BeastBot] saveReactionData error:', e.message); }
 }
 
 async function saveMessageDays(userId, daysMap) {
@@ -1992,6 +2013,8 @@ async function generateProfileImage(userId) {
     const msgCount  = messageCounts.get(userId) || 0;
     const msgDMap   = messageDays.get(userId) || new Map();
     const vcData    = voiceMinutes.get(userId) || { total: 0, days: new Map() };
+    const rxDMap    = reactionDays.get(userId) || new Map();
+    const rxTotal   = [...rxDMap.values()].reduce((a, b) => a + b, 0);
 
     const activityScore = monthlyActivityScore(userId);
     let rankIdx = 0;
@@ -2075,8 +2098,8 @@ async function generateProfileImage(userId) {
     ctx.fillText(rankTextClean, pillX, rankPillY + rankPillH / 2);
 
     // Layout constants (used for Peak alignment and stats grid)
-    const COL1 = 230, COL2 = 250, COL3 = 250;
-    const panelW = COL1 + COL2 + COL3;
+    const COL1 = 200, COL2 = 210, COL3 = 210, COL4 = 230;
+    const panelW = COL1 + COL2 + COL3 + COL4;
 
     // Peak rank + Apex count — right-aligned, vertically centred with rank pill
     const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
@@ -2124,22 +2147,37 @@ async function generateProfileImage(userId) {
     ctx.font = 'bold 18px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'top';
-    ctx.fillText('PERIOD',      CX,               GY);
-    ctx.fillText('MESSAGES',    CX + COL1,        GY);
-    ctx.fillText('VOICE TIME',  CX + COL1 + COL2, GY);
+    ctx.fillText('PERIOD',      CX,                             GY);
+    ctx.fillText('MESSAGES',    CX + COL1,                      GY);
+    ctx.fillText('VOICE CHAT',  CX + COL1 + COL2,               GY);
+    ctx.fillText('REACTIONS',   CX + COL1 + COL2 + COL3,        GY);
+
+    // Most-used emoji under REACTIONS header (unicode emoji only; custom Discord emojis skipped)
+    const topEmoji = (() => {
+        const em = emojiTally.get(userId);
+        if (!em || em.size === 0) return '';
+        let best = '', bestN = 0;
+        for (const [k, v] of em) { if (v > bestN) { bestN = v; best = k; } }
+        return best.startsWith('<:') ? '' : best; // skip custom Discord emoji (can't render on canvas)
+    })();
+    if (topEmoji) {
+        ctx.font = '20px "Noto Color Emoji", "Noto Sans", sans-serif';
+        ctx.fillStyle = '#6b7280';
+        ctx.fillText(topEmoji, CX + COL1 + COL2 + COL3, GY + 22);
+    }
 
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(CX - 16, GY + 26); ctx.lineTo(CX + panelW + 16, GY + 26); ctx.stroke();
 
     const statRows = [
-        { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today')  },
-        { label: 'This Week',  msg: getTotal(msgDMap, msgCount, 'week'),   vc: getTotal(vcData.days, vcData.total, 'week')   },
-        { label: 'This Month', msg: getTotal(msgDMap, msgCount, 'month'),  vc: getTotal(vcData.days, vcData.total, 'month')  },
-        { label: 'All Time',   msg: getTotal(msgDMap, msgCount, 'all'),    vc: getTotal(vcData.days, vcData.total, 'all')    },
+        { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today'),  rx: getTotal(rxDMap, rxTotal, 'today')  },
+        { label: 'This Week',  msg: getTotal(msgDMap, msgCount, 'week'),   vc: getTotal(vcData.days, vcData.total, 'week'),   rx: getTotal(rxDMap, rxTotal, 'week')   },
+        { label: 'This Month', msg: getTotal(msgDMap, msgCount, 'month'),  vc: getTotal(vcData.days, vcData.total, 'month'),  rx: getTotal(rxDMap, rxTotal, 'month')  },
+        { label: 'All Time',   msg: getTotal(msgDMap, msgCount, 'all'),    vc: getTotal(vcData.days, vcData.total, 'all'),    rx: getTotal(rxDMap, rxTotal, 'all')    },
     ];
 
-    statRows.forEach(({ label, msg, vc }, i) => {
+    statRows.forEach(({ label, msg, vc, rx }, i) => {
         const rY = GY + 38 + i * 56;
         ctx.font = '23px Noto Sans, sans-serif';
         ctx.fillStyle = '#6b7280';
@@ -2150,6 +2188,8 @@ async function generateProfileImage(userId) {
         ctx.fillText(msg.toLocaleString(), CX + COL1, rY);
         ctx.fillStyle = vc > 0 ? '#ffffff' : '#374151';
         ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
+        ctx.fillStyle = rx > 0 ? '#ffffff' : '#374151';
+        ctx.fillText(rx.toLocaleString(), CX + COL1 + COL2 + COL3, rY);
     });
 
     // Progress bar
@@ -2627,6 +2667,17 @@ client.once('clientReady', async () => {
                 // Always derive total from daily counts — stored count field is ignored
                 // so resets (which clear days) are always reflected correctly
                 messageCounts.set(uid, daySum);
+
+                // Load reaction tracking data
+                const rdRaw = f.reactionDays?.mapValue?.fields || {};
+                const rMap = new Map();
+                for (const [k, v] of Object.entries(rdRaw)) rMap.set(k, parseInt(v.integerValue || '0', 10));
+                if (rMap.size > 0) reactionDays.set(uid, rMap);
+
+                const etRaw = f.emojiTally?.mapValue?.fields || {};
+                const eMap = new Map();
+                for (const [k, v] of Object.entries(etRaw)) eMap.set(k, parseInt(v.integerValue || '0', 10));
+                if (eMap.size > 0) emojiTally.set(uid, eMap);
             });
             nextPageToken = data.nextPageToken || null;
         } while (nextPageToken);
@@ -3972,12 +4023,29 @@ client.on('messageReactionAdd', async (reaction, user) => {
     }
     const userId = user.id;
     const today = todayStr();
+
+    // Message XP credit
     const count = (messageCounts.get(userId) || 0) + 1;
     messageCounts.set(userId, count);
     let dMap = messageDays.get(userId);
     if (!dMap) { dMap = new Map(); messageDays.set(userId, dMap); }
     dMap.set(today, (dMap.get(today) ?? 0) + 1);
     saveMessageDays(userId, dMap);
+
+    // Reaction-specific tracking
+    let rMap = reactionDays.get(userId);
+    if (!rMap) { rMap = new Map(); reactionDays.set(userId, rMap); }
+    rMap.set(today, (rMap.get(today) ?? 0) + 1);
+
+    const emojiKey = reaction.emoji.id
+        ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
+        : (reaction.emoji.name || '?');
+    let eMap = emojiTally.get(userId);
+    if (!eMap) { eMap = new Map(); emojiTally.set(userId, eMap); }
+    eMap.set(emojiKey, (eMap.get(emojiKey) ?? 0) + 1);
+
+    saveReactionData(userId, rMap, eMap);
+
     if (count % 10 === 0 && reaction.message.guild) {
         const member = reaction.message.guild.members.cache.get(userId);
         if (member) assignVoiceRank(member, monthlyActivityScore(userId)).catch(() => {});
