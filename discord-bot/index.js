@@ -1519,28 +1519,34 @@ async function checkMonthlyReset(guild) {
     const currentMonth = new Date().toISOString().slice(0, 7);
     let stored = null;
     try {
-        const doc = await firestoreGet('botState', 'currentMonth');
+        const doc = await firestoreGet('botConfig', 'currentMonth');
         stored = doc?.month || null;
     } catch (_) {}
     if (stored === currentMonth) return;
-    if (stored) await postMonthlyRecap(guild, stored);
-    // Finalise Apex count for anyone who hit it this month, then reset roles to Bronze I
-    try {
-        const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
-        for (const [, member] of guild.members.cache) {
-            if (member.user.bot) continue;
-            const ach = rankAchievements.get(member.id);
-            if (ach?.hitApexThisMonth) {
-                ach.apexCount++;
-                ach.hitApexThisMonth = false;
-                rankAchievements.set(member.id, ach);
-                saveRankAchievements(member.id, ach);
+    // Only wipe roles if we have a valid previous month — if stored is null (first run / migration),
+    // just record the current month without resetting anyone.
+    if (stored && /^\d{4}-\d{2}$/.test(stored)) {
+        await postMonthlyRecap(guild, stored);
+        // Finalise Apex count for anyone who hit it this month, then reset roles to Bronze I
+        try {
+            const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                const ach = rankAchievements.get(member.id);
+                if (ach?.hitApexThisMonth) {
+                    ach.apexCount++;
+                    ach.hitApexThisMonth = false;
+                    rankAchievements.set(member.id, ach);
+                    saveRankAchievements(member.id, ach);
+                }
+                if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
+                await assignVoiceRank(member, 0).catch(() => {});
             }
-            if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
-            await assignVoiceRank(member, 0).catch(() => {});
-        }
-    } catch (e) { console.error('[BeastBot] Monthly reset role assignment failed:', e.message); }
-    await firestoreSet('botState', 'currentMonth', { month: currentMonth });
+        } catch (e) { console.error('[BeastBot] Monthly reset role assignment failed:', e.message); }
+    } else {
+        console.log(`[BeastBot] No prior month stored — skipping role wipe (first run or migration)`);
+    }
+    await firestoreSet('botConfig', 'currentMonth', { month: currentMonth });
     console.log(`[BeastBot] Monthly reset complete — now tracking ${currentMonth}`);
 }
 
