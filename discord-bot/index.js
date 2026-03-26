@@ -804,6 +804,37 @@ async function saveMessageDays(userId, daysMap) {
     } catch (e) { console.error('[BeastBot] saveMessageDays error:', e.message); }
 }
 
+// Saves a full snapshot of all message day data to botConfig/messageBackup.
+// On startup this backup is merged with live Firestore data — whichever is higher wins.
+// This survives collection deletes, crashes, and restarts.
+async function saveMessageBackup() {
+    const backup = {};
+    for (const [uid, dMap] of messageDays.entries()) {
+        const obj = {};
+        for (const [day, count] of dMap.entries()) {
+            if (count > 0) obj[day] = count;
+        }
+        if (Object.keys(obj).length > 0) backup[uid] = obj;
+    }
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/messageBackup?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                data:    { stringValue: JSON.stringify(backup) },
+                savedAt: { stringValue: new Date().toISOString() },
+            }}),
+        });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            console.error(`[BeastBot] saveMessageBackup HTTP ${res.status}: ${body}`);
+        } else {
+            console.log(`[BeastBot] 💾 Message backup saved (${Object.keys(backup).length} users)`);
+        }
+    } catch (e) { console.error('[BeastBot] saveMessageBackup error:', e.message); }
+}
+
 async function saveVoiceMinutes(userId, data) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceMinutes/${userId}?key=${FIREBASE_API_KEY}`;
     const dayFields = {};
@@ -2601,6 +2632,36 @@ client.once('clientReady', async () => {
         } while (nextPageToken);
         console.log(`[BeastBot] Loaded ${messageCounts.size} message counts from Firestore`);
 
+        // Merge backup — restores any data that was higher in the backup than live Firestore
+        // (covers collection-deleted scenarios, crashes, etc.)
+        try {
+            const backupDoc = await firestoreGet('botConfig', 'messageBackup');
+            if (backupDoc?.data) {
+                const backup = JSON.parse(backupDoc.data);
+                let restored = 0;
+                for (const [uid, days] of Object.entries(backup)) {
+                    const existingDMap = messageDays.get(uid) || new Map();
+                    let changed = false;
+                    for (const [day, count] of Object.entries(days)) {
+                        const existing = existingDMap.get(day) || 0;
+                        if (count > existing) {
+                            existingDMap.set(day, count);
+                            changed = true;
+                        }
+                    }
+                    if (changed) {
+                        messageDays.set(uid, existingDMap);
+                        let newSum = 0;
+                        for (const v of existingDMap.values()) newSum += v;
+                        messageCounts.set(uid, newSum);
+                        restored++;
+                    }
+                }
+                if (restored > 0) console.log(`[BeastBot] Restored/merged message data for ${restored} users from backup`);
+                else console.log(`[BeastBot] Message backup loaded — no gaps to fill`);
+            }
+        } catch (e) { console.error('[BeastBot] loadMessageBackup error:', e.message); }
+
         // Load counting game state
         try {
             const res = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`);
@@ -2782,6 +2843,7 @@ client.once('clientReady', async () => {
                 console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
             }
             saveCountingState();
+            saveMessageBackup();
         }, 60 * 1000);
     }
 
@@ -3857,6 +3919,7 @@ async function flushBeforeExit() {
         if (data) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
     }
     promises.push(saveCountingState());
+    promises.push(saveMessageBackup());
     await Promise.allSettled(promises);
     console.log('[BeastBot] Flush complete');
 }
