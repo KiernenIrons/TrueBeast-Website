@@ -492,8 +492,9 @@ let spotlightTimer = null;
 // ── Member Milestones ─────────────────────────────────────────────────────────
 const messageCounts        = new Map(); // userId → total message count
 const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
-const reactionDays         = new Map(); // userId → Map<"YYYY-MM-DD", count>  (reactions given)
-const emojiTally           = new Map(); // userId → Map<emojiKey, count>       (most-used emoji)
+const reactionDays         = new Map(); // userId → Map<"YYYY-MM-DD", count>            (reactions given)
+const emojiTally           = new Map(); // userId → Map<emojiKey, count>                 (all-time emoji tally)
+const reactionEmojiDays    = new Map(); // userId → Map<"YYYY-MM-DD", Map<emoji, count>> (per-day emoji tally)
 const memberNameCache      = new Map(); // userId → displayName (populated at startup, kept fresh)
 const memberCache          = new Map(); // userId → { displayName, avatarUrl } (for image generation)
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
@@ -792,21 +793,30 @@ async function saveMessageCount(userId, count) {
     } catch (_) {}
 }
 
-async function saveReactionData(userId, rMap, eMap) {
-    // emojiTally is stored as a JSON string to avoid Firestore field name restrictions
-    // on emoji characters and custom emoji format <:name:id> which contain special chars
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=reactionDays&updateMask.fieldPaths=emojiTally`;
+async function saveReactionData(userId, rMap, eMap, edMap) {
+    // emojiTally + reactionEmojiDays stored as JSON strings to avoid Firestore field name
+    // restrictions on emoji chars and custom emoji format <:name:id>
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=reactionDays&updateMask.fieldPaths=emojiTally&updateMask.fieldPaths=reactionEmojiDays`;
     const dayFields = {};
     for (const [k, v] of rMap.entries()) dayFields[k] = { integerValue: String(v) };
     const emojiObj = {};
     for (const [k, v] of eMap.entries()) emojiObj[k] = v;
+    const emojiDaysObj = {};
+    if (edMap) {
+        for (const [day, dayMap] of edMap.entries()) {
+            const dayObj = {};
+            for (const [k, v] of dayMap.entries()) dayObj[k] = v;
+            emojiDaysObj[day] = dayObj;
+        }
+    }
     try {
         const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fields: {
-                reactionDays: { mapValue: { fields: dayFields } },
-                emojiTally:   { stringValue: JSON.stringify(emojiObj) },
+                reactionDays:      { mapValue: { fields: dayFields } },
+                emojiTally:        { stringValue: JSON.stringify(emojiObj) },
+                reactionEmojiDays: { stringValue: JSON.stringify(emojiDaysObj) },
             }}),
         });
         if (!res.ok) console.error(`[BeastBot] saveReactionData failed for ${userId}: ${res.status} ${await res.text()}`);
@@ -937,6 +947,35 @@ function creditVoiceTime(uid) {
 
     voiceMinutes.set(uid, data);
     return data;
+}
+
+// Returns the most-used emoji key for a given userId and period by aggregating reactionEmojiDays
+function getTopEmojiForPeriod(userId, period) {
+    const edMap = reactionEmojiDays.get(userId);
+    if (!edMap || edMap.size === 0) return null;
+    const today = todayStr();
+    const aggregate = new Map();
+    for (const [day, emojiMap] of edMap) {
+        let include = false;
+        if (period === 'all') include = true;
+        else if (period === 'today') include = day === today;
+        else if (period === 'month') include = day.startsWith(today.slice(0, 7));
+        else if (period === 'week') {
+            const d = new Date();
+            for (let i = 0; i < 7; i++) {
+                if (d.toISOString().slice(0, 10) === day) { include = true; break; }
+                d.setDate(d.getDate() - 1);
+            }
+        }
+        if (!include) continue;
+        for (const [emoji, count] of emojiMap) {
+            aggregate.set(emoji, (aggregate.get(emoji) || 0) + count);
+        }
+    }
+    if (aggregate.size === 0) return null;
+    let best = null, bestN = 0;
+    for (const [emoji, count] of aggregate) { if (count > bestN) { bestN = count; best = emoji; } }
+    return best;
 }
 
 function getTotal(daysMap, total, period) {
@@ -2177,35 +2216,33 @@ async function generateProfileImage(userId) {
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     ctx.beginPath(); ctx.roundRect(CX - 16, GY - 10, panelW + 32, 280, 12); ctx.fill();
 
-    // Most-used emoji — supports both unicode and custom Discord emoji
-    const topEmojiKey = (() => {
-        const em = emojiTally.get(userId);
-        if (!em || em.size === 0) return '';
-        let best = '', bestN = 0;
-        for (const [k, v] of em) { if (v > bestN) { bestN = v; best = k; } }
-        return best;
-    })();
-    const topEmojiImg = await loadEmojiImageByKey(topEmojiKey);
+    // Column center x positions for centered layout
+    const C1 = CX + COL1 / 2;
+    const C2 = CX + COL1 + COL2 / 2;
+    const C3 = CX + COL1 + COL2 + COL3 / 2;
+    const C4 = CX + COL1 + COL2 + COL3 + COL4 / 2;
 
-    // Column headers
+    // Column headers — all center-aligned
     ctx.font = 'bold 18px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
     ctx.textBaseline = 'top';
-    ctx.fillText('PERIOD',      CX,                             GY);
-    ctx.fillText('MESSAGES',    CX + COL1,                      GY);
-    ctx.fillText('VOICE CHAT',  CX + COL1 + COL2,               GY);
-    ctx.fillText('REACTIONS',   CX + COL1 + COL2 + COL3,        GY);
-    // Most-used emoji shown inline after header text as an image — works for both
-    // standard unicode emoji (Twemoji) and custom server emoji (Discord CDN)
-    if (topEmojiImg) {
-        const rxHeaderW = ctx.measureText('REACTIONS').width;
-        const eSize = 16;
-        ctx.drawImage(topEmojiImg, CX + COL1 + COL2 + COL3 + rxHeaderW + 5, GY + 1, eSize, eSize);
-    }
+    ctx.textAlign = 'center';
+    ctx.fillText('PERIOD',     C1, GY);
+    ctx.fillText('MESSAGES',   C2, GY);
+    ctx.fillText('VOICE CHAT', C3, GY);
+    ctx.fillText('REACTIONS',  C4, GY);
+    ctx.textAlign = 'left';
 
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(CX - 16, GY + 26); ctx.lineTo(CX + panelW + 16, GY + 26); ctx.stroke();
+
+    // Pre-load per-period emoji images for the reaction column
+    const EMOJI_SIZE = 26;
+    const EMOJI_GAP  = 7;
+    const rowEmojiImgs = await Promise.all(
+        ['today', 'week', 'month', 'all'].map(p => loadEmojiImageByKey(getTopEmojiForPeriod(userId, p)))
+    );
 
     const statRows = [
         { label: 'Today',      msg: getTotal(msgDMap, msgCount, 'today'),  vc: getTotal(vcData.days, vcData.total, 'today'),  rx: getTotal(rxDMap, rxTotal, 'today')  },
@@ -2216,18 +2253,39 @@ async function generateProfileImage(userId) {
 
     statRows.forEach(({ label, msg, vc, rx }, i) => {
         const rY = GY + 38 + i * 56;
+        const rxEmojiImg = rowEmojiImgs[i];
+
+        // PERIOD label
         ctx.font = '23px Noto Sans, sans-serif';
         ctx.fillStyle = '#6b7280';
         ctx.textBaseline = 'top';
-        ctx.fillText(label, CX, rY);
+        ctx.textAlign = 'center';
+        ctx.fillText(label, C1, rY);
+
+        // MESSAGES
         ctx.font = 'bold 26px Noto Sans, sans-serif';
         ctx.fillStyle = msg > 0 ? '#ffffff' : '#374151';
-        ctx.fillText(msg.toLocaleString(), CX + COL1, rY);
+        ctx.fillText(msg.toLocaleString(), C2, rY);
+
+        // VOICE CHAT
         ctx.fillStyle = vc > 0 ? '#ffffff' : '#374151';
-        ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
+        ctx.fillText(formatScore(vc, 'vc'), C3, rY);
+
+        // REACTIONS + per-period emoji — centered as a unit
         ctx.fillStyle = rx > 0 ? '#ffffff' : '#374151';
-        ctx.fillText(rx.toLocaleString(), CX + COL1 + COL2 + COL3, rY);
+        const rxStr = rx.toLocaleString();
+        if (rxEmojiImg) {
+            const countW = ctx.measureText(rxStr).width;
+            const totalW = countW + EMOJI_GAP + EMOJI_SIZE;
+            const startX = C4 - totalW / 2;
+            ctx.textAlign = 'left';
+            ctx.fillText(rxStr, startX, rY);
+            ctx.drawImage(rxEmojiImg, startX + countW + EMOJI_GAP, rY, EMOJI_SIZE, EMOJI_SIZE);
+        } else {
+            ctx.fillText(rxStr, C4, rY);
+        }
     });
+    ctx.textAlign = 'left'; // reset
 
     // Progress bar
     const barX = CX, barY = H - 72, barW = panelW, barH = 18;
@@ -2711,13 +2769,26 @@ client.once('clientReady', async () => {
                 for (const [k, v] of Object.entries(rdRaw)) rMap.set(k, parseInt(v.integerValue || '0', 10));
                 if (rMap.size > 0) reactionDays.set(uid, rMap);
 
-                // emojiTally is stored as a JSON string (to avoid field name char restrictions)
+                // emojiTally stored as JSON string (avoid field name char restrictions)
                 const etStr = f.emojiTally?.stringValue;
                 if (etStr) {
                     try {
                         const etObj = JSON.parse(etStr);
                         const eMap = new Map(Object.entries(etObj).map(([k, v]) => [k, Number(v)]));
                         if (eMap.size > 0) emojiTally.set(uid, eMap);
+                    } catch (_) {}
+                }
+
+                // reactionEmojiDays stored as JSON string: { "YYYY-MM-DD": { emojiKey: count } }
+                const edStr = f.reactionEmojiDays?.stringValue;
+                if (edStr) {
+                    try {
+                        const edObj = JSON.parse(edStr);
+                        const edMap = new Map();
+                        for (const [day, emojiCounts] of Object.entries(edObj)) {
+                            edMap.set(day, new Map(Object.entries(emojiCounts).map(([k, v]) => [k, Number(v)])));
+                        }
+                        if (edMap.size > 0) reactionEmojiDays.set(uid, edMap);
                     } catch (_) {}
                 }
             });
@@ -2977,6 +3048,10 @@ client.once('clientReady', async () => {
                 .setName('scanmessages')
                 .setDescription('(Owner only) Scan all channels and rebuild message counts from Discord history')
                 .addIntegerOption(opt => opt.setName('days').setDescription('How many days back to scan (default 30)').setRequired(false).setMinValue(1).setMaxValue(90)),
+            new SlashCommandBuilder()
+                .setName('scanreactions')
+                .setDescription('(Owner only) Scan recent messages and backfill reaction counts for all users')
+                .addIntegerOption(opt => opt.setName('days').setDescription('How many days back to scan (default 2, max 7)').setRequired(false).setMinValue(1).setMaxValue(7)),
             new SlashCommandBuilder()
                 .setName('resetmessages')
                 .setDescription('(Owner only) Wipe all message counts to zero and re-sync ranks'),
@@ -3515,6 +3590,104 @@ client.on('interactionCreate', async (interaction) => {
                 `✅ Scan complete!\n` +
                 `📨 **${totalMsgs.toLocaleString()}** messages across **${chDone}** channels\n` +
                 `👥 **${scanned.size}** users' daily counts updated in Firestore`
+            );
+            return;
+        }
+
+        // ── /scanreactions ────────────────────────────────────────────────────
+        if (interaction.commandName === 'scanreactions') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', flags: 64 });
+                return;
+            }
+            await interaction.deferReply({ flags: 64 });
+
+            const days = interaction.options.getInteger('days') || 2;
+            const since = Date.now() - days * 24 * 60 * 60 * 1000;
+            const sinceStr = new Date(since).toISOString().slice(0, 10);
+            const botMember = interaction.guild.members.me;
+            const channels = interaction.guild.channels.cache.filter(ch =>
+                ch.isTextBased() && !ch.isDMBased?.() &&
+                ch.permissionsFor(botMember)?.has('ReadMessageHistory')
+            );
+
+            await interaction.editReply(`⏳ Scanning **${channels.size}** channels for reactions over the last **${days}** day(s)...`);
+
+            // scanned: userId → { days: Map<date, count>, emojiDays: Map<date, Map<emoji, count>> }
+            const scanned = new Map();
+            let totalRxs = 0, chDone = 0;
+
+            for (const [, channel] of channels) {
+                let lastId = null;
+                let keepGoing = true;
+                while (keepGoing) {
+                    try {
+                        const opts = { limit: 100 };
+                        if (lastId) opts.before = lastId;
+                        const batch = await channel.messages.fetch(opts);
+                        if (batch.size === 0) break;
+                        for (const [, msg] of batch) {
+                            if (msg.createdTimestamp < since) { keepGoing = false; break; }
+                            if (!msg.reactions.cache.size) continue;
+                            const ds = new Date(msg.createdTimestamp).toISOString().slice(0, 10);
+                            for (const [, rxn] of msg.reactions.cache) {
+                                try {
+                                    const emojiKey = rxn.emoji.id
+                                        ? `<:${rxn.emoji.name}:${rxn.emoji.id}>`
+                                        : (rxn.emoji.name || '?');
+                                    const users = await rxn.users.fetch();
+                                    for (const [, rxUser] of users) {
+                                        if (rxUser.bot) continue;
+                                        const uid = rxUser.id;
+                                        if (!scanned.has(uid)) scanned.set(uid, { days: new Map(), emojiDays: new Map() });
+                                        const ud = scanned.get(uid);
+                                        ud.days.set(ds, (ud.days.get(ds) || 0) + 1);
+                                        let de = ud.emojiDays.get(ds);
+                                        if (!de) { de = new Map(); ud.emojiDays.set(ds, de); }
+                                        de.set(emojiKey, (de.get(emojiKey) || 0) + 1);
+                                        totalRxs++;
+                                    }
+                                } catch (_) {}
+                            }
+                        }
+                        lastId = batch.last()?.id;
+                        if (batch.size < 100) break;
+                    } catch (_) { break; }
+                }
+                chDone++;
+                if (chDone % 5 === 0) await interaction.editReply(`⏳ **${chDone}/${channels.size}** channels, **${totalRxs.toLocaleString()}** reactions so far...`).catch(() => {});
+            }
+
+            // Merge into in-memory state — overwrite scan-window dates, keep older
+            for (const [uid, ud] of scanned) {
+                let rMap = reactionDays.get(uid);
+                if (!rMap) { rMap = new Map(); reactionDays.set(uid, rMap); }
+                for (const [k] of [...rMap]) if (k >= sinceStr) rMap.delete(k);
+                for (const [k, v] of ud.days) rMap.set(k, v);
+
+                let eMap = emojiTally.get(uid) || new Map();
+                let edMap = reactionEmojiDays.get(uid);
+                if (!edMap) { edMap = new Map(); reactionEmojiDays.set(uid, edMap); }
+                for (const [k] of [...edMap]) if (k >= sinceStr) edMap.delete(k);
+                for (const [day, de] of ud.emojiDays) {
+                    edMap.set(day, de);
+                    for (const [emoji, count] of de) eMap.set(emoji, (eMap.get(emoji) || 0) + count);
+                }
+                emojiTally.set(uid, eMap);
+            }
+
+            // Save to Firestore
+            const userIds = [...scanned.keys()];
+            for (let i = 0; i < userIds.length; i += 10) {
+                await Promise.allSettled(userIds.slice(i, i + 10).map(uid =>
+                    saveReactionData(uid, reactionDays.get(uid) || new Map(), emojiTally.get(uid) || new Map(), reactionEmojiDays.get(uid))
+                ));
+            }
+
+            await interaction.editReply(
+                `✅ Reaction scan complete!\n` +
+                `👍 **${totalRxs.toLocaleString()}** reactions across **${chDone}** channels\n` +
+                `👥 **${scanned.size}** users' reaction data updated`
             );
             return;
         }
@@ -4082,11 +4255,20 @@ client.on('messageReactionAdd', async (reaction, user) => {
     const emojiKey = reaction.emoji.id
         ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
         : (reaction.emoji.name || '?');
+
+    // All-time emoji tally
     let eMap = emojiTally.get(userId);
     if (!eMap) { eMap = new Map(); emojiTally.set(userId, eMap); }
     eMap.set(emojiKey, (eMap.get(emojiKey) ?? 0) + 1);
 
-    saveReactionData(userId, rMap, eMap);
+    // Per-day emoji tally (used for per-period top emoji on profile card)
+    let edMap = reactionEmojiDays.get(userId);
+    if (!edMap) { edMap = new Map(); reactionEmojiDays.set(userId, edMap); }
+    let dayEmojiMap = edMap.get(today);
+    if (!dayEmojiMap) { dayEmojiMap = new Map(); edMap.set(today, dayEmojiMap); }
+    dayEmojiMap.set(emojiKey, (dayEmojiMap.get(emojiKey) ?? 0) + 1);
+
+    saveReactionData(userId, rMap, eMap, edMap);
 
     if (count % 10 === 0 && reaction.message.guild) {
         const member = reaction.message.guild.members.cache.get(userId);
