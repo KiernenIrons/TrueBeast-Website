@@ -2112,8 +2112,8 @@ async function generateProfileImage(userId) {
     ctx.fillText(rankTextClean, pillX, rankPillY + rankPillH / 2);
 
     // Layout constants (used for Peak alignment and stats grid)
-    const COL1 = 200, COL2 = 210, COL3 = 210, COL4 = 230;
-    const panelW = COL1 + COL2 + COL3 + COL4;
+    const COL1 = 185, COL2 = 190, COL3 = 200, COL4 = 155;
+    const panelW = COL1 + COL2 + COL3 + COL4; // 730 — same total width as 3-col layout
 
     // Peak rank + Apex count — right-aligned, vertically centred with rank pill
     const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
@@ -2157,6 +2157,15 @@ async function generateProfileImage(userId) {
     ctx.fillStyle = 'rgba(255,255,255,0.03)';
     ctx.beginPath(); ctx.roundRect(CX - 16, GY - 10, panelW + 32, 280, 12); ctx.fill();
 
+    // Most-used emoji (computed here, used in All Time row below)
+    const topEmoji = (() => {
+        const em = emojiTally.get(userId);
+        if (!em || em.size === 0) return '';
+        let best = '', bestN = 0;
+        for (const [k, v] of em) { if (v > bestN) { bestN = v; best = k; } }
+        return best.startsWith('<:') ? '' : best; // skip custom Discord emoji (can't render on canvas)
+    })();
+
     // Column headers
     ctx.font = 'bold 18px Noto Sans, sans-serif';
     ctx.fillStyle = '#4b5563';
@@ -2165,20 +2174,6 @@ async function generateProfileImage(userId) {
     ctx.fillText('MESSAGES',    CX + COL1,                      GY);
     ctx.fillText('VOICE CHAT',  CX + COL1 + COL2,               GY);
     ctx.fillText('REACTIONS',   CX + COL1 + COL2 + COL3,        GY);
-
-    // Most-used emoji under REACTIONS header (unicode emoji only; custom Discord emojis skipped)
-    const topEmoji = (() => {
-        const em = emojiTally.get(userId);
-        if (!em || em.size === 0) return '';
-        let best = '', bestN = 0;
-        for (const [k, v] of em) { if (v > bestN) { bestN = v; best = k; } }
-        return best.startsWith('<:') ? '' : best; // skip custom Discord emoji (can't render on canvas)
-    })();
-    if (topEmoji) {
-        ctx.font = '20px "Noto Color Emoji", "Noto Sans", sans-serif';
-        ctx.fillStyle = '#6b7280';
-        ctx.fillText(topEmoji, CX + COL1 + COL2 + COL3, GY + 22);
-    }
 
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
@@ -2203,7 +2198,14 @@ async function generateProfileImage(userId) {
         ctx.fillStyle = vc > 0 ? '#ffffff' : '#374151';
         ctx.fillText(formatScore(vc, 'vc'), CX + COL1 + COL2, rY);
         ctx.fillStyle = rx > 0 ? '#ffffff' : '#374151';
-        ctx.fillText(rx.toLocaleString(), CX + COL1 + COL2 + COL3, rY);
+        const rxStr = rx.toLocaleString();
+        ctx.fillText(rxStr, CX + COL1 + COL2 + COL3, rY);
+        // Show most-used emoji next to All Time count (i===3), where there is room
+        if (i === 3 && rx > 0 && topEmoji) {
+            const countW = ctx.measureText(rxStr).width;
+            ctx.font = '22px "Noto Color Emoji", "Noto Sans", sans-serif';
+            ctx.fillText(topEmoji, CX + COL1 + COL2 + COL3 + countW + 8, rY + 2);
+        }
     });
 
     // Progress bar
