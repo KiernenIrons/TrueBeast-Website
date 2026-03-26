@@ -3635,7 +3635,11 @@ client.on('interactionCreate', async (interaction) => {
                                     const emojiKey = rxn.emoji.id
                                         ? `<:${rxn.emoji.name}:${rxn.emoji.id}>`
                                         : (rxn.emoji.name || '?');
-                                    const users = await rxn.users.fetch();
+                                    // Wrap with timeout — rate-limited fetches can hang indefinitely
+                                    const users = await Promise.race([
+                                        rxn.users.fetch(),
+                                        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000)),
+                                    ]);
                                     for (const [, rxUser] of users) {
                                         if (rxUser.bot) continue;
                                         const uid = rxUser.id;
@@ -3647,7 +3651,7 @@ client.on('interactionCreate', async (interaction) => {
                                         de.set(emojiKey, (de.get(emojiKey) || 0) + 1);
                                         totalRxs++;
                                     }
-                                } catch (_) {}
+                                } catch (_) { /* skip timed-out or failed reaction fetches */ }
                             }
                         }
                         lastId = batch.last()?.id;
@@ -3655,7 +3659,7 @@ client.on('interactionCreate', async (interaction) => {
                     } catch (_) { break; }
                 }
                 chDone++;
-                if (chDone % 5 === 0) await interaction.editReply(`⏳ **${chDone}/${channels.size}** channels, **${totalRxs.toLocaleString()}** reactions so far...`).catch(() => {});
+                if (chDone % 3 === 0) await interaction.editReply(`⏳ **${chDone}/${channels.size}** channels, **${totalRxs.toLocaleString()}** reactions so far...`).catch(() => {});
             }
 
             // Merge into in-memory state — overwrite scan-window dates, keep older
