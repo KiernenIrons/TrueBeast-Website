@@ -230,7 +230,7 @@ async function fetchDiscordContext(guild) {
             .slice(0, 5);
         if (upcoming.length > 0) {
             const list = upcoming.map(e =>
-                `- **${e.name}**: ${e.scheduledStartAt.toDateString()}${e.description ? ` — ${e.description}` : ''}`
+                `- **${e.name}**: ${e.scheduledStartAt.toDateString()}${e.description ? ` - ${e.description}` : ''}`
             ).join('\n');
             parts.push(`### Upcoming Discord Events\n${list}`);
         }
@@ -444,6 +444,7 @@ const client = new Client({
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildPresences,
+        GatewayIntentBits.GuildMessageReactions,
     ],
     partials: [Partials.Channel],
 });
@@ -637,14 +638,14 @@ async function postMemberSpotlight() {
             description:
                 `This week's spotlight is on **${picked.displayName}**! 🎉\n\n` +
                 `This is a chance for the community to get to know each other better. ` +
-                `${picked.displayName}, feel free to share a bit about yourself — what you're into, what games you play, ` +
+                `${picked.displayName}, feel free to share a bit about yourself - what you're into, what games you play, ` +
                 `or anything you'd like people to know!`,
             fields: [
                 { name: '🗓️ Joined Server', value: joinDate, inline: true },
                 { name: '📅 Account Created', value: accountAge, inline: true },
                 { name: '🏷️ Roles', value: roles || 'None yet!', inline: false },
             ],
-            footer: { text: 'Member Spotlight — every week a new community member gets the stage' },
+            footer: { text: 'Member Spotlight - every week a new community member gets the stage' },
             timestamp: new Date().toISOString(),
         };
 
@@ -718,7 +719,7 @@ async function handleCountingMessage(message) {
     // Same person sent twice in a row — delete and warn
     if (message.author.id === countingState.lastUserId) {
         await message.delete().catch(() => {});
-        const w = await message.channel.send(`<@${message.author.id}> You can't count twice in a row — wait for someone else!`);
+        const w = await message.channel.send(`<@${message.author.id}> You can't count twice in a row - wait for someone else!`);
         setTimeout(() => w.delete().catch(() => {}), 6000);
         return;
     }
@@ -749,7 +750,7 @@ async function handleCountingMessage(message) {
         const shameList = Object.entries(shameTally)
             .sort((a, b) => b[1].count - a[1].count)
             .slice(0, 5)
-            .map(([uid, d], i) => `${i + 1}. <@${uid}> — ruined **${d.count}x** (highest at **${d.highest}**)`)
+            .map(([uid, d], i) => `${i + 1}. <@${uid}> - ruined **${d.count}x** (highest at **${d.highest}**)`)
             .join('\n');
 
         await message.channel.send({ embeds: [{
@@ -1494,7 +1495,7 @@ async function postMonthlyRecap(guild, oldMonthStr) { // e.g. "2026-02"
         const lines = top10.map(({ member, value }, i) => {
             const prefix = medals[i] || `**${i + 1}.**`;
             const display = value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`;
-            return `${prefix} **${member.displayName}** — ${display}`;
+            return `${prefix} **${member.displayName}** - ${display}`;
         });
         const mentions = top10.map(({ member }) => `<@${member.id}>`).join(' ');
         const oldDate = new Date(oldMonthStr + '-01');
@@ -1555,13 +1556,13 @@ async function checkMonthlyReset(guild) {
 function buildRanksEmbed() {
     const rankLines = VOICE_RANK_ROLES.map(r => {
         const xp = r.minXp === 0 ? '0 XP' : `${r.minXp.toLocaleString()} XP`;
-        return `${r.name} — **${xp}**`;
+        return `${r.name} - **${xp}**`;
     }).join('\n');
 
     return {
         color: 0xFFD700,
         title: '🏆 TrueBeast Ranking System',
-        description: 'Earn XP by being active in the server. Ranks **reset to Bronze I** on the 1st of every month — but your peak rank and Apex Predator count are tracked forever.',
+        description: 'Earn XP by being active in the server. Ranks **reset to Bronze I** on the 1st of every month, but your peak rank and Apex Predator count are tracked forever.',
         fields: [
             {
                 name: '📊 Ranks & XP Thresholds',
@@ -1570,37 +1571,39 @@ function buildRanksEmbed() {
             {
                 name: '🎙️ How to Earn XP',
                 value: [
-                    '**Voice chat** — 1 XP per minute spent in a voice channel',
-                    '**Messages** — 1 XP per message (~60 messages ≈ 1 hour of VC)',
+                    '**Voice chat** - 1 XP per minute in a voice or stage channel',
+                    '**Messages** - 1 XP per message sent',
+                    '**Reactions** - 1 XP per reaction you add',
                 ].join('\n'),
             },
             {
-                name: '✨ XP Multipliers',
+                name: '✨ XP Multipliers (Voice Only)',
                 value: [
-                    '📷 **Camera on** — 1.5× XP while in voice',
-                    '🖥️ **Screen share** — 1.5× XP while in voice',
-                    '📷🖥️ **Both active** — 2× XP while in voice',
-                    '*Multipliers only apply to voice chat time, not messages.*',
+                    '📷 **Camera on** - 1.5x XP while in voice',
+                    '🖥️ **Screen share** - 1.5x XP while in voice',
+                    '📷🖥️ **Camera + screen share** - 2x XP while in voice',
+                    '🎙️🖥️ **Screen share in a Stage channel** - 2x XP',
+                    '*Multipliers only apply to voice time, not messages or reactions.*',
                 ].join('\n'),
             },
             {
                 name: '🏅 Peak Rank & Apex Count',
-                value: 'Your highest rank ever achieved is shown on your `/me` profile card, along with how many times you\'ve hit 👑 **Apex Predator**. These never reset — use them to flex.',
+                value: 'Your highest rank ever achieved is shown on your `/me` profile card, along with how many times you\'ve hit 👑 **Apex Predator**. These never reset.',
             },
             {
                 name: '📈 Track Your Progress',
-                value: 'Use `/me` to view your full stats card — XP bar, rank progress, peak rank, and Apex count.',
+                value: 'Use `/me` or `/profile` to view your full stats card, XP bar, rank progress, peak rank, and Apex count.',
             },
         ],
-        footer: { text: 'Ranks reset on the 1st of each month · Good luck!' },
+        footer: { text: 'Ranks reset on the 1st of each month - good luck!' },
     };
 }
 
 // ── Leaderboard helpers ───────────────────────────────────────────────────────
 
 function buildLeaderboardTitle(type, period) {
-    const typeStr   = type === 'msg' ? 'Messages' : 'Voice Time';
-    const periodStr = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period];
+    const typeStr   = type === 'msg' ? 'Messages' : type === 'xp' ? 'XP' : 'Voice Chat';
+    const periodStr = type === 'xp' ? 'This Month' : ({ today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[period]);
     return `🏆 ${typeStr} Leaderboard · ${periodStr}`;
 }
 
@@ -1613,13 +1616,14 @@ const PAGE_SIZE = 10;
 //   lbx                  — disabled noop (page counter)
 function buildLeaderboardComponents(activeType, activePeriod, page, totalPages) {
     const typeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lbt:msg:${activePeriod}`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lbt:vc:${activePeriod}`).setLabel('🎙️ Voice Time').setStyle(activeType === 'vc' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbt:xp:month`).setLabel('⭐ XP').setStyle(activeType === 'xp' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbt:vc:${activePeriod}`).setLabel('🎙️ Voice Chat').setStyle(activeType === 'vc' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbt:msg:${activePeriod}`).setLabel('📩 Messages').setStyle(activeType === 'msg' ? ButtonStyle.Success : ButtonStyle.Secondary),
     );
     const periodRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`lbp:${activeType}:today`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lbp:${activeType}:week`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId(`lbp:${activeType}:month`).setLabel('This Month').setStyle(activePeriod === 'month' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:today`).setLabel('Today').setStyle(activePeriod === 'today' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(activeType === 'xp'),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:week`).setLabel('This Week').setStyle(activePeriod === 'week' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(activeType === 'xp'),
+        new ButtonBuilder().setCustomId(`lbp:${activeType}:month`).setLabel('This Month').setStyle(activePeriod === 'month' || activeType === 'xp' ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(activeType === 'xp'),
         new ButtonBuilder().setCustomId(`lbp:${activeType}:all`).setLabel('All Time').setStyle(activePeriod === 'all' ? ButtonStyle.Primary : ButtonStyle.Secondary),
     );
     const navRow = new ActionRowBuilder().addComponents(
@@ -1629,7 +1633,7 @@ function buildLeaderboardComponents(activeType, activePeriod, page, totalPages) 
         new ButtonBuilder().setCustomId('lbclose').setLabel('✕ Close').setStyle(ButtonStyle.Danger),
     );
     const infoRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('lbranks').setLabel('❓ Help').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('lbranks').setLabel('❓ Help').setStyle(ButtonStyle.Primary),
     );
     return [typeRow, periodRow, navRow, infoRow];
 }
@@ -1642,6 +1646,11 @@ function buildLeaderboardEntries(type, period) {
             const value = getTotal(daysMap, count, period);
             if (value > 0 && memberNameCache.has(userId)) entries.push({ userId, value });
         }
+    } else if (type === 'xp') {
+        for (const [userId] of memberNameCache) {
+            const value = monthlyActivityScore(userId);
+            if (value > 0) entries.push({ userId, value });
+        }
     } else {
         for (const [userId, data] of voiceMinutes.entries()) {
             const value = getTotal(data.days, data.total, period);
@@ -1652,8 +1661,17 @@ function buildLeaderboardEntries(type, period) {
     return entries;
 }
 
+function getXpRankLabel(xp) {
+    let idx = 0;
+    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+        if (xp >= VOICE_RANK_ROLES[i].minXp) idx = i;
+    }
+    return stripEmoji(VOICE_RANK_ROLES[idx].name).trim();
+}
+
 function formatScore(value, type) {
     if (type === 'vc') return value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`;
+    if (type === 'xp') return `${getXpRankLabel(value)}  ·  ${value.toLocaleString()} XP`;
     return value.toLocaleString();
 }
 
@@ -2910,9 +2928,10 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'leaderboard') {
             const pickRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('lbt:msg:week').setLabel('📩 Messages').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('lbt:vc:week').setLabel('🎙️ Voice Time').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('lbranks').setLabel('❓ Help').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('lbt:xp:month').setLabel('⭐ XP').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('lbt:vc:week').setLabel('🎙️ Voice Chat').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('lbt:msg:week').setLabel('📩 Messages').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('lbranks').setLabel('❓ Help').setStyle(ButtonStyle.Primary),
             );
             const { resource } = await interaction.reply({ content: '**Choose a leaderboard:**', components: [pickRow], withResponse: true });
             leaderboardOwners.set(resource.message.id, interaction.user.id);
@@ -3803,6 +3822,28 @@ client.on('messageCreate', async (message) => {
 
     // Store this exchange so the next message has context
     appendHistory(message.author.id, question, answer);
+});
+
+// ── Reactions give XP ─────────────────────────────────────────────────────────
+
+client.on('messageReactionAdd', async (reaction, user) => {
+    if (user.bot) return;
+    if (!reaction.message.guild) return;
+    if (reaction.partial) {
+        try { await reaction.fetch(); } catch { return; }
+    }
+    const userId = user.id;
+    const today = todayStr();
+    const count = (messageCounts.get(userId) || 0) + 1;
+    messageCounts.set(userId, count);
+    let dMap = messageDays.get(userId);
+    if (!dMap) { dMap = new Map(); messageDays.set(userId, dMap); }
+    dMap.set(today, (dMap.get(today) ?? 0) + 1);
+    saveMessageDays(userId, dMap);
+    if (count % 10 === 0 && reaction.message.guild) {
+        const member = reaction.message.guild.members.cache.get(userId);
+        if (member) assignVoiceRank(member, monthlyActivityScore(userId)).catch(() => {});
+    }
 });
 
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
