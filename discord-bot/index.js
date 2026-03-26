@@ -914,11 +914,25 @@ function todayStr() {
 function creditVoiceTime(uid) {
     const session = voiceStartTimes.get(uid);
     if (!session) return null;
-    const elapsed = Math.floor((Date.now() - session.startMs) / 60000);
-    const today = todayStr();
+    const now = Date.now();
+    const elapsed = Math.floor((now - session.startMs) / 60000);
+
     let data = voiceMinutes.get(uid) || { total: 0, days: new Map() };
     data.total = session.baseTotal + elapsed;
-    data.days.set(today, session.baseToday + elapsed);
+
+    // Restore pre-session per-day state, then split session minutes across calendar days.
+    // This ensures overnight sessions credit the correct day — not all to today.
+    data.days = new Map(session.baseDays);
+    let cursor = session.startMs;
+    while (cursor < now) {
+        const dayStr = new Date(cursor).toISOString().slice(0, 10);
+        const dayEndMs = new Date(dayStr + 'T00:00:00.000Z').getTime() + 86400000;
+        const segEnd = Math.min(dayEndMs, now);
+        const segMins = Math.floor((segEnd - cursor) / 60000);
+        if (segMins > 0) data.days.set(dayStr, (data.days.get(dayStr) || 0) + segMins);
+        cursor = dayEndMs;
+    }
+
     voiceMinutes.set(uid, data);
     return data;
 }
@@ -1436,7 +1450,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             voiceStartTimes.set(uid, {
                 startMs: Date.now(),
                 baseTotal: existing.total,
-                baseToday: existing.days.get(todayStr()) || 0,
+                baseDays: new Map(existing.days),
             });
             voiceEnhancements.set(uid, { camera: newState.selfVideo || false, stream: newState.selfStream || false, inStage: newState.channel?.type === ChannelType.GuildStageVoice });
         }
@@ -2854,7 +2868,7 @@ client.once('clientReady', async () => {
                     voiceStartTimes.set(member.id, {
                         startMs: Date.now(),
                         baseTotal: existing.total,
-                        baseToday: existing.days.get(todayStr()) || 0,
+                        baseDays: new Map(existing.days),
                     });
                     voiceEnhancements.set(member.id, {
                         camera: member.voice.selfVideo || false,
