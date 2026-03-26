@@ -793,6 +793,27 @@ async function saveMessageCount(userId, count) {
     } catch (_) {}
 }
 
+// Direct Discord REST fetch with AbortController — actually cancels the HTTP request on timeout,
+// unlike Promise.race which leaves the Discord.js queue request pending and blocking future calls.
+async function discordRestFetch(path, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const r = await fetch(`https://discord.com/api/v10${path}`, {
+            headers: { Authorization: `Bot ${TOKEN}` },
+            signal: controller.signal,
+        });
+        if (r.status === 429) {
+            const wait = parseFloat(r.headers.get('retry-after') || '2');
+            await new Promise(res => setTimeout(res, Math.min(wait * 1000 + 500, 15000)));
+            return null;
+        }
+        if (!r.ok) return null;
+        return await r.json();
+    } catch { return null; }
+    finally { clearTimeout(timer); }
+}
+
 async function saveReactionData(userId, rMap, eMap, edMap) {
     // emojiTally + reactionEmojiDays stored as JSON strings to avoid Firestore field name
     // restrictions on emoji chars and custom emoji format <:name:id>
@@ -3621,45 +3642,40 @@ client.on('interactionCreate', async (interaction) => {
                 let lastId = null;
                 let keepGoing = true;
                 while (keepGoing) {
-                    try {
-                        const opts = { limit: 100 };
-                        if (lastId) opts.before = lastId;
-                        const batch = await Promise.race([
-                            channel.messages.fetch(opts),
-                            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
-                        ]);
-                        if (batch.size === 0) break;
-                        for (const [, msg] of batch) {
-                            if (msg.createdTimestamp < since) { keepGoing = false; break; }
-                            if (!msg.reactions.cache.size) continue;
-                            const ds = new Date(msg.createdTimestamp).toISOString().slice(0, 10);
-                            for (const [, rxn] of msg.reactions.cache) {
-                                try {
-                                    const emojiKey = rxn.emoji.id
-                                        ? `<:${rxn.emoji.name}:${rxn.emoji.id}>`
-                                        : (rxn.emoji.name || '?');
-                                    // Wrap with timeout — rate-limited fetches can hang indefinitely
-                                    const users = await Promise.race([
-                                        rxn.users.fetch(),
-                                        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000)),
-                                    ]);
-                                    for (const [, rxUser] of users) {
-                                        if (rxUser.bot) continue;
-                                        const uid = rxUser.id;
-                                        if (!scanned.has(uid)) scanned.set(uid, { days: new Map(), emojiDays: new Map() });
-                                        const ud = scanned.get(uid);
-                                        ud.days.set(ds, (ud.days.get(ds) || 0) + 1);
-                                        let de = ud.emojiDays.get(ds);
-                                        if (!de) { de = new Map(); ud.emojiDays.set(ds, de); }
-                                        de.set(emojiKey, (de.get(emojiKey) || 0) + 1);
-                                        totalRxs++;
-                                    }
-                                } catch (_) { /* skip timed-out or failed reaction fetches */ }
+                    // Use discordRestFetch (AbortController) — actually cancels the HTTP request on
+                    // timeout, unlike Promise.race which left Discord.js's queue blocked.
+                    const params = `limit=100${lastId ? `&before=${lastId}` : ''}`;
+                    const batch = await discordRestFetch(`/channels/${channel.id}/messages?${params}`);
+                    if (!batch || batch.length === 0) break;
+                    for (const msg of batch) {
+                        const msgTs = new Date(msg.timestamp).getTime();
+                        if (msgTs < since) { keepGoing = false; break; }
+                        if (!msg.reactions?.length) continue;
+                        const ds = msg.timestamp.slice(0, 10);
+                        for (const rxn of msg.reactions) {
+                            const emojiKey = rxn.emoji.id
+                                ? `<:${rxn.emoji.name}:${rxn.emoji.id}>`
+                                : (rxn.emoji.name || '?');
+                            const emojiPath = rxn.emoji.id
+                                ? encodeURIComponent(`${rxn.emoji.name}:${rxn.emoji.id}`)
+                                : encodeURIComponent(rxn.emoji.name || '');
+                            const users = await discordRestFetch(`/channels/${channel.id}/messages/${msg.id}/reactions/${emojiPath}?limit=100`);
+                            if (!users) continue;
+                            for (const rxUser of users) {
+                                if (rxUser.bot) continue;
+                                const uid = rxUser.id;
+                                if (!scanned.has(uid)) scanned.set(uid, { days: new Map(), emojiDays: new Map() });
+                                const ud = scanned.get(uid);
+                                ud.days.set(ds, (ud.days.get(ds) || 0) + 1);
+                                let de = ud.emojiDays.get(ds);
+                                if (!de) { de = new Map(); ud.emojiDays.set(ds, de); }
+                                de.set(emojiKey, (de.get(emojiKey) || 0) + 1);
+                                totalRxs++;
                             }
                         }
-                        lastId = batch.last()?.id;
-                        if (batch.size < 100) break;
-                    } catch (_) { break; }
+                    }
+                    lastId = batch[batch.length - 1]?.id;
+                    if (batch.length < 100) break;
                 }
                 chDone++;
                 if (chDone % 3 === 0) await interaction.editReply(`⏳ **${chDone}/${channels.size}** channels, **${totalRxs.toLocaleString()}** reactions so far...`).catch(() => {});
