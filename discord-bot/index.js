@@ -3624,7 +3624,10 @@ client.on('interactionCreate', async (interaction) => {
                     try {
                         const opts = { limit: 100 };
                         if (lastId) opts.before = lastId;
-                        const batch = await channel.messages.fetch(opts);
+                        const batch = await Promise.race([
+                            channel.messages.fetch(opts),
+                            new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
+                        ]);
                         if (batch.size === 0) break;
                         for (const [, msg] of batch) {
                             if (msg.createdTimestamp < since) { keepGoing = false; break; }
