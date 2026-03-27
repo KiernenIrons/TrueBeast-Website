@@ -1834,41 +1834,57 @@ async function ensureVoiceRankRoles(guild) {
     console.log(`[BeastBot] Voice rank roles ready (${voiceRankRoleCache.size}/${VOICE_RANK_ROLES.length})`);
 }
 
-async function assignVoiceRank(member, xp) {
+// forceReset=true is used ONLY by the monthly reset — bypasses the no-demote guard
+// and strips all rank roles so everyone starts the new month at Bronze I.
+async function assignVoiceRank(member, xp, forceReset = false) {
     if (voiceRankRoleCache.size === 0) return;
     let targetIdx = 0;
     for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
         if (xp >= VOICE_RANK_ROLES[i].minXp) targetIdx = i;
     }
 
-    // Find the member's current highest rank index — ranks NEVER go down
-    let currentHighestIdx = -1;
-    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
-        const r = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
-        if (r && member.roles.cache.has(r.id) && i > currentHighestIdx) currentHighestIdx = i;
+    if (!forceReset) {
+        // During normal operation ranks NEVER go down — only upgrade
+        let currentHighestIdx = -1;
+        for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+            const r = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
+            if (r && member.roles.cache.has(r.id) && i > currentHighestIdx) currentHighestIdx = i;
+        }
+        if (targetIdx <= currentHighestIdx) return; // already at or above target
     }
-    if (targetIdx <= currentHighestIdx) return; // already at or above target — never demote
 
     const targetRank = VOICE_RANK_ROLES[targetIdx];
     const targetRole = voiceRankRoleCache.get(targetRank.name);
     if (!targetRole) return;
 
-    // Only remove roles that are LOWER than the new rank (cleanup old lower badges)
-    for (let i = 0; i < targetIdx; i++) {
-        const lowerRole = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
-        if (lowerRole && member.roles.cache.has(lowerRole.id)) {
-            await member.roles.remove(lowerRole).catch(() => {});
+    if (forceReset) {
+        // Monthly reset: strip ALL rank roles, then assign Bronze I
+        for (const rankRole of voiceRankRoleCache.values()) {
+            if (rankRole.id !== targetRole.id && member.roles.cache.has(rankRole.id)) {
+                await member.roles.remove(rankRole).catch(() => {});
+            }
+        }
+    } else {
+        // Normal upgrade: only remove lower rank badges
+        for (let i = 0; i < targetIdx; i++) {
+            const lowerRole = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
+            if (lowerRole && member.roles.cache.has(lowerRole.id)) {
+                await member.roles.remove(lowerRole).catch(() => {});
+            }
         }
     }
+
     if (!member.roles.cache.has(targetRole.id)) {
         await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
     }
-    // Track achievements: highest rank ever + Apex hits
-    const ach = rankAchievements.get(member.id) || { highestRankIdx: 0, apexCount: 0, hitApexThisMonth: false };
-    let changed = false;
-    if (targetIdx > ach.highestRankIdx) { ach.highestRankIdx = targetIdx; changed = true; }
-    if (targetIdx === VOICE_RANK_ROLES.length - 1 && !ach.hitApexThisMonth) { ach.hitApexThisMonth = true; changed = true; }
-    if (changed) { rankAchievements.set(member.id, ach); saveRankAchievements(member.id, ach); }
+    // Track achievements: highest rank ever + Apex hits (skip during reset — XP is 0)
+    if (!forceReset) {
+        const ach = rankAchievements.get(member.id) || { highestRankIdx: 0, apexCount: 0, hitApexThisMonth: false };
+        let changed = false;
+        if (targetIdx > ach.highestRankIdx) { ach.highestRankIdx = targetIdx; changed = true; }
+        if (targetIdx === VOICE_RANK_ROLES.length - 1 && !ach.hitApexThisMonth) { ach.hitApexThisMonth = true; changed = true; }
+        if (changed) { rankAchievements.set(member.id, ach); saveRankAchievements(member.id, ach); }
+    }
 }
 
 async function postMonthlyRecap(guild, oldMonthStr) { // e.g. "2026-02"
@@ -1942,7 +1958,7 @@ async function checkMonthlyReset(guild) {
                     saveRankAchievements(member.id, ach);
                 }
                 if (!member.roles.cache.some(r => allRankIds.includes(r.id))) continue;
-                await assignVoiceRank(member, 0).catch(() => {});
+                await assignVoiceRank(member, 0, true).catch(() => {}); // forceReset — monthly wipe
             }
         } catch (e) { console.error('[BeastBot] Monthly reset role assignment failed:', e.message); }
     } else {
@@ -2119,6 +2135,8 @@ function getXpMultiplier(uid) {
 }
 
 function monthlyActivityScore(userId) {
+    // Flush live session so the score always reflects current earned minutes
+    if (voiceStartTimes.has(userId)) creditVoiceTime(userId);
     const vcData = voiceMinutes.get(userId)  || { total: 0, days: new Map() };
     const bData  = voiceBonusXp.get(userId)  || { total: 0, days: new Map() };
     const dMap   = messageDays.get(userId)   || new Map();
