@@ -1840,12 +1840,26 @@ async function assignVoiceRank(member, xp) {
     for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
         if (xp >= VOICE_RANK_ROLES[i].minXp) targetIdx = i;
     }
+
+    // Find the member's current highest rank index — ranks NEVER go down
+    let currentHighestIdx = -1;
+    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+        const r = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
+        if (r && member.roles.cache.has(r.id) && i > currentHighestIdx) currentHighestIdx = i;
+    }
+    if (targetIdx <= currentHighestIdx) return; // already at or above target — never demote
+
     const targetRank = VOICE_RANK_ROLES[targetIdx];
     const targetRole = voiceRankRoleCache.get(targetRank.name);
     if (!targetRole) return;
-    const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
-    const toRemove = member.roles.cache.filter(r => allRankIds.includes(r.id) && r.id !== targetRole.id);
-    for (const [, role] of toRemove) await member.roles.remove(role).catch(() => {});
+
+    // Only remove roles that are LOWER than the new rank (cleanup old lower badges)
+    for (let i = 0; i < targetIdx; i++) {
+        const lowerRole = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
+        if (lowerRole && member.roles.cache.has(lowerRole.id)) {
+            await member.roles.remove(lowerRole).catch(() => {});
+        }
+    }
     if (!member.roles.cache.has(targetRole.id)) {
         await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
     }
@@ -3020,13 +3034,22 @@ client.once('clientReady', async () => {
     // Post update notification to announcements channel
     try {
         const updateCh = await client.channels.fetch('1485384313062162522');
-        await updateCh.send({ embeds: [{
+        await updateCh.send({ content: '<@1469644183881912551>', embeds: [{
             color: 0x22c55e,
             title: '🤖 Beast Bot — New Update Released',
-            description: `Beast Bot has been updated and is back online!\n<t:${Math.floor(Date.now() / 1000)}:F>`,
-            footer: { text: 'Beast Bot' },
+            description: `Beast Bot has just been updated and is back online!`,
+            fields: [
+                { name: '📋 Logging System', value: 'Full audit logs now post to <#1339916490744397896>:\nMember join/leave/ban/unban/kick, message edits & deletes, mute/unmute, nickname & role changes, voice join/leave, invite detection, avatar updates, role/channel/emoji/server changes' },
+                { name: '⚖️ Mod Commands', value: '`/ban` `/tempban` `/kick` `/mute` `/tempmute` `/unmute` `/unban` `/warn` `/infractions` `/clear-all-infractions` `/clear` `/slowmode`\nAll actions are logged automatically.' },
+                { name: '🔍 Info Commands', value: '`/user-info` `/role-info` `/server-info`' },
+                { name: '📢 Messaging Commands', value: '`/say` — Send a message as the bot (owner only)\n`/dm` — Send an anonymous DM as the bot (mods only)' },
+                { name: '🔢 Counting Fix', value: 'If someone deletes a counting number, the count automatically adjusts back.' },
+                { name: '🐛 Bug Fix', value: 'Fixed a bug where voice ranks could be downgraded on bot restart. Ranks will **never** decrease.' },
+            ],
+            footer: { text: `Beast Bot • Released` },
+            timestamp: new Date().toISOString(),
         }] });
-    } catch (_) {}
+    } catch (e) { console.error('[BeastBot] Failed to post update notification:', e.message); }
 
     // Load ALL message counts from Firestore (paginated)
     try {
