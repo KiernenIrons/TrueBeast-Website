@@ -23,6 +23,7 @@ const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle,
     ModalBuilder, TextInputBuilder, TextInputStyle,
     SlashCommandBuilder, REST, Routes, AttachmentBuilder,
+    AuditLogEvent, MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
@@ -30,7 +31,7 @@ try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
 const MOD_CHANNEL_ID    = process.env.MOD_CHANNEL_ID;
-const MOD_ROLE_ID       = process.env.MOD_ROLE_ID;
+const MOD_ROLE_ID       = process.env.MOD_ROLE_ID || '874315329474555944';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const FIREBASE_PROJECT  = process.env.FIREBASE_PROJECT_ID;
 const FIREBASE_API_KEY  = process.env.FIREBASE_API_KEY;
@@ -445,8 +446,10 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildPresences,
         GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildModeration,
+        GatewayIntentBits.GuildEmojisAndStickers,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Message],
 });
 
 const COUNTING_CHANNEL_ID = '1486479498248585277';
@@ -506,6 +509,10 @@ const leaderboardOwners  = new Map(); // messageId → userId (who invoked /lead
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
 const voiceBonusXp       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", xp> } — camera/stream bonus
 const voiceEnhancements  = new Map(); // userId → { camera: boolean, stream: boolean, inStage: boolean }
+
+// ── Moderation ────────────────────────────────────────────────────────────────
+const infractions = new Map(); // userId → [{ type, reason, modId, timestamp }]
+const tempBans    = new Map(); // userId → { guildId, expiresAt, reason }
 
 // ── Counting game ─────────────────────────────────────────────────────────────
 let countingState = {
@@ -842,6 +849,187 @@ async function saveReactionData(userId, rMap, eMap, edMap) {
         });
         if (!res.ok) console.error(`[BeastBot] saveReactionData failed for ${userId}: ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveReactionData error:', e.message); }
+}
+
+// ── Logging helpers ───────────────────────────────────────────────────────────
+
+const LOG_COLORS = {
+    join:   0x22c55e,
+    leave:  0xef4444,
+    ban:    0xef4444,
+    kick:   0xf97316,
+    warn:   0xf59e0b,
+    mute:   0xf59e0b,
+    edit:   0x3b82f6,
+    delete: 0xef4444,
+    role:   0xf59e0b,
+    nick:   0xa855f7,
+    server: 0xa855f7,
+    info:   0x3b82f6,
+};
+
+function buildLogEmbed({ color, user, description, fields = [], footerExtra = '' }) {
+    const avatarUrl = user?.displayAvatarURL?.({ size: 128, extension: 'png' }) || null;
+    return {
+        color,
+        author: user ? { name: user.username ?? user.tag ?? 'Unknown', icon_url: avatarUrl } : undefined,
+        description,
+        fields,
+        thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
+        timestamp: new Date().toISOString(),
+        footer: user ? { text: `ID: ${user.id}${footerExtra ? ` • ${footerExtra}` : ''}` } : undefined,
+    };
+}
+
+async function sendLog(guild, embed) {
+    try {
+        const ch = await client.channels.fetch(LOG_CHANNEL_ID);
+        await ch.send({ embeds: [embed] });
+    } catch (_) {}
+}
+
+async function getAuditEntry(guild, type, targetId = null, maxAgeMs = 5000) {
+    try {
+        const logs = await guild.fetchAuditLogs({ type, limit: 5 });
+        return logs.entries.find(e => {
+            if (Date.now() - e.createdTimestamp > maxAgeMs) return false;
+            if (targetId && e.target?.id !== targetId) return false;
+            return true;
+        }) || null;
+    } catch { return null; }
+}
+
+// ── Moderation helpers ────────────────────────────────────────────────────────
+
+function isModerator(interaction) {
+    return interaction.user.id === OWNER_DISCORD_ID ||
+           interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+}
+
+function parseDuration(str) {
+    const match = str?.match(/^(\d+)(s|m|h|d|w)$/i);
+    if (!match) return null;
+    const n = parseInt(match[1]);
+    const units = { s: 1000, m: 60000, h: 3600000, d: 86400000, w: 604800000 };
+    return n * (units[match[2].toLowerCase()] || 0);
+}
+
+function formatDuration(ms) {
+    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+    if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
+    if (ms < 86400000) return `${Math.round(ms / 3600000)}h`;
+    if (ms < 604800000) return `${Math.round(ms / 86400000)}d`;
+    return `${Math.round(ms / 604800000)}w`;
+}
+
+// ── Infraction Firestore ──────────────────────────────────────────────────────
+
+async function loadInfractions() {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/infractions?key=${FIREBASE_API_KEY}&pageSize=500`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        for (const doc of (data.documents || [])) {
+            const userId = doc.name.split('/').pop();
+            try {
+                const list = JSON.parse(doc.fields?.list?.stringValue || '[]');
+                if (list.length > 0) infractions.set(userId, list);
+            } catch (_) {}
+        }
+        console.log(`[BeastBot] Infractions loaded — ${infractions.size} users`);
+    } catch (e) { console.error('[BeastBot] loadInfractions error:', e.message); }
+}
+
+async function saveInfractions(userId) {
+    const list = infractions.get(userId) || [];
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/infractions/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=list`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { list: { stringValue: JSON.stringify(list) } } }),
+        });
+    } catch (e) { console.error('[BeastBot] saveInfractions error:', e.message); }
+}
+
+function addInfraction(userId, type, reason, modId) {
+    const list = infractions.get(userId) || [];
+    list.push({ type, reason: reason || 'No reason provided', modId, timestamp: Date.now() });
+    infractions.set(userId, list);
+    saveInfractions(userId);
+}
+
+function getUserInfractions(userId) {
+    return infractions.get(userId) || [];
+}
+
+async function clearUserInfractions(userId) {
+    infractions.set(userId, []);
+    await saveInfractions(userId);
+}
+
+async function clearAllInfractions() {
+    const ids = [...infractions.keys()];
+    infractions.clear();
+    await Promise.allSettled(ids.map(id => saveInfractions(id)));
+}
+
+// ── Temp Ban Firestore ────────────────────────────────────────────────────────
+
+async function saveTempBans() {
+    const list = [...tempBans.entries()].map(([uid, d]) => ({ userId: uid, ...d }));
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/tempBans?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=list`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { list: { stringValue: JSON.stringify(list) } } }),
+        });
+    } catch (e) { console.error('[BeastBot] saveTempBans error:', e.message); }
+}
+
+function scheduleTempBan(guild, userId, expiresAt) {
+    const delay = expiresAt - Date.now();
+    if (delay <= 0) {
+        guild.bans.remove(userId, 'Temp ban expired').catch(() => {});
+        tempBans.delete(userId);
+        saveTempBans();
+        return;
+    }
+    // Re-schedule in 24h chunks if longer than that
+    const fireIn = Math.min(delay, 24 * 60 * 60 * 1000);
+    setTimeout(async () => {
+        if (!tempBans.has(userId)) return;
+        if (Date.now() >= expiresAt) {
+            await guild.bans.remove(userId, 'Temp ban expired').catch(() => {});
+            tempBans.delete(userId);
+            await saveTempBans();
+        } else {
+            scheduleTempBan(guild, userId, expiresAt);
+        }
+    }, fireIn);
+}
+
+async function loadTempBans() {
+    const data = await firestoreGet('botConfig', 'tempBans');
+    if (!data?.list) return;
+    try {
+        const list = JSON.parse(data.list);
+        for (const entry of list) {
+            if (entry.expiresAt > Date.now()) {
+                tempBans.set(entry.userId, { guildId: entry.guildId, expiresAt: entry.expiresAt, reason: entry.reason });
+            }
+        }
+        console.log(`[BeastBot] Temp bans loaded — ${tempBans.size} active`);
+        // Re-schedule all active temp bans
+        if (tempBans.size > 0) {
+            const guild = client.guilds.cache.first();
+            if (guild) {
+                for (const [uid, d] of tempBans) scheduleTempBan(guild, uid, d.expiresAt);
+            }
+        }
+    } catch (e) { console.error('[BeastBot] loadTempBans error:', e.message); }
 }
 
 async function saveMessageDays(userId, daysMap) {
@@ -1463,14 +1651,64 @@ function cancelLeaveTimer(userId) {
     leaveTimers.delete(userId);
 }
 
-// Keep member name cache fresh when someone changes their nickname
-client.on('guildMemberUpdate', (_old, newMember) => {
+// Keep member name cache fresh + log mod actions
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (!newMember.user.bot) {
         memberNameCache.set(newMember.id, newMember.displayName);
         memberCache.set(newMember.id, {
             displayName: newMember.displayName,
             avatarUrl: newMember.user.displayAvatarURL({ size: 128, extension: 'png' }),
         });
+    }
+
+    const user = newMember.user;
+
+    // Timeout / mute detection
+    const wasTimedOut = oldMember.communicationDisabledUntilTimestamp && oldMember.communicationDisabledUntilTimestamp > Date.now();
+    const isTimedOut  = newMember.communicationDisabledUntilTimestamp && newMember.communicationDisabledUntilTimestamp > Date.now();
+    if (!wasTimedOut && isTimedOut) {
+        const entry = await getAuditEntry(newMember.guild, AuditLogEvent.MemberUpdate, user.id, 8000);
+        const until = `<t:${Math.floor(newMember.communicationDisabledUntilTimestamp / 1000)}:R>`;
+        await sendLog(newMember.guild, buildLogEmbed({
+            color: LOG_COLORS.mute, user,
+            description: `🔇 <@${user.id}> **was muted** (expires ${until})`,
+            footerExtra: entry ? `Muted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` : '',
+        }));
+    } else if (wasTimedOut && !isTimedOut) {
+        const entry = await getAuditEntry(newMember.guild, AuditLogEvent.MemberUpdate, user.id, 8000);
+        await sendLog(newMember.guild, buildLogEmbed({
+            color: LOG_COLORS.join, user,
+            description: `🔊 <@${user.id}> **was unmuted**`,
+            footerExtra: entry ? `Unmuted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` : '',
+        }));
+    }
+
+    // Nickname change
+    if (oldMember.nickname !== newMember.nickname) {
+        const entry = await getAuditEntry(newMember.guild, AuditLogEvent.MemberUpdate, user.id, 8000);
+        await sendLog(newMember.guild, buildLogEmbed({
+            color: LOG_COLORS.nick, user,
+            description: `📝 <@${user.id}> **nickname changed**`,
+            fields: [
+                { name: 'Before', value: oldMember.nickname || user.username, inline: true },
+                { name: 'After',  value: newMember.nickname || user.username, inline: true },
+            ],
+            footerExtra: entry ? `Changed by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` : '',
+        }));
+    }
+
+    // Roles changed
+    const addedRoles   = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id) && r.name !== '@everyone');
+    const removedRoles = oldMember.roles.cache.filter(r => !newMember.roles.cache.has(r.id) && r.name !== '@everyone');
+    if (addedRoles.size > 0 || removedRoles.size > 0) {
+        const fields = [];
+        if (addedRoles.size > 0)   fields.push({ name: '✅ Added roles',   value: addedRoles.map(r => r.name).join('\n') });
+        if (removedRoles.size > 0) fields.push({ name: '❌ Removed roles', value: removedRoles.map(r => r.name).join('\n') });
+        await sendLog(newMember.guild, buildLogEmbed({
+            color: LOG_COLORS.role, user,
+            description: `⚔️ <@${user.id}> **roles have changed**`,
+            fields,
+        }));
     }
 });
 
@@ -1556,6 +1794,27 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             }, 60 * 1000);
             tempVoiceChannels.set(oldCh, vcData);
             console.log(`[BeastBot] 🔊 "${vcData.ownerName}'s Channel" is empty — deleting in 1 minute`);
+        }
+    }
+
+    // ── Voice channel join / leave logging ───────────────────────────────────
+    if (!newState.member?.user?.bot) {
+        const joined = !oldState.channelId && newState.channelId;
+        const left   = oldState.channelId && !newState.channelId;
+        const moved  = oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId;
+        if ((joined || moved) && newState.channel) {
+            await sendLog(newState.guild, buildLogEmbed({
+                color: LOG_COLORS.join,
+                user: newState.member.user,
+                description: `📥 <@${newState.member.id}> **joined voice channel** \`${newState.channel.name}\``,
+            }));
+        }
+        if ((left || moved) && oldState.channel) {
+            await sendLog(oldState.guild, buildLogEmbed({
+                color: LOG_COLORS.leave,
+                user: oldState.member.user,
+                description: `📤 <@${oldState.member.id}> **left voice channel** \`${oldState.channel.name}\``,
+            }));
         }
     }
 });
@@ -3094,6 +3353,87 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
+            // ── Mod commands ──────────────────────────────────────────────────
+            new SlashCommandBuilder()
+                .setName('ban')
+                .setDescription('Ban a member from the server')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to ban').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason for ban'))
+                .addIntegerOption(opt => opt.setName('delete_days').setDescription('Days of messages to delete (0-7)').setMinValue(0).setMaxValue(7)),
+            new SlashCommandBuilder()
+                .setName('tempban')
+                .setDescription('Temporarily ban a member (e.g. 1h, 2d, 1w)')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to ban').setRequired(true))
+                .addStringOption(opt => opt.setName('duration').setDescription('Duration e.g. 1h, 2d, 1w').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason')),
+            new SlashCommandBuilder()
+                .setName('kick')
+                .setDescription('Kick a member from the server')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to kick').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason')),
+            new SlashCommandBuilder()
+                .setName('mute')
+                .setDescription('Mute (timeout) a member for 28 days')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to mute').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason')),
+            new SlashCommandBuilder()
+                .setName('tempmute')
+                .setDescription('Temporarily mute (timeout) a member (e.g. 10m, 2h, 1d)')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to mute').setRequired(true))
+                .addStringOption(opt => opt.setName('duration').setDescription('Duration e.g. 10m, 2h, 1d').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason')),
+            new SlashCommandBuilder()
+                .setName('unmute')
+                .setDescription('Remove timeout from a member')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to unmute').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('unban')
+                .setDescription('Unban a member by their user ID')
+                .addStringOption(opt => opt.setName('userid').setDescription('User ID to unban').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason')),
+            new SlashCommandBuilder()
+                .setName('warn')
+                .setDescription('Warn a member')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to warn').setRequired(true))
+                .addStringOption(opt => opt.setName('reason').setDescription('Reason for warning').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('infractions')
+                .setDescription('View a member\'s infractions')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to check').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('clear-all-infractions')
+                .setDescription('(Mod only) Clear all infractions for every member'),
+            new SlashCommandBuilder()
+                .setName('clear')
+                .setDescription('Delete messages in a channel')
+                .addIntegerOption(opt => opt.setName('amount').setDescription('Number of messages to delete (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
+                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to clear (defaults to current)')),
+            new SlashCommandBuilder()
+                .setName('slowmode')
+                .setDescription('Set slowmode in a channel (0 = disable)')
+                .addIntegerOption(opt => opt.setName('seconds').setDescription('Seconds between messages (0-21600)').setRequired(true).setMinValue(0).setMaxValue(21600))
+                .addChannelOption(opt => opt.setName('channel').setDescription('Channel (defaults to current)')),
+            new SlashCommandBuilder()
+                .setName('user-info')
+                .setDescription('Get information about a member')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to inspect (defaults to you)')),
+            new SlashCommandBuilder()
+                .setName('role-info')
+                .setDescription('Get information about a role')
+                .addRoleOption(opt => opt.setName('role').setDescription('Role to inspect').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('server-info')
+                .setDescription('Get information about the server'),
+            new SlashCommandBuilder()
+                .setName('say')
+                .setDescription('(Owner only) Send a message as the bot')
+                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to send to').setRequired(true))
+                .addStringOption(opt => opt.setName('message').setDescription('Message content').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('dm')
+                .setDescription('(Mod only) Send an anonymous DM to a member as the bot')
+                .addUserOption(opt => opt.setName('user').setDescription('Member to DM').setRequired(true))
+                .addStringOption(opt => opt.setName('message').setDescription('Message content').setRequired(true)),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -3170,6 +3510,10 @@ client.once('clientReady', async () => {
     setInterval(() => {
         console.log(`[BeastBot] 💓 heartbeat — uptime ${Math.round(process.uptime() / 60)}m`);
     }, 30 * 60 * 1000);
+
+    // Load infractions + temp bans
+    await loadInfractions();
+    await loadTempBans();
 
 });
 
@@ -3823,6 +4167,356 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+        // ── /say ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'say') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
+            }
+            const ch = interaction.options.getChannel('channel');
+            const msg = interaction.options.getString('message');
+            try {
+                await ch.send(msg);
+                await interaction.reply({ content: `✅ Message sent to <#${ch.id}>.`, flags: 64 });
+            } catch (e) {
+                await interaction.reply({ content: `❌ Failed to send: ${e.message}`, flags: 64 });
+            }
+            return;
+        }
+
+        // ── /dm ──────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'dm') {
+            if (!isModerator(interaction)) {
+                await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return;
+            }
+            const target = interaction.options.getUser('user');
+            const msg = interaction.options.getString('message');
+            try {
+                await target.send(msg);
+                await interaction.reply({ content: `✅ DM sent to <@${target.id}>. Action logged in <#${LOG_CHANNEL_ID}>.`, flags: 64 });
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.info, user: target,
+                    description: `📩 **Bot DM sent** to <@${target.id}>`,
+                    fields: [{ name: 'Message', value: msg.slice(0, 1000) }],
+                    footerExtra: `Sent by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+            } catch (e) {
+                await interaction.reply({ content: `❌ Could not DM that user — they may have DMs disabled.`, flags: 64 });
+            }
+            return;
+        }
+
+        // ── /ban ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'ban') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const target = interaction.options.getUser('user');
+            const reason = interaction.options.getString('reason') || 'No reason provided';
+            const delDays = interaction.options.getInteger('delete_days') || 0;
+            try {
+                await interaction.guild.members.ban(target.id, { reason, deleteMessageSeconds: delDays * 86400 });
+                addInfraction(target.id, 'ban', reason, interaction.user.id);
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.ban, user: target,
+                    description: `🔨 <@${target.id}> **was banned**\nReason: ${reason}`,
+                    footerExtra: `Banned by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+                await interaction.editReply(`✅ **${target.tag || target.username}** was banned. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /tempban ──────────────────────────────────────────────────────────
+        if (interaction.commandName === 'tempban') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const target = interaction.options.getUser('user');
+            const durStr = interaction.options.getString('duration');
+            const reason = interaction.options.getString('reason') || 'No reason provided';
+            const ms = parseDuration(durStr);
+            if (!ms) { await interaction.editReply('❌ Invalid duration. Use e.g. `1h`, `2d`, `1w`.'); return; }
+            try {
+                await interaction.guild.members.ban(target.id, { reason: `Temp ban (${durStr}): ${reason}`, deleteMessageSeconds: 0 });
+                const expiresAt = Date.now() + ms;
+                tempBans.set(target.id, { guildId: interaction.guild.id, expiresAt, reason });
+                await saveTempBans();
+                scheduleTempBan(interaction.guild, target.id, expiresAt);
+                addInfraction(target.id, 'tempban', `${durStr}: ${reason}`, interaction.user.id);
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.ban, user: target,
+                    description: `🔨 <@${target.id}> **was temp-banned** for **${durStr}**\nReason: ${reason}`,
+                    footerExtra: `Banned by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+                await interaction.editReply(`✅ **${target.tag || target.username}** temp-banned for ${durStr}. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /kick ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'kick') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const member = interaction.options.getMember('user');
+            const reason = interaction.options.getString('reason') || 'No reason provided';
+            if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
+            try {
+                await member.kick(reason);
+                addInfraction(member.id, 'kick', reason, interaction.user.id);
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.kick, user: member.user,
+                    description: `👢 <@${member.id}> **was kicked**\nReason: ${reason}`,
+                    footerExtra: `Kicked by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+                await interaction.editReply(`✅ **${member.user.tag || member.user.username}** was kicked. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /mute ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'mute') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const member = interaction.options.getMember('user');
+            const reason = interaction.options.getString('reason') || 'No reason provided';
+            if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
+            try {
+                await member.timeout(28 * 24 * 60 * 60 * 1000, reason);
+                addInfraction(member.id, 'mute', reason, interaction.user.id);
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.mute, user: member.user,
+                    description: `🔇 <@${member.id}> **was muted** (28 days)\nReason: ${reason}`,
+                    footerExtra: `Muted by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+                await interaction.editReply(`✅ **${member.user.tag || member.user.username}** was muted. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /tempmute ─────────────────────────────────────────────────────────
+        if (interaction.commandName === 'tempmute') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const member = interaction.options.getMember('user');
+            const durStr = interaction.options.getString('duration');
+            const reason = interaction.options.getString('reason') || 'No reason provided';
+            if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
+            const ms = parseDuration(durStr);
+            if (!ms) { await interaction.editReply('❌ Invalid duration. Use e.g. `10m`, `2h`, `1d`.'); return; }
+            const cappedMs = Math.min(ms, 28 * 24 * 60 * 60 * 1000);
+            try {
+                await member.timeout(cappedMs, reason);
+                addInfraction(member.id, 'tempmute', `${durStr}: ${reason}`, interaction.user.id);
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.mute, user: member.user,
+                    description: `🔇 <@${member.id}> **was muted** for **${durStr}**\nReason: ${reason}`,
+                    footerExtra: `Muted by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+                await interaction.editReply(`✅ **${member.user.tag || member.user.username}** was muted for ${durStr}. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /unmute ───────────────────────────────────────────────────────────
+        if (interaction.commandName === 'unmute') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const member = interaction.options.getMember('user');
+            if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
+            try {
+                await member.timeout(null);
+                await sendLog(interaction.guild, buildLogEmbed({
+                    color: LOG_COLORS.join, user: member.user,
+                    description: `🔊 <@${member.id}> **was unmuted**`,
+                    footerExtra: `Unmuted by: ${interaction.user.tag || interaction.user.username}`,
+                }));
+                await interaction.editReply(`✅ **${member.user.tag || member.user.username}** was unmuted. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /unban ────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'unban') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const userId = interaction.options.getString('userid');
+            const reason = interaction.options.getString('reason') || 'No reason provided';
+            try {
+                const bannedUser = await client.users.fetch(userId).catch(() => null);
+                await interaction.guild.bans.remove(userId, reason);
+                tempBans.delete(userId);
+                await saveTempBans();
+                await sendLog(interaction.guild, {
+                    color: LOG_COLORS.join,
+                    description: `✅ User **${bannedUser?.tag || bannedUser?.username || userId}** was unbanned`,
+                    thumbnail: bannedUser ? { url: bannedUser.displayAvatarURL({ size: 128, extension: 'png' }) } : undefined,
+                    timestamp: new Date().toISOString(),
+                    footer: { text: `ID: ${userId} • Unbanned by: ${interaction.user.tag || interaction.user.username}` },
+                });
+                await interaction.editReply(`✅ User **${bannedUser?.tag || bannedUser?.username || userId}** was unbanned. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /warn ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'warn') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const target = interaction.options.getUser('user');
+            const reason = interaction.options.getString('reason');
+            addInfraction(target.id, 'warn', reason, interaction.user.id);
+            try { await target.send(`⚠️ You have received a warning in **${interaction.guild.name}**:\n> ${reason}`); } catch (_) {}
+            await sendLog(interaction.guild, buildLogEmbed({
+                color: LOG_COLORS.warn, user: target,
+                description: `⚠️ <@${target.id}> **was warned**\nReason: ${reason}`,
+                footerExtra: `Warned by: ${interaction.user.tag || interaction.user.username}`,
+            }));
+            await interaction.editReply(`✅ **${target.tag || target.username}** was warned. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            return;
+        }
+
+        // ── /infractions ──────────────────────────────────────────────────────
+        if (interaction.commandName === 'infractions') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            const target = interaction.options.getUser('user');
+            const list = getUserInfractions(target.id);
+            if (list.length === 0) {
+                await interaction.reply({ content: `✅ **${target.tag || target.username}** has no infractions.`, flags: 64 }); return;
+            }
+            const fields = list.slice(-10).map((inf, i) => ({
+                name: `#${i + 1} — ${inf.type.toUpperCase()}`,
+                value: `Reason: ${inf.reason}\nBy: <@${inf.modId}> • <t:${Math.floor(inf.timestamp / 1000)}:D>`,
+            }));
+            await interaction.reply({ embeds: [{
+                color: LOG_COLORS.warn,
+                author: { name: target.username || target.tag, icon_url: target.displayAvatarURL?.({ size: 64, extension: 'png' }) },
+                title: `Infractions — ${list.length} total`,
+                fields,
+                timestamp: new Date().toISOString(),
+                footer: { text: `ID: ${target.id}` },
+            }], flags: 64 });
+            return;
+        }
+
+        // ── /clear-all-infractions ────────────────────────────────────────────
+        if (interaction.commandName === 'clear-all-infractions') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            await clearAllInfractions();
+            await interaction.editReply('✅ All infractions cleared.');
+            return;
+        }
+
+        // ── /clear ────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'clear') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const amount = interaction.options.getInteger('amount');
+            const ch = interaction.options.getChannel('channel') || interaction.channel;
+            try {
+                const msgs = await ch.messages.fetch({ limit: amount });
+                const deleted = await ch.bulkDelete(msgs, true);
+                await sendLog(interaction.guild, {
+                    color: LOG_COLORS.delete,
+                    description: `🗑️ **${deleted.size}** messages cleared in <#${ch.id}>`,
+                    timestamp: new Date().toISOString(),
+                    footer: { text: `Cleared by: ${interaction.user.tag || interaction.user.username}` },
+                });
+                await interaction.editReply(`✅ Deleted **${deleted.size}** messages. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /slowmode ─────────────────────────────────────────────────────────
+        if (interaction.commandName === 'slowmode') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            await interaction.deferReply({ flags: 64 });
+            const seconds = interaction.options.getInteger('seconds');
+            const ch = interaction.options.getChannel('channel') || interaction.channel;
+            try {
+                await ch.setRateLimitPerUser(seconds);
+                const msg = seconds === 0 ? 'Slowmode disabled' : `Slowmode set to ${seconds}s`;
+                await sendLog(interaction.guild, {
+                    color: LOG_COLORS.info,
+                    description: `⏱️ **${msg}** in <#${ch.id}>`,
+                    timestamp: new Date().toISOString(),
+                    footer: { text: `Set by: ${interaction.user.tag || interaction.user.username}` },
+                });
+                await interaction.editReply(`✅ ${msg} in <#${ch.id}>. Action logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /user-info ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'user-info') {
+            const target = interaction.options.getUser('user') || interaction.user;
+            const member = interaction.guild.members.cache.get(target.id);
+            const avatarUrl = target.displayAvatarURL({ size: 256, extension: 'png' });
+            const roles = member?.roles?.cache?.filter(r => r.name !== '@everyone').map(r => `<@&${r.id}>`).join(', ') || 'None';
+            await interaction.reply({ embeds: [{
+                color: LOG_COLORS.info,
+                author: { name: target.username || target.tag, icon_url: avatarUrl },
+                thumbnail: { url: avatarUrl },
+                fields: [
+                    { name: 'Username', value: target.tag || target.username, inline: true },
+                    { name: 'User ID', value: target.id, inline: true },
+                    { name: 'Account Created', value: `<t:${Math.floor(target.createdTimestamp / 1000)}:D>`, inline: true },
+                    { name: 'Joined Server', value: member ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>` : 'Not in server', inline: true },
+                    { name: 'Nickname', value: member?.nickname || 'None', inline: true },
+                    { name: 'Bot', value: target.bot ? 'Yes' : 'No', inline: true },
+                    { name: 'Roles', value: roles.slice(0, 1024) || 'None' },
+                ],
+                timestamp: new Date().toISOString(),
+                footer: { text: `ID: ${target.id}` },
+            }], flags: 64 });
+            return;
+        }
+
+        // ── /role-info ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'role-info') {
+            const role = interaction.options.getRole('role');
+            const memberCount = interaction.guild.members.cache.filter(m => m.roles.cache.has(role.id)).size;
+            await interaction.reply({ embeds: [{
+                color: role.color || 0x5865f2,
+                title: `Role: ${role.name}`,
+                fields: [
+                    { name: 'Role ID', value: role.id, inline: true },
+                    { name: 'Color', value: role.hexColor, inline: true },
+                    { name: 'Members', value: String(memberCount), inline: true },
+                    { name: 'Hoisted', value: role.hoist ? 'Yes' : 'No', inline: true },
+                    { name: 'Mentionable', value: role.mentionable ? 'Yes' : 'No', inline: true },
+                    { name: 'Position', value: String(role.position), inline: true },
+                    { name: 'Created', value: `<t:${Math.floor(role.createdTimestamp / 1000)}:D>`, inline: true },
+                ],
+                timestamp: new Date().toISOString(),
+                footer: { text: `ID: ${role.id}` },
+            }], flags: 64 });
+            return;
+        }
+
+        // ── /server-info ──────────────────────────────────────────────────────
+        if (interaction.commandName === 'server-info') {
+            const guild = interaction.guild;
+            const owner = await guild.fetchOwner().catch(() => null);
+            await interaction.reply({ embeds: [{
+                color: LOG_COLORS.info,
+                author: { name: guild.name, icon_url: guild.iconURL({ size: 128 }) || undefined },
+                thumbnail: guild.iconURL({ size: 256 }) ? { url: guild.iconURL({ size: 256 }) } : undefined,
+                fields: [
+                    { name: 'Owner', value: owner ? `<@${owner.id}>` : 'Unknown', inline: true },
+                    { name: 'Members', value: String(guild.memberCount), inline: true },
+                    { name: 'Channels', value: String(guild.channels.cache.size), inline: true },
+                    { name: 'Roles', value: String(guild.roles.cache.size), inline: true },
+                    { name: 'Boosts', value: String(guild.premiumSubscriptionCount || 0), inline: true },
+                    { name: 'Boost Tier', value: `Level ${guild.premiumTier}`, inline: true },
+                    { name: 'Created', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D>`, inline: true },
+                    { name: 'Server ID', value: guild.id, inline: true },
+                ],
+                timestamp: new Date().toISOString(),
+            }] });
+            return;
+        }
+
+    } // end isChatInputCommand
+
     if (!interaction.isButton()) return;
 
     // ── Coloured card buttons (non-link, generated by Discord Cards tool) ─────
@@ -4042,6 +4736,19 @@ client.on('messageCreate', async (message) => {
     }
 
     if (message.author.bot) return;
+
+    // ── Invite link detection ─────────────────────────────────────────────────
+    if (message.guild) {
+        const inviteRegex = /discord\.gg\/\S+|discord(?:app)?\.com\/invite\/\S+/gi;
+        const inviteMatches = message.content.match(inviteRegex);
+        if (inviteMatches) {
+            await sendLog(message.guild, buildLogEmbed({
+                color: LOG_COLORS.warn,
+                user: message.author,
+                description: `📨 <@${message.author.id}> **posted an invite link** in <#${message.channelId}>\n\`${inviteMatches[0]}\``,
+            }));
+        }
+    }
 
     // ── AFK system ───────────────────────────────────────────────────────────
     if (message.guild) {
@@ -4297,6 +5004,272 @@ client.on('messageReactionAdd', async (reaction, user) => {
         const member = reaction.message.guild.members.cache.get(userId);
         if (member) assignVoiceRank(member, monthlyActivityScore(userId)).catch(() => {});
     }
+});
+
+// ── Message delete / edit ─────────────────────────────────────────────────────
+
+client.on('messageDelete', async (message) => {
+    // Counting channel: if current count deleted, step back
+    if (message.channelId === COUNTING_CHANNEL_ID && !message.partial) {
+        const num = parseInt(message.content?.trim(), 10);
+        if (!isNaN(num) && num === countingState.current) {
+            countingState.current = Math.max(0, num - 1);
+            countingState.lastUserId = null;
+            await saveCountingState();
+            const note = await message.channel.send(
+                `🗑️ A counting number was deleted. Count adjusted back to **${countingState.current}**. Next: **${countingState.current + 1}**`
+            ).catch(() => null);
+            if (note) setTimeout(() => note.delete().catch(() => {}), 8000);
+        }
+    }
+
+    // Logging
+    if (!message.guild) return;
+    if (message.partial || message.author?.bot) return;
+    await new Promise(r => setTimeout(r, 1000)); // brief wait for audit log
+    const entry = await getAuditEntry(message.guild, AuditLogEvent.MessageDelete, message.author?.id, 6000);
+    const deletedBy = (entry && entry.executor?.id !== message.author?.id)
+        ? `Deleted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}`
+        : 'Deleted by: author';
+    await sendLog(message.guild, buildLogEmbed({
+        color: LOG_COLORS.delete,
+        user: message.author,
+        description: `🗑️ Message by <@${message.author.id}> **was deleted** in <#${message.channelId}>`,
+        fields: [
+            { name: 'Content', value: (message.content || '[no text content]').slice(0, 1000) },
+            { name: 'Deleted by', value: deletedBy },
+        ],
+    }));
+});
+
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+    if (!newMessage.guild) return;
+    if (newMessage.author?.bot) return;
+    if (oldMessage.content === newMessage.content) return;
+    if (newMessage.partial) { try { await newMessage.fetch(); } catch { return; } }
+    await sendLog(newMessage.guild, buildLogEmbed({
+        color: LOG_COLORS.edit,
+        user: newMessage.author,
+        description: `✏️ <@${newMessage.author.id}> **edited a message** in <#${newMessage.channelId}>`,
+        fields: [
+            { name: 'Before', value: (oldMessage.content || '[unknown]').slice(0, 1000) },
+            { name: 'After',  value: (newMessage.content || '[empty]').slice(0, 1000) },
+            { name: 'Jump to message', value: `[Click here](${newMessage.url})` },
+        ],
+    }));
+});
+
+// ── Member join / leave / ban ─────────────────────────────────────────────────
+
+client.on('guildMemberAdd', async (member) => {
+    const user = member.user;
+    const ageDays = Math.floor((Date.now() - user.createdTimestamp) / 86400000);
+    const ageStr = ageDays < 1 ? 'Today' : ageDays < 7 ? `${ageDays} days ago` :
+        ageDays < 30 ? `${Math.floor(ageDays / 7)} weeks ago` :
+        ageDays < 365 ? `${Math.floor(ageDays / 30)} months ago` : `${Math.floor(ageDays / 365)} years ago`;
+    await sendLog(member.guild, buildLogEmbed({
+        color: LOG_COLORS.join, user,
+        description: `📥 <@${user.id}> **joined the server**\n**Account creation**\n${ageStr}`,
+    }));
+});
+
+client.on('guildMemberRemove', async (member) => {
+    const user = member.user;
+    await new Promise(r => setTimeout(r, 1000));
+    const banEntry  = await getAuditEntry(member.guild, AuditLogEvent.MemberBanAdd,  user.id, 6000);
+    if (banEntry) return; // guildBanAdd will log this
+    const kickEntry = await getAuditEntry(member.guild, AuditLogEvent.MemberKick, user.id, 6000);
+    if (kickEntry) {
+        const reason = kickEntry.reason || 'No reason provided';
+        await sendLog(member.guild, buildLogEmbed({
+            color: LOG_COLORS.kick, user,
+            description: `👢 <@${user.id}> **was kicked**\nReason: ${reason}`,
+            footerExtra: `Kicked by: ${kickEntry.executor?.tag || kickEntry.executor?.username || 'Unknown'}`,
+        }));
+    } else {
+        await sendLog(member.guild, buildLogEmbed({
+            color: LOG_COLORS.leave, user,
+            description: `📤 <@${user.id}> **left the server**`,
+        }));
+    }
+});
+
+client.on('guildBanAdd', async (ban) => {
+    const user = ban.user;
+    await new Promise(r => setTimeout(r, 500));
+    const entry = await getAuditEntry(ban.guild, AuditLogEvent.MemberBanAdd, user.id, 6000);
+    const reason = ban.reason || entry?.reason || 'No reason provided';
+    await sendLog(ban.guild, buildLogEmbed({
+        color: LOG_COLORS.ban, user,
+        description: `🔨 <@${user.id}> **was banned**\nReason: ${reason}`,
+        footerExtra: entry ? `Banned by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` : '',
+    }));
+});
+
+client.on('guildBanRemove', async (ban) => {
+    const user = ban.user;
+    await new Promise(r => setTimeout(r, 500));
+    const entry = await getAuditEntry(ban.guild, AuditLogEvent.MemberBanRemove, user.id, 6000);
+    await sendLog(ban.guild, buildLogEmbed({
+        color: LOG_COLORS.join, user,
+        description: `✅ <@${user.id}> **was unbanned**`,
+        footerExtra: entry ? `Unbanned by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` : '',
+    }));
+});
+
+// ── Avatar change ─────────────────────────────────────────────────────────────
+
+client.on('userUpdate', async (oldUser, newUser) => {
+    if (oldUser.avatar === newUser.avatar) return;
+    const guild = client.guilds.cache.first();
+    if (!guild) return;
+    const oldUrl = oldUser.displayAvatarURL({ size: 256, extension: 'png' });
+    const newUrl = newUser.displayAvatarURL({ size: 256, extension: 'png' });
+    await sendLog(guild, {
+        color: LOG_COLORS.nick,
+        author: { name: newUser.username, icon_url: newUrl },
+        description: `🖼️ <@${newUser.id}> **updated their avatar**`,
+        thumbnail: { url: newUrl },
+        image: oldUrl ? { url: oldUrl } : undefined,
+        timestamp: new Date().toISOString(),
+        footer: { text: `ID: ${newUser.id}` },
+    });
+});
+
+// ── Role events ───────────────────────────────────────────────────────────────
+
+client.on('roleCreate', async (role) => {
+    const entry = await getAuditEntry(role.guild, AuditLogEvent.RoleCreate, role.id, 8000);
+    await sendLog(role.guild, {
+        color: LOG_COLORS.role,
+        description: `🎭 Role **${role.name}** was **created**`,
+        fields: [{ name: 'Role ID', value: role.id, inline: true }],
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Created by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('roleUpdate', async (oldRole, newRole) => {
+    const changes = [];
+    if (oldRole.name !== newRole.name) changes.push({ name: 'Name', value: `${oldRole.name} → ${newRole.name}` });
+    if (oldRole.color !== newRole.color) changes.push({ name: 'Color', value: `#${oldRole.color.toString(16).padStart(6,'0')} → #${newRole.color.toString(16).padStart(6,'0')}` });
+    if (!changes.length) return;
+    const entry = await getAuditEntry(newRole.guild, AuditLogEvent.RoleUpdate, newRole.id, 8000);
+    await sendLog(newRole.guild, {
+        color: LOG_COLORS.role,
+        description: `🎭 Role **${newRole.name}** was **updated**`,
+        fields: changes,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Updated by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('roleDelete', async (role) => {
+    const entry = await getAuditEntry(role.guild, AuditLogEvent.RoleDelete, role.id, 8000);
+    await sendLog(role.guild, {
+        color: LOG_COLORS.role,
+        description: `🎭 Role **${role.name}** was **deleted**`,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Deleted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+// ── Channel events ────────────────────────────────────────────────────────────
+
+client.on('channelCreate', async (channel) => {
+    if (!channel.guild) return;
+    const entry = await getAuditEntry(channel.guild, AuditLogEvent.ChannelCreate, channel.id, 8000);
+    await sendLog(channel.guild, {
+        color: LOG_COLORS.info,
+        description: `📁 Channel **#${channel.name}** was **created**`,
+        fields: [
+            { name: 'Type',     value: channel.type.toString(), inline: true },
+            { name: 'Category', value: channel.parent?.name || 'None', inline: true },
+        ],
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Created by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('channelUpdate', async (oldChannel, newChannel) => {
+    if (!newChannel.guild) return;
+    const changes = [];
+    if (oldChannel.name !== newChannel.name) changes.push({ name: 'Name', value: `${oldChannel.name} → ${newChannel.name}` });
+    if (oldChannel.topic !== newChannel.topic) changes.push({ name: 'Topic', value: `${oldChannel.topic || 'none'} → ${newChannel.topic || 'none'}` });
+    if (!changes.length) return;
+    const entry = await getAuditEntry(newChannel.guild, AuditLogEvent.ChannelUpdate, newChannel.id, 8000);
+    await sendLog(newChannel.guild, {
+        color: LOG_COLORS.info,
+        description: `📁 Channel **#${newChannel.name}** was **updated**`,
+        fields: changes,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Updated by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('channelDelete', async (channel) => {
+    if (!channel.guild) return;
+    const entry = await getAuditEntry(channel.guild, AuditLogEvent.ChannelDelete, channel.id, 8000);
+    await sendLog(channel.guild, {
+        color: LOG_COLORS.info,
+        description: `📁 Channel **#${channel.name}** was **deleted**`,
+        fields: [{ name: 'Category', value: channel.parent?.name || 'None', inline: true }],
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Deleted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+// ── Emoji events ──────────────────────────────────────────────────────────────
+
+client.on('emojiCreate', async (emoji) => {
+    const entry = await getAuditEntry(emoji.guild, AuditLogEvent.EmojiCreate, emoji.id, 8000);
+    await sendLog(emoji.guild, {
+        color: LOG_COLORS.server,
+        description: `😀 Emoji **:${emoji.name}:** was **added**`,
+        thumbnail: emoji.url ? { url: emoji.url } : undefined,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Added by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('emojiUpdate', async (oldEmoji, newEmoji) => {
+    if (oldEmoji.name === newEmoji.name) return;
+    const entry = await getAuditEntry(newEmoji.guild, AuditLogEvent.EmojiUpdate, newEmoji.id, 8000);
+    await sendLog(newEmoji.guild, {
+        color: LOG_COLORS.server,
+        description: `😀 Emoji **:${oldEmoji.name}:** was **renamed** to **:${newEmoji.name}:**`,
+        thumbnail: newEmoji.url ? { url: newEmoji.url } : undefined,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Renamed by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('emojiDelete', async (emoji) => {
+    const entry = await getAuditEntry(emoji.guild, AuditLogEvent.EmojiDelete, emoji.id, 8000);
+    await sendLog(emoji.guild, {
+        color: LOG_COLORS.server,
+        description: `😀 Emoji **:${emoji.name}:** was **removed**`,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Removed by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+// ── Server update ─────────────────────────────────────────────────────────────
+
+client.on('guildUpdate', async (oldGuild, newGuild) => {
+    const changes = [];
+    if (oldGuild.name !== newGuild.name) changes.push({ name: 'Name', value: `${oldGuild.name} → ${newGuild.name}` });
+    if (oldGuild.icon !== newGuild.icon) changes.push({ name: 'Icon', value: 'Icon was updated' });
+    if (oldGuild.description !== newGuild.description) changes.push({ name: 'Description', value: `${oldGuild.description || 'none'} → ${newGuild.description || 'none'}` });
+    if (!changes.length) return;
+    const entry = await getAuditEntry(newGuild, AuditLogEvent.GuildUpdate, null, 8000);
+    await sendLog(newGuild, {
+        color: LOG_COLORS.server,
+        description: '🏠 **Server settings were updated**',
+        fields: changes,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Updated by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
 });
 
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
