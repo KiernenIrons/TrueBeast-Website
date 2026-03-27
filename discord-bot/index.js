@@ -3012,10 +3012,20 @@ client.once('clientReady', async () => {
     console.log(`[BeastBot] ✅  Logged in as ${client.user.tag}`);
     console.log(`[BeastBot] Monitoring channel(s): ${CHANNEL_IDS.join(', ')}`);
     console.log(`[BeastBot] Steam: ${STEAM_API_KEY ? 'enabled' : 'no API key yet'}`);
-    // Log restart to logs channel instead of bump channel
+    // Log restart to logs channel
     try {
         const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
         await logCh.send(`🔄 **Beast Bot restarted** — ${new Date().toUTCString()}\nReason: deployment update`);
+    } catch (_) {}
+    // Post update notification to announcements channel
+    try {
+        const updateCh = await client.channels.fetch('1485384313062162522');
+        await updateCh.send({ embeds: [{
+            color: 0x22c55e,
+            title: '🤖 Beast Bot — New Update Released',
+            description: `Beast Bot has been updated and is back online!\n<t:${Math.floor(Date.now() / 1000)}:F>`,
+            footer: { text: 'Beast Bot' },
+        }] });
     } catch (_) {}
 
     // Load ALL message counts from Firestore (paginated)
@@ -4104,68 +4114,6 @@ client.on('interactionCreate', async (interaction) => {
             );
             return;
         }
-    }
-
-    // ── Introduction modal submit ─────────────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId === 'intro:modal') {
-        const name        = interaction.fields.getTextInputValue('intro_name');
-        const ageLocation = interaction.fields.getTextInputValue('intro_age_location');
-        const about       = interaction.fields.getTextInputValue('intro_about');
-        const hobbies     = interaction.fields.getTextInputValue('intro_hobbies');
-        const games       = interaction.fields.getTextInputValue('intro_games');
-
-        const user   = interaction.user;
-        const member = interaction.member;
-
-        const q = s => `> ${s.split('\n').join('\n> ')}`;
-
-        const embedFields = [
-            { name: '📍 Age & Location', value: q(ageLocation), inline: true },
-            { name: '👤 About', value: q(about), inline: false },
-        ];
-        if (hobbies) embedFields.push({ name: '🎯 Hobbies & Interests', value: q(hobbies), inline: false });
-        if (games)   embedFields.push({ name: '🎮 Games & Streams', value: q(games), inline: false });
-
-        const embed = {
-            color: 0x5865f2,
-            author: { name: '👋 New Introduction!' },
-            title: name,
-            thumbnail: { url: user.displayAvatarURL({ dynamic: true, size: 256 }) },
-            fields: embedFields,
-            footer: {
-                text: `@${user.username}`,
-                icon_url: user.displayAvatarURL({ dynamic: true }),
-            },
-            timestamp: new Date().toISOString(),
-        };
-
-        try {
-            if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
-
-            const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
-            const introRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('intro:start')
-                    .setLabel('📝 Make your own introduction')
-                    .setStyle(ButtonStyle.Success),
-                new ButtonBuilder()
-                    .setCustomId(`intro:delete:${user.id}`)
-                    .setLabel('🗑️ Delete this intro')
-                    .setStyle(ButtonStyle.Danger),
-            );
-            await introChannel.send({
-                content: `Welcome to the server, <@${user.id}>! 🎉`,
-                embeds: [embed],
-                components: [introRow],
-            });
-            await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
-            console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
-        } catch (e) {
-            console.error('[BeastBot] Failed to post introduction:', e.message);
-            await interaction.reply({ content: '❌ Something went wrong posting your intro. Try again or let Kiernen know.', ephemeral: true });
-        }
-        return;
-    }
 
         // ── /say ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'say') {
@@ -4235,7 +4183,7 @@ client.on('interactionCreate', async (interaction) => {
             const ms = parseDuration(durStr);
             if (!ms) { await interaction.editReply('❌ Invalid duration. Use e.g. `1h`, `2d`, `1w`.'); return; }
             try {
-                await interaction.guild.members.ban(target.id, { reason: `Temp ban (${durStr}): ${reason}`, deleteMessageSeconds: 0 });
+                await interaction.guild.members.ban(target.id, { reason: `Temp ban (${durStr}): ${reason}` });
                 const expiresAt = Date.now() + ms;
                 tempBans.set(target.id, { guildId: interaction.guild.id, expiresAt, reason });
                 await saveTempBans();
@@ -4515,7 +4463,68 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-    } // end isChatInputCommand
+    }
+
+    // ── Introduction modal submit ─────────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'intro:modal') {
+        const name        = interaction.fields.getTextInputValue('intro_name');
+        const ageLocation = interaction.fields.getTextInputValue('intro_age_location');
+        const about       = interaction.fields.getTextInputValue('intro_about');
+        const hobbies     = interaction.fields.getTextInputValue('intro_hobbies');
+        const games       = interaction.fields.getTextInputValue('intro_games');
+
+        const user   = interaction.user;
+        const member = interaction.member;
+
+        const q = s => `> ${s.split('\n').join('\n> ')}`;
+
+        const embedFields = [
+            { name: '📍 Age & Location', value: q(ageLocation), inline: true },
+            { name: '👤 About', value: q(about), inline: false },
+        ];
+        if (hobbies) embedFields.push({ name: '🎯 Hobbies & Interests', value: q(hobbies), inline: false });
+        if (games)   embedFields.push({ name: '🎮 Games & Streams', value: q(games), inline: false });
+
+        const embed = {
+            color: 0x5865f2,
+            author: { name: '👋 New Introduction!' },
+            title: name,
+            thumbnail: { url: user.displayAvatarURL({ dynamic: true, size: 256 }) },
+            fields: embedFields,
+            footer: {
+                text: `@${user.username}`,
+                icon_url: user.displayAvatarURL({ dynamic: true }),
+            },
+            timestamp: new Date().toISOString(),
+        };
+
+        try {
+            if (!INTRO_CHANNEL_ID) throw new Error('INTRO_CHANNEL_ID not set');
+
+            const introChannel = await client.channels.fetch(INTRO_CHANNEL_ID);
+            const introRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('intro:start')
+                    .setLabel('📝 Make your own introduction')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`intro:delete:${user.id}`)
+                    .setLabel('🗑️ Delete this intro')
+                    .setStyle(ButtonStyle.Danger),
+            );
+            await introChannel.send({
+                content: `Welcome to the server, <@${user.id}>! 🎉`,
+                embeds: [embed],
+                components: [introRow],
+            });
+            await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
+            console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
+        } catch (e) {
+            console.error('[BeastBot] Failed to post introduction:', e.message);
+            await interaction.reply({ content: '❌ Something went wrong posting your intro. Try again or let Kiernen know.', ephemeral: true });
+        }
+        return;
+    }
 
     if (!interaction.isButton()) return;
 
