@@ -449,7 +449,7 @@ const client = new Client({
         GatewayIntentBits.GuildModeration,
         GatewayIntentBits.GuildEmojisAndStickers,
     ],
-    partials: [Partials.Channel, Partials.Message],
+    partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
 
 const COUNTING_CHANNEL_ID = '1486479498248585277';
@@ -530,9 +530,7 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🐛 Bug Fix — Monthly Rank Reset', value: 'The monthly rank reset (Bronze I on the 1st) was broken by the no-demotion fix and has been repaired.' },
-    { name: '📊 XP Accuracy', value: 'Voice XP now always reflects your live session instantly — no more waiting for the 60s save tick.' },
-    { name: '🔇 No-XP Voice Channel', value: 'A private voice channel has been excluded from the XP/rank system.' },
+    { name: '🐛 Bug Fix — Reactions Not Tracking', value: 'Reactions were silently dropped on most messages due to a missing Discord partial. All reactions now track correctly across all periods (today/week/month/all time) and persist through restarts.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
