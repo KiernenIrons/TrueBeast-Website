@@ -524,15 +524,15 @@ let countingState = {
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
-// Voice channels that don't earn XP (AFK-equivalent, lounge, etc.)
-const NO_XP_VC_IDS = new Set(['1017862214083952671']);
+// Voice channels that don't earn XP — private/excluded channels
+const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channel
 
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
     { name: '🐛 Bug Fix — Monthly Rank Reset', value: 'The monthly rank reset (Bronze I on the 1st) was broken by the no-demotion fix and has been repaired.' },
     { name: '📊 XP Accuracy', value: 'Voice XP now always reflects your live session instantly — no more waiting for the 60s save tick.' },
-    { name: '🔇 No-XP Voice Channel', value: 'The general chat voice channel no longer earns XP or contributes to rank.' },
+    { name: '🔇 No-XP Voice Channel', value: 'A private voice channel has been excluded from the XP/rank system.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
