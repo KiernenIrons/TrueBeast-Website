@@ -524,6 +524,8 @@ let countingState = {
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
+// Voice channels that don't earn XP (AFK-equivalent, lounge, etc.)
+const NO_XP_VC_IDS = new Set(['1017862214083952671']);
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
@@ -1744,8 +1746,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 assignVoiceRank(trackingMember, monthlyActivityScore(uid)).catch(() => {});
             }
         }
-        // Session start: joined a real channel (not AFK, not trigger)
-        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID) {
+        // Session start: joined a real channel (not AFK, not trigger, not no-XP)
+        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID && !NO_XP_VC_IDS.has(newCh)) {
             const existing = voiceMinutes.get(uid) || { total: 0, days: new Map() };
             voiceStartTimes.set(uid, {
                 startMs: Date.now(),
@@ -3291,7 +3293,7 @@ client.once('clientReady', async () => {
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
-            .filter(ch => (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice) && ch.id !== AFK_CHANNEL_ID && ch.id !== TEMP_VC_TRIGGER_ID)
+            .filter(ch => (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice) && ch.id !== AFK_CHANNEL_ID && ch.id !== TEMP_VC_TRIGGER_ID && !NO_XP_VC_IDS.has(ch.id))
             .forEach(ch => ch.members.forEach(member => {
                 if (!member.user.bot) {
                     const existing = voiceMinutes.get(member.id) || { total: 0, days: new Map() };
