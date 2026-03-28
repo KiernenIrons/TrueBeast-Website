@@ -526,6 +526,14 @@ const rankAchievements   = new Map(); // userId → { highestRankIdx: number, ap
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 // Voice channels that don't earn XP (AFK-equivalent, lounge, etc.)
 const NO_XP_VC_IDS = new Set(['1017862214083952671']);
+
+// ── Update notes — edit this block before every deploy ────────────────────────
+// Each entry: { name, value } — shown as fields in the update announcement embed
+const UPDATE_NOTES = [
+    { name: '🐛 Bug Fix — Monthly Rank Reset', value: 'The monthly rank reset (Bronze I on the 1st) was broken by the no-demotion fix and has been repaired.' },
+    { name: '📊 XP Accuracy', value: 'Voice XP now always reflects your live session instantly — no more waiting for the 60s save tick.' },
+    { name: '🔇 No-XP Voice Channel', value: 'The general chat voice channel no longer earns XP or contributes to rank.' },
+];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
@@ -3057,16 +3065,9 @@ client.once('clientReady', async () => {
         await updateCh.send({ content: '<@1469644183881912551>', embeds: [{
             color: 0x22c55e,
             title: '🤖 Beast Bot — New Update Released',
-            description: `Beast Bot has just been updated and is back online!`,
-            fields: [
-                { name: '📋 Logging System', value: 'Full audit logs now post to <#1339916490744397896>:\nMember join/leave/ban/unban/kick, message edits & deletes, mute/unmute, nickname & role changes, voice join/leave, invite detection, avatar updates, role/channel/emoji/server changes' },
-                { name: '⚖️ Mod Commands', value: '`/ban` `/tempban` `/kick` `/mute` `/tempmute` `/unmute` `/unban` `/warn` `/infractions` `/clear-all-infractions` `/clear` `/slowmode`\nAll actions are logged automatically.' },
-                { name: '🔍 Info Commands', value: '`/user-info` `/role-info` `/server-info`' },
-                { name: '📢 Messaging Commands', value: '`/say` — Send a message as the bot (owner only)\n`/dm` — Send an anonymous DM as the bot (mods only)' },
-                { name: '🔢 Counting Fix', value: 'If someone deletes a counting number, the count automatically adjusts back.' },
-                { name: '🐛 Bug Fix', value: 'Fixed a bug where voice ranks could be downgraded on bot restart. Ranks will **never** decrease.' },
-            ],
-            footer: { text: `Beast Bot • Released` },
+            description: 'Beast Bot has just been updated and is back online!',
+            fields: UPDATE_NOTES,
+            footer: { text: 'Beast Bot • Released' },
             timestamp: new Date().toISOString(),
         }] });
     } catch (e) { console.error('[BeastBot] Failed to post update notification:', e.message); }
