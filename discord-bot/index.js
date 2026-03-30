@@ -784,11 +784,6 @@ function scheduleSpotlight() {
 // ── Counting game ─────────────────────────────────────────────────────────────
 
 async function saveCountingState() {
-    // Never overwrite real Firestore data with a zeroed in-memory state (e.g. on shutdown before load completes)
-    if (!countingState.countingLoaded && countingState.record === 0 && countingState.ruinedBy.length === 0 && countingState.current === 0) {
-        console.log('[BeastBot] saveCountingState skipped — state not yet loaded from Firestore');
-        return;
-    }
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`;
     try {
         const res = await fetch(url, {
@@ -880,7 +875,10 @@ async function handleCountingMessage(message) {
     countingState.lastUserId = message.author.id;
     if (num > countingState.record) countingState.record = num;
 
-    await saveCountingState();
+    // Debounce Firestore save — write 5s after the last count, not on every number
+    if (countingState._saveTimer) clearTimeout(countingState._saveTimer);
+    countingState._saveTimer = setTimeout(() => { countingState._saveTimer = null; saveCountingState(); }, 5000);
+
     if (num % 10 === 0) await message.react('🎉').catch(() => {});
 }
 
@@ -3257,7 +3255,6 @@ client.once('clientReady', async () => {
                 countingState.lastUserId = f.lastUserId?.stringValue           || null;
                 countingState.record     = parseInt(f.record?.integerValue     || '0', 10);
                 try { countingState.ruinedBy = JSON.parse(f.ruinedBy?.stringValue || '[]'); } catch { countingState.ruinedBy = []; }
-                countingState.countingLoaded = true;
             }
             console.log(`[BeastBot] Counting loaded — current: ${countingState.current}, record: ${countingState.record}`);
         } catch (e) { console.error('[BeastBot] loadCountingState error:', e.message); }
@@ -5448,7 +5445,6 @@ async function flushBeforeExit() {
         const data = creditVoiceTime(uid);
         if (data) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
     }
-    promises.push(saveCountingState());
     promises.push(saveMessageBackup());
     await Promise.allSettled(promises);
     console.log('[BeastBot] Flush complete');
