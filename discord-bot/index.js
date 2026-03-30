@@ -70,6 +70,21 @@ function appendHistory(userId, userMessage, assistantMessage) {
     const maxMessages = MAX_HISTORY_EXCHANGES * 2;
     if (history.length > maxMessages) history.splice(0, history.length - maxMessages);
     conversationHistory.set(userId, history);
+    scheduleAiHistorySave();
+}
+
+let _aiHistoryTimer = null;
+function scheduleAiHistorySave() {
+    if (_aiHistoryTimer) return;
+    _aiHistoryTimer = setTimeout(async () => {
+        _aiHistoryTimer = null;
+        try {
+            // Keep only 50 most recent users
+            const entries = [...conversationHistory.entries()].slice(-50);
+            const obj = Object.fromEntries(entries);
+            await firestoreSet('botConfig', 'aiHistory', { data: JSON.stringify(obj) });
+        } catch (e) { console.error('[BeastBot] Failed to save AI history:', e.message); }
+    }, 60000);
 }
 
 function makeQuestionId() {
@@ -350,6 +365,12 @@ Personality:
 - Don't be robotic or overly formal, but don't try too hard to sound cool either — just be genuine
 - If something's funny, lean into it. If it's not, don't pretend it is
 
+CONTEXT YOU RECEIVE — use it to personalise your responses:
+- ## Who You're Talking To: their display name, server rank, XP, voice time, join date. Reference these naturally when relevant (e.g. acknowledge rank progress, reference their activity). Don't recite stats robotically — weave them in when they add something.
+- If the user is TrueBeast / Kiernen Irons (server owner), be more candid and casual. He runs this server and knows how everything works.
+- ## Recent Channel Messages: the last few messages in the channel. Use this to understand the ongoing conversation and respond in context, not in a vacuum.
+- You are in a dedicated AI chat channel — people come here to have real conversations, not just ask support questions. Lean into that.
+
 JOKES — When someone asks you for a joke, tell me a joke, make me laugh, etc.:
 - Actually be funny. No "why did the chicken cross the road" garbage. No dad jokes unless they're genuinely clever.
 - Dark humour, absurdist humour, observational comedy, self-deprecating wit — all fair game
@@ -362,11 +383,13 @@ JOKES — When someone asks you for a joke, tell me a joke, make me laugh, etc.:
 
 CRITICAL: Your entire reply must be valid JSON. No text before or after the JSON object.`;
 
-async function askClaude(question, knowledge, discordContext, steamContext, history = []) {
+async function askClaude(question, knowledge, discordContext, steamContext, history = [], userContext = null, channelCtx = null) {
     const contextParts = [];
     if (knowledge)      contextParts.push(`## Knowledge Base\n${knowledge}`);
     if (discordContext) contextParts.push(`## Live Discord Context\n${discordContext}`);
     if (steamContext)   contextParts.push(`## Live Steam Context\n${steamContext}`);
+    if (userContext)    contextParts.push(`## Who You're Talking To\n${userContext}`);
+    if (channelCtx)     contextParts.push(`## Recent Channel Messages\n${channelCtx}`);
 
     const currentUserContent = contextParts.length
         ? `${contextParts.join('\n\n')}\n\n---\n\nUser message: ${question}`
@@ -416,6 +439,43 @@ async function askClaude(question, knowledge, discordContext, steamContext, hist
     }
 }
 
+// ── AI context helpers ────────────────────────────────────────────────────────
+
+function buildUserContext(userId, guild) {
+    const member   = guild.members.cache.get(userId);
+    const name     = memberNameCache.get(userId) || member?.displayName || 'Unknown';
+    const score    = monthlyActivityScore(userId);
+    const msgs     = messageCounts.get(userId) || 0;
+    const vcData   = voiceMinutes.get(userId) || { total: 0 };
+    const isOwner  = userId === OWNER_DISCORD_ID;
+
+    let rankIdx = 0;
+    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+        if (score >= VOICE_RANK_ROLES[i].minXp) rankIdx = i;
+    }
+    const rankName = VOICE_RANK_ROLES[rankIdx].name;
+    const joinedAt = member?.joinedAt ? member.joinedAt.toDateString() : 'unknown';
+
+    return [
+        `**Display name:** ${name}${isOwner ? ' (server owner — TrueBeast / Kiernen Irons)' : ''}`,
+        `**Server rank:** ${rankName} (${score} XP this month)`,
+        `**Messages sent (all time):** ${msgs.toLocaleString()}`,
+        `**Voice time (all time):** ${Math.floor(vcData.total / 60)}h ${vcData.total % 60}m`,
+        `**Joined server:** ${joinedAt}`,
+    ].join('\n');
+}
+
+async function fetchChannelContext(channel) {
+    try {
+        const msgs = await channel.messages.fetch({ limit: 10 });
+        return [...msgs.values()]
+            .reverse()
+            .filter(m => m.content && !m.author.bot)
+            .map(m => `[${m.member?.displayName ?? m.author.username}]: ${m.content.slice(0, 200)}`)
+            .join('\n') || null;
+    } catch { return null; }
+}
+
 // ── Mod alert ────────────────────────────────────────────────────────────────
 
 async function notifyMods(message) {
@@ -453,6 +513,7 @@ const client = new Client({
 });
 
 const COUNTING_CHANNEL_ID = '1486479498248585277';
+const AI_CHANNEL_ID      = '1482956343131246673';
 const BUMP_CHANNEL_ID    = '1477361149862482053';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
@@ -530,7 +591,11 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🐛 Bug Fix — Reactions Not Tracking', value: 'Reactions were silently dropped on most messages due to a missing Discord partial. All reactions now track correctly across all periods (today/week/month/all time) and persist through restarts.' },
+    { name: '🤖 AI Channel', value: 'Beast Bot now responds in <#1482956343131246673>. Chat, ask questions, or just vibe.' },
+    { name: '🧠 Personalised Responses', value: 'The bot now knows your rank, XP, voice time and join date — responses are tailored to you.' },
+    { name: '💬 Channel Context', value: 'The bot reads recent messages before responding so it understands the conversation.' },
+    { name: '📝 Owner Knowledge Updates', value: 'TrueBeast can type "remember: X" or "note: X" anywhere to teach the bot new facts instantly.' },
+    { name: '💾 Memory Persistence', value: 'Conversation history now survives bot restarts.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -3567,6 +3632,16 @@ client.once('clientReady', async () => {
     await loadInfractions();
     await loadTempBans();
 
+    // Load persisted AI conversation history
+    try {
+        const saved = await firestoreGet('botConfig', 'aiHistory');
+        if (saved?.data) {
+            const parsed = JSON.parse(saved.data);
+            for (const [uid, hist] of Object.entries(parsed)) conversationHistory.set(uid, hist);
+            console.log(`[BeastBot] Loaded AI history for ${conversationHistory.size} users`);
+        }
+    } catch (e) { console.error('[BeastBot] Failed to load AI history:', e.message); }
+
 });
 
 // ── Button interactions ───────────────────────────────────────────────────────
@@ -4955,8 +5030,21 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // ── Support channel messages ──────────────────────────────────────────────
-    if (!CHANNEL_IDS.includes(message.channelId)) return;
+    // ── Owner "remember:" shortcut — teach the bot new facts from anywhere ──────
+    if (message.author.id === OWNER_DISCORD_ID) {
+        const m = message.content.match(/^(?:remember|note)[:\s]+(.+)/is);
+        if (m) {
+            const fact = m[1].trim();
+            await saveToKnowledgeBase('Note from TrueBeast', fact);
+            await message.react('🧠');
+            return;
+        }
+    }
+
+    // ── Support / AI channel messages ─────────────────────────────────────────
+    const isSupportChannel = CHANNEL_IDS.includes(message.channelId);
+    const isAiChannel      = message.channelId === AI_CHANNEL_ID;
+    if (!isSupportChannel && !isAiChannel) return;
 
     const question = message.content.trim();
     if (!question) return;
@@ -4966,13 +5054,15 @@ client.on('messageCreate', async (message) => {
 
     let result;
     try {
-        const [knowledge, discordContext, steamContext] = await Promise.all([
+        const [knowledge, discordContext, steamContext, channelCtx] = await Promise.all([
             fetchKnowledge(),
             fetchDiscordContext(message.guild),
             fetchSteamGames(),
+            isAiChannel ? fetchChannelContext(message.channel) : Promise.resolve(null),
         ]);
-        const history = getHistory(message.author.id);
-        result = await askClaude(question, knowledge, discordContext, steamContext, history);
+        const history     = getHistory(message.author.id);
+        const userContext = message.guild ? buildUserContext(message.author.id, message.guild) : null;
+        result = await askClaude(question, knowledge, discordContext, steamContext, history, userContext, channelCtx);
     } catch (e) {
         console.error('[BeastBot] Error:', e.message);
         result = { known: true, inappropriate: false, response: '⚠️ Something went wrong on my end. Please try again in a moment!' };

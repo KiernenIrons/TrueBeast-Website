@@ -1,5 +1,17 @@
 # Beast Bot Changelog
 
+## [2026-03-30] — AI channel + per-user context + memory persistence
+
+- Added `AI_CHANNEL_ID = '1482956343131246673'` — bot now responds in the dedicated AI channel in addition to support channels
+- Added `buildUserContext()` — injects each user's display name, rank, XP, voice time, and join date into the AI prompt for personalised responses
+- Added `fetchChannelContext()` — reads the last 10 non-bot messages in the AI channel so the bot understands the ongoing conversation
+- Updated `askClaude()` signature to accept `userContext` and `channelCtx` params, both injected as context sections
+- Added TrueBeast `remember: X` / `note: X` shortcut — owner can type this anywhere to save a fact directly to the Firestore knowledge base (bot reacts 🧠)
+- Added `scheduleAiHistorySave()` — debounced 60s Firestore write after each conversation exchange; history survives restarts
+- Added AI history load in `clientReady` — restores conversation history for all users from `botConfig/aiHistory`
+- Updated `SYSTEM_PROMPT` with instructions on how to use the new user context and channel context sections
+- Updated `UPDATE_NOTES` to reflect all AI changes
+
 ## [2026-03-30] — Force re-registration of slash commands
 
 - Redeployed to re-register all slash commands after they became unavailable
