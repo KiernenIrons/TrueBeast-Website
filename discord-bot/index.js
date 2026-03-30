@@ -784,6 +784,11 @@ function scheduleSpotlight() {
 // ── Counting game ─────────────────────────────────────────────────────────────
 
 async function saveCountingState() {
+    // Never overwrite real Firestore data with a zeroed in-memory state (e.g. on shutdown before load completes)
+    if (!countingState.countingLoaded && countingState.record === 0 && countingState.ruinedBy.length === 0 && countingState.current === 0) {
+        console.log('[BeastBot] saveCountingState skipped — state not yet loaded from Firestore');
+        return;
+    }
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`;
     try {
         const res = await fetch(url, {
@@ -3252,6 +3257,7 @@ client.once('clientReady', async () => {
                 countingState.lastUserId = f.lastUserId?.stringValue           || null;
                 countingState.record     = parseInt(f.record?.integerValue     || '0', 10);
                 try { countingState.ruinedBy = JSON.parse(f.ruinedBy?.stringValue || '[]'); } catch { countingState.ruinedBy = []; }
+                countingState.countingLoaded = true;
             }
             console.log(`[BeastBot] Counting loaded — current: ${countingState.current}, record: ${countingState.record}`);
         } catch (e) { console.error('[BeastBot] loadCountingState error:', e.message); }
