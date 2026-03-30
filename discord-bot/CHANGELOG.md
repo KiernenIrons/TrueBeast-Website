@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-03-30] — Fix: bot now answers event questions directly instead of redirecting
+
+- `fetchDiscordContext()` now also fetches the 5 most recent **past** Discord scheduled events (in addition to upcoming) so the bot can answer "what was the most recent game night" etc.
+- Events channel message fetch limit increased from 5 → 10; content per message 400 → 800 chars
+- Announcements channel content limit also raised to 800 chars
+- SYSTEM_PROMPT updated: bot is now explicitly told to answer event/game night questions from its live context rather than telling users to check a channel themselves
+
 ## [2026-03-30] — AI channel + per-user context + memory persistence
 
 - Added `AI_CHANNEL_ID = '1482956343131246673'` — bot now responds in the dedicated AI channel in addition to support channels

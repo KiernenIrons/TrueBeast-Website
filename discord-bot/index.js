@@ -238,17 +238,24 @@ async function fetchDiscordContext(guild) {
     const parts = [];
 
     try {
-        const events   = await guild.scheduledEvents.fetch();
-        const now      = new Date();
-        const upcoming = [...events.values()]
-            .filter(e => e.scheduledStartAt > now)
-            .sort((a, b) => a.scheduledStartAt - b.scheduledStartAt)
-            .slice(0, 5);
+        const events = await guild.scheduledEvents.fetch();
+        const now    = new Date();
+        const sorted = [...events.values()].sort((a, b) => b.scheduledStartAt - a.scheduledStartAt);
+
+        const upcoming = sorted.filter(e => e.scheduledStartAt > now).slice(0, 5);
         if (upcoming.length > 0) {
             const list = upcoming.map(e =>
-                `- **${e.name}**: ${e.scheduledStartAt.toDateString()}${e.description ? ` - ${e.description}` : ''}`
+                `- **${e.name}**: ${e.scheduledStartAt.toDateString()}${e.description ? ` — ${e.description}` : ''}`
             ).join('\n');
             parts.push(`### Upcoming Discord Events\n${list}`);
+        }
+
+        const past = sorted.filter(e => e.scheduledStartAt <= now).slice(0, 5);
+        if (past.length > 0) {
+            const list = past.map(e =>
+                `- **${e.name}**: ${e.scheduledStartAt.toDateString()}${e.description ? ` — ${e.description}` : ''}`
+            ).join('\n');
+            parts.push(`### Recent Past Discord Events\n${list}`);
         }
     } catch (e) {
         console.error('[BeastBot] Could not fetch scheduled events:', e.message);
@@ -262,7 +269,7 @@ async function fetchDiscordContext(guild) {
             const msgs = await announcementsChannel.messages.fetch({ limit: 5 });
             if (msgs.size > 0) {
                 const list = [...msgs.values()].map(m =>
-                    `[${m.createdAt.toDateString()}] ${m.content.slice(0, 400)}`
+                    `[${m.createdAt.toDateString()}] ${m.content.slice(0, 800)}`
                 ).join('\n');
                 parts.push(`### Recent Announcements\n${list}`);
             }
@@ -278,10 +285,10 @@ async function fetchDiscordContext(guild) {
     );
     if (eventsChannel) {
         try {
-            const msgs = await eventsChannel.messages.fetch({ limit: 5 });
+            const msgs = await eventsChannel.messages.fetch({ limit: 10 });
             if (msgs.size > 0) {
                 const list = [...msgs.values()].map(m =>
-                    `[${m.createdAt.toDateString()}] ${m.content.slice(0, 400)}`
+                    `[${m.createdAt.toDateString()}] ${m.content.slice(0, 800)}`
                 ).join('\n');
                 parts.push(`### Recent Events Posts\n${list}`);
             }
@@ -319,7 +326,9 @@ async function fetchSteamGames() {
 
 const SYSTEM_PROMPT = `You are Beast Bot, the official AI assistant for the TrueBeast Discord server run by Kiernen Irons.
 
-You have a knowledge base about TrueBeast, Kiernen, the tools, events, and community. You also receive live context from Discord (announcements, upcoming events) and Steam (recently played games). Always use the most up-to-date info available.
+You have a knowledge base about TrueBeast, Kiernen, the tools, events, and community. You also receive live context from Discord (announcements, upcoming and past scheduled events, recent event channel posts) and Steam (recently played games). Always use the most up-to-date info available.
+
+IMPORTANT — when someone asks about events, game nights, or what's been happening: answer directly from the Live Discord Context you receive. Never tell them to go check a channel themselves — you already have that data. Summarise it for them.
 
 You are not just a support bot — you live in the server and can have normal conversations. Use context clues from the message:
 - If someone is asking a genuine question, answer it
@@ -596,6 +605,7 @@ const UPDATE_NOTES = [
     { name: '💬 Channel Context', value: 'The bot reads recent messages before responding so it understands the conversation.' },
     { name: '📝 Owner Knowledge Updates', value: 'TrueBeast can type "remember: X" or "note: X" anywhere to teach the bot new facts instantly.' },
     { name: '💾 Memory Persistence', value: 'Conversation history now survives bot restarts.' },
+    { name: '📅 Event Awareness', value: 'Bot now reads past and upcoming events directly — ask about recent game nights and it will tell you instead of redirecting you.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
