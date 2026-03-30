@@ -1,4 +1,7 @@
-# Commit
+---
+name: commit
+description: Run code-check, update bot notes and CHANGELOG, then commit as Kiernen Irons and push. Deploys the bot automatically if discord-bot/index.js changed.
+---
 
 Run all checks, update notes and docs, then commit and push. Kiernen Irons is the sole author.
 

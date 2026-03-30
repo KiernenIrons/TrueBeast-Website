@@ -1,4 +1,7 @@
-# Code Check
+---
+name: code-check
+description: Review all recently changed code for errors before committing. Checks syntax, logic bugs, missing awaits, Discord-specific issues, and security problems.
+---
 
 Review all recently changed code for errors before committing.
 

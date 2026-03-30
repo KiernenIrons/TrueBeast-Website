@@ -1,4 +1,7 @@
-# Bot Update Notes
+---
+name: bot-update
+description: Update the UPDATE_NOTES constant in discord-bot/index.js to accurately describe all changes in the current update before deploying.
+---
 
 Update the `UPDATE_NOTES` constant in `discord-bot/index.js` to accurately reflect all changes in the current commit.
 
