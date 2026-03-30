@@ -261,6 +261,19 @@ async function fetchDiscordContext(guild) {
         console.error('[BeastBot] Could not fetch scheduled events:', e.message);
     }
 
+    // Extract all readable text from a message, including embed content
+    function msgToText(m) {
+        const lines = [];
+        if (m.content) lines.push(m.content.slice(0, 600));
+        for (const embed of m.embeds) {
+            if (embed.title)            lines.push(`Title: ${embed.title}`);
+            if (embed.description)      lines.push(`Description: ${embed.description.slice(0, 600)}`);
+            for (const f of (embed.fields || [])) lines.push(`${f.name}: ${f.value}`);
+            if (embed.footer?.text)     lines.push(`Footer: ${embed.footer.text}`);
+        }
+        return lines.join(' | ') || '(no content)';
+    }
+
     const announcementsChannel = guild.channels.cache.find(c =>
         c.isTextBased?.() && c.name.toLowerCase().includes('announcement')
     );
@@ -269,7 +282,7 @@ async function fetchDiscordContext(guild) {
             const msgs = await announcementsChannel.messages.fetch({ limit: 5 });
             if (msgs.size > 0) {
                 const list = [...msgs.values()].map(m =>
-                    `[${m.createdAt.toDateString()}] ${m.content.slice(0, 800)}`
+                    `[${m.createdAt.toDateString()}] ${msgToText(m)}`
                 ).join('\n');
                 parts.push(`### Recent Announcements\n${list}`);
             }
@@ -288,7 +301,7 @@ async function fetchDiscordContext(guild) {
             const msgs = await eventsChannel.messages.fetch({ limit: 10 });
             if (msgs.size > 0) {
                 const list = [...msgs.values()].map(m =>
-                    `[${m.createdAt.toDateString()}] ${m.content.slice(0, 800)}`
+                    `[${m.createdAt.toDateString()}] ${msgToText(m)}`
                 ).join('\n');
                 parts.push(`### Recent Events Posts\n${list}`);
             }

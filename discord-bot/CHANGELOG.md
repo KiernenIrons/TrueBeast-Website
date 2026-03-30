@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-03-30] — Fix: read embed content from events/announcements channels
+
+- `fetchDiscordContext()` now extracts embed title, description, fields, and footer from channel messages — not just `m.content`
+- Events channel embeds (movie names, game names, event details) are now visible to the AI and used in responses
+
 ## [2026-03-30] — Fix: bot now answers event questions directly instead of redirecting
 
 - `fetchDiscordContext()` now also fetches the 5 most recent **past** Discord scheduled events (in addition to upcoming) so the bot can answer "what was the most recent game night" etc.
