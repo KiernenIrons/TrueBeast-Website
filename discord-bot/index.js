@@ -613,12 +613,8 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🤖 AI Channel', value: 'Beast Bot now responds in <#1482956343131246673>. Chat, ask questions, or just vibe.' },
-    { name: '🧠 Personalised Responses', value: 'The bot now knows your rank, XP, voice time and join date — responses are tailored to you.' },
-    { name: '💬 Channel Context', value: 'The bot reads recent messages before responding so it understands the conversation.' },
-    { name: '📝 Owner Knowledge Updates', value: 'TrueBeast can type "remember: X" or "note: X" anywhere to teach the bot new facts instantly.' },
-    { name: '💾 Memory Persistence', value: 'Conversation history now survives bot restarts.' },
-    { name: '📅 Event Awareness', value: 'Bot now reads past and upcoming events directly — ask about recent game nights and it will tell you instead of redirecting you.' },
+    { name: '🏆 Wall of Shame Sort', value: 'Wall of Shame is now sorted by biggest fail (highest count ruined) instead of number of ruins.' },
+    { name: '🔄 Counting Data Restored', value: 'Wall of Shame history has been recovered after an accidental reset. Record stands at 184.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -854,7 +850,7 @@ async function handleCountingMessage(message) {
             if (r.count > shameTally[r.userId].highest) shameTally[r.userId].highest = r.count;
         }
         const shameList = Object.entries(shameTally)
-            .sort((a, b) => b[1].count - a[1].count)
+            .sort((a, b) => b[1].highest - a[1].highest)
             .slice(0, 5)
             .map(([uid, d], i) => `${i + 1}. <@${uid}> - ruined **${d.count}x** (highest at **${d.highest}**)`)
             .join('\n');
@@ -3697,7 +3693,7 @@ client.on('interactionCreate', async (interaction) => {
                 if (r.count > shameTally[r.userId].highest) shameTally[r.userId].highest = r.count;
             }
             const shameList = Object.entries(shameTally)
-                .sort((a, b) => b[1].count - a[1].count)
+                .sort((a, b) => b[1].highest - a[1].highest)
                 .slice(0, 10)
                 .map(([uid, d], i) => `${i + 1}. <@${uid}> — ruined **${d.count}x** (highest ruin at **${d.highest}**)`)
                 .join('\n') || 'No ruins yet — keep counting!';

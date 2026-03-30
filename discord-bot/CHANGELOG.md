@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-03-30] — Restore counting wall of shame + sort by biggest fail
+
+- Recovered all wall of shame data from screenshot: TrueBeast (4x, highest 166), Ammar (2x, highest 184), Tom (1x at 55), MarsKooty (1x at 52). Record restored to 184.
+- Wall of Shame now sorted by highest count ruined at (biggest fail first) instead of number of ruins — in both the counting failure embed and `/counting` command
+
 ## [2026-03-30] — Fix: read embed content from events/announcements channels
 
 - `fetchDiscordContext()` now extracts embed title, description, fields, and footer from channel messages — not just `m.content`
