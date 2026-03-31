@@ -5005,6 +5005,7 @@ client.on('interactionCreate', async (interaction) => {
         } catch (e) {
             console.error('[BeastBot] Failed to edit thought:', e.message);
             await interaction.reply({ content: '❌ Could not edit that thought. It may have been deleted.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         }
         return;
     }
@@ -5062,6 +5063,7 @@ client.on('interactionCreate', async (interaction) => {
         } catch (e) {
             console.error('[BeastBot] Failed to post thought:', e.message);
             await interaction.reply({ content: '❌ Something went wrong posting your thought. Try again.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         }
         return;
     }
@@ -5118,10 +5120,12 @@ client.on('interactionCreate', async (interaction) => {
                 components: [introRow],
             });
             await interaction.reply({ content: '✅ Your introduction has been posted — welcome to the community!', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
             console.log(`[BeastBot] 📋 Introduction posted for ${user.tag}`);
         } catch (e) {
             console.error('[BeastBot] Failed to post introduction:', e.message);
             await interaction.reply({ content: '❌ Something went wrong posting your intro. Try again or let Kiernen know.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         }
         return;
     }
@@ -5175,6 +5179,7 @@ client.on('interactionCreate', async (interaction) => {
         const isOwner = interaction.user.id === originalUserId;
         if (!isOwner && !isMod) {
             await interaction.reply({ content: 'Only the person who posted this intro or a mod can delete it.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
             return;
         }
         const confirmRow = new ActionRowBuilder().addComponents(
@@ -5192,6 +5197,7 @@ client.on('interactionCreate', async (interaction) => {
             components: [confirmRow],
             ephemeral: true,
         });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
@@ -5203,12 +5209,14 @@ client.on('interactionCreate', async (interaction) => {
             await msg.delete();
         } catch (_) {}
         await interaction.update({ content: '🗑️ Introduction deleted.', components: [] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
     // Intro delete cancelled
     if (interaction.customId === 'intro:cancel_delete') {
         await interaction.update({ content: '👍 Cancelled — nothing was deleted.', components: [] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
@@ -5287,6 +5295,7 @@ client.on('interactionCreate', async (interaction) => {
         const originalUserId = interaction.customId.split(':')[2];
         if (interaction.user.id !== originalUserId) {
             await interaction.reply({ content: 'Only the person who posted this thought can edit it.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
             return;
         }
         // Extract current text and link from the embed/components
@@ -5353,6 +5362,7 @@ client.on('interactionCreate', async (interaction) => {
         const isServerOwner = interaction.user.id === OWNER_DISCORD_ID;
         if (!isPoster && !isMod && !isServerOwner) {
             await interaction.reply({ content: 'Only the person who posted this thought, a mod, or the server owner can delete it.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
             return;
         }
         const confirmRow = new ActionRowBuilder().addComponents(
