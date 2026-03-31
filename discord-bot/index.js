@@ -4965,6 +4965,46 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ── Introduction modal submit ─────────────────────────────────────────────
+    // ── Thought edit modal submit ─────────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('thought:edit_modal:')) {
+        const parts   = interaction.customId.split(':');
+        const msgId   = parts[2];
+        const isAnon  = parts[3] === 'anon';
+        const newText = interaction.fields.getTextInputValue('thought_text');
+        const user    = interaction.user;
+        const member  = interaction.member;
+        const display = member?.displayName || user.username;
+        try {
+            const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
+            const msg = await thoughtChannel.messages.fetch(msgId);
+            await msg.edit({
+                embeds: [{
+                    description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${newText}`,
+                    color: isAnon ? 0x4b5563 : 0x7c3aed,
+                }],
+            });
+            // Log the edit
+            try {
+                const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
+                await logCh.send({ embeds: [{
+                    title: '✏️ Thought Edited',
+                    fields: [
+                        { name: 'User', value: `<@${user.id}> (${user.tag})`, inline: true },
+                        { name: 'Posted as', value: isAnon ? 'Anonymous' : 'Public', inline: true },
+                        { name: 'New text', value: newText.slice(0, 1024) },
+                    ],
+                    color: 0xf59e0b,
+                    timestamp: new Date().toISOString(),
+                }]});
+            } catch (_) {}
+            await interaction.reply({ content: '✅ Your thought has been updated.', ephemeral: true });
+        } catch (e) {
+            console.error('[BeastBot] Failed to edit thought:', e.message);
+            await interaction.reply({ content: '❌ Could not edit that thought. It may have been deleted.', ephemeral: true });
+        }
+        return;
+    }
+
     // ── Thought modal submit ──────────────────────────────────────────────────
     if (interaction.isModalSubmit() && interaction.customId.startsWith('thought:modal:')) {
         const isAnon  = interaction.customId === 'thought:modal:anon';
@@ -4979,10 +5019,14 @@ client.on('interactionCreate', async (interaction) => {
                 new ButtonBuilder()
                     .setCustomId('thought:start')
                     .setLabel('💭 Share a Thought')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`thought:edit:${user.id}`)
+                    .setLabel('✏️ Edit')
                     .setStyle(ButtonStyle.Primary),
                 new ButtonBuilder()
                     .setCustomId(`thought:delete:${user.id}`)
-                    .setLabel('🗑️ Delete this thought')
+                    .setLabel('🗑️ Delete')
                     .setStyle(ButtonStyle.Danger),
             );
 
@@ -5209,6 +5253,35 @@ client.on('interactionCreate', async (interaction) => {
                     .setLabel('Your thought')
                     .setStyle(TextInputStyle.Paragraph)
                     .setPlaceholder('Share what\'s on your mind...')
+                    .setRequired(true)
+                    .setMaxLength(1000),
+            ),
+        );
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // Thought edit button — original poster only
+    if (interaction.customId.startsWith('thought:edit:')) {
+        const originalUserId = interaction.customId.split(':')[2];
+        if (interaction.user.id !== originalUserId) {
+            await interaction.reply({ content: 'Only the person who posted this thought can edit it.', ephemeral: true });
+            return;
+        }
+        // Extract current text from the embed (format: "💭 **Name**\ntext")
+        const currentDesc = interaction.message.embeds[0]?.description || '';
+        const currentText = currentDesc.includes('\n') ? currentDesc.slice(currentDesc.indexOf('\n') + 1) : '';
+        const isAnon = currentDesc.includes('**Anonymous User**');
+        const modal = new ModalBuilder()
+            .setCustomId(`thought:edit_modal:${interaction.message.id}:${isAnon ? 'anon' : 'public'}`)
+            .setTitle('✏️ Edit Your Thought');
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_text')
+                    .setLabel('Your thought')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setValue(currentText)
                     .setRequired(true)
                     .setMaxLength(1000),
             ),
