@@ -3425,7 +3425,6 @@ client.once('clientReady', async () => {
                 }
                 console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
             }
-            saveCountingState();
             saveMessageBackup();
         }, 60 * 1000);
     }
