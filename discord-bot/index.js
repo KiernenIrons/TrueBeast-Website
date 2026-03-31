@@ -581,6 +581,9 @@ const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
 const reactionDays         = new Map(); // userId → Map<"YYYY-MM-DD", count>            (reactions given)
 const emojiTally           = new Map(); // userId → Map<emojiKey, count>                 (all-time emoji tally)
 const reactionEmojiDays    = new Map(); // userId → Map<"YYYY-MM-DD", Map<emoji, count>> (per-day emoji tally)
+const reactionDaysSession  = new Map(); // userId → Map<"YYYY-MM-DD", delta> — reactions added this session (for atomic Firestore increments)
+const reactionSaveTimers   = new Map(); // userId → timer (debounced per-user flush)
+const reactionLoadedSet    = new Set(); // userIds whose reactionDays were loaded from Firestore at startup
 const memberNameCache      = new Map(); // userId → displayName (populated at startup, kept fresh)
 const memberCache          = new Map(); // userId → { displayName, avatarUrl } (for image generation)
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
@@ -614,8 +617,9 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🔢 Count Survives Updates', value: 'Counting progress is now saved before every bot restart/update — you will never lose your place mid-run due to a deploy.' },
-    { name: '⚙️ /counter-set', value: 'New owner command: set the current count to any number manually, in case something goes wrong.' },
+    { name: '🏆 /me Rank Fixed', value: 'Profile card now reads your rank directly from your Discord role — no more Silver I when you\'re Diamond.' },
+    { name: '📈 Peak Rank Fixed', value: 'Peak rank can never show lower than your current rank; auto-updates if it was wrong.' },
+    { name: '👍 Reactions Fixed', value: 'Reaction history can no longer be wiped by a bot restart. Saves are now atomic — only ever add, never overwrite.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -917,6 +921,7 @@ async function discordRestFetch(path, timeoutMs = 8000) {
     finally { clearTimeout(timer); }
 }
 
+// Full-replace save — used only by /scanreactions (authoritative, verified data)
 async function saveReactionData(userId, rMap, eMap, edMap) {
     // emojiTally + reactionEmojiDays stored as JSON strings to avoid Firestore field name
     // restrictions on emoji chars and custom emoji format <:name:id>
@@ -945,6 +950,90 @@ async function saveReactionData(userId, rMap, eMap, edMap) {
         });
         if (!res.ok) console.error(`[BeastBot] saveReactionData failed for ${userId}: ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveReactionData error:', e.message); }
+}
+
+// Schedule a debounced flush of a user's reaction session delta to Firestore
+function scheduleReactionSave(userId) {
+    if (reactionSaveTimers.has(userId)) clearTimeout(reactionSaveTimers.get(userId));
+    reactionSaveTimers.set(userId, setTimeout(() => {
+        reactionSaveTimers.delete(userId);
+        flushReactionDelta(userId);
+    }, 15000));
+}
+
+// Flush live reaction delta via Firestore atomic field-transform increment.
+// This is ADDITIVE ONLY — never touches historical data regardless of in-memory load state.
+// If save fails, the delta is restored so it retries on the next reaction.
+async function flushReactionDelta(userId) {
+    const sessionMap = reactionDaysSession.get(userId);
+    if (!sessionMap || sessionMap.size === 0) return;
+
+    // Snapshot current delta and clear so reactions during this async op start a fresh delta
+    const snapshot = new Map(sessionMap);
+    sessionMap.clear();
+
+    const fieldTransforms = [];
+    for (const [day, delta] of snapshot) {
+        if (delta > 0) fieldTransforms.push({
+            fieldPath: `reactionDays.${day}`,
+            increment: { integerValue: String(delta) },
+        });
+    }
+    if (fieldTransforms.length === 0) return;
+
+    const docPath = `projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}`;
+    const commitUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents:commit?key=${FIREBASE_API_KEY}`;
+    let saveOk = false;
+    try {
+        const res = await fetch(commitUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ writes: [{ transform: { document: docPath, fieldTransforms } }] }),
+        });
+        if (res.ok) {
+            saveOk = true;
+            console.log(`[BeastBot] 💾 Reaction delta saved for ${userId} (${fieldTransforms.length} day(s))`);
+        } else {
+            console.error(`[BeastBot] flushReactionDelta ${userId}: ${res.status} ${await res.text()}`);
+        }
+    } catch (e) {
+        console.error('[BeastBot] flushReactionDelta error:', e.message);
+    }
+
+    if (!saveOk) {
+        // Restore snapshot so it's retried on the next reaction
+        const current = reactionDaysSession.get(userId) || new Map();
+        for (const [day, count] of snapshot) current.set(day, (current.get(day) || 0) + count);
+        reactionDaysSession.set(userId, current);
+        return;
+    }
+
+    // Also save emojiTally + reactionEmojiDays — but ONLY if this user's data was loaded at startup.
+    // If it wasn't loaded (quota failure), skipping prevents overwriting historical emoji data with
+    // an incomplete in-memory state. The emoji tallies will be rebuilt on next /scanreactions or restart.
+    if (!reactionLoadedSet.has(userId)) return;
+    const eMap  = emojiTally.get(userId)        || new Map();
+    const edMap = reactionEmojiDays.get(userId) || new Map();
+    const emojiObj = {};
+    for (const [k, v] of eMap) emojiObj[k] = v;
+    const emojiDaysObj = {};
+    for (const [day, dayMap] of edMap) {
+        const dayObj = {};
+        for (const [k, v] of dayMap) dayObj[k] = v;
+        emojiDaysObj[day] = dayObj;
+    }
+    const patchUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=emojiTally&updateMask.fieldPaths=reactionEmojiDays`;
+    try {
+        const res = await fetch(patchUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                emojiTally:        { stringValue: JSON.stringify(emojiObj) },
+                reactionEmojiDays: { stringValue: JSON.stringify(emojiDaysObj) },
+            }}),
+        });
+        if (!res.ok) console.error(`[BeastBot] emojiTally save failed ${userId}: ${res.status}`);
+    } catch (e) { console.error('[BeastBot] emojiTally save error:', e.message); }
 }
 
 // ── Logging helpers ───────────────────────────────────────────────────────────
@@ -2489,7 +2578,7 @@ async function generateLeaderboardImage(type, period, page = 0) {
 
 // ── Profile card ──────────────────────────────────────────────────────────────
 
-async function generateProfileImage(userId) {
+async function generateProfileImage(userId, guild = null) {
     const info      = memberCache.get(userId) || { displayName: 'Unknown', avatarUrl: null };
     const msgCount  = messageCounts.get(userId) || 0;
     const msgDMap   = messageDays.get(userId) || new Map();
@@ -2498,14 +2587,34 @@ async function generateProfileImage(userId) {
     const rxTotal   = [...rxDMap.values()].reduce((a, b) => a + b, 0);
 
     const activityScore = monthlyActivityScore(userId);
+
+    // Read rank from the member's actual Discord roles (authoritative — never wrong due to stale XP).
+    // Falls back to XP calculation only if the guild/roles aren't available.
     let rankIdx = 0;
-    for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
-        if (activityScore >= VOICE_RANK_ROLES[i].minXp) rankIdx = i;
+    let rankFromRoles = false;
+    if (guild && voiceRankRoleCache.size > 0) {
+        const member = guild.members.cache.get(userId);
+        if (member) {
+            let roleIdx = -1;
+            for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+                const r = voiceRankRoleCache.get(VOICE_RANK_ROLES[i].name);
+                if (r && member.roles.cache.has(r.id) && i > roleIdx) roleIdx = i;
+            }
+            if (roleIdx >= 0) { rankIdx = roleIdx; rankFromRoles = true; }
+        }
     }
+    if (!rankFromRoles) {
+        for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+            if (activityScore >= VOICE_RANK_ROLES[i].minXp) rankIdx = i;
+        }
+    }
+
     const currentRank = VOICE_RANK_ROLES[rankIdx];
     const nextRank    = VOICE_RANK_ROLES[rankIdx + 1] || null;
+    // Clamp progress to [0, 1] — activityScore may be below currentRank.minXp if roles loaded
+    // from Discord but XP data hasn't fully loaded yet (quota failure, etc.)
     const progress    = nextRank
-        ? Math.min(1, (activityScore - currentRank.minXp) / (nextRank.minXp - currentRank.minXp))
+        ? Math.min(1, Math.max(0, (activityScore - currentRank.minXp) / (nextRank.minXp - currentRank.minXp)))
         : 1;
 
     const W = 1100, H = 580;
@@ -2584,7 +2693,14 @@ async function generateProfileImage(userId) {
 
     // Peak rank + Apex count — right-aligned, vertically centred with rank pill
     const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
-    const peakRank  = VOICE_RANK_ROLES[ach.highestRankIdx];
+    // If the current Discord role rank is higher than the stored peak (e.g. rankAchievements failed
+    // to load due to quota, or the peak was never saved), update it now so it's never wrong.
+    if (rankIdx > ach.highestRankIdx) {
+        ach.highestRankIdx = rankIdx;
+        rankAchievements.set(userId, ach);
+        saveRankAchievements(userId, ach);
+    }
+    const peakRank  = VOICE_RANK_ROLES[Math.max(ach.highestRankIdx, rankIdx)];
     const peakEmoji = extractFirstEmoji(peakRank.name);
     const peakClean = stripEmoji(peakRank.name);
     const EPEAK = 24, ECROWN = 22;
@@ -3188,6 +3304,7 @@ client.once('clientReady', async () => {
                 const rMap = new Map();
                 for (const [k, v] of Object.entries(rdRaw)) rMap.set(k, parseInt(v.integerValue || '0', 10));
                 if (rMap.size > 0) reactionDays.set(uid, rMap);
+                reactionLoadedSet.add(uid); // mark as loaded — enables safe emoji tally saves
 
                 // emojiTally stored as JSON string (avoid field name char restrictions)
                 const etStr = f.emojiTally?.stringValue;
@@ -3853,7 +3970,7 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.commandName === 'me' || interaction.commandName === 'profile') {
             await interaction.deferReply();
             try {
-                const buffer = await generateProfileImage(interaction.user.id);
+                const buffer = await generateProfileImage(interaction.user.id, interaction.guild);
                 const attachment = new AttachmentBuilder(buffer, { name: 'profile.png' });
                 await interaction.editReply({ files: [attachment] });
             } catch (e) {
@@ -5180,7 +5297,12 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (!dayEmojiMap) { dayEmojiMap = new Map(); edMap.set(today, dayEmojiMap); }
     dayEmojiMap.set(emojiKey, (dayEmojiMap.get(emojiKey) ?? 0) + 1);
 
-    saveReactionData(userId, rMap, eMap, edMap);
+    // Persist reactionDays via atomic Firestore increment (never overwrites historical data).
+    // emojiTally/reactionEmojiDays are flushed alongside if the user's data was loaded at startup.
+    let sessionMap = reactionDaysSession.get(userId);
+    if (!sessionMap) { sessionMap = new Map(); reactionDaysSession.set(userId, sessionMap); }
+    sessionMap.set(today, (sessionMap.get(today) ?? 0) + 1);
+    scheduleReactionSave(userId);
 
     if (count % 10 === 0 && reaction.message.guild) {
         const member = reaction.message.guild.members.cache.get(userId);

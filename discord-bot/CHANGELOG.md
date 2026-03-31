@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-03-31] — Fix /me profile card: correct rank, peak rank, and reactions
+
+- `/me` rank badge now reads from the member's actual Discord roles (authoritative) instead of recalculating from XP — eliminates wrong rank when voiceMinutes failed to load on restart
+- Peak rank now uses `Math.max(storedPeak, currentRoleRank)` — can never display lower than current; auto-updates and saves if the role rank exceeds stored peak (fixes Bronze I peak when `rankAchievements` failed to load)
+- Progress bar clamped to `[0, 1]` — no longer goes negative when role rank > XP-based rank
+- Reactions rebuilt with **Firestore atomic field-transform increment** — each reaction session's delta is added to Firestore rather than replacing the full map, so historical reaction data can never be wiped by an empty in-memory state on restart
+- Added `reactionLoadedSet` — `emojiTally` / `reactionEmojiDays` PATCH saves are now skipped for users whose data wasn't loaded at startup, preventing emoji history wipes during quota failures
+- Reactions are debounced (15s per user) and flushed on error restoration — no data loss on Firestore failures
+
 ## [2026-03-31] — Counting survives deploys + /counter-set command
 
 - Counting state now saved on shutdown — guarded by `_loaded` flag so it only saves if the bot successfully loaded from Firestore at startup (prevents zeroed in-memory state from ever wiping real data)
