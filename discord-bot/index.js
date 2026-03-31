@@ -4959,6 +4959,7 @@ client.on('interactionCreate', async (interaction) => {
         const newText  = interaction.fields.getTextInputValue('thought_text');
         const linkUrl  = interaction.fields.getTextInputValue('thought_link_url').trim();
         const linkLabel = interaction.fields.getTextInputValue('thought_link_label').trim();
+        const imageUrl = interaction.fields.getTextInputValue('thought_image_url').trim();
         const user     = interaction.user;
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
@@ -4966,12 +4967,14 @@ client.on('interactionCreate', async (interaction) => {
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const msg = await thoughtChannel.messages.fetch(msgId);
+            const editEmbed = {
+                description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${newText}`,
+                color: isAnon ? 0xf59e0b : 0x22c55e,
+                fields: linkFields,
+            };
+            if (imageUrl) editEmbed.image = { url: imageUrl };
             await msg.edit({
-                embeds: [{
-                    description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${newText}`,
-                    color: isAnon ? 0xf59e0b : 0x22c55e,
-                    fields: linkFields,
-                }],
+                embeds: [editEmbed],
             });
             // Log the edit
             try {
@@ -5002,6 +5005,7 @@ client.on('interactionCreate', async (interaction) => {
         const text     = interaction.fields.getTextInputValue('thought_text');
         const linkUrl  = interaction.fields.getTextInputValue('thought_link_url').trim();
         const linkLabel = interaction.fields.getTextInputValue('thought_link_label').trim();
+        const imageUrl  = interaction.fields.getTextInputValue('thought_image_url').trim();
         const user     = interaction.user;
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
@@ -5030,25 +5034,13 @@ client.on('interactionCreate', async (interaction) => {
                     .setStyle(ButtonStyle.Secondary),
             );
 
-            if (isAnon) {
-                await thoughtChannel.send({
-                    embeds: [{
-                        description: `💭 **Anonymous User**\n${text}`,
-                        color: 0xf59e0b,
-                        fields: linkFields,
-                    }],
-                    components: [deleteRow],
-                });
-            } else {
-                await thoughtChannel.send({
-                    embeds: [{
-                        description: `💭 **${display}**\n${text}`,
-                        color: 0x22c55e,
-                        fields: linkFields,
-                    }],
-                    components: [deleteRow],
-                });
-            }
+            const newEmbed = {
+                description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${text}`,
+                color: isAnon ? 0xf59e0b : 0x22c55e,
+                fields: linkFields,
+            };
+            if (imageUrl) newEmbed.image = { url: imageUrl };
+            await thoughtChannel.send({ embeds: [newEmbed], components: [deleteRow] });
 
             // Log to #logs — always shows who submitted regardless of anonymity
             try {
@@ -5277,6 +5269,15 @@ client.on('interactionCreate', async (interaction) => {
                     .setRequired(false)
                     .setMaxLength(100),
             ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_image_url')
+                    .setLabel('Image URL (optional)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('https://example.com/image.png')
+                    .setRequired(false)
+                    .setMaxLength(500),
+            ),
         );
         await interaction.showModal(modal);
         return;
@@ -5298,6 +5299,7 @@ client.on('interactionCreate', async (interaction) => {
         const linkMatch    = linkField ? linkField.value.match(/^\[(.+)\]\((.+)\)$/) : null;
         const currentLabel = linkMatch ? linkMatch[1] : '';
         const currentUrl   = linkMatch ? linkMatch[2] : '';
+        const currentImage = interaction.message.embeds[0]?.image?.url || '';
         const modal = new ModalBuilder()
             .setCustomId(`thought:edit_modal:${interaction.message.id}:${isAnon ? 'anon' : 'public'}`)
             .setTitle('✏️ Edit Your Thought');
@@ -5330,6 +5332,16 @@ client.on('interactionCreate', async (interaction) => {
                     .setValue(currentLabel)
                     .setRequired(false)
                     .setMaxLength(100),
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_image_url')
+                    .setLabel('Image URL (optional)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('https://example.com/image.png')
+                    .setValue(currentImage)
+                    .setRequired(false)
+                    .setMaxLength(500),
             ),
         );
         await interaction.showModal(modal);
