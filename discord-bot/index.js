@@ -4953,13 +4953,16 @@ client.on('interactionCreate', async (interaction) => {
     // ── Introduction modal submit ─────────────────────────────────────────────
     // ── Thought edit modal submit ─────────────────────────────────────────────
     if (interaction.isModalSubmit() && interaction.customId.startsWith('thought:edit_modal:')) {
-        const parts   = interaction.customId.split(':');
-        const msgId   = parts[2];
-        const isAnon  = parts[3] === 'anon';
-        const newText = interaction.fields.getTextInputValue('thought_text');
-        const user    = interaction.user;
-        const member  = interaction.member;
-        const display = member?.displayName || user.username;
+        const parts    = interaction.customId.split(':');
+        const msgId    = parts[2];
+        const isAnon   = parts[3] === 'anon';
+        const newText  = interaction.fields.getTextInputValue('thought_text');
+        const linkUrl  = interaction.fields.getTextInputValue('thought_link_url').trim();
+        const linkLabel = interaction.fields.getTextInputValue('thought_link_label').trim();
+        const user     = interaction.user;
+        const member   = interaction.member;
+        const display  = member?.displayName || user.username;
+        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || linkUrl}](${linkUrl})` }] : [];
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const msg = await thoughtChannel.messages.fetch(msgId);
@@ -4967,6 +4970,7 @@ client.on('interactionCreate', async (interaction) => {
                 embeds: [{
                     description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${newText}`,
                     color: isAnon ? 0xf59e0b : 0x22c55e,
+                    fields: linkFields,
                 }],
             });
             // Log the edit
@@ -4994,11 +4998,16 @@ client.on('interactionCreate', async (interaction) => {
 
     // ── Thought modal submit ──────────────────────────────────────────────────
     if (interaction.isModalSubmit() && interaction.customId.startsWith('thought:modal:')) {
-        const isAnon  = interaction.customId === 'thought:modal:anon';
-        const text    = interaction.fields.getTextInputValue('thought_text');
-        const user    = interaction.user;
-        const member  = interaction.member;
-        const display = member?.displayName || user.username;
+        const isAnon   = interaction.customId === 'thought:modal:anon';
+        const text     = interaction.fields.getTextInputValue('thought_text');
+        const linkUrl  = interaction.fields.getTextInputValue('thought_link_url').trim();
+        const linkLabel = interaction.fields.getTextInputValue('thought_link_label').trim();
+        const user     = interaction.user;
+        const member   = interaction.member;
+        const display  = member?.displayName || user.username;
+
+        // Build link field if a URL was provided
+        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || linkUrl}](${linkUrl})` }] : [];
 
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
@@ -5026,6 +5035,7 @@ client.on('interactionCreate', async (interaction) => {
                     embeds: [{
                         description: `💭 **Anonymous User**\n${text}`,
                         color: 0xf59e0b,
+                        fields: linkFields,
                     }],
                     components: [deleteRow],
                 });
@@ -5034,6 +5044,7 @@ client.on('interactionCreate', async (interaction) => {
                     embeds: [{
                         description: `💭 **${display}**\n${text}`,
                         color: 0x22c55e,
+                        fields: linkFields,
                     }],
                     components: [deleteRow],
                 });
@@ -5248,6 +5259,24 @@ client.on('interactionCreate', async (interaction) => {
                     .setRequired(true)
                     .setMaxLength(1000),
             ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_link_url')
+                    .setLabel('Link URL (optional)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('https://example.com')
+                    .setRequired(false)
+                    .setMaxLength(500),
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_link_label')
+                    .setLabel('Link label (optional)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. Check this out — defaults to the URL if left blank')
+                    .setRequired(false)
+                    .setMaxLength(100),
+            ),
         );
         await interaction.showModal(modal);
         return;
@@ -5260,10 +5289,15 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: 'Only the person who posted this thought can edit it.', ephemeral: true });
             return;
         }
-        // Extract current text from the embed (format: "💭 **Name**\ntext")
-        const currentDesc = interaction.message.embeds[0]?.description || '';
-        const currentText = currentDesc.includes('\n') ? currentDesc.slice(currentDesc.indexOf('\n') + 1) : '';
-        const isAnon = currentDesc.includes('**Anonymous User**');
+        // Extract current text and link from the embed
+        const currentDesc  = interaction.message.embeds[0]?.description || '';
+        const currentText  = currentDesc.includes('\n') ? currentDesc.slice(currentDesc.indexOf('\n') + 1) : '';
+        const isAnon       = currentDesc.includes('**Anonymous User**');
+        const linkField    = interaction.message.embeds[0]?.fields?.find(f => f.name === '\u200b');
+        // Parse existing link label/url out of "[label](url)" markdown if present
+        const linkMatch    = linkField ? linkField.value.match(/^\[(.+)\]\((.+)\)$/) : null;
+        const currentLabel = linkMatch ? linkMatch[1] : '';
+        const currentUrl   = linkMatch ? linkMatch[2] : '';
         const modal = new ModalBuilder()
             .setCustomId(`thought:edit_modal:${interaction.message.id}:${isAnon ? 'anon' : 'public'}`)
             .setTitle('✏️ Edit Your Thought');
@@ -5276,6 +5310,26 @@ client.on('interactionCreate', async (interaction) => {
                     .setValue(currentText)
                     .setRequired(true)
                     .setMaxLength(1000),
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_link_url')
+                    .setLabel('Link URL (optional)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('https://example.com')
+                    .setValue(currentUrl)
+                    .setRequired(false)
+                    .setMaxLength(500),
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_link_label')
+                    .setLabel('Link label (optional)')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('e.g. Check this out — defaults to the URL if left blank')
+                    .setValue(currentLabel)
+                    .setRequired(false)
+                    .setMaxLength(100),
             ),
         );
         await interaction.showModal(modal);
