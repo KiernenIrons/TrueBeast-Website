@@ -4977,6 +4977,10 @@ client.on('interactionCreate', async (interaction) => {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const deleteRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
+                    .setCustomId('thought:start')
+                    .setLabel('💭 Share a Thought')
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
                     .setCustomId(`thought:delete:${user.id}`)
                     .setLabel('🗑️ Delete this thought')
                     .setStyle(ButtonStyle.Danger),
