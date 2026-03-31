@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-03-31] — Full backup system: voice (total+days), rank achievements, message backup expanded
+
+- `saveVoiceBackup` now saves per-day breakdown in addition to total — backup format: `{ userId: { total, days: { "YYYY-MM-DD": mins } } }`
+- Voice backup restore on startup now also restores the days map (not just total) and marks those users as loaded
+- Added `saveRankAchBackup()` — saves peak rank index + apex count for all users every 60s to `botConfig/rankAchBackup`
+- On startup, any user missing from rankAchievements primary load is filled from rankAchBackup
+- All three backups (message, voice, rank achievements) run every 60s in the periodic save tick
+- Voice data for all members restored manually from 2026-03-28 screenshot + 15h estimate
+
 ## [2026-03-31] — Fix voice minutes data wipe; add voice backup
 
 - Root cause: `saveVoiceMinutes` did a full PATCH replace for `total` — if voiceMinutes failed to load at startup (quota 429), `baseTotal=0`, so the 60s tick would save `total=sessionMinutes` and overwrite the real accumulated value in Firestore

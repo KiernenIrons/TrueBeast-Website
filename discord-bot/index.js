@@ -618,10 +618,10 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🎙️ Voice Data Protected', value: 'Voice minutes can no longer be wiped by a bot restart. Saves are now atomic — each session adds its minutes, never overwrites the accumulated total.' },
-    { name: '💾 Voice Backup', value: 'Voice time totals are now backed up every 60 seconds and restored automatically if Firestore has a quota failure on startup.' },
-    { name: '🏆 /me Rank Fixed', value: 'Profile card now reads your rank directly from your Discord role — no more wrong rank when XP data hasn\'t loaded.' },
-    { name: '👍 Reactions Fixed', value: 'Reaction history can no longer be wiped. Saves are now atomic — only ever add, never overwrite.' },
+    { name: '🎙️ Voice Data Restored', value: 'All-time voice hours restored for all members. Voice data is now fully protected — saves are atomic, backups run every 60s including per-day breakdown.' },
+    { name: '💾 Full Backup System', value: 'Voice time (total + daily), messages, reactions, and rank achievements all backed up every 60s. Automatically restored on startup if Firestore has a quota failure.' },
+    { name: '🏆 /me Rank + Peak Fixed', value: 'Profile card reads rank from your Discord role and peak rank can never show lower than current.' },
+    { name: '👍 Reactions Fixed', value: 'Reaction history can no longer be wiped. All saves are now atomic increments.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -1317,12 +1317,16 @@ async function saveVoiceDaysOnly(uid, data) {
     } catch (e) { console.error('[BeastBot] saveVoiceDaysOnly error:', e.message); }
 }
 
-// Backup snapshot of ALL voice totals to botConfig/voiceBackup — survives collection deletes.
-// On startup, if voiceMinutes load fails, this is used to restore totals.
+// Backup snapshot of ALL voice totals + days + rank achievements to botConfig.
+// Runs every 60s. On startup, these are used to restore data if primary loads fail.
 async function saveVoiceBackup() {
     const backup = {};
     for (const [uid, data] of voiceMinutes.entries()) {
-        if (data.total > 0) backup[uid] = data.total;
+        if (data.total > 0) {
+            const days = {};
+            for (const [day, mins] of data.days.entries()) days[day] = mins;
+            backup[uid] = { total: data.total, days };
+        }
     }
     if (Object.keys(backup).length === 0) return;
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/voiceBackup?key=${FIREBASE_API_KEY}`;
@@ -1338,6 +1342,29 @@ async function saveVoiceBackup() {
         if (!res.ok) console.error(`[BeastBot] saveVoiceBackup HTTP ${res.status}`);
         else console.log(`[BeastBot] 💾 Voice backup saved (${Object.keys(backup).length} users)`);
     } catch (e) { console.error('[BeastBot] saveVoiceBackup error:', e.message); }
+}
+
+// Backup all rank achievements (peak rank + apex count) — survives collection deletes / quota failures
+async function saveRankAchBackup() {
+    const backup = {};
+    for (const [uid, ach] of rankAchievements.entries()) {
+        if (ach.highestRankIdx > 0 || ach.apexCount > 0) {
+            backup[uid] = { highestRankIdx: ach.highestRankIdx, apexCount: ach.apexCount };
+        }
+    }
+    if (Object.keys(backup).length === 0) return;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/rankAchBackup?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                data:    { stringValue: JSON.stringify(backup) },
+                savedAt: { stringValue: new Date().toISOString() },
+            }}),
+        });
+        if (!res.ok) console.error(`[BeastBot] saveRankAchBackup HTTP ${res.status}`);
+    } catch (e) { console.error('[BeastBot] saveRankAchBackup error:', e.message); }
 }
 
 async function saveVoiceBonusXp(userId, data) {
@@ -3477,21 +3504,27 @@ client.once('clientReady', async () => {
         console.error('[BeastBot] voiceMinutes load threw:', e.message);
     }
 
-    // If primary voiceMinutes load failed, restore totals from backup so in-memory state isn't empty
-    // (prevents atomicIncrementVoiceTotal from adding on top of 0 without any display context)
+    // If primary voiceMinutes load failed, restore totals + days from backup
     if (!voiceLoadOk) {
         try {
             const backup = await firestoreGet('botConfig', 'voiceBackup');
             if (backup?.data) {
                 const parsed = JSON.parse(backup.data);
                 let restored = 0;
-                for (const [uid, total] of Object.entries(parsed)) {
+                for (const [uid, entry] of Object.entries(parsed)) {
                     if (!voiceMinutes.has(uid)) {
-                        voiceMinutes.set(uid, { total: Number(total), days: new Map() });
+                        // Support both old format (number) and new format ({ total, days })
+                        const total  = typeof entry === 'object' ? entry.total : Number(entry);
+                        const dMap   = new Map();
+                        if (typeof entry === 'object' && entry.days) {
+                            for (const [day, mins] of Object.entries(entry.days)) dMap.set(day, Number(mins));
+                        }
+                        voiceMinutes.set(uid, { total, days: dMap });
+                        voiceMinutesLoaded.add(uid); // backup data is trusted — enable days saves
                         restored++;
                     }
                 }
-                console.log(`[BeastBot] Restored ${restored} voice totals from backup (primary load failed)`);
+                console.log(`[BeastBot] Restored ${restored} voice records from backup (primary load failed)`);
             }
         } catch (e) { console.error('[BeastBot] voiceBackup restore failed:', e.message); }
     }
@@ -3541,6 +3574,26 @@ client.once('clientReady', async () => {
         } while (nextPageToken);
         console.log(`[BeastBot] Loaded ${rankAchievements.size} rank achievement records`);
     } catch (e) { console.error('[BeastBot] rankAchievements load threw:', e.message); }
+
+    // Restore rank achievements from backup for any user whose record wasn't loaded
+    try {
+        const backup = await firestoreGet('botConfig', 'rankAchBackup');
+        if (backup?.data) {
+            const parsed = JSON.parse(backup.data);
+            let restored = 0;
+            for (const [uid, ach] of Object.entries(parsed)) {
+                if (!rankAchievements.has(uid) && (ach.highestRankIdx > 0 || ach.apexCount > 0)) {
+                    rankAchievements.set(uid, {
+                        highestRankIdx: Number(ach.highestRankIdx),
+                        apexCount:      Number(ach.apexCount),
+                        hitApexThisMonth: false,
+                    });
+                    restored++;
+                }
+            }
+            if (restored > 0) console.log(`[BeastBot] Restored ${restored} rank achievement records from backup`);
+        }
+    } catch (e) { console.error('[BeastBot] rankAchBackup restore failed:', e.message); }
 
     // Set up voice rank roles and monthly reset
     const guild = client.guilds.cache.first();
@@ -3643,6 +3696,7 @@ client.once('clientReady', async () => {
             }
             saveMessageBackup();
             saveVoiceBackup();
+            saveRankAchBackup();
         }, 60 * 1000);
     }
 
