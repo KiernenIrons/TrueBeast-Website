@@ -4602,7 +4602,7 @@ client.on('interactionCreate', async (interaction) => {
                     embeds: [{
                         title: '💭 Share Your Thoughts',
                         description: 'Got something on your mind? Share a thought with the community — anonymously or with your name attached.\n\nClick the button below to get started.',
-                        color: 0x7c3aed,
+                        color: 0x22c55e,
                         footer: { text: 'You can delete your own thought at any time.' },
                     }],
                     components: [row],
@@ -4980,7 +4980,7 @@ client.on('interactionCreate', async (interaction) => {
             await msg.edit({
                 embeds: [{
                     description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${newText}`,
-                    color: isAnon ? 0x4b5563 : 0x7c3aed,
+                    color: isAnon ? 0xf59e0b : 0x22c55e,
                 }],
             });
             // Log the edit
@@ -5034,7 +5034,7 @@ client.on('interactionCreate', async (interaction) => {
                 await thoughtChannel.send({
                     embeds: [{
                         description: `💭 **Anonymous User**\n${text}`,
-                        color: 0x4b5563,
+                        color: 0xf59e0b,
                     }],
                     components: [deleteRow],
                 });
@@ -5042,7 +5042,7 @@ client.on('interactionCreate', async (interaction) => {
                 await thoughtChannel.send({
                     embeds: [{
                         description: `💭 **${display}**\n${text}`,
-                        color: 0x7c3aed,
+                        color: 0x22c55e,
                     }],
                     components: [deleteRow],
                 });
@@ -5058,7 +5058,7 @@ client.on('interactionCreate', async (interaction) => {
                         { name: 'Posted as', value: isAnon ? 'Anonymous' : 'Public', inline: true },
                         { name: 'Thought', value: text.slice(0, 1024) },
                     ],
-                    color: isAnon ? 0x4b5563 : 0x7c3aed,
+                    color: isAnon ? 0xf59e0b : 0x22c55e,
                     timestamp: new Date().toISOString(),
                 }]});
             } catch (_) {}
