@@ -4576,14 +4576,18 @@ client.on('interactionCreate', async (interaction) => {
                 const ch = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
-                        .setCustomId('thought:start')
-                        .setLabel('💭 Share a Thought')
-                        .setStyle(ButtonStyle.Primary),
+                        .setCustomId('thought:open:anon')
+                        .setLabel('🎭 Anonymous')
+                        .setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder()
+                        .setCustomId('thought:open:public')
+                        .setLabel('📢 Non-Anonymous')
+                        .setStyle(ButtonStyle.Success),
                 );
                 await ch.send({
                     embeds: [{
                         title: '💭 Share Your Thoughts',
-                        description: 'Got something on your mind? Share a thought with the community — anonymously or with your name attached.\n\nClick the button below to get started.',
+                        description: 'Got something on your mind? Share a thought with the community — anonymously or with your name attached.\n\nClick a button below to get started.',
                         color: 0x22c55e,
                         footer: { text: 'You can delete your own thought at any time.' },
                     }],
@@ -4980,6 +4984,7 @@ client.on('interactionCreate', async (interaction) => {
                 }]});
             } catch (_) {}
             await interaction.reply({ content: '✅ Your thought has been updated.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         } catch (e) {
             console.error('[BeastBot] Failed to edit thought:', e.message);
             await interaction.reply({ content: '❌ Could not edit that thought. It may have been deleted.', ephemeral: true });
@@ -4999,8 +5004,12 @@ client.on('interactionCreate', async (interaction) => {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const deleteRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
-                    .setCustomId('thought:start')
-                    .setLabel('💭 Share a Thought')
+                    .setCustomId('thought:open:anon')
+                    .setLabel('🎭 Anonymous')
+                    .setStyle(ButtonStyle.Danger),
+                new ButtonBuilder()
+                    .setCustomId('thought:open:public')
+                    .setLabel('📢 Non-Anonymous')
                     .setStyle(ButtonStyle.Success),
                 new ButtonBuilder()
                     .setCustomId(`thought:edit:${user.id}`)
@@ -5009,7 +5018,7 @@ client.on('interactionCreate', async (interaction) => {
                 new ButtonBuilder()
                     .setCustomId(`thought:delete:${user.id}`)
                     .setLabel('🗑️ Delete')
-                    .setStyle(ButtonStyle.Danger),
+                    .setStyle(ButtonStyle.Secondary),
             );
 
             if (isAnon) {
@@ -5046,6 +5055,7 @@ client.on('interactionCreate', async (interaction) => {
             } catch (_) {}
 
             await interaction.reply({ content: `✅ Your thought has been posted${isAnon ? ' anonymously' : ''}!`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
             console.log(`[BeastBot] 💭 Thought posted by ${user.tag} (${isAnon ? 'anonymous' : 'public'})`);
         } catch (e) {
             console.error('[BeastBot] Failed to post thought:', e.message);
