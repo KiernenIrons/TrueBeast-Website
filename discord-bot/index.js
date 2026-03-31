@@ -4989,23 +4989,16 @@ client.on('interactionCreate', async (interaction) => {
             if (isAnon) {
                 await thoughtChannel.send({
                     embeds: [{
-                        description: `💭 ${text}`,
+                        description: `💭 **Anonymous User**\n${text}`,
                         color: 0x4b5563,
-                        footer: { text: 'Posted anonymously' },
-                        timestamp: new Date().toISOString(),
                     }],
                     components: [deleteRow],
                 });
             } else {
                 await thoughtChannel.send({
                     embeds: [{
-                        author: {
-                            name: display,
-                            icon_url: user.displayAvatarURL({ size: 64 }),
-                        },
-                        description: `💭 ${text}`,
+                        description: `💭 **${display}**\n${text}`,
                         color: 0x7c3aed,
-                        timestamp: new Date().toISOString(),
                     }],
                     components: [deleteRow],
                 });
