@@ -4963,18 +4963,28 @@ client.on('interactionCreate', async (interaction) => {
         const user     = interaction.user;
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
-        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || '🔗 Link'}](${linkUrl})` }] : [];
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const msg = await thoughtChannel.messages.fetch(msgId);
             const editEmbed = {
                 description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${newText}`,
                 color: isAnon ? 0xf59e0b : 0x22c55e,
-                fields: linkFields,
             };
             if (imageUrl) editEmbed.image = { url: imageUrl };
+            const editActionRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('thought:open:anon').setLabel('🎭 Anonymous').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('thought:open:public').setLabel('📢 Non-Anonymous').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`thought:edit:${user.id}`).setLabel('✏️ Edit').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`thought:delete:${user.id}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Secondary),
+            );
+            const editComponents = [];
+            if (linkUrl) editComponents.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setLabel(linkLabel || '🔗 Link').setURL(linkUrl).setStyle(ButtonStyle.Link),
+            ));
+            editComponents.push(editActionRow);
             await msg.edit({
                 embeds: [editEmbed],
+                components: editComponents,
             });
             // Log the edit
             try {
@@ -5010,37 +5020,26 @@ client.on('interactionCreate', async (interaction) => {
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
 
-        // Build link field if a URL was provided
-        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || '🔗 Link'}](${linkUrl})` }] : [];
-
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
-            const deleteRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('thought:open:anon')
-                    .setLabel('🎭 Anonymous')
-                    .setStyle(ButtonStyle.Danger),
-                new ButtonBuilder()
-                    .setCustomId('thought:open:public')
-                    .setLabel('📢 Non-Anonymous')
-                    .setStyle(ButtonStyle.Success),
-                new ButtonBuilder()
-                    .setCustomId(`thought:edit:${user.id}`)
-                    .setLabel('✏️ Edit')
-                    .setStyle(ButtonStyle.Primary),
-                new ButtonBuilder()
-                    .setCustomId(`thought:delete:${user.id}`)
-                    .setLabel('🗑️ Delete')
-                    .setStyle(ButtonStyle.Secondary),
+            const actionRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('thought:open:anon').setLabel('🎭 Anonymous').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('thought:open:public').setLabel('📢 Non-Anonymous').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`thought:edit:${user.id}`).setLabel('✏️ Edit').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId(`thought:delete:${user.id}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Secondary),
             );
 
             const newEmbed = {
                 description: `💭 **${isAnon ? 'Anonymous User' : display}**\n${text}`,
                 color: isAnon ? 0xf59e0b : 0x22c55e,
-                fields: linkFields,
             };
             if (imageUrl) newEmbed.image = { url: imageUrl };
-            await thoughtChannel.send({ embeds: [newEmbed], components: [deleteRow] });
+            const components = [];
+            if (linkUrl) components.push(new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setLabel(linkLabel || '🔗 Link').setURL(linkUrl).setStyle(ButtonStyle.Link),
+            ));
+            components.push(actionRow);
+            await thoughtChannel.send({ embeds: [newEmbed], components });
 
             // Log to #logs — always shows who submitted regardless of anonymity
             try {
@@ -5290,15 +5289,13 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: 'Only the person who posted this thought can edit it.', ephemeral: true });
             return;
         }
-        // Extract current text and link from the embed
+        // Extract current text and link from the embed/components
         const currentDesc  = interaction.message.embeds[0]?.description || '';
         const currentText  = currentDesc.includes('\n') ? currentDesc.slice(currentDesc.indexOf('\n') + 1) : '';
         const isAnon       = currentDesc.includes('**Anonymous User**');
-        const linkField    = interaction.message.embeds[0]?.fields?.find(f => f.name === '\u200b');
-        // Parse existing link label/url out of "[label](url)" markdown if present
-        const linkMatch    = linkField ? linkField.value.match(/^\[(.+)\]\((.+)\)$/) : null;
-        const currentLabel = linkMatch ? linkMatch[1] : '';
-        const currentUrl   = linkMatch ? linkMatch[2] : '';
+        const linkBtn      = interaction.message.components.flatMap(r => r.components).find(b => b.style === 5);
+        const currentUrl   = linkBtn?.url || '';
+        const currentLabel = (linkBtn?.label === '🔗 Link' ? '' : linkBtn?.label) || '';
         const currentImage = interaction.message.embeds[0]?.image?.url || '';
         const modal = new ModalBuilder()
             .setCustomId(`thought:edit_modal:${interaction.message.id}:${isAnon ? 'anon' : 'public'}`)
