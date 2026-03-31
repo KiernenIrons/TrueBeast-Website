@@ -4974,6 +4974,7 @@ client.on('interactionCreate', async (interaction) => {
             const editActionRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('thought:open:anon').setLabel('🎭 Anonymous').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('thought:open:public').setLabel('📢 Non-Anonymous').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('thought:thread').setLabel('💬 Discuss').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(`thought:edit:${user.id}`).setLabel('✏️ Edit').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId(`thought:delete:${user.id}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Secondary),
             );
@@ -5026,6 +5027,7 @@ client.on('interactionCreate', async (interaction) => {
             const actionRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('thought:open:anon').setLabel('🎭 Anonymous').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('thought:open:public').setLabel('📢 Non-Anonymous').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('thought:thread').setLabel('💬 Discuss').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId(`thought:edit:${user.id}`).setLabel('✏️ Edit').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId(`thought:delete:${user.id}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Secondary),
             );
@@ -5400,6 +5402,29 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'thought:cancel_delete') {
         await interaction.update({ content: '👍 Cancelled — nothing was deleted.', components: [] });
         setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        return;
+    }
+
+    // Thought discuss — create a thread on the message
+    if (interaction.customId === 'thought:thread') {
+        const msg = interaction.message;
+        if (msg.thread) {
+            await interaction.reply({ content: `💬 There's already a discussion thread here: ${msg.thread}`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const desc = msg.embeds[0]?.description || '';
+        const text = desc.includes('\n') ? desc.slice(desc.indexOf('\n') + 1) : desc;
+        const threadName = text.slice(0, 50).trim() || '💭 Discussion';
+        try {
+            const thread = await msg.startThread({ name: threadName, autoArchiveDuration: 1440 });
+            await interaction.reply({ content: `💬 Thread created — head over to ${thread} to discuss!`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        } catch (e) {
+            console.error('[BeastBot] Failed to create thought thread:', e.message);
+            await interaction.reply({ content: '❌ Could not create a thread. Let Kiernen know.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
         return;
     }
 
