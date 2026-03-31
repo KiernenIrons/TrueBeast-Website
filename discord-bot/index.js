@@ -603,6 +603,7 @@ let countingState = {
     lastUserId: null,  // userId who sent the last correct number
     record: 0,         // all-time highest count reached before a fail
     ruinedBy: [],      // [{ userId, count, at }] — up to 20, most recent first
+    _loaded: false,    // true once state has been loaded from Firestore — guards shutdown save
 };
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
@@ -613,8 +614,8 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🏆 Wall of Shame Sort', value: 'Wall of Shame is now sorted by biggest fail (highest count ruined) instead of number of ruins.' },
-    { name: '🔄 Counting Data Restored', value: 'Wall of Shame history has been recovered after an accidental reset. Record stands at 184.' },
+    { name: '🔢 Count Survives Updates', value: 'Counting progress is now saved before every bot restart/update — you will never lose your place mid-run due to a deploy.' },
+    { name: '⚙️ /counter-set', value: 'New owner command: set the current count to any number manually, in case something goes wrong.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -3256,6 +3257,7 @@ client.once('clientReady', async () => {
                 countingState.record     = parseInt(f.record?.integerValue     || '0', 10);
                 try { countingState.ruinedBy = JSON.parse(f.ruinedBy?.stringValue || '[]'); } catch { countingState.ruinedBy = []; }
             }
+            countingState._loaded = true;
             console.log(`[BeastBot] Counting loaded — current: ${countingState.current}, record: ${countingState.record}`);
         } catch (e) { console.error('[BeastBot] loadCountingState error:', e.message); }
     } catch (_) {}
@@ -3488,6 +3490,10 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('resetcounting')
                 .setDescription('(Owner only) Reset the counting game to zero'),
+            new SlashCommandBuilder()
+                .setName('counter-set')
+                .setDescription('(Owner only) Manually set the current count to a specific number')
+                .addIntegerOption(opt => opt.setName('number').setDescription('The number to set the count to').setRequired(true).setMinValue(1)),
             new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
@@ -3723,6 +3729,20 @@ client.on('interactionCreate', async (interaction) => {
             countingState.ruinedBy = [];
             await saveCountingState();
             await interaction.reply({ content: '✅ Counting game reset to zero.', ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'counter-set') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const num = interaction.options.getInteger('number');
+            countingState.current = num;
+            countingState.lastUserId = null; // anyone can send next number
+            if (num > countingState.record) countingState.record = num;
+            await saveCountingState();
+            await interaction.reply({ content: `✅ Count set to **${num}**. Next number is **${num + 1}**.`, ephemeral: true });
             return;
         }
 
@@ -5444,6 +5464,9 @@ async function flushBeforeExit() {
         const data = creditVoiceTime(uid);
         if (data) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
     }
+    // Only save counting state if we successfully loaded from Firestore at startup —
+    // prevents zeroed in-memory state from overwriting real data during a deploy
+    if (countingState._loaded) promises.push(saveCountingState());
     promises.push(saveMessageBackup());
     await Promise.allSettled(promises);
     console.log('[BeastBot] Flush complete');

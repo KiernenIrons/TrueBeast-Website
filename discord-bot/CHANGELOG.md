@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-03-31] — Counting survives deploys + /counter-set command
+
+- Counting state now saved on shutdown — guarded by `_loaded` flag so it only saves if the bot successfully loaded from Firestore at startup (prevents zeroed in-memory state from ever wiping real data)
+- Added `/counter-set <number>` (owner only) — manually set the current count to any number; also updates the record if the new value is higher
+- This makes counting fully resilient: progress survives restarts/deploys, and there's a manual recovery path if anything goes wrong
+
 ## [2026-03-30] — Restore counting wall of shame + sort by biggest fail
 
 - Recovered all wall of shame data from screenshot: TrueBeast (4x, highest 166), Ammar (2x, highest 184), Tom (1x at 55), MarsKooty (1x at 52). Record restored to 184.
