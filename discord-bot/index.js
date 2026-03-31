@@ -5282,13 +5282,14 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // Thought delete button — original poster or mod only
+    // Thought delete button — original poster, mod, or server owner only
     if (interaction.customId.startsWith('thought:delete:')) {
         const originalUserId = interaction.customId.split(':')[2];
-        const isMod = MOD_ROLE_ID && interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
-        const isOwner = interaction.user.id === originalUserId;
-        if (!isOwner && !isMod) {
-            await interaction.reply({ content: 'Only the person who posted this thought or a mod can delete it.', ephemeral: true });
+        const isPoster      = interaction.user.id === originalUserId;
+        const isMod         = MOD_ROLE_ID && interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+        const isServerOwner = interaction.user.id === OWNER_DISCORD_ID;
+        if (!isPoster && !isMod && !isServerOwner) {
+            await interaction.reply({ content: 'Only the person who posted this thought, a mod, or the server owner can delete it.', ephemeral: true });
             return;
         }
         const confirmRow = new ActionRowBuilder().addComponents(
