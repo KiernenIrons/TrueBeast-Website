@@ -4962,7 +4962,7 @@ client.on('interactionCreate', async (interaction) => {
         const user     = interaction.user;
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
-        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || linkUrl}](${linkUrl})` }] : [];
+        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || '🔗 Link'}](${linkUrl})` }] : [];
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const msg = await thoughtChannel.messages.fetch(msgId);
@@ -5007,7 +5007,7 @@ client.on('interactionCreate', async (interaction) => {
         const display  = member?.displayName || user.username;
 
         // Build link field if a URL was provided
-        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || linkUrl}](${linkUrl})` }] : [];
+        const linkFields = linkUrl ? [{ name: '\u200b', value: `[${linkLabel || '🔗 Link'}](${linkUrl})` }] : [];
 
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
