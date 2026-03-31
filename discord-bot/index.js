@@ -5373,6 +5373,7 @@ client.on('interactionCreate', async (interaction) => {
             components: [confirmRow],
             ephemeral: true,
         });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
@@ -5384,12 +5385,14 @@ client.on('interactionCreate', async (interaction) => {
             await msg.delete();
         } catch (_) {}
         await interaction.update({ content: '🗑️ Thought deleted.', components: [] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
     // Thought delete cancelled
     if (interaction.customId === 'thought:cancel_delete') {
         await interaction.update({ content: '👍 Cancelled — nothing was deleted.', components: [] });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
