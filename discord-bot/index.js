@@ -616,12 +616,6 @@ const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 // Voice channels that don't earn XP — private/excluded channels
 const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channel
 
-// ── Update notes — edit this block before every deploy ────────────────────────
-// Each entry: { name, value } — shown as fields in the update announcement embed
-const UPDATE_NOTES = [
-    { name: '🔧 Critical Fix: Reactions', value: 'Fixed the root cause of every reaction wipe — a missing `updateMask` in saveMessageCount was replacing entire Firestore documents every 10 messages, nuking reaction data.' },
-    { name: '💾 Reaction Backup', value: 'Reaction counts now backed up every 60s and auto-restored on startup. Even if data is wiped, it comes back on the next restart.' },
-];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
@@ -3373,18 +3367,6 @@ client.once('clientReady', async () => {
         const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
         await logCh.send(`🔄 **Beast Bot restarted** — ${new Date().toUTCString()}\nReason: deployment update`);
     } catch (_) {}
-    // Post update notification to announcements channel
-    try {
-        const updateCh = await client.channels.fetch('1485384313062162522');
-        await updateCh.send({ content: '<@1469644183881912551>', embeds: [{
-            color: 0x22c55e,
-            title: '🤖 Beast Bot — New Update Released',
-            description: 'Beast Bot has just been updated and is back online!',
-            fields: UPDATE_NOTES,
-            footer: { text: 'Beast Bot • Released' },
-            timestamp: new Date().toISOString(),
-        }] });
-    } catch (e) { console.error('[BeastBot] Failed to post update notification:', e.message); }
 
     // Load ALL message counts from Firestore (paginated)
     try {
