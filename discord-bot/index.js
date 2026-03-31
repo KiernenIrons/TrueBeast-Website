@@ -618,10 +618,8 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🎙️ Voice Data Restored', value: 'All-time voice hours restored for all members. Voice data is now fully protected — saves are atomic, backups run every 60s including per-day breakdown.' },
-    { name: '💾 Full Backup System', value: 'Voice time (total + daily), messages, reactions, and rank achievements all backed up every 60s. Automatically restored on startup if Firestore has a quota failure.' },
-    { name: '🏆 /me Rank + Peak Fixed', value: 'Profile card reads rank from your Discord role and peak rank can never show lower than current.' },
-    { name: '👍 Reactions Fixed', value: 'Reaction history can no longer be wiped. All saves are now atomic increments.' },
+    { name: '🔧 Critical Fix: Reactions', value: 'Fixed the root cause of every reaction wipe — a missing `updateMask` in saveMessageCount was replacing entire Firestore documents every 10 messages, nuking reaction data.' },
+    { name: '💾 Reaction Backup', value: 'Reaction counts now backed up every 60s and auto-restored on startup. Even if data is wiped, it comes back on the next restart.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -892,7 +890,7 @@ async function handleCountingMessage(message) {
 // ── Member Milestones ─────────────────────────────────────────────────────────
 
 async function saveMessageCount(userId, count) {
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}`;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=count`;
     try {
         await fetch(url, {
             method: 'PATCH',
@@ -1365,6 +1363,28 @@ async function saveRankAchBackup() {
         });
         if (!res.ok) console.error(`[BeastBot] saveRankAchBackup HTTP ${res.status}`);
     } catch (e) { console.error('[BeastBot] saveRankAchBackup error:', e.message); }
+}
+
+// Backup all reactionDays to botConfig/reactionBackup every 60s.
+// On startup, used to restore if Firestore data is missing (e.g. wiped by bug or quota failure).
+async function saveReactionBackup() {
+    const backup = {};
+    for (const [uid, rMap] of reactionDays.entries()) {
+        if (rMap.size > 0) backup[uid] = Object.fromEntries(rMap);
+    }
+    if (Object.keys(backup).length === 0) return;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/reactionBackup?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                data:    { stringValue: JSON.stringify(backup) },
+                savedAt: { stringValue: new Date().toISOString() },
+            }}),
+        });
+        if (!res.ok) console.error(`[BeastBot] saveReactionBackup HTTP ${res.status}`);
+    } catch (e) { console.error('[BeastBot] saveReactionBackup error:', e.message); }
 }
 
 async function saveVoiceBonusXp(userId, data) {
@@ -3454,6 +3474,24 @@ client.once('clientReady', async () => {
             }
         } catch (e) { console.error('[BeastBot] loadMessageBackup error:', e.message); }
 
+        // Merge reaction backup — fills in any reactionDays that are missing or lower than backup
+        try {
+            const rxBackup = await firestoreGet('botConfig', 'reactionBackup');
+            if (rxBackup?.data) {
+                const backup = JSON.parse(rxBackup.data);
+                let rxRestored = 0;
+                for (const [uid, days] of Object.entries(backup)) {
+                    const existing = reactionDays.get(uid) || new Map();
+                    let changed = false;
+                    for (const [day, count] of Object.entries(days)) {
+                        if ((existing.get(day) || 0) < count) { existing.set(day, count); changed = true; }
+                    }
+                    if (changed) { reactionDays.set(uid, existing); reactionLoadedSet.add(uid); rxRestored++; }
+                }
+                if (rxRestored > 0) console.log(`[BeastBot] Reaction backup merged for ${rxRestored} users`);
+            }
+        } catch (e) { console.error('[BeastBot] loadReactionBackup error:', e.message); }
+
         // Load counting game state
         try {
             const res = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`);
@@ -3697,6 +3735,7 @@ client.once('clientReady', async () => {
             saveMessageBackup();
             saveVoiceBackup();
             saveRankAchBackup();
+            saveReactionBackup();
         }, 60 * 1000);
     }
 
