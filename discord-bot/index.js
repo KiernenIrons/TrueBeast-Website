@@ -590,6 +590,7 @@ const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
 const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 
 // ── Voice time tracking ───────────────────────────────────────────────────────
+const voiceMinutesLoaded = new Set(); // userIds whose voiceMinutes were loaded from Firestore at startup
 const voiceStartTimes    = new Map(); // userId → { startMs, baseTotal, baseToday }
 const leaderboardOwners  = new Map(); // messageId → userId (who invoked /leaderboard)
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
@@ -617,9 +618,10 @@ const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channe
 // ── Update notes — edit this block before every deploy ────────────────────────
 // Each entry: { name, value } — shown as fields in the update announcement embed
 const UPDATE_NOTES = [
-    { name: '🏆 /me Rank Fixed', value: 'Profile card now reads your rank directly from your Discord role — no more Silver I when you\'re Diamond.' },
-    { name: '📈 Peak Rank Fixed', value: 'Peak rank can never show lower than your current rank; auto-updates if it was wrong.' },
-    { name: '👍 Reactions Fixed', value: 'Reaction history can no longer be wiped by a bot restart. Saves are now atomic — only ever add, never overwrite.' },
+    { name: '🎙️ Voice Data Protected', value: 'Voice minutes can no longer be wiped by a bot restart. Saves are now atomic — each session adds its minutes, never overwrites the accumulated total.' },
+    { name: '💾 Voice Backup', value: 'Voice time totals are now backed up every 60 seconds and restored automatically if Firestore has a quota failure on startup.' },
+    { name: '🏆 /me Rank Fixed', value: 'Profile card now reads your rank directly from your Discord role — no more wrong rank when XP data hasn\'t loaded.' },
+    { name: '👍 Reactions Fixed', value: 'Reaction history can no longer be wiped. Saves are now atomic — only ever add, never overwrite.' },
 ];
 const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
@@ -1281,6 +1283,63 @@ async function saveVoiceMinutes(userId, data) {
     } catch (e) { console.error('[BeastBot] saveVoiceMinutes error:', e.message); }
 }
 
+// Atomically increment the 'total' field in voiceMinutes/{userId} by delta minutes.
+// Safe regardless of whether in-memory state was loaded at startup — never overwrites real data.
+async function atomicIncrementVoiceTotal(uid, delta) {
+    if (delta <= 0) return;
+    const docPath = `projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceMinutes/${uid}`;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents:commit?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ writes: [{ transform: { document: docPath, fieldTransforms: [{ fieldPath: 'total', increment: { integerValue: String(delta) } }] } }] }),
+        });
+        if (!res.ok) console.error(`[BeastBot] atomicIncrementVoiceTotal ${uid}: ${res.status} ${await res.text()}`);
+    } catch (e) { console.error('[BeastBot] atomicIncrementVoiceTotal error:', e.message); }
+}
+
+// Save only the per-day breakdown for a voice session — guarded by voiceMinutesLoaded.
+// If the user's data wasn't loaded at startup, skipping this prevents overwriting real days with empty state.
+// The total field is handled separately by atomicIncrementVoiceTotal.
+async function saveVoiceDaysOnly(uid, data) {
+    if (!voiceMinutesLoaded.has(uid)) return;
+    const dayFields = {};
+    for (const [k, v] of data.days.entries()) dayFields[k] = { integerValue: String(Math.floor(v)) };
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceMinutes/${uid}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=days`;
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { days: { mapValue: { fields: dayFields } } } }),
+        });
+        if (!res.ok) console.error(`[BeastBot] saveVoiceDaysOnly ${uid}: ${res.status}`);
+    } catch (e) { console.error('[BeastBot] saveVoiceDaysOnly error:', e.message); }
+}
+
+// Backup snapshot of ALL voice totals to botConfig/voiceBackup — survives collection deletes.
+// On startup, if voiceMinutes load fails, this is used to restore totals.
+async function saveVoiceBackup() {
+    const backup = {};
+    for (const [uid, data] of voiceMinutes.entries()) {
+        if (data.total > 0) backup[uid] = data.total;
+    }
+    if (Object.keys(backup).length === 0) return;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/voiceBackup?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: {
+                data:    { stringValue: JSON.stringify(backup) },
+                savedAt: { stringValue: new Date().toISOString() },
+            }}),
+        });
+        if (!res.ok) console.error(`[BeastBot] saveVoiceBackup HTTP ${res.status}`);
+        else console.log(`[BeastBot] 💾 Voice backup saved (${Object.keys(backup).length} users)`);
+    } catch (e) { console.error('[BeastBot] saveVoiceBackup error:', e.message); }
+}
+
 async function saveVoiceBonusXp(userId, data) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/voiceBonusXp/${userId}?key=${FIREBASE_API_KEY}`;
     const dayFields = {};
@@ -1921,11 +1980,15 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         const uid = trackingMember.id;
         // Session end: left a real channel
         if (oldCh && oldCh !== AFK_CHANNEL_ID && voiceStartTimes.has(uid)) {
+            const sess = voiceStartTimes.get(uid);
             const finalData = creditVoiceTime(uid);
             voiceStartTimes.delete(uid);
             voiceEnhancements.delete(uid);
-            if (finalData) {
-                saveVoiceMinutes(uid, { total: finalData.total, days: Object.fromEntries(finalData.days) });
+            if (finalData && sess) {
+                const currentElapsed = Math.floor((Date.now() - sess.startMs) / 60000);
+                const delta = currentElapsed - (sess.savedElapsed || 0);
+                atomicIncrementVoiceTotal(uid, delta);
+                saveVoiceDaysOnly(uid, finalData);
                 assignVoiceRank(trackingMember, monthlyActivityScore(uid)).catch(() => {});
             }
         }
@@ -1936,6 +1999,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 startMs: Date.now(),
                 baseTotal: existing.total,
                 baseDays: new Map(existing.days),
+                savedElapsed: 0,
             });
             voiceEnhancements.set(uid, { camera: newState.selfVideo || false, stream: newState.selfStream || false, inStage: newState.channel?.type === ChannelType.GuildStageVoice });
         }
@@ -3380,6 +3444,7 @@ client.once('clientReady', async () => {
     } catch (_) {}
 
     // Load voice minutes from Firestore
+    let voiceLoadOk = false;
     try {
         let nextPageToken = null;
         do {
@@ -3401,13 +3466,34 @@ client.once('clientReady', async () => {
                     dMap.set(k, parseInt(v.integerValue || v.doubleValue || '0', 10));
                 }
                 voiceMinutes.set(uid, { total, days: dMap });
+                voiceMinutesLoaded.add(uid); // mark as loaded — enables safe days saves
             });
             nextPageToken = data.nextPageToken || null;
+            voiceLoadOk = true;
         } while (nextPageToken);
         const totalMinutes = [...voiceMinutes.values()].reduce((s, d) => s + d.total, 0);
         console.log(`[BeastBot] Loaded ${voiceMinutes.size} voice minute records from Firestore (${totalMinutes} total minutes across all users)`);
     } catch (e) {
         console.error('[BeastBot] voiceMinutes load threw:', e.message);
+    }
+
+    // If primary voiceMinutes load failed, restore totals from backup so in-memory state isn't empty
+    // (prevents atomicIncrementVoiceTotal from adding on top of 0 without any display context)
+    if (!voiceLoadOk) {
+        try {
+            const backup = await firestoreGet('botConfig', 'voiceBackup');
+            if (backup?.data) {
+                const parsed = JSON.parse(backup.data);
+                let restored = 0;
+                for (const [uid, total] of Object.entries(parsed)) {
+                    if (!voiceMinutes.has(uid)) {
+                        voiceMinutes.set(uid, { total: Number(total), days: new Map() });
+                        restored++;
+                    }
+                }
+                console.log(`[BeastBot] Restored ${restored} voice totals from backup (primary load failed)`);
+            }
+        } catch (e) { console.error('[BeastBot] voiceBackup restore failed:', e.message); }
     }
 
     // Load voice bonus XP from Firestore
@@ -3506,6 +3592,7 @@ client.once('clientReady', async () => {
                         startMs: Date.now(),
                         baseTotal: existing.total,
                         baseDays: new Map(existing.days),
+                        savedElapsed: 0,
                     });
                     voiceEnhancements.set(member.id, {
                         camera: member.voice.selfVideo || false,
@@ -3537,14 +3624,25 @@ client.once('clientReady', async () => {
             const active = [...voiceStartTimes.keys()];
             if (active.length > 0) {
                 for (const uid of active) {
+                    const sess = voiceStartTimes.get(uid);
                     const data = voiceMinutes.get(uid);
-                    if (data) saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) });
+                    if (data && sess) {
+                        // Atomic increment: only save the new minutes since last save (never overwrites total)
+                        const currentElapsed = Math.floor((Date.now() - sess.startMs) / 60000);
+                        const delta = currentElapsed - (sess.savedElapsed || 0);
+                        if (delta > 0) {
+                            atomicIncrementVoiceTotal(uid, delta);
+                            sess.savedElapsed = currentElapsed;
+                        }
+                        saveVoiceDaysOnly(uid, data); // guarded by voiceMinutesLoaded — safe on quota failure
+                    }
                     const bData = voiceBonusXp.get(uid);
                     if (bData) saveVoiceBonusXp(uid, { total: bData.total, days: Object.fromEntries(bData.days) });
                 }
                 console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
             }
             saveMessageBackup();
+            saveVoiceBackup();
         }, 60 * 1000);
     }
 
@@ -5583,8 +5681,16 @@ async function flushBeforeExit() {
     console.log('[BeastBot] Flushing state before shutdown...');
     const promises = [];
     for (const [uid] of voiceStartTimes) {
+        const sess = voiceStartTimes.get(uid);
         const data = creditVoiceTime(uid);
-        if (data) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
+        if (data && sess) {
+            const currentElapsed = Math.floor((Date.now() - sess.startMs) / 60000);
+            const delta = currentElapsed - (sess.savedElapsed || 0);
+            // Atomic increment for total — safe even if data wasn't loaded at startup
+            promises.push(atomicIncrementVoiceTotal(uid, delta));
+            // Days map — only save if data was loaded (prevents overwriting real days with empty state)
+            promises.push(saveVoiceDaysOnly(uid, data));
+        }
     }
     // Only save counting state if we successfully loaded from Firestore at startup —
     // prevents zeroed in-memory state from overwriting real data during a deploy

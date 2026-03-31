@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-03-31] — Fix voice minutes data wipe; add voice backup
+
+- Root cause: `saveVoiceMinutes` did a full PATCH replace for `total` — if voiceMinutes failed to load at startup (quota 429), `baseTotal=0`, so the 60s tick would save `total=sessionMinutes` and overwrite the real accumulated value in Firestore
+- Fixed: `total` field now saved via **Firestore atomic field-transform increment** — saves only the new delta minutes since last save, never touches historical data
+- `saveVoiceDaysOnly` replaces the days-field save and is guarded by `voiceMinutesLoaded` — days are only PATCH-replaced if the user's data was successfully loaded at startup
+- `savedElapsed` field added to `voiceStartTimes` to track how much of each session has been saved
+- Added `saveVoiceBackup()` — saves all voice totals to `botConfig/voiceBackup` every 60s; restored on startup if primary load fails
+- Updated `flushBeforeExit` and voice leave handler to use atomic delta increment
+- Recovery script `recover-voice-messages.js` — shows current Firestore state, restores from messageBackup, lets owner set manual voice totals
+
 ## [2026-03-31] — Fix /me profile card: correct rank, peak rank, and reactions
 
 - `/me` rank badge now reads from the member's actual Discord roles (authoritative) instead of recalculating from XP — eliminates wrong rank when voiceMinutes failed to load on restart
