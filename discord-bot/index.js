@@ -539,6 +539,7 @@ const AI_CHANNEL_ID      = '1482956343131246673';
 const BUMP_CHANNEL_ID    = '1477361149862482053';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
+const THOUGHTS_CHANNEL_ID = '1488545515976134737';
 const GIVEAWAY_CHANNEL_ID  = '836728871356989491';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
@@ -3886,6 +3887,9 @@ client.once('clientReady', async () => {
                 .setDescription('(Mod only) Send an anonymous DM to a member as the bot')
                 .addUserOption(opt => opt.setName('user').setDescription('Member to DM').setRequired(true))
                 .addStringOption(opt => opt.setName('message').setDescription('Message content').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('setup-thoughts')
+                .setDescription('(Owner only) Post the Share Your Thoughts prompt in the thoughts channel'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -4581,6 +4585,35 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /setup-thoughts ──────────────────────────────────────────────────
+        if (interaction.commandName === 'setup-thoughts') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
+            }
+            try {
+                const ch = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('thought:start')
+                        .setLabel('💭 Share a Thought')
+                        .setStyle(ButtonStyle.Primary),
+                );
+                await ch.send({
+                    embeds: [{
+                        title: '💭 Share Your Thoughts',
+                        description: 'Got something on your mind? Share a thought with the community — anonymously or with your name attached.\n\nClick the button below to get started.',
+                        color: 0x7c3aed,
+                        footer: { text: 'You can delete your own thought at any time.' },
+                    }],
+                    components: [row],
+                });
+                await interaction.reply({ content: '✅ Thoughts prompt posted.', flags: 64 });
+            } catch (e) {
+                await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
+            }
+            return;
+        }
+
         // ── /say ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'say') {
             if (interaction.user.id !== OWNER_DISCORD_ID) {
@@ -4932,6 +4965,72 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ── Introduction modal submit ─────────────────────────────────────────────
+    // ── Thought modal submit ──────────────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('thought:modal:')) {
+        const isAnon  = interaction.customId === 'thought:modal:anon';
+        const text    = interaction.fields.getTextInputValue('thought_text');
+        const user    = interaction.user;
+        const member  = interaction.member;
+        const display = member?.displayName || user.username;
+
+        try {
+            const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
+            const deleteRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`thought:delete:${user.id}`)
+                    .setLabel('🗑️ Delete this thought')
+                    .setStyle(ButtonStyle.Danger),
+            );
+
+            if (isAnon) {
+                await thoughtChannel.send({
+                    embeds: [{
+                        description: `💭 ${text}`,
+                        color: 0x4b5563,
+                        footer: { text: 'Posted anonymously' },
+                        timestamp: new Date().toISOString(),
+                    }],
+                    components: [deleteRow],
+                });
+            } else {
+                await thoughtChannel.send({
+                    embeds: [{
+                        author: {
+                            name: display,
+                            icon_url: user.displayAvatarURL({ size: 64 }),
+                        },
+                        description: `💭 ${text}`,
+                        color: 0x7c3aed,
+                        timestamp: new Date().toISOString(),
+                    }],
+                    components: [deleteRow],
+                });
+            }
+
+            // Log to #logs — always shows who submitted regardless of anonymity
+            try {
+                const logCh = await client.channels.fetch(LOG_CHANNEL_ID);
+                await logCh.send({ embeds: [{
+                    title: '💭 Thought Submitted',
+                    fields: [
+                        { name: 'User', value: `<@${user.id}> (${user.tag})`, inline: true },
+                        { name: 'Posted as', value: isAnon ? 'Anonymous' : 'Public', inline: true },
+                        { name: 'Thought', value: text.slice(0, 1024) },
+                    ],
+                    color: isAnon ? 0x4b5563 : 0x7c3aed,
+                    timestamp: new Date().toISOString(),
+                }]});
+            } catch (_) {}
+
+            await interaction.reply({ content: `✅ Your thought has been posted${isAnon ? ' anonymously' : ''}!`, ephemeral: true });
+            console.log(`[BeastBot] 💭 Thought posted by ${user.tag} (${isAnon ? 'anonymous' : 'public'})`);
+        } catch (e) {
+            console.error('[BeastBot] Failed to post thought:', e.message);
+            await interaction.reply({ content: '❌ Something went wrong posting your thought. Try again.', ephemeral: true });
+        }
+        return;
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === 'intro:modal') {
         const name        = interaction.fields.getTextInputValue('intro_name');
         const ageLocation = interaction.fields.getTextInputValue('intro_age_location');
@@ -5074,6 +5173,93 @@ client.on('interactionCreate', async (interaction) => {
 
     // Intro delete cancelled
     if (interaction.customId === 'intro:cancel_delete') {
+        await interaction.update({ content: '👍 Cancelled — nothing was deleted.', components: [] });
+        return;
+    }
+
+    // ── Thoughts channel ──────────────────────────────────────────────────────
+
+    // "Share a Thought" button — shows anonymous vs public choice
+    if (interaction.customId === 'thought:start') {
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('thought:open:anon')
+                .setLabel('🎭 Anonymous')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId('thought:open:public')
+                .setLabel('📢 Post with my name')
+                .setStyle(ButtonStyle.Primary),
+        );
+        await interaction.reply({
+            content: 'How would you like to post your thought?',
+            components: [row],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    // Anonymous or public — open the thought modal
+    if (interaction.customId === 'thought:open:anon' || interaction.customId === 'thought:open:public') {
+        const isAnon = interaction.customId === 'thought:open:anon';
+        const modal = new ModalBuilder()
+            .setCustomId(`thought:modal:${isAnon ? 'anon' : 'public'}`)
+            .setTitle(isAnon ? '🎭 Share Anonymously' : '📢 Share with Your Name');
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('thought_text')
+                    .setLabel('Your thought')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('Share what\'s on your mind...')
+                    .setRequired(true)
+                    .setMaxLength(1000),
+            ),
+        );
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // Thought delete button — original poster or mod only
+    if (interaction.customId.startsWith('thought:delete:')) {
+        const originalUserId = interaction.customId.split(':')[2];
+        const isMod = MOD_ROLE_ID && interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+        const isOwner = interaction.user.id === originalUserId;
+        if (!isOwner && !isMod) {
+            await interaction.reply({ content: 'Only the person who posted this thought or a mod can delete it.', ephemeral: true });
+            return;
+        }
+        const confirmRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`thought:confirm_delete:${interaction.message.id}`)
+                .setLabel('Yes, delete it')
+                .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+                .setCustomId('thought:cancel_delete')
+                .setLabel('Cancel')
+                .setStyle(ButtonStyle.Secondary),
+        );
+        await interaction.reply({
+            content: '⚠️ Are you sure you want to delete this thought? This can\'t be undone.',
+            components: [confirmRow],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    // Thought delete confirmed
+    if (interaction.customId.startsWith('thought:confirm_delete:')) {
+        const messageId = interaction.customId.split(':')[2];
+        try {
+            const msg = await interaction.channel.messages.fetch(messageId);
+            await msg.delete();
+        } catch (_) {}
+        await interaction.update({ content: '🗑️ Thought deleted.', components: [] });
+        return;
+    }
+
+    // Thought delete cancelled
+    if (interaction.customId === 'thought:cancel_delete') {
         await interaction.update({ content: '👍 Cancelled — nothing was deleted.', components: [] });
         return;
     }
