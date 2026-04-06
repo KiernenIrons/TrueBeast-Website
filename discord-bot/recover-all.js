@@ -1,13 +1,14 @@
-// Full data recovery — merges ALL backup sources and restores to primary Firestore collections
-// Takes the MAX value across every source — never reduces anyone's data
+// Full data recovery — adds Firestore historical data + Discord recent data together
+// Firestore = old totals (bot read-failed on restart, so untouched historical data)
+// Discord   = new activity since bot restarted with empty in-memory state
 // Run: node recover-all.js
 //
-// Sources (in priority order, highest first):
-//   1. Discord backup channel JSON  — beast-bot-backup.json saved every 60s (most current)
-//   2. botConfig/voiceBackup        — Firestore voice backup
-//   3. botConfig/rankAchBackup      — Firestore rank achievement backup
-//   4. botConfig/messageBackup      — Firestore message backup
-//   5. Primary collections          — voiceMinutes, rankAchievements, messageCounts
+// Merge logic:
+//   voice total       — ADD  (Firestore historical + Discord recent)
+//   voice days        — ADD per day
+//   message days      — ADD per day
+//   highestRankIdx    — MAX  (it's a peak rank, not additive)
+//   apexCount         — ADD  (count of times at apex, accumulative)
 
 require('dotenv').config();
 
@@ -38,10 +39,10 @@ async function fetchDiscordBackup() {
             const fileRes = await fetch(att.url);
             if (!fileRes.ok) { console.log(`  ⚠️  Discord attachment download failed: ${fileRes.status}`); return null; }
             const data = await fileRes.json();
-            console.log(`  Discord backup saved at: ${data.savedAt}`);
-            console.log(`    voiceMinutes:     ${Object.keys(data.voiceMinutes    || {}).length} users`);
-            console.log(`    rankAchievements: ${Object.keys(data.rankAchievements|| {}).length} users`);
-            console.log(`    messageDays:      ${Object.keys(data.messageDays     || {}).length} users`);
+            console.log(`  ✅ Discord backup found — saved at: ${data.savedAt}`);
+            console.log(`     voiceMinutes:     ${Object.keys(data.voiceMinutes     || {}).length} users`);
+            console.log(`     rankAchievements: ${Object.keys(data.rankAchievements || {}).length} users`);
+            console.log(`     messageDays:      ${Object.keys(data.messageDays      || {}).length} users`);
             return data;
         }
         console.log('  ⚠️  No beast-bot-backup.json found in recent Discord messages');
@@ -115,14 +116,11 @@ async function patchMessageDays(uid, days) {
     return res.ok;
 }
 
-// ── Merge helper: takes max per day across any number of day-map objects ──────
-
-function mergeDays(...dayMaps) {
-    const result = {};
-    for (const map of dayMaps) {
-        for (const [day, val] of Object.entries(map || {})) {
-            if (val > (result[day] || 0)) result[day] = val;
-        }
+// Add two day-maps together (per-day accumulation)
+function addDays(a, b) {
+    const result = { ...a };
+    for (const [day, val] of Object.entries(b || {})) {
+        result[day] = (result[day] || 0) + val;
     }
     return result;
 }
@@ -130,33 +128,19 @@ function mergeDays(...dayMaps) {
 const RANK_NAMES = ['🥉 Bronze I','🥉 Bronze II','🥈 Silver I','🥈 Silver II','🥇 Gold I','🥇 Gold II','💠 Platinum','💎 Diamond','🔥 Master','⚔️ Grandmaster','👑 Apex Predator'];
 
 async function main() {
-    console.log('=== TrueBeast Full Data Recovery ===\n');
+    console.log('=== TrueBeast Full Data Recovery ===');
+    console.log('Mode: ADD Firestore (historical) + Discord (recent activity)\n');
 
-    // ── 1. Discord backup (most current — saved every 60s) ────────────────────
-    console.log('Reading Discord backup...');
-    const discordData = await fetchDiscordBackup();
+    // ── 1. Discord backup (new activity since bot restarted empty) ────────────
+    console.log('Reading Discord backup (recent activity)...');
+    const discordData    = await fetchDiscordBackup();
     const discordVoice   = discordData?.voiceMinutes     || {};
     const discordRankAch = discordData?.rankAchievements || {};
     const discordMsgDays = discordData?.messageDays      || {};
     console.log();
 
-    // ── 2. Firestore backup docs ──────────────────────────────────────────────
-    console.log('Reading Firestore backup documents...');
-
-    const voiceBackupDoc   = await get('botConfig/voiceBackup');
-    const rankAchBackupDoc = await get('botConfig/rankAchBackup');
-    const msgBackupDoc     = await get('botConfig/messageBackup');
-
-    const voiceBackup   = voiceBackupDoc?.fields?.data?.stringValue   ? JSON.parse(voiceBackupDoc.fields.data.stringValue)   : {};
-    const rankAchBackup = rankAchBackupDoc?.fields?.data?.stringValue ? JSON.parse(rankAchBackupDoc.fields.data.stringValue) : {};
-    const msgBackup     = msgBackupDoc?.fields?.data?.stringValue     ? JSON.parse(msgBackupDoc.fields.data.stringValue)     : {};
-
-    console.log(`  voiceBackup:   ${Object.keys(voiceBackup).length} users (saved at: ${voiceBackupDoc?.fields?.savedAt?.stringValue || 'unknown'})`);
-    console.log(`  rankAchBackup: ${Object.keys(rankAchBackup).length} users (saved at: ${rankAchBackupDoc?.fields?.savedAt?.stringValue || 'unknown'})`);
-    console.log(`  messageBackup: ${Object.keys(msgBackup).length} users\n`);
-
-    // ── 3. Primary Firestore collections ──────────────────────────────────────
-    console.log('Reading primary Firestore collections...');
+    // ── 2. Firestore primary collections (historical data) ────────────────────
+    console.log('Reading Firestore primary collections (historical data)...');
 
     const vmDocs  = await list('voiceMinutes');
     const raDocs  = await list('rankAchievements');
@@ -191,85 +175,73 @@ async function main() {
     console.log(`  rankAchievements: ${raDocs.length} docs`);
     console.log(`  messageCounts:    ${mcDocs.length} docs\n`);
 
-    // ── 4. Merge all sources: take MAX across Discord backup + Firestore backups + primary ──
+    // ── 3. Add historical + recent and write back ─────────────────────────────
 
-    // Voice
+    // Voice: ADD Firestore total + Discord total; ADD per-day
     let voiceRestored = 0;
-    console.log('=== Voice Minutes Recovery ===');
-    const allVoiceUids = new Set([
-        ...Object.keys(discordVoice),
-        ...Object.keys(voiceBackup),
-        ...Object.keys(primaryVoice),
-    ]);
+    console.log('=== Voice Minutes Recovery (Firestore + Discord) ===');
+    const allVoiceUids = new Set([...Object.keys(discordVoice), ...Object.keys(primaryVoice)]);
     for (const uid of allVoiceUids) {
-        const discord = discordVoice[uid] || { total: 0, days: {} };
-        const backup  = voiceBackup[uid]  || { total: 0, days: {} };
-        const primary = primaryVoice[uid] || { total: 0, days: {} };
-        const bestTotal = Math.max(discord.total, backup.total, primary.total);
-        const bestDays  = mergeDays(primary.days, backup.days, discord.days);
-        if (bestTotal > primary.total || JSON.stringify(bestDays) !== JSON.stringify(primary.days)) {
-            const ok = await patchVoice(uid, bestTotal, bestDays);
+        const discord  = discordVoice[uid]  || { total: 0, days: {} };
+        const primary  = primaryVoice[uid]  || { total: 0, days: {} };
+        const newTotal = primary.total + discord.total;
+        const newDays  = addDays(primary.days, discord.days);
+        if (newTotal !== primary.total || JSON.stringify(newDays) !== JSON.stringify(primary.days)) {
+            const ok = await patchVoice(uid, newTotal, newDays);
             if (ok) {
-                console.log(`  ✅ ${uid}: ${fmt(primary.total)} → ${fmt(bestTotal)}`);
+                console.log(`  ✅ ${uid}: ${fmt(primary.total)} + ${fmt(discord.total)} = ${fmt(newTotal)}`);
                 voiceRestored++;
             } else {
                 console.log(`  ❌ ${uid}: FAILED`);
             }
         } else {
-            console.log(`  ✓  ${uid}: ${fmt(primary.total)} — already correct`);
+            console.log(`  ✓  ${uid}: ${fmt(primary.total)} — no Discord data to add`);
         }
     }
 
-    // Rank achievements
+    // Rank achievements: MAX highestRankIdx (peak); ADD apexCount
     let rankRestored = 0;
     console.log('\n=== Rank Achievement Recovery ===');
-    const allRankUids = new Set([
-        ...Object.keys(discordRankAch),
-        ...Object.keys(rankAchBackup),
-        ...Object.keys(primaryRankAch),
-    ]);
+    const allRankUids = new Set([...Object.keys(discordRankAch), ...Object.keys(primaryRankAch)]);
     for (const uid of allRankUids) {
-        const discord = discordRankAch[uid] || { highestRankIdx: 0, apexCount: 0 };
-        const backup  = rankAchBackup[uid]  || { highestRankIdx: 0, apexCount: 0 };
-        const primary = primaryRankAch[uid] || { highestRankIdx: 0, apexCount: 0 };
-        const bestIdx  = Math.max(discord.highestRankIdx, backup.highestRankIdx, primary.highestRankIdx);
-        const bestApex = Math.max(discord.apexCount,      backup.apexCount,      primary.apexCount);
-        if (bestIdx > primary.highestRankIdx || bestApex > primary.apexCount) {
-            const ok = await patchRankAch(uid, bestIdx, bestApex);
+        const discord  = discordRankAch[uid] || { highestRankIdx: 0, apexCount: 0 };
+        const primary  = primaryRankAch[uid] || { highestRankIdx: 0, apexCount: 0 };
+        const bestIdx  = Math.max(discord.highestRankIdx, primary.highestRankIdx); // peak rank — MAX
+        const newApex  = primary.apexCount + discord.apexCount;                   // count — ADD
+        if (bestIdx !== primary.highestRankIdx || newApex !== primary.apexCount) {
+            const ok = await patchRankAch(uid, bestIdx, newApex);
             if (ok) {
-                console.log(`  ✅ ${uid}: ${RANK_NAMES[primary.highestRankIdx] || '?'} → ${RANK_NAMES[bestIdx] || '?'} (apex: ${bestApex})`);
+                console.log(`  ✅ ${uid}: rank ${RANK_NAMES[primary.highestRankIdx] || '?'} → ${RANK_NAMES[bestIdx] || '?'}, apex ${primary.apexCount} + ${discord.apexCount} = ${newApex}`);
                 rankRestored++;
             } else {
                 console.log(`  ❌ ${uid}: FAILED`);
             }
         } else {
-            console.log(`  ✓  ${uid}: ${RANK_NAMES[primary.highestRankIdx] || '?'} — already correct`);
+            console.log(`  ✓  ${uid}: ${RANK_NAMES[primary.highestRankIdx] || '?'} — no change needed`);
         }
     }
 
-    // Message days
+    // Message days: ADD per day
     let msgRestored = 0;
-    console.log('\n=== Message Count Recovery ===');
-    const allMsgUids = new Set([
-        ...Object.keys(discordMsgDays),
-        ...Object.keys(msgBackup),
-        ...Object.keys(primaryMsgDays),
-    ]);
+    console.log('\n=== Message Count Recovery (Firestore + Discord) ===');
+    const allMsgUids = new Set([...Object.keys(discordMsgDays), ...Object.keys(primaryMsgDays)]);
     for (const uid of allMsgUids) {
-        const primary  = primaryMsgDays[uid] || {};
-        const bestDays = mergeDays(primary, msgBackup[uid] || {}, discordMsgDays[uid] || {});
+        const discord      = discordMsgDays[uid]  || {};
+        const primary      = primaryMsgDays[uid]  || {};
+        const newDays      = addDays(primary, discord);
         const primaryTotal = Object.values(primary).reduce((a, b) => a + b, 0);
-        const bestTotal    = Object.values(bestDays).reduce((a, b) => a + b, 0);
-        if (JSON.stringify(bestDays) !== JSON.stringify(primary)) {
-            const ok = await patchMessageDays(uid, bestDays);
+        const discordTotal = Object.values(discord).reduce((a, b) => a + b, 0);
+        const newTotal     = Object.values(newDays).reduce((a, b) => a + b, 0);
+        if (discordTotal > 0) {
+            const ok = await patchMessageDays(uid, newDays);
             if (ok) {
-                console.log(`  ✅ ${uid}: ${primaryTotal} → ${bestTotal} messages`);
+                console.log(`  ✅ ${uid}: ${primaryTotal} + ${discordTotal} = ${newTotal} messages`);
                 msgRestored++;
             } else {
                 console.log(`  ❌ ${uid}: FAILED`);
             }
         } else {
-            console.log(`  ✓  ${uid}: ${primaryTotal} messages — already correct`);
+            console.log(`  ✓  ${uid}: ${primaryTotal} messages — no Discord data to add`);
         }
     }
 
@@ -277,7 +249,7 @@ async function main() {
     console.log(`  Voice restored:    ${voiceRestored} users`);
     console.log(`  Rank ach restored: ${rankRestored} users`);
     console.log(`  Messages restored: ${msgRestored} users`);
-    console.log('\nDone. Restart Beast Bot to reload the restored data.');
+    console.log('\nDone. Restart Beast Bot to reload the restored data from Firestore.');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
