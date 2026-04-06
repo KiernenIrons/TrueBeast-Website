@@ -1334,11 +1334,9 @@ async function saveVoiceBonusXp(userId, data) {
 }
 
 async function saveRankAchievements(userId, ach) {
-    // Rank achievements are captured in the Discord backup every 60s.
-    // This direct Firestore write is only used by saveFirestoreDaily().
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/rankAchievements/${userId}?key=${FIREBASE_API_KEY}`;
     try {
-        await fetch(url, {
+        const res = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fields: {
@@ -1346,6 +1344,7 @@ async function saveRankAchievements(userId, ach) {
                 apexCount:      { integerValue: String(ach.apexCount) },
             }}),
         });
+        if (!res.ok) console.error(`[BeastBot] saveRankAchievements ${userId} → ${res.status} ${await res.text()}`);
     } catch (e) { console.error('[BeastBot] saveRankAchievements error:', e.message); }
 }
 
@@ -3816,6 +3815,30 @@ client.once('clientReady', async () => {
             }
             console.log(`[BeastBot] Startup role sync complete for ${assigned} members`);
         } catch (e) { console.error('[BeastBot] Startup role sync failed:', e.message); }
+
+        // Self-heal rankAchievements from current Discord roles.
+        // If a member has a rank role higher than what's stored (e.g. data was wiped),
+        // update the stored peak to match their current role — no manual data entry needed.
+        try {
+            let healed = 0;
+            const rankRoleIds = VOICE_RANK_ROLES.map(r => r.id);
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                // Find the highest rank role this member currently has
+                let currentRankIdx = 0;
+                for (let i = 0; i < VOICE_RANK_ROLES.length; i++) {
+                    if (member.roles.cache.has(VOICE_RANK_ROLES[i].id)) currentRankIdx = i;
+                }
+                const ach = rankAchievements.get(member.id) || { highestRankIdx: 0, apexCount: 0, hitApexThisMonth: false };
+                if (currentRankIdx > ach.highestRankIdx) {
+                    ach.highestRankIdx = currentRankIdx;
+                    rankAchievements.set(member.id, ach);
+                    saveRankAchievements(member.id, ach).catch(() => {});
+                    healed++;
+                }
+            }
+            if (healed > 0) console.log(`[BeastBot] Self-healed rankAchievements for ${healed} members from Discord roles`);
+        } catch (e) { console.error('[BeastBot] rankAchievements self-heal failed:', e.message); }
 
         // Pre-warm emoji image cache for rank pill rendering
         Promise.all(VOICE_RANK_ROLES.map(r => {
