@@ -2167,8 +2167,8 @@ async function assignVoiceRank(member, xp, forceReset = false) {
 
     if (!member.roles.cache.has(targetRole.id)) {
         await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
-        // Rank-up notification in bot-commands channel (skip during monthly reset)
-        if (!forceReset) {
+        // Rank-up notification in bot-commands channel (skip Bronze I — reset & new joins)
+        if (!forceReset && targetIdx > 0) {
             try {
                 const rankColors = {
                     '🥉 Bronze': 0xcd7f32, '🥈 Silver': 0xc0c0c0, '🥇 Gold': 0xffd700,
