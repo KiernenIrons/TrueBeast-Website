@@ -75,16 +75,9 @@ function appendHistory(userId, userMessage, assistantMessage) {
 
 let _aiHistoryTimer = null;
 function scheduleAiHistorySave() {
+    // AI history is captured in the Discord backup every 60s — no Firestore write needed
     if (_aiHistoryTimer) return;
-    _aiHistoryTimer = setTimeout(async () => {
-        _aiHistoryTimer = null;
-        try {
-            // Keep only 50 most recent users
-            const entries = [...conversationHistory.entries()].slice(-50);
-            const obj = Object.fromEntries(entries);
-            await firestoreSet('botConfig', 'aiHistory', { data: JSON.stringify(obj) });
-        } catch (e) { console.error('[BeastBot] Failed to save AI history:', e.message); }
-    }, 60000);
+    _aiHistoryTimer = setTimeout(() => { _aiHistoryTimer = null; }, 60000);
 }
 
 function makeQuestionId() {
@@ -534,9 +527,12 @@ const client = new Client({
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
 
-const COUNTING_CHANNEL_ID = '1486479498248585277';
-const AI_CHANNEL_ID      = '1482956343131246673';
-const BUMP_CHANNEL_ID    = '1477361149862482053';
+const COUNTING_CHANNEL_ID  = '1486479498248585277';
+const AI_CHANNEL_ID        = '1482956343131246673';
+const BUMP_CHANNEL_ID      = '1477361149862482053';
+const BACKUP_CHANNEL_ID    = process.env.BACKUP_CHANNEL_ID || '1490542501302636726';
+let _discordBackupMsgId    = null;
+let _lastDailyFirestoreDate = '';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
 const THOUGHTS_CHANNEL_ID = '1488545515976134737';
@@ -875,24 +871,15 @@ async function handleCountingMessage(message) {
     countingState.lastUserId = message.author.id;
     if (num > countingState.record) countingState.record = num;
 
-    // Debounce Firestore save — write 5s after the last count, not on every number
-    if (countingState._saveTimer) clearTimeout(countingState._saveTimer);
-    countingState._saveTimer = setTimeout(() => { countingState._saveTimer = null; saveCountingState(); }, 5000);
+    // Counting state is persisted via Discord backup every 60s — no per-count Firestore write
 
     if (num % 10 === 0) await message.react('🎉').catch(() => {});
 }
 
 // ── Member Milestones ─────────────────────────────────────────────────────────
 
-async function saveMessageCount(userId, count) {
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=count`;
-    try {
-        await fetch(url, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields: { count: { integerValue: String(count) } } }),
-        });
-    } catch (_) {}
+function saveMessageCount() {
+    // Message counts are now captured in the Discord backup every 60s — no individual Firestore write
 }
 
 // Direct Discord REST fetch with AbortController — actually cancels the HTTP request on timeout,
@@ -956,79 +943,17 @@ function scheduleReactionSave(userId) {
     }, 15000));
 }
 
-// Flush live reaction delta via Firestore atomic field-transform increment.
-// This is ADDITIVE ONLY — never touches historical data regardless of in-memory load state.
-// If save fails, the delta is restored so it retries on the next reaction.
-async function flushReactionDelta(userId) {
+// Reaction deltas are now captured in the Discord backup every 60s.
+// This function just merges the session delta into the main reactionDays in-memory map.
+function flushReactionDelta(userId) {
     const sessionMap = reactionDaysSession.get(userId);
     if (!sessionMap || sessionMap.size === 0) return;
-
-    // Snapshot current delta and clear so reactions during this async op start a fresh delta
-    const snapshot = new Map(sessionMap);
+    const rMap = reactionDays.get(userId) || new Map();
+    for (const [day, delta] of sessionMap) {
+        if (delta > 0) rMap.set(day, (rMap.get(day) || 0) + delta);
+    }
+    reactionDays.set(userId, rMap);
     sessionMap.clear();
-
-    const fieldTransforms = [];
-    for (const [day, delta] of snapshot) {
-        if (delta > 0) fieldTransforms.push({
-            fieldPath: `reactionDays.${day}`,
-            increment: { integerValue: String(delta) },
-        });
-    }
-    if (fieldTransforms.length === 0) return;
-
-    const docPath = `projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}`;
-    const commitUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents:commit?key=${FIREBASE_API_KEY}`;
-    let saveOk = false;
-    try {
-        const res = await fetch(commitUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ writes: [{ transform: { document: docPath, fieldTransforms } }] }),
-        });
-        if (res.ok) {
-            saveOk = true;
-            console.log(`[BeastBot] 💾 Reaction delta saved for ${userId} (${fieldTransforms.length} day(s))`);
-        } else {
-            console.error(`[BeastBot] flushReactionDelta ${userId}: ${res.status} ${await res.text()}`);
-        }
-    } catch (e) {
-        console.error('[BeastBot] flushReactionDelta error:', e.message);
-    }
-
-    if (!saveOk) {
-        // Restore snapshot so it's retried on the next reaction
-        const current = reactionDaysSession.get(userId) || new Map();
-        for (const [day, count] of snapshot) current.set(day, (current.get(day) || 0) + count);
-        reactionDaysSession.set(userId, current);
-        return;
-    }
-
-    // Also save emojiTally + reactionEmojiDays — but ONLY if this user's data was loaded at startup.
-    // If it wasn't loaded (quota failure), skipping prevents overwriting historical emoji data with
-    // an incomplete in-memory state. The emoji tallies will be rebuilt on next /scanreactions or restart.
-    if (!reactionLoadedSet.has(userId)) return;
-    const eMap  = emojiTally.get(userId)        || new Map();
-    const edMap = reactionEmojiDays.get(userId) || new Map();
-    const emojiObj = {};
-    for (const [k, v] of eMap) emojiObj[k] = v;
-    const emojiDaysObj = {};
-    for (const [day, dayMap] of edMap) {
-        const dayObj = {};
-        for (const [k, v] of dayMap) dayObj[k] = v;
-        emojiDaysObj[day] = dayObj;
-    }
-    const patchUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=emojiTally&updateMask.fieldPaths=reactionEmojiDays`;
-    try {
-        const res = await fetch(patchUrl, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields: {
-                emojiTally:        { stringValue: JSON.stringify(emojiObj) },
-                reactionEmojiDays: { stringValue: JSON.stringify(emojiDaysObj) },
-            }}),
-        });
-        if (!res.ok) console.error(`[BeastBot] emojiTally save failed ${userId}: ${res.status}`);
-    } catch (e) { console.error('[BeastBot] emojiTally save error:', e.message); }
 }
 
 // ── Logging helpers ───────────────────────────────────────────────────────────
@@ -1399,6 +1324,8 @@ async function saveVoiceBonusXp(userId, data) {
 }
 
 async function saveRankAchievements(userId, ach) {
+    // Rank achievements are captured in the Discord backup every 60s.
+    // This direct Firestore write is only used by saveFirestoreDaily().
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/rankAchievements/${userId}?key=${FIREBASE_API_KEY}`;
     try {
         await fetch(url, {
@@ -1414,6 +1341,209 @@ async function saveRankAchievements(userId, ach) {
 
 function todayStr() {
     return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+// ── Discord-channel backup (primary) + once-daily Firestore backup ─────────────
+
+function buildFullBackup() {
+    // Credit active sessions so current voice time is included
+    for (const [uid] of voiceStartTimes) creditVoiceTime(uid);
+
+    const vm = {};
+    for (const [uid, d] of voiceMinutes) {
+        if (d.total > 0) vm[uid] = { total: d.total, days: Object.fromEntries(d.days) };
+    }
+    const md = {};
+    for (const [uid, dMap] of messageDays) {
+        const obj = {};
+        for (const [day, count] of dMap) if (count > 0) obj[day] = count;
+        if (Object.keys(obj).length) md[uid] = obj;
+    }
+    const mc = {};
+    for (const [uid, count] of messageCounts) if (count > 0) mc[uid] = count;
+    const ra = {};
+    for (const [uid, ach] of rankAchievements) {
+        if (ach.highestRankIdx > 0 || ach.apexCount > 0) ra[uid] = { highestRankIdx: ach.highestRankIdx, apexCount: ach.apexCount };
+    }
+    const rx = {};
+    for (const [uid, rMap] of reactionDays) {
+        if (rMap.size > 0) {
+            const eMap  = emojiTally.get(uid)        || new Map();
+            const edMap = reactionEmojiDays.get(uid) || new Map();
+            const emojiObj = {};
+            for (const [k, v] of eMap) emojiObj[k] = v;
+            const emojiDaysObj = {};
+            for (const [day, dayMap] of edMap) {
+                const dayObj = {};
+                for (const [k, v] of dayMap) dayObj[k] = v;
+                emojiDaysObj[day] = dayObj;
+            }
+            rx[uid] = { days: Object.fromEntries(rMap), emojiTally: emojiObj, emojiDays: emojiDaysObj };
+        }
+    }
+    const vb = {};
+    for (const [uid, d] of voiceBonusXp) {
+        if (d.total > 0) vb[uid] = { total: d.total, days: Object.fromEntries(d.days) };
+    }
+    const ai = {};
+    for (const [uid, hist] of conversationHistory) {
+        if (hist.length > 0) ai[uid] = hist.slice(-20);
+    }
+    return {
+        savedAt: new Date().toISOString(),
+        voiceMinutes: vm,
+        messageDays: md,
+        messageCounts: mc,
+        rankAchievements: ra,
+        reactions: rx,
+        voiceBonusXp: vb,
+        counting: {
+            current: countingState.current || 0,
+            record: countingState.record || 0,
+            lastUserId: countingState.lastUserId || '',
+            ruinedBy: countingState.ruinedBy || [],
+        },
+        aiHistory: ai,
+    };
+}
+
+async function saveDiscordBackup() {
+    if (!BACKUP_CHANNEL_ID || !client.isReady()) return;
+    try {
+        const data = buildFullBackup();
+        const buf  = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
+        const file = new AttachmentBuilder(buf, { name: 'beast-bot-backup.json' });
+        const ch   = await client.channels.fetch(BACKUP_CHANNEL_ID);
+        if (_discordBackupMsgId) {
+            try {
+                const msg = await ch.messages.fetch(_discordBackupMsgId);
+                await msg.edit({ content: `💾 \`${data.savedAt}\` — ${Object.keys(data.voiceMinutes).length} users`, files: [file], attachments: [] });
+                return;
+            } catch (_) { _discordBackupMsgId = null; }
+        }
+        const sent = await ch.send({ content: `💾 \`${data.savedAt}\` — ${Object.keys(data.voiceMinutes).length} users`, files: [file] });
+        _discordBackupMsgId = sent.id;
+        console.log('[BeastBot] 💾 Discord backup saved');
+    } catch (e) {
+        console.error('[BeastBot] Discord backup failed:', e.message);
+    }
+}
+
+async function loadFromDiscordBackup() {
+    if (!BACKUP_CHANNEL_ID) return null;
+    try {
+        const ch   = await client.channels.fetch(BACKUP_CHANNEL_ID);
+        const msgs = await ch.messages.fetch({ limit: 10 });
+        const botMsg = msgs.find(m => m.author.id === client.user.id && m.attachments.size > 0);
+        if (!botMsg) return null;
+        _discordBackupMsgId = botMsg.id;
+        const att = botMsg.attachments.first();
+        const res = await fetch(att.url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        console.log(`[BeastBot] 📥 Loaded Discord backup from ${data.savedAt}`);
+        return data;
+    } catch (e) {
+        console.error('[BeastBot] Failed to load Discord backup:', e.message);
+        return null;
+    }
+}
+
+// Applies a Discord backup snapshot to in-memory maps (higher value always wins)
+function applyDiscordBackup(data) {
+    if (!data) return;
+    // voiceMinutes
+    for (const [uid, snap] of Object.entries(data.voiceMinutes || {})) {
+        const existing = voiceMinutes.get(uid) || { total: 0, days: new Map() };
+        if (snap.total > existing.total) {
+            existing.total = snap.total;
+            for (const [day, mins] of Object.entries(snap.days || {})) {
+                if (mins > (existing.days.get(day) || 0)) existing.days.set(day, mins);
+            }
+            voiceMinutes.set(uid, existing);
+            voiceMinutesLoaded.add(uid);
+        }
+    }
+    // messageDays
+    for (const [uid, days] of Object.entries(data.messageDays || {})) {
+        const dMap = messageDays.get(uid) || new Map();
+        for (const [day, count] of Object.entries(days)) {
+            if (count > (dMap.get(day) || 0)) dMap.set(day, count);
+        }
+        messageDays.set(uid, dMap);
+    }
+    // messageCounts
+    for (const [uid, count] of Object.entries(data.messageCounts || {})) {
+        if (count > (messageCounts.get(uid) || 0)) messageCounts.set(uid, count);
+    }
+    // rankAchievements
+    for (const [uid, ach] of Object.entries(data.rankAchievements || {})) {
+        const existing = rankAchievements.get(uid) || { highestRankIdx: 0, apexCount: 0 };
+        if (ach.highestRankIdx > existing.highestRankIdx) existing.highestRankIdx = ach.highestRankIdx;
+        if (ach.apexCount > existing.apexCount) existing.apexCount = ach.apexCount;
+        rankAchievements.set(uid, existing);
+    }
+    // reactions
+    for (const [uid, snap] of Object.entries(data.reactions || {})) {
+        const rMap = reactionDays.get(uid) || new Map();
+        for (const [day, count] of Object.entries(snap.days || {})) {
+            if (count > (rMap.get(day) || 0)) rMap.set(day, count);
+        }
+        reactionDays.set(uid, rMap);
+        reactionLoadedSet.add(uid);
+        if (snap.emojiTally) {
+            const eMap = emojiTally.get(uid) || new Map();
+            for (const [k, v] of Object.entries(snap.emojiTally)) {
+                if (v > (eMap.get(k) || 0)) eMap.set(k, v);
+            }
+            emojiTally.set(uid, eMap);
+        }
+    }
+    // counting (higher record wins; current from backup if not loaded from Firestore)
+    if (data.counting) {
+        if (!countingState._loaded) {
+            countingState.current    = data.counting.current || 0;
+            countingState.lastUserId = data.counting.lastUserId || null;
+            countingState.ruinedBy   = data.counting.ruinedBy  || [];
+            countingState._loaded    = true;
+        }
+        if ((data.counting.record || 0) > (countingState.record || 0)) {
+            countingState.record = data.counting.record;
+        }
+    }
+    // AI history (fill in gaps — don't overwrite existing)
+    for (const [uid, hist] of Object.entries(data.aiHistory || {})) {
+        if (!conversationHistory.has(uid)) conversationHistory.set(uid, hist);
+    }
+    console.log('[BeastBot] ✅ Discord backup applied to in-memory state');
+}
+
+// Once-per-day Firestore write — writes all collections (not just backups)
+async function saveFirestoreDaily() {
+    const today = todayStr();
+    if (_lastDailyFirestoreDate === today) return;
+    _lastDailyFirestoreDate = today;
+    console.log('[BeastBot] 📅 Daily Firestore backup starting...');
+    const promises = [];
+    // Per-user collections
+    for (const [uid, data] of voiceMinutes) {
+        if (data.total > 0) promises.push(saveVoiceMinutes(uid, { total: data.total, days: Object.fromEntries(data.days) }));
+    }
+    for (const [uid, ach] of rankAchievements) promises.push(saveRankAchievements(uid, ach));
+    for (const [uid, dMap] of messageDays) promises.push(saveMessageDays(uid, dMap));
+    // Combined backup docs (single write each)
+    promises.push(saveMessageBackup());
+    promises.push(saveVoiceBackup());
+    promises.push(saveRankAchBackup());
+    promises.push(saveReactionBackup());
+    // Counting + AI history
+    if (countingState._loaded) promises.push(saveCountingState());
+    try {
+        const entries = [...conversationHistory.entries()].slice(-50);
+        promises.push(firestoreSet('botConfig', 'aiHistory', { data: JSON.stringify(Object.fromEntries(entries)) }));
+    } catch (_) {}
+    await Promise.allSettled(promises);
+    console.log(`[BeastBot] 📅 Daily Firestore backup done (${promises.length} writes)`);
 }
 
 // Update voiceMinutes in-memory for an active session (idempotent — safe to call every minute)
@@ -2195,7 +2325,7 @@ async function assignVoiceRank(member, xp, forceReset = false) {
         let changed = false;
         if (targetIdx > ach.highestRankIdx) { ach.highestRankIdx = targetIdx; changed = true; }
         if (targetIdx === VOICE_RANK_ROLES.length - 1 && !ach.hitApexThisMonth) { ach.hitApexThisMonth = true; changed = true; }
-        if (changed) { rankAchievements.set(member.id, ach); saveRankAchievements(member.id, ach); }
+        if (changed) { rankAchievements.set(member.id, ach); } // persisted via Discord backup + daily Firestore
     }
 }
 
@@ -3714,32 +3844,11 @@ client.once('clientReady', async () => {
             }
         }, 60 * 1000);
 
-        // Persist active sessions to Firestore every 60 seconds
-        setInterval(() => {
-            const active = [...voiceStartTimes.keys()];
-            if (active.length > 0) {
-                for (const uid of active) {
-                    const sess = voiceStartTimes.get(uid);
-                    const data = voiceMinutes.get(uid);
-                    if (data && sess) {
-                        // Atomic increment: only save the new minutes since last save (never overwrites total)
-                        const currentElapsed = Math.floor((Date.now() - sess.startMs) / 60000);
-                        const delta = currentElapsed - (sess.savedElapsed || 0);
-                        if (delta > 0) {
-                            atomicIncrementVoiceTotal(uid, delta);
-                            sess.savedElapsed = currentElapsed;
-                        }
-                        saveVoiceDaysOnly(uid, data); // guarded by voiceMinutesLoaded — safe on quota failure
-                    }
-                    const bData = voiceBonusXp.get(uid);
-                    if (bData) saveVoiceBonusXp(uid, { total: bData.total, days: Object.fromEntries(bData.days) });
-                }
-                console.log(`[BeastBot] 💾 Saved voice data for ${active.length} active session(s)`);
-            }
-            saveMessageBackup();
-            saveVoiceBackup();
-            saveRankAchBackup();
-            saveReactionBackup();
+        // Every 60s: save snapshot to Discord backup channel + trigger daily Firestore if date changed
+        setInterval(async () => {
+            // creditVoiceTime already called in tick 1 — voiceMinutes in-memory is up to date
+            await saveDiscordBackup();
+            await saveFirestoreDaily(); // no-op unless date has changed
         }, 60 * 1000);
     }
 
@@ -3983,6 +4092,12 @@ client.once('clientReady', async () => {
             console.log(`[BeastBot] Loaded AI history for ${conversationHistory.size} users`);
         }
     } catch (e) { console.error('[BeastBot] Failed to load AI history:', e.message); }
+
+    // Apply Discord backup — fills any gaps left by Firestore quota failures
+    try {
+        const discordBackup = await loadFromDiscordBackup();
+        if (discordBackup) applyDiscordBackup(discordBackup);
+    } catch (e) { console.error('[BeastBot] Discord backup apply failed:', e.message); }
 
 });
 
@@ -6156,27 +6271,16 @@ client.on('guildUpdate', async (oldGuild, newGuild) => {
 
 client.on('error', (err) => console.error('[BeastBot] Client error:', err.message));
 
-// Flush active voice sessions to Firestore before Fly.io kills the process
+// On shutdown: credit voice sessions, save Discord backup, save Firestore snapshot
 async function flushBeforeExit() {
     console.log('[BeastBot] Flushing state before shutdown...');
-    const promises = [];
-    for (const [uid] of voiceStartTimes) {
-        const sess = voiceStartTimes.get(uid);
-        const data = creditVoiceTime(uid);
-        if (data && sess) {
-            const currentElapsed = Math.floor((Date.now() - sess.startMs) / 60000);
-            const delta = currentElapsed - (sess.savedElapsed || 0);
-            // Atomic increment for total — safe even if data wasn't loaded at startup
-            promises.push(atomicIncrementVoiceTotal(uid, delta));
-            // Days map — only save if data was loaded (prevents overwriting real days with empty state)
-            promises.push(saveVoiceDaysOnly(uid, data));
-        }
-    }
-    // Only save counting state if we successfully loaded from Firestore at startup —
-    // prevents zeroed in-memory state from overwriting real data during a deploy
-    if (countingState._loaded) promises.push(saveCountingState());
-    promises.push(saveMessageBackup());
-    await Promise.allSettled(promises);
+    // Credit any remaining voice time into in-memory before snapshot
+    for (const [uid] of voiceStartTimes) creditVoiceTime(uid);
+    // Save to Discord backup channel (primary)
+    await saveDiscordBackup().catch(e => console.error('[BeastBot] Shutdown Discord backup failed:', e.message));
+    // Force a Firestore snapshot regardless of whether we already did one today
+    _lastDailyFirestoreDate = '';
+    await saveFirestoreDaily().catch(e => console.error('[BeastBot] Shutdown Firestore save failed:', e.message));
     console.log('[BeastBot] Flush complete');
 }
 
