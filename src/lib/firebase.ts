@@ -540,12 +540,12 @@ export const FirebaseDB = {
     _ensureApp();
     if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
     const id = 'wb-' + Date.now();
-    const document = {
+    const document = JSON.parse(JSON.stringify({
       ...backup,
       id,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    } as WebhookBackup;
+    })) as WebhookBackup;
     await _withTimeout(setDoc(doc(_db, 'webhookBackups', id), document));
     return document;
   },
@@ -561,7 +561,8 @@ export const FirebaseDB = {
   async updateWebhookBackup(id: string, updates: Partial<WebhookBackup>): Promise<void> {
     _ensureApp();
     if (!_isConfigured() || !_db) return;
-    const payload = { ...updates, updatedAt: new Date().toISOString() };
+    // JSON round-trip strips undefined values at any nesting depth (Firestore rejects them)
+    const payload = JSON.parse(JSON.stringify({ ...updates, updatedAt: new Date().toISOString() }));
     await _withTimeout(updateDoc(doc(_db, 'webhookBackups', id), payload));
   },
 

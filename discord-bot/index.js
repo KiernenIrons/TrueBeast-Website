@@ -2167,6 +2167,27 @@ async function assignVoiceRank(member, xp, forceReset = false) {
 
     if (!member.roles.cache.has(targetRole.id)) {
         await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
+        // Rank-up notification in bot-commands channel (skip during monthly reset)
+        if (!forceReset) {
+            try {
+                const rankColors = {
+                    '🥉 Bronze': 0xcd7f32, '🥈 Silver': 0xc0c0c0, '🥇 Gold': 0xffd700,
+                    '💠 Platinum': 0x00bcd4, '💎 Diamond': 0x00e5ff, '🔥 Master': 0xff5722,
+                    '⚔️ Grandmaster': 0x9c27b0, '👑 Apex Predator': 0xf44336,
+                };
+                const color = Object.entries(rankColors).find(([k]) => targetRank.name.includes(k.split(' ')[1] || k))?.[1] || 0xf59e0b;
+                const notifCh = await client.channels.fetch(BUMP_CHANNEL_ID);
+                await notifCh.send({
+                    content: `<@${member.id}>`,
+                    embeds: [{
+                        title: '🎉 Rank Up!',
+                        description: `**${member.displayName}** just ranked up to **${targetRank.name}**!\nKeep it up — the grind is paying off.`,
+                        color,
+                        timestamp: new Date().toISOString(),
+                    }],
+                });
+            } catch (_) {}
+        }
     }
     // Track achievements: highest rank ever + Apex hits (skip during reset — XP is 0)
     if (!forceReset) {
@@ -4610,6 +4631,22 @@ client.on('interactionCreate', async (interaction) => {
             try {
                 await ch.send(msg);
                 await interaction.reply({ content: `✅ Message sent to <#${ch.id}>.`, flags: 64 });
+                // Notify mods with a proper non-ephemeral message
+                if (MOD_CHANNEL_ID) {
+                    try {
+                        const modCh = await client.channels.fetch(MOD_CHANNEL_ID);
+                        await modCh.send({ embeds: [{
+                            title: '📢 /say Used',
+                            fields: [
+                                { name: 'Used by', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: true },
+                                { name: 'Sent to', value: `<#${ch.id}>`, inline: true },
+                                { name: 'Message', value: msg.slice(0, 1024) },
+                            ],
+                            color: 0x5865f2,
+                            timestamp: new Date().toISOString(),
+                        }]});
+                    } catch (_) {}
+                }
             } catch (e) {
                 await interaction.reply({ content: `❌ Failed to send: ${e.message}`, flags: 64 });
             }
