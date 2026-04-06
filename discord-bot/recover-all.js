@@ -101,6 +101,23 @@ async function patchRankAch(uid, highestRankIdx, apexCount) {
             apexCount:      { integerValue: String(apexCount) },
         }}),
     });
+    if (!res.ok) { console.log(`     Firestore error: ${res.status} ${await res.text()}`); }
+    return res.ok;
+}
+
+async function patchCountingState(current, record, lastUserId, ruinedBy) {
+    const url = `${BASE}/botConfig/countingState?key=${API_KEY}`;
+    const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: {
+            current:    { integerValue: String(current) },
+            record:     { integerValue: String(record) },
+            lastUserId: { stringValue: lastUserId || '' },
+            ruinedBy:   { stringValue: JSON.stringify(ruinedBy || []) },
+        }}),
+    });
+    if (!res.ok) { console.log(`     Firestore error: ${res.status} ${await res.text()}`); }
     return res.ok;
 }
 
@@ -242,6 +259,51 @@ async function main() {
             }
         } else {
             console.log(`  ✓  ${uid}: ${primaryTotal} messages — no Discord data to add`);
+        }
+    }
+
+    // Counting state: restore from Discord backup, compare against Firestore
+    console.log('\n=== Counting State Recovery ===');
+    const discordCounting = discordData?.counting || null;
+
+    let firestoreCounting = null;
+    try {
+        const doc = await get('botConfig/countingState');
+        if (doc?.fields) {
+            firestoreCounting = {
+                current:    parseInt(doc.fields.current?.integerValue    || '0', 10),
+                record:     parseInt(doc.fields.record?.integerValue     || '0', 10),
+                lastUserId: doc.fields.lastUserId?.stringValue           || '',
+                ruinedBy:   JSON.parse(doc.fields.ruinedBy?.stringValue  || '[]'),
+            };
+        }
+    } catch (_) {}
+
+    if (!discordCounting) {
+        console.log('  ⚠️  No counting data in Discord backup — skipping');
+    } else {
+        console.log(`  Discord backup:  current=${discordCounting.current}, record=${discordCounting.record}, ruinedBy=${discordCounting.ruinedBy?.length || 0} entries`);
+        console.log(`  Firestore:       current=${firestoreCounting?.current ?? 'missing'}, record=${firestoreCounting?.record ?? 'missing'}`);
+
+        // Take MAX for record (highest run ever); use Discord for everything else (most recent state)
+        const bestRecord    = Math.max(discordCounting.record, firestoreCounting?.record || 0);
+        const bestCurrent   = discordCounting.current;
+        const bestLastUser  = discordCounting.lastUserId || '';
+        // Merge ruinedBy: combine both lists, deduplicate by userId+count, sort by count desc
+        const allRuinedBy = [...(discordCounting.ruinedBy || []), ...(firestoreCounting?.ruinedBy || [])];
+        const seen = new Set();
+        const mergedRuinedBy = allRuinedBy.filter(r => {
+            const key = `${r.userId}-${r.count}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        }).sort((a, b) => b.count - a.count).slice(0, 20);
+
+        const ok = await patchCountingState(bestCurrent, bestRecord, bestLastUser, mergedRuinedBy);
+        if (ok) {
+            console.log(`  ✅ Counting state restored — current: ${bestCurrent}, record: ${bestRecord}, wall of shame: ${mergedRuinedBy.length} entries`);
+        } else {
+            console.log('  ❌ Counting state restore FAILED');
         }
     }
 
