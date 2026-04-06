@@ -113,20 +113,30 @@ async function firestoreGet(collection, docId) {
     } catch (e) { return null; }
 }
 
+let _knowledgeCache    = null;
+let _knowledgeCacheAt  = 0;
+const KNOWLEDGE_TTL    = 60 * 60 * 1000; // refresh from Firestore at most once per hour
+
+// Cached month for checkMonthlyReset — loaded once at startup, avoids hourly Firestore reads
+let _cachedCurrentMonth = null;
+
 async function fetchKnowledge() {
+    const now = Date.now();
+    if (_knowledgeCache !== null && now - _knowledgeCacheAt < KNOWLEDGE_TTL) return _knowledgeCache;
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase?key=${FIREBASE_API_KEY}&pageSize=50`;
     try {
         const res = await fetch(url);
-        if (!res.ok) return '';
+        if (!res.ok) return _knowledgeCache ?? '';
         const data = await res.json();
-        if (!data.documents?.length) return '';
-        return data.documents.map(doc => {
+        _knowledgeCache   = (data.documents?.length ? data.documents.map(doc => {
             const f = doc.fields || {};
             return `### ${f.topic?.stringValue || '(untitled)'}\n${f.content?.stringValue || ''}`;
-        }).join('\n\n');
+        }).join('\n\n') : '');
+        _knowledgeCacheAt = now;
+        return _knowledgeCache;
     } catch (e) {
         console.error('[BeastBot] Firestore fetch failed:', e.message);
-        return '';
+        return _knowledgeCache ?? '';
     }
 }
 
@@ -2375,13 +2385,19 @@ async function postMonthlyRecap(guild, oldMonthStr) { // e.g. "2026-02"
     }
 }
 
-async function checkMonthlyReset(guild) {
+async function checkMonthlyReset(guild, fromStartup = false) {
     const currentMonth = new Date().toISOString().slice(0, 7);
-    let stored = null;
-    try {
-        const doc = await firestoreGet('botConfig', 'currentMonth');
-        stored = doc?.month || null;
-    } catch (_) {}
+    let stored = _cachedCurrentMonth;
+
+    // On startup, load from Firestore once and populate the in-memory cache
+    if (fromStartup) {
+        try {
+            const doc = await firestoreGet('botConfig', 'currentMonth');
+            stored = doc?.month || null;
+        } catch (_) {}
+        _cachedCurrentMonth = stored;
+    }
+
     if (stored === currentMonth) return;
     // Only wipe roles if we have a valid previous month — if stored is null (first run / migration),
     // just record the current month without resetting anyone.
@@ -2407,6 +2423,7 @@ async function checkMonthlyReset(guild) {
         console.log(`[BeastBot] No prior month stored — skipping role wipe (first run or migration)`);
     }
     await firestoreSet('botConfig', 'currentMonth', { month: currentMonth });
+    _cachedCurrentMonth = currentMonth;
     console.log(`[BeastBot] Monthly reset complete — now tracking ${currentMonth}`);
 }
 
@@ -3786,7 +3803,7 @@ client.once('clientReady', async () => {
         } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
 
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
-        await checkMonthlyReset(guild).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
+        await checkMonthlyReset(guild, true).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
 
 
         // Assign correct voice rank to every member based on monthly activity score
@@ -4071,7 +4088,7 @@ client.once('clientReady', async () => {
     }
 
     // Poll Firestore for queued Discord cards every 15s
-    setInterval(() => pollDiscordCards().catch(() => {}), 15 * 1000);
+    setInterval(() => pollDiscordCards().catch(() => {}), 5 * 60 * 1000);
     setTimeout(() => pollDiscordCards().catch(() => {}), 3000); // first poll 3s after ready
 
     // Heartbeat every 30 min so we can detect silent crashes
