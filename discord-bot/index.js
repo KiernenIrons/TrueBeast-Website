@@ -3489,6 +3489,31 @@ client.once('clientReady', async () => {
     const stateSource = await loadState();
     console.log(`[BeastBot] State loaded from: ${stateSource}`);
 
+    // One-time wall of shame restore (remove this block after first successful startup)
+    if (countingState.record === 0 && countingState.ruinedBy.length <= 1) {
+        console.log('[BeastBot] Restoring wall of shame from historical data...');
+        countingState.record = 343;
+        countingState.ruinedBy = [
+            { userId: '753575707329822850', count: 343, at: 1743811200000 }, // Ammar
+            { userId: '392450364340830208', count: 304, at: 1743724800000 }, // TrueBeast
+            { userId: '712687124293615658', count: 282, at: 1743350400000 }, // anetaspageta98
+            { userId: '753575707329822850', count: 184, at: 1743120000000 }, // Ammar
+            { userId: '392450364340830208', count: 166, at: 1742860800000 }, // TrueBeast
+            { userId: '712687124293615658', count: 154, at: 1743897600000 }, // anetaspageta98
+            { userId: '392450364340830208', count: 120, at: 1743638400000 }, // TrueBeast
+            { userId: '392450364340830208', count: 78,  at: 1743552000000 }, // TrueBeast
+            { userId: '803881574587957258', count: 55,  at: 1742774400000 }, // Tom
+            { userId: '518420185913229314', count: 52,  at: 1742688000000 }, // MarsKooty
+            { userId: '392450364340830208', count: 45,  at: 1743465600000 }, // TrueBeast
+            { userId: '392450364340830208', count: 34,  at: 1742342400000 }, // TrueBeast
+            { userId: '753575707329822850', count: 32,  at: 1743340000000 }, // Ammar
+            { userId: '392450364340830208', count: 23,  at: 1743284580000 }, // TrueBeast
+            { userId: '753575707329822850', count: 18,  at: 1742515200000 }, // Ammar
+            { userId: '392450364340830208', count: 11,  at: 1742169600000 }, // TrueBeast
+        ];
+        console.log(`[BeastBot] ✅ Wall of shame restored: record=${countingState.record}, ${countingState.ruinedBy.length} entries`);
+    }
+
     // Set up voice rank roles and monthly reset
     const guild = client.guilds.cache.first();
     if (guild) {
@@ -3661,6 +3686,22 @@ client.once('clientReady', async () => {
                 .setName('counter-set')
                 .setDescription('(Owner only) Manually set the current count to a specific number')
                 .addIntegerOption(opt => opt.setName('number').setDescription('The number to set the count to').setRequired(true).setMinValue(1)),
+            new SlashCommandBuilder()
+                .setName('counting-set-record')
+                .setDescription('(Owner only) Set the all-time counting record')
+                .addIntegerOption(opt => opt.setName('number').setDescription('The record number').setRequired(true).setMinValue(1)),
+            new SlashCommandBuilder()
+                .setName('counting-add-shame')
+                .setDescription('(Owner only) Add a wall of shame entry')
+                .addUserOption(opt => opt.setName('user').setDescription('The user who ruined the count').setRequired(true))
+                .addIntegerOption(opt => opt.setName('ruined_at').setDescription('The count they ruined at').setRequired(true).setMinValue(0)),
+            new SlashCommandBuilder()
+                .setName('counting-remove-shame')
+                .setDescription('(Owner only) Remove all wall of shame entries for a user')
+                .addUserOption(opt => opt.setName('user').setDescription('The user to remove').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('reset-ranks')
+                .setDescription('(Owner only) Reset everyone to Bronze I and clear rank achievement records'),
             new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
@@ -3921,6 +3962,79 @@ client.on('interactionCreate', async (interaction) => {
             countingState.lastUserId = null; // anyone can send next number
             if (num > countingState.record) countingState.record = num;
             await interaction.reply({ content: `✅ Count set to **${num}**. Next number is **${num + 1}**.`, ephemeral: true });
+            return;
+        }
+
+        // ── /counting-set-record ─────────────────────────────────────────────
+        if (interaction.commandName === 'counting-set-record') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const num = interaction.options.getInteger('number');
+            countingState.record = num;
+            await interaction.reply({ content: `✅ All-time record set to **${num}**.`, ephemeral: true });
+            return;
+        }
+
+        // ── /counting-add-shame ──────────────────────────────────────────────
+        if (interaction.commandName === 'counting-add-shame') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const user = interaction.options.getUser('user');
+            const ruinedAt = interaction.options.getInteger('ruined_at');
+            countingState.ruinedBy.push({ userId: user.id, count: ruinedAt, at: Date.now() });
+            // Sort by count desc, keep top 20
+            countingState.ruinedBy.sort((a, b) => b.count - a.count);
+            if (countingState.ruinedBy.length > 20) countingState.ruinedBy.length = 20;
+            const userEntries = countingState.ruinedBy.filter(r => r.userId === user.id);
+            const highest = Math.max(...userEntries.map(r => r.count));
+            await interaction.reply({ content: `✅ Added <@${user.id}> to wall of shame at **${ruinedAt}**. They now have **${userEntries.length}x** (highest: ${highest}).`, ephemeral: true });
+            return;
+        }
+
+        // ── /counting-remove-shame ───────────────────────────────────────────
+        if (interaction.commandName === 'counting-remove-shame') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const user = interaction.options.getUser('user');
+            const before = countingState.ruinedBy.length;
+            countingState.ruinedBy = countingState.ruinedBy.filter(r => r.userId !== user.id);
+            const removed = before - countingState.ruinedBy.length;
+            await interaction.reply({ content: `✅ Removed **${removed}** entries for <@${user.id}> from wall of shame.`, ephemeral: true });
+            return;
+        }
+
+        // ── /reset-ranks ─────────────────────────────────────────────────────
+        if (interaction.commandName === 'reset-ranks') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            const guild = interaction.guild;
+            const allRankIds = VOICE_RANK_ROLES.map(r => r.id);
+            const bronzeId = VOICE_RANK_ROLES[0].id;
+            let reset = 0;
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                const hasRanks = member.roles.cache.filter(r => allRankIds.includes(r.id));
+                if (hasRanks.size > 0) {
+                    for (const [, role] of hasRanks) {
+                        if (role.id !== bronzeId) await member.roles.remove(role).catch(() => {});
+                    }
+                }
+                if (!member.roles.cache.has(bronzeId)) {
+                    await member.roles.add(bronzeId).catch(() => {});
+                }
+                reset++;
+            }
+            rankAchievements.clear();
+            await interaction.editReply(`✅ Reset **${reset}** members to 🥉 Bronze I. All rank achievement records cleared.`);
             return;
         }
 
