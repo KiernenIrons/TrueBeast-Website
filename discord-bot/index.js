@@ -6316,11 +6316,10 @@ async function flushBeforeExit() {
     console.log('[BeastBot] Flushing state before shutdown...');
     // Credit any remaining voice time into in-memory before snapshot
     for (const [uid] of voiceStartTimes) creditVoiceTime(uid);
-    // Save to Discord backup channel (primary)
+    // Save to Discord backup channel only — do NOT write Firestore on shutdown.
+    // Firestore is written once daily by saveFirestoreDaily() during normal operation.
+    // Writing on shutdown was causing deploys to overwrite recovery data.
     await saveDiscordBackup().catch(e => console.error('[BeastBot] Shutdown Discord backup failed:', e.message));
-    // Force a Firestore snapshot regardless of whether we already did one today
-    _lastDailyFirestoreDate = '';
-    await saveFirestoreDaily().catch(e => console.error('[BeastBot] Shutdown Firestore save failed:', e.message));
     console.log('[BeastBot] Flush complete');
 }
 
