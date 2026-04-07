@@ -3748,6 +3748,23 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('setup-thoughts')
                 .setDescription('(Owner only) Post the Share Your Thoughts prompt in the thoughts channel'),
+            // ── Backup management ────────────────────────────────────────────
+            new SlashCommandBuilder()
+                .setName('backup-status')
+                .setDescription('(Owner only) View current backup status and data summary'),
+            new SlashCommandBuilder()
+                .setName('backup-snapshot')
+                .setDescription('(Owner only) Force a daily snapshot right now'),
+            new SlashCommandBuilder()
+                .setName('backup-list')
+                .setDescription('(Owner only) List all available daily snapshots'),
+            new SlashCommandBuilder()
+                .setName('backup-restore')
+                .setDescription('(Owner only) Restore data from a daily snapshot')
+                .addStringOption(opt => opt.setName('date').setDescription('Date to restore (YYYY-MM-DD)').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('backup-wipe')
+                .setDescription('(Owner only) Wipe ALL data — everyone starts at 0'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -4030,6 +4047,179 @@ client.on('interactionCreate', async (interaction) => {
             }
             await interaction.reply({ content: '🔄 Restarting bot...', ephemeral: true });
             setTimeout(() => process.exit(0), 1000);
+            return;
+        }
+
+        // ── /backup-status ───────────────────────────────────────────────────
+        if (interaction.commandName === 'backup-status') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
+            const msgTotal = [...messageCounts.values()].reduce((s, v) => s + v, 0);
+            const rxTotal = [...reactionDays.values()].reduce((s, m) => { for (const v of m.values()) s += v; return s; }, 0);
+            const bonusTotal = [...voiceBonusXp.values()].reduce((s, v) => s + v.total, 0);
+            await interaction.reply({ ephemeral: true, embeds: [{
+                title: '💾 Backup Status',
+                color: 0x3b82f6,
+                fields: [
+                    { name: '📡 Live Backup', value: `Saving every 60s to Discord\nBackup msg: ${_discordBackupMsgId ? `\`${_discordBackupMsgId}\`` : '❌ None'}`, inline: false },
+                    { name: '📅 Daily Snapshot', value: `Last: \`${_lastDailySnapshotDate || 'none'}\`\nRetention: 14 days`, inline: true },
+                    { name: '🔥 Firestore Mirror', value: `Last: \`${_lastDailyFirestoreDate || 'none'}\`\nWrites/day: ~${voiceMinutes.size + rankAchievements.size + messageDays.size + 5}`, inline: true },
+                    { name: '👥 Voice', value: `${voiceMinutes.size} users\n${Math.floor(voiceTotal / 60)}h ${voiceTotal % 60}m total`, inline: true },
+                    { name: '💬 Messages', value: `${messageDays.size} users\n${msgTotal.toLocaleString()} total`, inline: true },
+                    { name: '🏆 Ranks', value: `${rankAchievements.size} users tracked`, inline: true },
+                    { name: '😀 Reactions', value: `${reactionDays.size} users\n${rxTotal.toLocaleString()} total`, inline: true },
+                    { name: '🎯 Bonus XP', value: `${voiceBonusXp.size} users\n${bonusTotal.toLocaleString()} total`, inline: true },
+                    { name: '🔢 Counting', value: `Current: ${countingState.current}\nRecord: ${countingState.record}\nWall: ${countingState.ruinedBy?.length || 0} entries`, inline: true },
+                ],
+                timestamp: new Date().toISOString(),
+            }]});
+            return;
+        }
+
+        // ── /backup-snapshot ─────────────────────────────────────────────────
+        if (interaction.commandName === 'backup-snapshot') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            try {
+                const dateStr = todayStr();
+                const data = buildFullBackup();
+                const buf  = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
+                const file = new AttachmentBuilder(buf, { name: `daily-${dateStr}.json` });
+                const ch   = await client.channels.fetch(BACKUP_CHANNEL_ID);
+                await ch.send({ content: `📅 Daily Snapshot — ${dateStr} (manual)`, files: [file] });
+                await interaction.editReply(`✅ Snapshot saved: \`daily-${dateStr}.json\``);
+            } catch (e) {
+                await interaction.editReply(`❌ Snapshot failed: ${e.message}`);
+            }
+            return;
+        }
+
+        // ── /backup-list ─────────────────────────────────────────────────────
+        if (interaction.commandName === 'backup-list') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            try {
+                const ch   = await client.channels.fetch(BACKUP_CHANNEL_ID);
+                const msgs = await ch.messages.fetch({ limit: 50 });
+                const snapshots = [];
+                for (const m of msgs.values()) {
+                    if (m.author.id !== client.user.id) continue;
+                    for (const att of m.attachments.values()) {
+                        const match = att.name.match(/^daily-(\d{4}-\d{2}-\d{2})\.json$/);
+                        if (match) {
+                            const age = Math.floor((Date.now() - m.createdTimestamp) / 86400000);
+                            snapshots.push(`\`${match[1]}\` — ${age}d ago`);
+                        }
+                    }
+                }
+                if (snapshots.length === 0) {
+                    await interaction.editReply('📅 No daily snapshots found.');
+                } else {
+                    await interaction.editReply(`📅 **Available Snapshots (${snapshots.length}):**\n${snapshots.join('\n')}\n\nRestore with: \`/backup-restore date:YYYY-MM-DD\``);
+                }
+            } catch (e) {
+                await interaction.editReply(`❌ Failed: ${e.message}`);
+            }
+            return;
+        }
+
+        // ── /backup-restore ──────────────────────────────────────────────────
+        if (interaction.commandName === 'backup-restore') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const targetDate = interaction.options.getString('date');
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+                await interaction.reply({ content: '❌ Invalid date format. Use YYYY-MM-DD.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            try {
+                const ch   = await client.channels.fetch(BACKUP_CHANNEL_ID);
+                const msgs = await ch.messages.fetch({ limit: 50 });
+                let snapshotUrl = null;
+                for (const m of msgs.values()) {
+                    if (m.author.id !== client.user.id) continue;
+                    const att = m.attachments.find(a => a.name === `daily-${targetDate}.json`);
+                    if (att) { snapshotUrl = att.url; break; }
+                }
+                if (!snapshotUrl) {
+                    await interaction.editReply(`❌ No snapshot found for \`${targetDate}\`. Use \`/backup-list\` to see available dates.`);
+                    return;
+                }
+                const res = await fetch(snapshotUrl);
+                if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+                const data = await res.json();
+
+                // Apply to in-memory state
+                applyBackupToMemory(data);
+
+                // Save as live backup immediately
+                await saveDiscordBackup();
+
+                const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
+                const msgTotal = [...messageCounts.values()].reduce((s, v) => s + v, 0);
+                await interaction.editReply(
+                    `✅ **Restored from \`${targetDate}\`**\n` +
+                    `👥 ${voiceMinutes.size} voice users (${Math.floor(voiceTotal / 60)}h ${voiceTotal % 60}m)\n` +
+                    `💬 ${messageDays.size} message users (${msgTotal.toLocaleString()} msgs)\n` +
+                    `🏆 ${rankAchievements.size} rank records\n` +
+                    `🔢 Counting record: ${countingState.record}`
+                );
+            } catch (e) {
+                await interaction.editReply(`❌ Restore failed: ${e.message}`);
+            }
+            return;
+        }
+
+        // ── /backup-wipe ─────────────────────────────────────────────────────
+        if (interaction.commandName === 'backup-wipe') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            try {
+                // Clear all in-memory state
+                voiceMinutes.clear();
+                messageDays.clear();
+                messageCounts.clear();
+                rankAchievements.clear();
+                reactionDays.clear();
+                emojiTally.clear();
+                reactionEmojiDays.clear();
+                voiceBonusXp.clear();
+                conversationHistory.clear();
+                countingState.current = 0;
+                countingState.lastUserId = null;
+                countingState.record = 0;
+                countingState.ruinedBy = [];
+
+                // Save empty state as live backup
+                await saveDiscordBackup();
+
+                // Post a wipe snapshot
+                const dateStr = todayStr();
+                const data = buildFullBackup();
+                const buf  = Buffer.from(JSON.stringify(data, null, 2), 'utf8');
+                const file = new AttachmentBuilder(buf, { name: `daily-${dateStr}.json` });
+                const ch   = await client.channels.fetch(BACKUP_CHANNEL_ID);
+                await ch.send({ content: `📅 WIPE — ${dateStr}`, files: [file] });
+
+                await interaction.editReply('🔥 **All data wiped.** Everyone starts at 0.\nA wipe snapshot has been saved in case you need to reference it.');
+            } catch (e) {
+                await interaction.editReply(`❌ Wipe failed: ${e.message}`);
+            }
             return;
         }
 
