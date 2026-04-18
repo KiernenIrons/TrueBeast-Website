@@ -44,6 +44,16 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
     process.exit(1);
 }
 
+// ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
+let botFeatures = {
+    aiResponses:         true,
+    discordCards:        true,
+    bumpReminders:       true,
+    rankUpNotifications: true,
+    vcTracking:          true,
+    welcomeMessages:     true,
+};
+
 // ── In-memory state ───────────────────────────────────────────────────────────
 // Queue of unanswered questions waiting for a button click:
 //   questionId -> { question, askerId, askerTag, channelId, messageId }
@@ -111,6 +121,24 @@ async function firestoreGet(collection, docId) {
         }
         return result;
     } catch (e) { return null; }
+}
+
+async function getBotFeatures() {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/features?key=${FIREBASE_API_KEY}`;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) { console.warn('[BeastBot] getBotFeatures: HTTP', res.status); return; }
+        const data = await res.json();
+        if (!data.fields) return; // doc doesn't exist yet — keep defaults
+        const updated = { ...botFeatures }; // start from current (keep defaults for missing keys)
+        for (const [k, v] of Object.entries(data.fields)) {
+            if (typeof v.booleanValue === 'boolean') updated[k] = v.booleanValue;
+        }
+        botFeatures = updated;
+        console.log('[BeastBot] botFeatures refreshed:', JSON.stringify(botFeatures));
+    } catch (e) {
+        console.warn('[BeastBot] getBotFeatures failed — keeping previous values:', e.message);
+    }
 }
 
 let _knowledgeCache    = null;
@@ -638,60 +666,62 @@ const VOICE_RANK_ROLES = [
 const MSGS_TO_MIN = 1;
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
-function scheduleDiscordMeReminder() {
-    const now         = new Date();
-    const currentHour = now.getUTCHours();
-    const nextWindow  = [0, 6, 12, 18].find(h => h > currentHour);
-    const next        = new Date(now);
-
-    if (nextWindow !== undefined) {
-        next.setUTCHours(nextWindow, 0, 0, 0);
-    } else {
-        next.setUTCDate(next.getUTCDate() + 1);
-        next.setUTCHours(0, 0, 0, 0);
-    }
-
-    setTimeout(async () => {
-        try {
-            const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
-            await channel.send('⏰ New bump window open! Head to <https://discord.me/dashboard#bumpModal> to bump the server on Discord.me.');
-            console.log('[BeastBot] 🔔 Sent Discord.me bump reminder');
-        } catch (e) {
-            console.error('[BeastBot] Failed to send Discord.me bump reminder:', e.message);
-        }
-        scheduleDiscordMeReminder();
-    }, next - now);
-
-    console.log(`[BeastBot] Discord.me bump reminder scheduled for ${next.toUTCString()}`);
-}
+// DISABLED — Discord.me reminder removed; only Disboard bump remains active
+// function scheduleDiscordMeReminder() {
+//     const now         = new Date();
+//     const currentHour = now.getUTCHours();
+//     const nextWindow  = [0, 6, 12, 18].find(h => h > currentHour);
+//     const next        = new Date(now);
+//
+//     if (nextWindow !== undefined) {
+//         next.setUTCHours(nextWindow, 0, 0, 0);
+//     } else {
+//         next.setUTCDate(next.getUTCDate() + 1);
+//         next.setUTCHours(0, 0, 0, 0);
+//     }
+//
+//     setTimeout(async () => {
+//         try {
+//             const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+//             await channel.send('⏰ New bump window open! Head to <https://discord.me/dashboard#bumpModal> to bump the server on Discord.me.');
+//             console.log('[BeastBot] 🔔 Sent Discord.me bump reminder');
+//         } catch (e) {
+//             console.error('[BeastBot] Failed to send Discord.me bump reminder:', e.message);
+//         }
+//         scheduleDiscordMeReminder();
+//     }, next - now);
+//
+//     console.log(`[BeastBot] Discord.me bump reminder scheduled for ${next.toUTCString()}`);
+// }
 
 // Discadia: posts a reminder with a confirm button; timer starts when button is clicked
-async function postDiscadiaReminder() {
-    try {
-        const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('discadia:bumped')
-                .setLabel('✅ I bumped it')
-                .setStyle(ButtonStyle.Success),
-        );
-        await channel.send({
-            content: '⏰ Time to bump on Discadia! <https://discadia.com/bump/truebeasts/>',
-            components: [row],
-        });
-        console.log('[BeastBot] 🔔 Sent Discadia bump reminder');
-    } catch (e) {
-        console.error('[BeastBot] Failed to send Discadia bump reminder:', e.message);
-    }
-}
-
-function scheduleDiscadiaReminder(delayMs = DISCADIA_INTERVAL) {
-    if (discadiaTimer) clearTimeout(discadiaTimer);
-    const fireAt = Date.now() + delayMs;
-    firestoreSet('botTimers', 'discadia', { fireAt, updatedAt: new Date().toISOString() });
-    discadiaTimer = setTimeout(postDiscadiaReminder, delayMs);
-    console.log(`[BeastBot] Discadia bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
-}
+// DISABLED — Discadia reminder removed; only Disboard bump remains active
+// async function postDiscadiaReminder() {
+//     try {
+//         const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+//         const row = new ActionRowBuilder().addComponents(
+//             new ButtonBuilder()
+//                 .setCustomId('discadia:bumped')
+//                 .setLabel('✅ I bumped it')
+//                 .setStyle(ButtonStyle.Success),
+//         );
+//         await channel.send({
+//             content: '⏰ Time to bump on Discadia! <https://discadia.com/bump/truebeasts/>',
+//             components: [row],
+//         });
+//         console.log('[BeastBot] 🔔 Sent Discadia bump reminder');
+//     } catch (e) {
+//         console.error('[BeastBot] Failed to send Discadia bump reminder:', e.message);
+//     }
+// }
+//
+// function scheduleDiscadiaReminder(delayMs = DISCADIA_INTERVAL) {
+//     if (discadiaTimer) clearTimeout(discadiaTimer);
+//     const fireAt = Date.now() + delayMs;
+//     firestoreSet('botTimers', 'discadia', { fireAt, updatedAt: new Date().toISOString() });
+//     discadiaTimer = setTimeout(postDiscadiaReminder, delayMs);
+//     console.log(`[BeastBot] Discadia bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
+// }
 
 function scheduleBumpReminder() {
     if (bumpTimer) clearTimeout(bumpTimer);
@@ -699,6 +729,7 @@ function scheduleBumpReminder() {
     // Persist so it survives restarts
     firestoreSet('botTimers', 'disboard', { fireAt, updatedAt: new Date().toISOString() });
     bumpTimer = setTimeout(async () => {
+        if (botFeatures.bumpReminders === false) { console.log('[BeastBot] Bump Reminders disabled — skipping'); return; }
         try {
             const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
             await channel.send('⏰ Time to bump! Run `/bump` to keep the server visible on Disboard.');
@@ -2111,7 +2142,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     // ── Voice time tracking ───────────────────────────────────────────────────
     const trackingMember = newState.member || oldState.member;
-    if (trackingMember && !trackingMember.user.bot) {
+    if (trackingMember && !trackingMember.user.bot && botFeatures.vcTracking !== false) {
         const uid = trackingMember.id;
         // Session end: left a real channel
         if (oldCh && oldCh !== AFK_CHANNEL_ID && voiceStartTimes.has(uid)) {
@@ -2259,7 +2290,7 @@ async function assignVoiceRank(member, xp, forceReset = false) {
     if (!member.roles.cache.has(targetRole.id)) {
         await member.roles.add(targetRole).catch(e => console.error('[BeastBot] assignVoiceRank failed:', e.message));
         // Rank-up notification in bot-commands channel (skip Bronze I — reset & new joins)
-        if (!forceReset && targetIdx > 0) {
+        if (!forceReset && targetIdx > 0 && botFeatures.rankUpNotifications !== false) {
             try {
                 const rankColors = {
                     '🥉 Bronze': 0xcd7f32, '🥈 Silver': 0xc0c0c0, '🥇 Gold': 0xffd700,
@@ -3231,9 +3262,13 @@ async function generateDiscordCard(opts) {
     const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
 
     // Load featured image to get aspect ratio
+    const loadImageTimeout = (url) => Promise.race([
+        loadImage(url),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('loadImage timeout')), 10000)),
+    ]);
     let featuredImg = null;
     if (featuredImageUrl) {
-        try { featuredImg = await loadImage(featuredImageUrl); } catch (_) {}
+        try { featuredImg = await loadImageTimeout(featuredImageUrl); } catch (_) {}
     }
     const featW = W - FEAT_PAD * 2;
     const FEAT_H = featuredImg ? Math.min(500, Math.round(featuredImg.height * featW / featuredImg.width)) : 0;
@@ -3261,12 +3296,12 @@ async function generateDiscordCard(opts) {
 
     // Load images
     let mainImg = null;
-    if (imageUrl) { try { mainImg = await loadImage(imageUrl); } catch (_) {} }
+    if (imageUrl) { try { mainImg = await loadImageTimeout(imageUrl); } catch (_) {} }
     if (!mainImg && imagePosition === 'left') {
-        try { mainImg = await loadImage(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
+        try { mainImg = await loadImageTimeout(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
     }
     let logoImg = null;
-    if (logoUrl) { try { logoImg = await loadImage(logoUrl); } catch (_) {} }
+    if (logoUrl) { try { logoImg = await loadImageTimeout(logoUrl); } catch (_) {} }
 
     // Background image
     if (imagePosition === 'background' && mainImg) {
@@ -3356,6 +3391,7 @@ async function generateTestCard() {
 
 // In-memory dedup — prevents re-posting within this session even if Firestore write fails
 const processedCardIds = new Set();
+let cardPollRunning = false;
 
 async function firestoreCardStatus(docId, status) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=status`;
@@ -3369,6 +3405,9 @@ async function firestoreCardStatus(docId, status) {
 }
 
 async function pollDiscordCards() {
+    if (botFeatures.discordCards === false) { console.log('[BeastBot] Discord Cards disabled — skipping poll'); return; }
+    if (cardPollRunning) { console.log('[BeastBot] pollDiscordCards: skipping — previous poll still running'); return; }
+    cardPollRunning = true;
     try {
         const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards?key=${FIREBASE_API_KEY}&pageSize=20`;
         const res = await fetch(url);
@@ -3423,6 +3462,8 @@ async function pollDiscordCards() {
             if (!channelId) continue;
 
             try {
+                await Promise.race([
+                    (async () => {
                 const buffer = await generateDiscordCard({ title, subtitle, bodyText, gradientFrom, gradientTo, bgPreset, gradientFromAlpha, gradientToAlpha, textBgOpacity, imageUrl, imagePosition, logoUrl, featuredImageUrl, textAlign, cardHeight });
                 const attachment = new AttachmentBuilder(buffer, { name: 'card.png' });
                 const channel = await client.channels.fetch(channelId);
@@ -3463,13 +3504,18 @@ async function pollDiscordCards() {
                     try { await postedMsg.react(reactions[ri]); } catch (_) {}
                 }
                 console.log(`[BeastBot] Discord card posted to ${channelId}: "${title}"`);
+                    })(),
+                    new Promise((_, rej) => setTimeout(() => rej(new Error('Card processing timed out after 30s')), 30000)),
+                ]);
             } catch (e) {
-                console.error('[BeastBot] Failed to post Discord card:', e.message);
+                console.error('[BeastBot] Failed to post Discord card:', e.stack || e.message);
                 await firestoreCardStatus(docId, 'failed');
             }
         }
     } catch (e) {
-        console.error('[BeastBot] pollDiscordCards error:', e.message);
+        console.error('[BeastBot] pollDiscordCards error:', e.stack || e.message);
+    } finally {
+        cardPollRunning = false;
     }
 }
 
@@ -3814,14 +3860,14 @@ client.once('clientReady', async () => {
         console.error('[BeastBot] Failed to register slash commands:', e.message);
     }
 
-    scheduleDiscordMeReminder();
+    // scheduleDiscordMeReminder(); // DISABLED — Discord.me reminder removed
     scheduleSpotlight();
     scheduleGiveawayCheck();
 
     // Restore bump timers from Firestore (survive restarts)
     try {
         const disboardData = await firestoreGet('botTimers', 'disboard');
-        const discadiaData = await firestoreGet('botTimers', 'discadia');
+        // const discadiaData = await firestoreGet('botTimers', 'discadia'); // DISABLED
         const now = Date.now();
 
         if (disboardData && disboardData.fireAt > now) {
@@ -3839,16 +3885,17 @@ client.once('clientReady', async () => {
             console.log('[BeastBot] No active Disboard timer to restore');
         }
 
-        if (discadiaData && discadiaData.fireAt > now) {
-            const delay = discadiaData.fireAt - now;
-            console.log(`[BeastBot] Restoring Discadia timer — fires in ${Math.round(delay / 60000)}m`);
-            scheduleDiscadiaReminder(delay);
-        } else {
-            scheduleDiscadiaReminder(10 * 60 * 60 * 1000);
-        }
+        // DISABLED — Discadia timer restore removed
+        // if (discadiaData && discadiaData.fireAt > now) {
+        //     const delay = discadiaData.fireAt - now;
+        //     console.log(`[BeastBot] Restoring Discadia timer — fires in ${Math.round(delay / 60000)}m`);
+        //     scheduleDiscadiaReminder(delay);
+        // } else {
+        //     scheduleDiscadiaReminder(10 * 60 * 60 * 1000);
+        // }
     } catch (e) {
         console.error('[BeastBot] Failed to restore timers:', e.message);
-        scheduleDiscadiaReminder(10 * 60 * 60 * 1000);
+        // scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // DISABLED
     }
 
     // Clean up orphaned temp VCs (empty VCs in same category as trigger, left from before restart)
@@ -3874,8 +3921,12 @@ client.once('clientReady', async () => {
         console.error('[BeastBot] Temp VC cleanup failed:', e.message);
     }
 
+    // Load bot feature flags from Firestore (admin-toggled via admin panel)
+    await getBotFeatures();
+    setInterval(() => getBotFeatures().catch(() => {}), 5 * 60 * 1000); // refresh every 5 min
+
     // Poll Firestore for queued Discord cards every 15s
-    setInterval(() => pollDiscordCards().catch(() => {}), 5 * 60 * 1000);
+    setInterval(() => pollDiscordCards().catch(() => {}), 15 * 1000);
     setTimeout(() => pollDiscordCards().catch(() => {}), 3000); // first poll 3s after ready
 
     // Heartbeat every 30 min so we can detect silent crashes
@@ -4160,7 +4211,7 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             await interaction.reply({ content: '🔄 Restarting bot...', ephemeral: true });
-            setTimeout(() => process.exit(0), 1000);
+            setTimeout(() => process.exit(1), 1000);
             return;
         }
 
@@ -5654,20 +5705,20 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // Discadia bump confirm — owner only
-    if (interaction.customId === 'discadia:bumped') {
-        if (interaction.user.id !== OWNER_DISCORD_ID) {
-            await interaction.reply({ content: 'Only Kiernen can confirm this one!', ephemeral: true });
-            return;
-        }
-        await interaction.update({
-            content: '✅ Discadia bumped! Next reminder in 24 hours.',
-            components: [],
-        });
-        scheduleDiscadiaReminder(DISCADIA_INTERVAL);
-        console.log('[BeastBot] Discadia bump confirmed — 24h timer started');
-        return;
-    }
+    // Discadia bump confirm — DISABLED (Discadia reminder removed)
+    // if (interaction.customId === 'discadia:bumped') {
+    //     if (interaction.user.id !== OWNER_DISCORD_ID) {
+    //         await interaction.reply({ content: 'Only Kiernen can confirm this one!', ephemeral: true });
+    //         return;
+    //     }
+    //     await interaction.update({
+    //         content: '✅ Discadia bumped! Next reminder in 24 hours.',
+    //         components: [],
+    //     });
+    //     scheduleDiscadiaReminder(DISCADIA_INTERVAL);
+    //     console.log('[BeastBot] Discadia bump confirmed — 24h timer started');
+    //     return;
+    // }
 
     if (interaction.user.id !== OWNER_DISCORD_ID) {
         await interaction.reply({ content: 'These buttons aren\'t for you 👀', ephemeral: true });
@@ -5724,14 +5775,14 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
-    // Detect Discadia bump success — reset the 24h reminder timer
-    if (message.author.id === DISCADIA_BOT_ID && message.channel.id === BUMP_CHANNEL_ID) {
-        if (message.content.toLowerCase().includes('has been successfully bumped')) {
-            console.log('[BeastBot] Discadia bump detected — resetting 24h timer');
-            scheduleDiscadiaReminder(DISCADIA_INTERVAL);
-        }
-        return;
-    }
+    // Detect Discadia bump success — DISABLED (Discadia reminder removed)
+    // if (message.author.id === DISCADIA_BOT_ID && message.channel.id === BUMP_CHANNEL_ID) {
+    //     if (message.content.toLowerCase().includes('has been successfully bumped')) {
+    //         console.log('[BeastBot] Discadia bump detected — resetting 24h timer');
+    //         scheduleDiscadiaReminder(DISCADIA_INTERVAL);
+    //     }
+    //     return;
+    // }
 
     if (message.author.bot) return;
 
@@ -5918,6 +5969,12 @@ client.on('messageCreate', async (message) => {
     const isAiChannel      = message.channelId === AI_CHANNEL_ID;
     if (!isSupportChannel && !isAiChannel) return;
 
+    // Feature gate: AI Responses
+    if (botFeatures.aiResponses === false) {
+        console.log('[BeastBot] AI Responses disabled — skipping');
+        return;
+    }
+
     const question = message.content.trim();
     if (!question) return;
 
@@ -6079,6 +6136,21 @@ client.on('guildMemberAdd', async (member) => {
         color: LOG_COLORS.join, user,
         description: `📥 <@${user.id}> **joined the server**\n**Account creation**\n${ageStr}`,
     }));
+
+    // Welcome DM — feature-gated
+    if (botFeatures.welcomeMessages !== false) {
+        try {
+            await user.send(
+                `👋 **Welcome to TrueBeast's server, ${user.username}!**\n\n` +
+                `We're happy to have you here. Feel free to explore the channels, grab some roles, and join the fun!\n\n` +
+                `🎮 https://truebeast.io`
+            );
+            console.log(`[BeastBot] Sent welcome DM to ${user.tag}`);
+        } catch (e) {
+            // User may have DMs disabled — silently ignore
+            console.log(`[BeastBot] Could not send welcome DM to ${user.tag}: ${e.message}`);
+        }
+    }
 });
 
 client.on('guildMemberRemove', async (member) => {
