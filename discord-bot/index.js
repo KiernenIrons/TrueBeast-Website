@@ -3403,26 +3403,27 @@ async function firestoreCardStatus(docId, status) {
 
 async function pollDiscordCards() {
     if (botFeatures.discordCards === false) { console.log('[BeastBot] Discord Cards disabled — skipping poll'); return; }
-    if (cardPollRunning) { console.log('[BeastBot] pollDiscordCards: skipping — previous poll still running'); return; }
+    if (cardPollRunning) { return; }
     cardPollRunning = true;
     try {
         const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards?key=${FIREBASE_API_KEY}&pageSize=20`;
         const res = await fetch(url);
-        if (!res.ok) return;
+        if (!res.ok) { console.error('[BeastBot] pollDiscordCards: Firestore fetch failed HTTP', res.status); return; }
         const data = await res.json();
         const docs = data.documents || [];
+        const pending = docs.filter(d => d.fields?.status?.stringValue === 'pending' && !processedCardIds.has(d.name.split('/').pop()));
+        if (pending.length) console.log(`[BeastBot] pollDiscordCards: ${pending.length} pending card(s) found`);
         for (const doc of docs) {
             const f = doc.fields || {};
             const docId = doc.name.split('/').pop();
             const status = f.status?.stringValue;
 
-            // Skip already-processed or non-pending (in-memory dedup prevents re-posting even if Firestore write fails)
             if (processedCardIds.has(docId)) continue;
             if (status !== 'pending') continue;
 
-            // Mark locally FIRST — prevents re-processing on next poll regardless of Firestore success
+            // Mark in-session dedup immediately (prevents double-send if poll overlaps)
             processedCardIds.add(docId);
-            await firestoreCardStatus(docId, 'sent'); // best-effort (requires Firestore rule: allow write: if true)
+            console.log(`[BeastBot] Processing card ${docId}...`);
 
             const title            = f.title?.stringValue            || 'TrueBeast';
             const subtitle         = f.subtitle?.stringValue         || '';
@@ -3500,12 +3501,16 @@ async function pollDiscordCards() {
                 for (let ri = 0; ri < reactions.length; ri++) {
                     try { await postedMsg.react(reactions[ri]); } catch (_) {}
                 }
+                // Mark sent ONLY after successful Discord post
+                await firestoreCardStatus(docId, 'sent');
                 console.log(`[BeastBot] Discord card posted to ${channelId}: "${title}"`);
                     })(),
                     new Promise((_, rej) => setTimeout(() => rej(new Error('Card processing timed out after 30s')), 30000)),
                 ]);
             } catch (e) {
                 console.error('[BeastBot] Failed to post Discord card:', e.stack || e.message);
+                // Remove from dedup so it can retry on next restart
+                processedCardIds.delete(docId);
                 await firestoreCardStatus(docId, 'failed');
             }
         }
