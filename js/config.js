@@ -232,6 +232,10 @@ const SITE_CONFIG = {
     //            match /adminRoles/{email} {
     //              allow read, write:   if request.auth != null;    // admin only
     //            }
+    //            match /botConfig/{docId} {
+    //              allow get:           if true;                    // public read — bot reads feature flags
+    //              allow write:         if request.auth != null;    // admin only writes
+    //            }
     //          }
     //        }
     //

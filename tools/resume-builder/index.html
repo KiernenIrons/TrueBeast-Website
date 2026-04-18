@@ -546,22 +546,31 @@ const PersonalInfoEditor = ({ data, photo, dispatch }) => {
     );
 };
 
-// Fix #3: Summary editor with template dropdown
-const SummaryEditor = ({ data, dispatch }) => (
-    <div className="space-y-3">
-        <div className="flex flex-col gap-1">
-            <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>Quick-fill Template</label>
-            <select className="inp" value="" onChange={e => {
-                if (e.target.value) dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:e.target.value });
-            }}>
-                {SUMMARY_TEMPLATES.map((t,i) => <option key={i} value={t.value}>{t.label}</option>)}
-            </select>
+// Fix #3: Summary editor with template dropdown + character counter
+const SummaryEditor = ({ data, dispatch }) => {
+    const text = data.data.text || '';
+    const charCount = text.length;
+    const countColor = charCount === 0 ? 'var(--c-text-muted)' : charCount < 100 ? '#f59e0b' : charCount <= 300 ? '#22c55e' : '#ef4444';
+    return (
+        <div className="space-y-3">
+            <div className="flex flex-col gap-1">
+                <label style={{color:'var(--c-text-label)',fontSize:'.85rem',fontWeight:500}}>Quick-fill Template</label>
+                <select className="inp" value="" onChange={e => {
+                    if (e.target.value) dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:e.target.value });
+                }}>
+                    {SUMMARY_TEMPLATES.map((t,i) => <option key={i} value={t.value}>{t.label}</option>)}
+                </select>
+            </div>
+            <TextArea label="Summary" value={text}
+                onChange={val => dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:val })}
+                placeholder="Experienced professional with a proven track record..." rows={4} />
+            <div className="flex items-center justify-between" style={{marginTop:-4}}>
+                <span style={{fontSize:'.72rem',color:'var(--c-text-muted)'}}>Recommended: 150–300 characters</span>
+                <span style={{fontSize:'.75rem',fontWeight:600,color:countColor}}>{charCount} / 300</span>
+            </div>
         </div>
-        <TextArea label="Summary" value={data.data.text}
-            onChange={val => dispatch({ type:'SET_FIELD', path:'sections.summary.data.text', value:val })}
-            placeholder="Experienced professional with a proven track record..." rows={4} />
-    </div>
-);
+    );
+};
 
 const BulletEditor = ({ bullets, section, itemId, dispatch }) => (
     <div className="space-y-2">
@@ -1440,6 +1449,154 @@ function importJSON(file) {
     });
 }
 
+// ── Copy as Text (ATS-friendly plain text) ────────────────────────────────────
+function buildPlainText(resume) {
+    const lines = [];
+    const { sections, sectionOrder } = resume;
+
+    // Header
+    const p = sections.personal?.data || {};
+    const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    if (fullName) lines.push(fullName);
+    if (p.title) lines.push(p.title);
+    const contacts = [p.email, p.phone, p.location, p.website, p.linkedin].filter(Boolean);
+    if (contacts.length) lines.push(contacts.join(' | '));
+    lines.push('');
+
+    const hr = () => lines.push('─'.repeat(60));
+
+    for (const key of sectionOrder) {
+        if (key === 'personal') continue;
+        const sec = sections[key];
+        if (!sec?.enabled) continue;
+
+        if (key === 'summary') {
+            if (!sec.data?.text) continue;
+            lines.push(sec.heading || 'PROFESSIONAL SUMMARY');
+            hr();
+            lines.push(sec.data.text);
+            lines.push('');
+            continue;
+        }
+
+        if (key === 'skills') {
+            const named = sec.items?.filter(s => s.name);
+            if (!named?.length) continue;
+            lines.push(sec.heading || 'SKILLS');
+            hr();
+            lines.push(named.map(s => s.name).join(', '));
+            lines.push('');
+            continue;
+        }
+
+        if (key === 'experience') {
+            const filled = sec.items?.filter(i => i.title || i.company);
+            if (!filled?.length) continue;
+            lines.push(sec.heading || 'WORK EXPERIENCE');
+            hr();
+            for (const i of filled) {
+                const titleLine = [i.title, i.company].filter(Boolean).join(' at ');
+                const dateLine = i.current ? `${i.startDate} — Present` : [i.startDate, i.endDate].filter(Boolean).join(' — ');
+                lines.push([titleLine, dateLine].filter(Boolean).join('  |  '));
+                if (i.location) lines.push(i.location);
+                for (const b of (i.bullets || []).filter(Boolean)) lines.push('• ' + b);
+                lines.push('');
+            }
+            continue;
+        }
+
+        if (key === 'education') {
+            const filled = sec.items?.filter(i => i.school || i.degree);
+            if (!filled?.length) continue;
+            lines.push(sec.heading || 'EDUCATION');
+            hr();
+            for (const i of filled) {
+                const degLine = [i.degree, i.field ? `in ${i.field}` : ''].filter(Boolean).join(' ');
+                const dateStr = [i.startDate, i.endDate].filter(Boolean).join(' — ');
+                lines.push([degLine, dateStr].filter(Boolean).join('  |  '));
+                if (i.school) lines.push(i.school);
+                if (i.gpa) lines.push(`GPA: ${i.gpa}`);
+                for (const b of (i.bullets || []).filter(Boolean)) lines.push('• ' + b);
+                lines.push('');
+            }
+            continue;
+        }
+
+        if (key === 'certifications') {
+            const filled = sec.items?.filter(i => i.name);
+            if (!filled?.length) continue;
+            lines.push(sec.heading || 'CERTIFICATIONS');
+            hr();
+            for (const i of filled) {
+                lines.push([i.name, i.issuer, i.date].filter(Boolean).join(' — '));
+            }
+            lines.push('');
+            continue;
+        }
+
+        if (key === 'languages') {
+            const filled = sec.items?.filter(i => i.name);
+            if (!filled?.length) continue;
+            lines.push(sec.heading || 'LANGUAGES');
+            hr();
+            lines.push(filled.map(i => `${i.name} (${i.proficiency})`).join(', '));
+            lines.push('');
+            continue;
+        }
+
+        if (key === 'projects') {
+            const filled = sec.items?.filter(i => i.name);
+            if (!filled?.length) continue;
+            lines.push(sec.heading || 'PROJECTS');
+            hr();
+            for (const i of filled) {
+                lines.push(i.name + (i.url ? `  |  ${i.url}` : ''));
+                if (i.technologies) lines.push('Tech: ' + i.technologies);
+                if (i.description) lines.push(i.description);
+                for (const b of (i.bullets || []).filter(Boolean)) lines.push('• ' + b);
+                lines.push('');
+            }
+            continue;
+        }
+
+        // Generic fallback
+        const filled = sec.items?.filter(i => i.title || i.name);
+        if (!filled?.length) continue;
+        lines.push((sec.heading || key).toUpperCase());
+        hr();
+        for (const i of filled) {
+            const main = i.title || i.name || '';
+            const sub = [i.subtitle, i.description].filter(Boolean).join(' — ');
+            lines.push([main, sub].filter(Boolean).join(': '));
+        }
+        lines.push('');
+    }
+
+    return lines.join('\n');
+}
+
+function copyAsText(resume) {
+    const text = buildPlainText(resume);
+    if (navigator.clipboard) {
+        return navigator.clipboard.writeText(text).then(() => true).catch(() => {
+            fallbackCopy(text);
+            return true;
+        });
+    }
+    fallbackCopy(text);
+    return Promise.resolve(true);
+}
+
+function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 const App = () => {
     const [resumes, setResumes] = useState(() => {
@@ -1526,6 +1683,20 @@ const App = () => {
         try { await exportPDF(previewRef, resume.name); showToast('PDF downloaded!'); }
         catch(e) { console.error('PDF export error:', e); showToast('PDF export failed', true); }
         finally { setExporting(false); }
+    };
+
+    const handleCopyText = async () => {
+        try { await copyAsText(resume); showToast('Copied as plain text (ATS-friendly)!'); }
+        catch(e) { showToast('Copy failed', true); }
+    };
+
+    const handleClearAll = () => {
+        if (!window.confirm('Clear all resume data? This cannot be undone.')) return;
+        const fresh = makeDefault();
+        fresh.id = resume.id;
+        fresh.name = resume.name;
+        dispatch({ type:'SET_RESUME', resume:fresh });
+        showToast('Resume cleared.');
     };
 
     const showToast = (msg, err=false) => { setToast({msg,err}); setTimeout(() => setToast(null), 3000); };
@@ -1643,12 +1814,14 @@ const App = () => {
                         <button className="primary-btn" onClick={handleExportPDF} disabled={exporting}>
                             {exporting ? 'Generating...' : 'Download PDF'}
                         </button>
+                        <button className="ghost-btn" onClick={handleCopyText} title="Copy ATS-friendly plain text to clipboard">Copy as Text</button>
                         <button className="ghost-btn" onClick={() => exportJSON(resume)}>Export JSON</button>
                         <label className="ghost-btn" style={{cursor:'pointer'}}>
                             Import JSON
                             <input type="file" accept=".json" onChange={handleImport} style={{display:'none'}} />
                         </label>
                         <button className="ghost-btn" onClick={() => printResume(previewRef)}>Print</button>
+                        <button className="ghost-btn" style={{color:'#ef4444',borderColor:'rgba(239,68,68,0.3)'}} onClick={handleClearAll}>Clear All</button>
                         <span style={{fontSize:'.75rem',color:'var(--c-text-muted)',maxWidth:180,lineHeight:1.3}}>
                             Export JSON to save your progress and edit later
                         </span>

@@ -121,6 +121,11 @@
         .dc-emoji-picker-grid span:hover { background:rgba(255,255,255,.1); }
         .dc-emoji-custom-row { margin-top:8px; border-top:1px solid rgba(255,255,255,.08); padding-top:8px; }
         /* Rich mention/emoji picker */
+        /* ── Bot Controls Toggle ──────────────────────── */
+        .bc-toggle-track { width:44px; height:24px; background:#4b5563; border-radius:9999px; position:relative; transition:background .2s; flex-shrink:0; cursor:pointer; }
+        .bc-toggle-track.on { background:#7c3aed; }
+        .bc-toggle-thumb { position:absolute; top:2px; left:2px; width:20px; height:20px; background:#fff; border-radius:9999px; transition:transform .2s; box-shadow:0 1px 3px rgba(0,0,0,.4); }
+        .bc-toggle-track.on .bc-toggle-thumb { transform:translateX(20px); }
         /* ── Analytics Tab ────────────────────────────── */
         .ap-active   { background: rgba(147,51,234,0.2); color: #c084fc; border: 1px solid rgba(147,51,234,0.4); }
         .ap-inactive { background: rgba(255,255,255,0.04); color: #9ca3af; border: 1px solid rgba(255,255,255,0.06); }
@@ -265,7 +270,8 @@
             <button id="tab-reviews"   onclick="setMainTab('reviews')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Reviews</button>
             <button id="tab-discord"   onclick="setMainTab('discord')"   class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Announcements</button>
             <button id="tab-analytics" onclick="setMainTab('analytics')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Analytics</button>
-            <button id="tab-admin"     onclick="setMainTab('admin')"     class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive" style="display:none">Admin</button>
+            <button id="tab-admin"       onclick="setMainTab('admin')"       class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive" style="display:none">Admin</button>
+            <button id="tab-botcontrols" onclick="setMainTab('botcontrols')" class="px-5 py-2 rounded-xl text-sm font-semibold tab-inactive">Bot Controls</button>
         </div>
 
         <!-- Error banner -->
@@ -393,6 +399,22 @@
             <div id="admin-list" class="space-y-3"></div>
             <p class="text-xs text-gray-500 mt-5">Removing an admin only removes their Firestore permissions. Their Firebase Auth account must be deleted manually in the Firebase Console if needed.</p>
         </div><!-- /panel-admin -->
+
+        <!-- ── Bot Controls panel ──────────────────────────────────── -->
+        <div id="panel-botcontrols" style="display:none">
+            <div class="flex items-center justify-between mb-5">
+                <div>
+                    <h2 class="font-display font-bold text-xl">Bot <span class="text-gradient">Controls</span></h2>
+                    <p class="text-gray-400 text-sm mt-1">Toggle bot features on or off. Changes are saved to Firestore instantly.</p>
+                </div>
+                <div id="bc-saved" style="display:none" class="text-xs text-green-400 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-1.5 font-medium">Saved ✓</div>
+            </div>
+            <div id="bc-loading" class="liquid-glass rounded-2xl p-6 text-center text-gray-400 text-sm">
+                <div class="w-6 h-6 border-2 border-violet-500/30 border-t-violet-500 rounded-full spin mx-auto mb-3"></div>
+                Loading feature flags…
+            </div>
+            <div id="bc-list" class="space-y-3" style="display:none"></div>
+        </div><!-- /panel-botcontrols -->
 
     </div>
 </div>
@@ -562,11 +584,12 @@
             }).catch(function(ex) { console.error('Refresh ticket failed:', ex); });
             return;
         }
-        if (mainTab === 'reviews')        loadReviews();
-        else if (mainTab === 'discord')   dcLoadBackupList();
-        else if (mainTab === 'analytics') loadAnalytics(true);
-        else if (mainTab === 'admin')     loadAdminList();
-        else                              loadTickets();
+        if (mainTab === 'reviews')          loadReviews();
+        else if (mainTab === 'discord')     dcLoadBackupList();
+        else if (mainTab === 'analytics')   loadAnalytics(true);
+        else if (mainTab === 'admin')       loadAdminList();
+        else if (mainTab === 'botcontrols') loadBotFeatures();
+        else                                loadTickets();
     }
 
     /* ── auth ── */
@@ -626,18 +649,20 @@
     /* ── main tab switch ── */
     function setMainTab(tab) {
         mainTab = tab;
-        ['tickets','reviews','discord','analytics','admin'].forEach(function(t) {
+        ['tickets','reviews','discord','analytics','admin','botcontrols'].forEach(function(t) {
             var btn = document.getElementById('tab-' + t);
             if (btn) btn.className = 'px-5 py-2 rounded-xl text-sm font-semibold ' + (tab === t ? 'tab-active' : 'tab-inactive');
         });
-        document.getElementById('panel-tickets').style.display   = tab === 'tickets'   ? 'block' : 'none';
-        document.getElementById('panel-reviews').style.display   = tab === 'reviews'   ? 'block' : 'none';
-        document.getElementById('panel-discord').style.display   = tab === 'discord'   ? 'block' : 'none';
-        document.getElementById('panel-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
-        document.getElementById('panel-admin').style.display     = tab === 'admin'     ? 'block' : 'none';
-        if (tab === 'discord')   dcOpenTab();
-        if (tab === 'analytics') loadAnalytics(false);
-        if (tab === 'admin')     loadAdminList();
+        document.getElementById('panel-tickets').style.display     = tab === 'tickets'     ? 'block' : 'none';
+        document.getElementById('panel-reviews').style.display     = tab === 'reviews'     ? 'block' : 'none';
+        document.getElementById('panel-discord').style.display     = tab === 'discord'     ? 'block' : 'none';
+        document.getElementById('panel-analytics').style.display   = tab === 'analytics'   ? 'block' : 'none';
+        document.getElementById('panel-admin').style.display       = tab === 'admin'       ? 'block' : 'none';
+        document.getElementById('panel-botcontrols').style.display = tab === 'botcontrols' ? 'block' : 'none';
+        if (tab === 'discord')     dcOpenTab();
+        if (tab === 'analytics')   loadAnalytics(false);
+        if (tab === 'admin')       loadAdminList();
+        if (tab === 'botcontrols') loadBotFeatures();
     }
 
     /* ════════════════════════════════════════════════════════
@@ -2532,6 +2557,90 @@
             renderAdminList();
         } catch (err) {
             alert('Failed to remove admin: ' + err.message);
+        }
+    }
+
+    /* ════════════════════════════════════════════════════════
+       BOT CONTROLS
+    ════════════════════════════════════════════════════════ */
+
+    const BOT_FEATURES = [
+        { key: 'aiResponses',          label: 'AI Responses',          desc: 'Bot responds to messages in monitored/AI channels using Claude.' },
+        { key: 'discordCards',         label: 'Discord Cards',         desc: 'Card polling and posting system (member stats cards).' },
+        { key: 'bumpReminders',        label: 'Bump Reminders',        desc: 'Disboard bump reminder sent every 2 hours after a bump.' },
+        { key: 'rankUpNotifications',  label: 'Rank-up Notifications', desc: 'Posts a rank-up message when a member reaches a new rank.' },
+        { key: 'vcTracking',           label: 'VC Tracking',           desc: 'Tracks voice channel time and awards XP to members.' },
+        { key: 'welcomeMessages',      label: 'Welcome Messages',      desc: 'Sends a welcome DM to new members when they join the server.' },
+    ];
+
+    var _bcSavedTimer = null;
+
+    function showBcSaved() {
+        var el = document.getElementById('bc-saved');
+        if (!el) return;
+        el.style.display = 'block';
+        if (_bcSavedTimer) clearTimeout(_bcSavedTimer);
+        _bcSavedTimer = setTimeout(function() { el.style.display = 'none'; }, 2500);
+    }
+
+    async function loadBotFeatures() {
+        var loadEl = document.getElementById('bc-loading');
+        var listEl = document.getElementById('bc-list');
+        if (loadEl) loadEl.style.display = 'block';
+        if (listEl) listEl.style.display = 'none';
+
+        var features = {};
+        try {
+            _ensureApp();
+            var snap = await firebase.firestore().collection('botConfig').doc('features').get();
+            features = snap.exists ? snap.data() : {};
+        } catch (e) {
+            console.warn('Bot Controls: could not load features from Firestore:', e.message);
+        }
+
+        if (loadEl) loadEl.style.display = 'none';
+        if (listEl) {
+            listEl.style.display = 'block';
+            listEl.innerHTML = BOT_FEATURES.map(function(f) {
+                var isOn = features[f.key] !== false; // default ON
+                return (
+                    '<div class="liquid-glass rounded-2xl p-4" style="display:flex;align-items:center;justify-content:space-between;gap:16px">' +
+                        '<div>' +
+                            '<div style="font-weight:600;font-size:14px;color:#f3f4f6">' + esc(f.label) + '</div>' +
+                            '<div style="font-size:12px;color:#9ca3af;margin-top:2px">' + esc(f.desc) + '</div>' +
+                        '</div>' +
+                        '<div class="bc-toggle-track' + (isOn ? ' on' : '') + '" ' +
+                            'id="bc-track-' + f.key + '" ' +
+                            'onclick="toggleBotFeature(\'' + f.key + '\')" ' +
+                            'title="' + (isOn ? 'Enabled' : 'Disabled') + ' — click to toggle">' +
+                            '<div class="bc-toggle-thumb"></div>' +
+                        '</div>' +
+                    '</div>'
+                );
+            }).join('');
+        }
+    }
+
+    async function toggleBotFeature(key) {
+        var track = document.getElementById('bc-track-' + key);
+        if (!track) return;
+        var isNowOn = !track.classList.contains('on');
+        // Optimistically update UI
+        if (isNowOn) { track.classList.add('on'); track.title = 'Enabled — click to toggle'; }
+        else          { track.classList.remove('on'); track.title = 'Disabled — click to toggle'; }
+        try {
+            _ensureApp();
+            var update = {};
+            update[key] = isNowOn;
+            await firebase.firestore().collection('botConfig').doc('features').set(update, { merge: true });
+            showBcSaved();
+            console.log('[BotControls] Saved', key, '=', isNowOn);
+        } catch (e) {
+            console.error('[BotControls] Failed to save feature:', e.message);
+            // Revert the toggle on failure
+            if (isNowOn) { track.classList.remove('on'); track.title = 'Disabled — click to toggle'; }
+            else          { track.classList.add('on');    track.title = 'Enabled — click to toggle'; }
+            alert('Failed to save: ' + e.message);
         }
     }
 
