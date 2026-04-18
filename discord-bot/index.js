@@ -3261,15 +3261,21 @@ async function generateDiscordCard(opts) {
     const textContentH = TITLE_H + subH + bodyH;
     const headerH = Math.max(ICON_SZ + ICON_PAD * 2, 28 + textContentH + 28);
 
-    // Load featured image to get aspect ratio
+    // Load all images in parallel with a 5s timeout each
     const loadImageTimeout = (url) => Promise.race([
         loadImage(url),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('loadImage timeout')), 10000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('loadImage timeout')), 5000)),
     ]);
-    let featuredImg = null;
-    if (featuredImageUrl) {
-        try { featuredImg = await loadImageTimeout(featuredImageUrl); } catch (_) {}
-    }
+    const tryLoad = (url) => url ? loadImageTimeout(url).catch(() => null) : Promise.resolve(null);
+
+    const avatarUrl = imagePosition === 'left' && !imageUrl
+        ? client.user.displayAvatarURL({ size: 128, extension: 'png' }) : null;
+    const [featuredImg, mainImg, logoImg] = await Promise.all([
+        tryLoad(featuredImageUrl),
+        tryLoad(imageUrl) .then(img => img || tryLoad(avatarUrl)),
+        tryLoad(logoUrl),
+    ]);
+
     const featW = W - FEAT_PAD * 2;
     const FEAT_H = featuredImg ? Math.min(500, Math.round(featuredImg.height * featW / featuredImg.width)) : 0;
 
@@ -3293,15 +3299,6 @@ async function generateDiscordCard(opts) {
     bg.addColorStop(1, hexToRgbaBot(gradientTo, gradientToAlpha));
     ctx.fillStyle = bg;
     ctx.beginPath(); ctx.roundRect(0, 0, W, H, 14); ctx.fill();
-
-    // Load images
-    let mainImg = null;
-    if (imageUrl) { try { mainImg = await loadImageTimeout(imageUrl); } catch (_) {} }
-    if (!mainImg && imagePosition === 'left') {
-        try { mainImg = await loadImageTimeout(client.user.displayAvatarURL({ size: 128, extension: 'png' })); } catch (_) {}
-    }
-    let logoImg = null;
-    if (logoUrl) { try { logoImg = await loadImageTimeout(logoUrl); } catch (_) {} }
 
     // Background image
     if (imagePosition === 'background' && mainImg) {
