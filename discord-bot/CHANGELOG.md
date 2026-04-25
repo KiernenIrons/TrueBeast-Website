@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-04-25] — Fix bot intercepting Mee6 ticket button interactions
+
+- Added early return in the `interactionCreate` catch-all so it only fires for `answer:` and `skip:` prefixed buttons (the question DM system)
+- Prevents the bot from responding "Already handled" or "These buttons aren't for you" on unrecognized button clicks (e.g. Mee6's Open Ticket button)
+
 ## [2026-03-31] — Full backup system: voice (total+days), rank achievements, message backup expanded
 
 - `saveVoiceBackup` now saves per-day breakdown in addition to total — backup format: `{ userId: { total, days: { "YYYY-MM-DD": mins } } }`

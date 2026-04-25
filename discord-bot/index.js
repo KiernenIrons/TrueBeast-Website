@@ -5723,6 +5723,8 @@ client.on('interactionCreate', async (interaction) => {
     //     return;
     // }
 
+    if (!interaction.customId.startsWith('answer:') && !interaction.customId.startsWith('skip:')) return;
+
     if (interaction.user.id !== OWNER_DISCORD_ID) {
         await interaction.reply({ content: 'These buttons aren\'t for you 👀', ephemeral: true });
         return;
