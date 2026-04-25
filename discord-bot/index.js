@@ -3390,15 +3390,9 @@ async function generateTestCard() {
 const processedCardIds = new Set();
 let cardPollRunning = false;
 
-async function firestoreCardStatus(docId, status) {
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards/${docId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=status`;
-    try {
-        await fetch(url, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields: { status: { stringValue: status } } }),
-        });
-    } catch (e) { console.error('[BeastBot] firestoreCardStatus failed:', e.message); }
+async function firestoreDeleteCard(docId) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards/${docId}?key=${FIREBASE_API_KEY}`;
+    try { await fetch(url, { method: 'DELETE' }); } catch (e) { console.error('[BeastBot] firestoreDeleteCard failed:', e.message); }
 }
 
 async function pollDiscordCards() {
@@ -3406,13 +3400,21 @@ async function pollDiscordCards() {
     if (cardPollRunning) { return; }
     cardPollRunning = true;
     try {
-        const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/discordCards?key=${FIREBASE_API_KEY}&pageSize=20`;
-        const res = await fetch(url);
-        if (!res.ok) { console.error('[BeastBot] pollDiscordCards: Firestore fetch failed HTTP', res.status); return; }
-        const data = await res.json();
-        const docs = data.documents || [];
-        const pending = docs.filter(d => d.fields?.status?.stringValue === 'pending' && !processedCardIds.has(d.name.split('/').pop()));
-        if (pending.length) console.log(`[BeastBot] pollDiscordCards: ${pending.length} pending card(s) found`);
+        // Structured query — only fetch 'pending' cards (avoids reading all sent/failed docs)
+        const queryUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents:runQuery?key=${FIREBASE_API_KEY}`;
+        const res = await fetch(queryUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ structuredQuery: {
+                from: [{ collectionId: 'discordCards' }],
+                where: { fieldFilter: { field: { fieldPath: 'status' }, op: 'EQUAL', value: { stringValue: 'pending' } } },
+                limit: 10,
+            }}),
+        });
+        if (!res.ok) { console.error('[BeastBot] pollDiscordCards: Firestore query failed HTTP', res.status); return; }
+        const rows = await res.json();
+        const docs = rows.map(r => r.document).filter(Boolean);
+        if (docs.length) console.log(`[BeastBot] pollDiscordCards: ${docs.length} pending card(s) found`);
         for (const doc of docs) {
             const f = doc.fields || {};
             const docId = doc.name.split('/').pop();
@@ -3501,17 +3503,16 @@ async function pollDiscordCards() {
                 for (let ri = 0; ri < reactions.length; ri++) {
                     try { await postedMsg.react(reactions[ri]); } catch (_) {}
                 }
-                // Mark sent ONLY after successful Discord post
-                await firestoreCardStatus(docId, 'sent');
+                // Delete from Firestore after successful post — keeps collection empty = zero reads on next poll
+                await firestoreDeleteCard(docId);
                 console.log(`[BeastBot] Discord card posted to ${channelId}: "${title}"`);
                     })(),
                     new Promise((_, rej) => setTimeout(() => rej(new Error('Card processing timed out after 30s')), 30000)),
                 ]);
             } catch (e) {
                 console.error('[BeastBot] Failed to post Discord card:', e.stack || e.message);
-                // Remove from dedup so it can retry on next restart
-                processedCardIds.delete(docId);
-                await firestoreCardStatus(docId, 'failed');
+                processedCardIds.delete(docId); // allow retry on next restart
+                await firestoreDeleteCard(docId); // remove failed card too — prevents stuck docs burning reads
             }
         }
     } catch (e) {
@@ -3925,10 +3926,10 @@ client.once('clientReady', async () => {
 
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
-    setInterval(() => getBotFeatures().catch(() => {}), 5 * 60 * 1000); // refresh every 5 min
+    setInterval(() => getBotFeatures().catch(() => {}), 30 * 60 * 1000); // refresh every 30 min
 
-    // Poll Firestore for queued Discord cards every 15s
-    setInterval(() => pollDiscordCards().catch(() => {}), 15 * 1000);
+    // Poll Firestore for queued Discord cards every 60s (filtered query = 0 reads when empty)
+    setInterval(() => pollDiscordCards().catch(() => {}), 60 * 1000);
     setTimeout(() => pollDiscordCards().catch(() => {}), 3000); // first poll 3s after ready
 
     // Heartbeat every 30 min so we can detect silent crashes
