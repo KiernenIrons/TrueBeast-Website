@@ -52,7 +52,35 @@ let botFeatures = {
     rankUpNotifications: true,
     vcTracking:          true,
     welcomeMessages:     true,
+    imposterGame:        true,
 };
+
+// ── Imposter Game ─────────────────────────────────────────────────────────────
+const IMPOSTER_CHANNEL_ID      = '1498354389356904628';
+const IMP_MIN_PLAYERS          = 4;
+const IMP_MAX_PLAYERS          = 12;
+const IMP_LOBBY_TIMEOUT_MS     = 10 * 60 * 1000;
+const IMP_CLUE_TIMEOUT_MS      =  5 * 60 * 1000;
+const IMP_DISCUSS_TIMEOUT_MS   =  3 * 60 * 1000;
+const IMP_VOTE_TIMEOUT_MS      =  2 * 60 * 1000;
+
+// channelId → GameState
+const imposterGames = new Map();
+// userId → channelId (reverse lookup)
+const imposterPlayerMap = new Map();
+
+const IMPOSTER_WORD_LIST = [
+    { theme: 'Ocean',    words: ['Submarine', 'Coral Reef', 'Shark', 'Lighthouse', 'Surfboard'] },
+    { theme: 'Space',    words: ['Black Hole', 'Astronaut', 'Nebula', 'Satellite', 'Comet'] },
+    { theme: 'Kitchen',  words: ['Wok', 'Colander', 'Pressure Cooker', 'Grater', 'Whisk'] },
+    { theme: 'School',   words: ['Detention', 'Cafeteria', 'Locker', 'Hall Pass', 'Yearbook'] },
+    { theme: 'Jungle',   words: ['Quicksand', 'Canopy', 'Machete', 'Anaconda', 'Hammock'] },
+    { theme: 'Casino',   words: ['Roulette', 'Craps', 'Blackjack', 'Jackpot', 'Chips'] },
+    { theme: 'Hospital', words: ['Scalpel', 'Triage', 'Dialysis', 'Stethoscope', 'Surgery'] },
+    { theme: 'Circus',   words: ['Trapeze', 'Ringmaster', 'Tightrope', 'Acrobat', 'Juggler'] },
+    { theme: 'Arctic',   words: ['Igloo', 'Polar Bear', 'Permafrost', 'Whiteout', 'Dogsled'] },
+    { theme: 'Medieval', words: ['Trebuchet', 'Moat', 'Dungeon', 'Jousting', 'Squire'] },
+];
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 // Queue of unanswered questions waiting for a button click:
@@ -3855,6 +3883,11 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('backup-wipe')
                 .setDescription('(Owner only) Wipe ALL data — everyone starts at 0'),
+            new SlashCommandBuilder()
+                .setName('imposter')
+                .setDescription('Play the Imposter word deduction game in #imposter-game')
+                .addSubcommand(sub => sub.setName('start').setDescription('Start a new game lobby'))
+                .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)')),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -3946,11 +3979,338 @@ client.once('clientReady', async () => {
 
 });
 
+// ── Imposter Game Logic ───────────────────────────────────────────────────────
+
+function impGetGame(channelId) { return imposterGames.get(channelId); }
+
+function impCleanup(game) {
+    if (!game) return;
+    if (game.phaseTimer) clearTimeout(game.phaseTimer);
+    for (const uid of game.players.keys()) imposterPlayerMap.delete(uid);
+    imposterGames.delete(game.channelId);
+}
+
+function impLobbyEmbed(game) {
+    const playerList = [...game.players.values()].map(p => `• ${p.name}`).join('\n') || '*No players yet*';
+    return {
+        color: 0xff4444,
+        title: '🔴 The Imposter — Lobby',
+        description: 'One player will secretly be **the Imposter**. Everyone gets a themed word — except the imposter, who only knows the theme. Give clues, spot the liar, vote them out!\n\n**How to win:**\n🔵 Crew: vote out the imposter\n🔴 Imposter: survive & blend in (or guess the word!)',
+        fields: [
+            { name: `Players (${game.players.size}/${IMP_MAX_PLAYERS})`, value: playerList },
+            { name: 'Min to start', value: `${IMP_MIN_PLAYERS} players`, inline: true },
+        ],
+        footer: { text: 'Lobby closes in 10 minutes' },
+    };
+}
+
+function impLobbyComponents(game) {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('imp:join').setLabel('Join Game').setStyle(ButtonStyle.Primary).setEmoji('🙋'),
+        new ButtonBuilder().setCustomId('imp:start').setLabel('Start Game').setStyle(ButtonStyle.Success).setEmoji('▶️'),
+        new ButtonBuilder().setCustomId('imp:end').setLabel('Cancel').setStyle(ButtonStyle.Danger).setEmoji('✖️'),
+    );
+    return [row];
+}
+
+async function impSendDMs(game) {
+    const failed = [];
+    for (const [uid, player] of game.players) {
+        const isImp = game.impostorIds.has(uid);
+        try {
+            const dmUser = await client.users.fetch(uid);
+            await dmUser.send({
+                embeds: [{
+                    color: isImp ? 0xff4444 : 0x4ade80,
+                    title: isImp ? '🔴 You are the IMPOSTER' : '🔵 You are a Crewmate',
+                    description: isImp
+                        ? `The theme is **${game.theme}**.\n\nYou do **NOT** know the word. Try to blend in with a vague clue and figure out what the crewmates' word is!\n\n**Bonus win:** During the vote phase, use "Guess Word" and name the correct word to win instantly.`
+                        : `The theme is **${game.theme}**.\nYour word is **${game.word}**.\n\nGive a clue about your word — don't make it too obvious! Find the imposter who doesn't know the word.`,
+                    footer: { text: 'Head to #imposter-game to submit your clue' },
+                }],
+            });
+        } catch (_) {
+            failed.push(player.name);
+        }
+    }
+    return failed;
+}
+
+function impCluePhaseComponents() {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('imp:clue').setLabel('Give Clue').setStyle(ButtonStyle.Primary).setEmoji('💬'),
+    );
+    return [row];
+}
+
+function impCluePhaseEmbed(game) {
+    const submitted = [...game.players.values()].filter(p => p.alive && p.clue !== null);
+    const total = [...game.players.values()].filter(p => p.alive).length;
+    const list = [...game.players.entries()]
+        .filter(([, p]) => p.alive)
+        .map(([uid, p]) => p.clue !== null ? `✅ ${p.name}` : `⏳ ${p.name}`)
+        .join('\n');
+    return {
+        color: 0xf59e0b,
+        title: `🔎 Clue Phase — Round ${game.round}`,
+        description: `Theme: **${game.theme}**\n\nEach player submits a **1–5 word clue** about their word. The imposter only knows the theme — spot the odd one out!\n\n${list}`,
+        fields: [{ name: 'Progress', value: `${submitted.length} / ${total} submitted` }],
+        footer: { text: 'You have 5 minutes to submit your clue' },
+    };
+}
+
+async function impAdvanceToDiscussion(game, channel) {
+    if (game.phase !== 'clue') return;
+    game.phase = 'discussion';
+    if (game.phaseTimer) clearTimeout(game.phaseTimer);
+
+    const clues = [...game.players.entries()]
+        .filter(([, p]) => p.alive)
+        .map(([, p]) => `**${p.name}:** ${p.clue || '*— no clue submitted —*'}`)
+        .join('\n');
+
+    const embed = {
+        color: 0x60a5fa,
+        title: `💬 Discussion Phase — Round ${game.round}`,
+        description: `Here are everyone's clues:\n\n${clues}\n\nDiscuss and figure out who the imposter is! You have **3 minutes**.`,
+        footer: { text: 'Vote phase starts soon' },
+    };
+
+    try {
+        const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
+        if (msg) await msg.edit({ embeds: [embed], components: [] });
+        else { const m = await channel.send({ embeds: [embed] }); game.gameMsgId = m.id; }
+    } catch (_) {}
+
+    game.phaseTimer = setTimeout(() => impAdvanceToVote(game, channel), IMP_DISCUSS_TIMEOUT_MS);
+}
+
+function impBuildVoteComponents(game) {
+    const alive = [...game.players.entries()].filter(([, p]) => p.alive);
+    const rows = [];
+    const buttons = alive.map(([uid, p]) =>
+        new ButtonBuilder().setCustomId(`imp:vote:${uid}`).setLabel(p.name).setStyle(ButtonStyle.Secondary)
+    );
+    // Guess button for impostor
+    buttons.push(new ButtonBuilder().setCustomId('imp:guess').setLabel('Guess Word (Impostor only)').setStyle(ButtonStyle.Danger).setEmoji('🎯'));
+
+    for (let i = 0; i < buttons.length; i += 5) {
+        rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+    }
+    return rows;
+}
+
+async function impAdvanceToVote(game, channel) {
+    if (game.phase !== 'discussion') return;
+    game.phase = 'vote';
+    if (game.phaseTimer) clearTimeout(game.phaseTimer);
+
+    for (const p of game.players.values()) p.vote = null;
+
+    const embed = {
+        color: 0xa855f7,
+        title: `🗳️ Vote Phase — Round ${game.round}`,
+        description: 'Vote for who you think is the **Imposter**!\n\nEach player gets one vote. Most votes = eliminated.\n\nIf you are the Imposter, you can press **Guess Word** to name the secret word instead of voting.',
+        footer: { text: 'You have 2 minutes to vote' },
+    };
+
+    try {
+        const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
+        if (msg) await msg.edit({ embeds: [embed], components: impBuildVoteComponents(game) });
+        else {
+            const m = await channel.send({ embeds: [embed], components: impBuildVoteComponents(game) });
+            game.gameMsgId = m.id;
+        }
+    } catch (_) {}
+
+    game.phaseTimer = setTimeout(() => impTallyVotes(game, channel), IMP_VOTE_TIMEOUT_MS);
+}
+
+async function impTallyVotes(game, channel) {
+    if (game.phase !== 'vote') return;
+    if (game.phaseTimer) clearTimeout(game.phaseTimer);
+
+    const tally = new Map();
+    for (const [uid, p] of game.players) {
+        if (!p.alive || !p.vote || p.vote === 'guess') continue;
+        tally.set(p.vote, (tally.get(p.vote) || 0) + 1);
+    }
+
+    let maxVotes = 0;
+    let eliminated = null;
+    let tie = false;
+    for (const [uid, count] of tally) {
+        if (count > maxVotes) { maxVotes = count; eliminated = uid; tie = false; }
+        else if (count === maxVotes) { tie = true; }
+    }
+
+    if (tie || !eliminated || maxVotes === 0) {
+        const embed = {
+            color: 0x6b7280,
+            title: '⚖️ It\'s a Tie!',
+            description: 'No one was eliminated this round. Onto the next clue phase!',
+        };
+        try {
+            const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
+            if (msg) await msg.edit({ embeds: [embed], components: [] });
+            else { const m = await channel.send({ embeds: [embed] }); game.gameMsgId = m.id; }
+        } catch (_) {}
+        await impNextRound(game, channel);
+        return;
+    }
+
+    const elimPlayer = game.players.get(eliminated);
+    elimPlayer.alive = false;
+    const wasImposter = game.impostorIds.has(eliminated);
+
+    if (wasImposter) {
+        await impEndGame(game, channel, 'crew', `**${elimPlayer.name}** was voted out — they were the **Imposter!**\n\n🔵 The crew wins!`);
+    } else {
+        const alivePlayers = [...game.players.values()].filter(p => p.alive);
+        const aliveImpostors = alivePlayers.filter(p => game.impostorIds.has([...game.players.entries()].find(([, pl]) => pl === p)?.[0]));
+
+        // Check if imposter wins by being the last/only one
+        if (alivePlayers.length <= 2) {
+            await impEndGame(game, channel, 'imposter', `**${elimPlayer.name}** was voted out — but they were innocent!\n\nWith only ${alivePlayers.length} player${alivePlayers.length === 1 ? '' : 's'} left, the Imposter can't be caught.\n\n🔴 The Imposter wins!`);
+        } else {
+            const embed = {
+                color: 0xef4444,
+                title: `😱 ${elimPlayer.name} was eliminated!`,
+                description: `**${elimPlayer.name}** was voted out... but they were **innocent**!\n\nThe imposter is still among you. Stay sharp.`,
+            };
+            try {
+                const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
+                if (msg) await msg.edit({ embeds: [embed], components: [] });
+                else { const m = await channel.send({ embeds: [embed] }); game.gameMsgId = m.id; }
+            } catch (_) {}
+            await impNextRound(game, channel);
+        }
+    }
+}
+
+async function impNextRound(game, channel) {
+    game.round++;
+    for (const p of game.players.values()) { p.clue = null; p.vote = null; }
+    game.phase = 'clue';
+
+    await new Promise(r => setTimeout(r, 3000));
+
+    const embed = impCluePhaseEmbed(game);
+    try {
+        const m = await channel.send({ embeds: [embed], components: impCluePhaseComponents() });
+        game.gameMsgId = m.id;
+    } catch (_) {}
+
+    game.phaseTimer = setTimeout(() => impAdvanceToDiscussion(game, channel), IMP_CLUE_TIMEOUT_MS);
+}
+
+async function impEndGame(game, channel, winner, description) {
+    game.phase = 'ended';
+    if (game.phaseTimer) clearTimeout(game.phaseTimer);
+
+    const impostorNames = [...game.impostorIds].map(uid => game.players.get(uid)?.name || uid).join(', ');
+    const embed = {
+        color: winner === 'crew' ? 0x4ade80 : 0xff4444,
+        title: winner === 'crew' ? '🏆 Crew Wins!' : '💀 Imposter Wins!',
+        description,
+        fields: [
+            { name: '🔴 Imposter(s)', value: impostorNames, inline: true },
+            { name: '🔑 The Word', value: game.word, inline: true },
+            { name: '📊 Rounds', value: `${game.round}`, inline: true },
+        ],
+        footer: { text: 'Run /imposter start to play again!' },
+    };
+
+    try {
+        const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
+        if (msg) await msg.edit({ embeds: [embed], components: [] });
+        else await channel.send({ embeds: [embed] });
+    } catch (_) { try { await channel.send({ embeds: [embed] }); } catch (__) {} }
+
+    impCleanup(game);
+}
+
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
     // ── Slash commands ───────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
+
+        // ── /imposter ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'imposter') {
+            const sub = interaction.options.getSubcommand();
+
+            if (sub === 'start') {
+                if (botFeatures.imposterGame === false) {
+                    return interaction.reply({ content: 'The Imposter game is currently disabled.', ephemeral: true });
+                }
+                const existing = imposterGames.get(IMPOSTER_CHANNEL_ID);
+                if (existing && existing.phase !== 'ended') {
+                    return interaction.reply({ content: `A game is already running in <#${IMPOSTER_CHANNEL_ID}>! Use \`/imposter stop\` to end it first.`, ephemeral: true });
+                }
+
+                const theme = IMPOSTER_WORD_LIST[Math.floor(Math.random() * IMPOSTER_WORD_LIST.length)];
+                const word = theme.words[Math.floor(Math.random() * theme.words.length)];
+
+                const game = {
+                    channelId: IMPOSTER_CHANNEL_ID,
+                    hostId: interaction.user.id,
+                    phase: 'lobby',
+                    players: new Map(),
+                    theme: theme.theme,
+                    word,
+                    impostorIds: new Set(),
+                    round: 1,
+                    lobbyMsgId: null,
+                    gameMsgId: null,
+                    phaseTimer: null,
+                    startedAt: Date.now(),
+                };
+                imposterGames.set(IMPOSTER_CHANNEL_ID, game);
+
+                game.players.set(interaction.user.id, {
+                    name: interaction.member?.displayName || interaction.user.username,
+                    avatarUrl: interaction.user.displayAvatarURL({ dynamic: true, size: 64 }),
+                    alive: true,
+                    clue: null,
+                    vote: null,
+                });
+                imposterPlayerMap.set(interaction.user.id, IMPOSTER_CHANNEL_ID);
+
+                const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+                if (!channel) return interaction.reply({ content: 'Could not find the imposter game channel.', ephemeral: true });
+
+                const msg = await channel.send({ embeds: [impLobbyEmbed(game)], components: impLobbyComponents(game) });
+                game.lobbyMsgId = msg.id;
+                game.gameMsgId = msg.id;
+
+                game.phaseTimer = setTimeout(async () => {
+                    if (imposterGames.get(IMPOSTER_CHANNEL_ID) === game && game.phase === 'lobby') {
+                        await impEndGame(game, channel, null, 'Lobby timed out — game cancelled.');
+                    }
+                }, IMP_LOBBY_TIMEOUT_MS);
+
+                await interaction.reply({ content: `Game lobby created in <#${IMPOSTER_CHANNEL_ID}>! Join and wait for the host to start.`, ephemeral: true });
+                return;
+            }
+
+            if (sub === 'stop') {
+                const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+                if (!game || game.phase === 'ended') {
+                    return interaction.reply({ content: 'No active game to stop.', ephemeral: true });
+                }
+                const isMod = interaction.user.id === OWNER_DISCORD_ID || interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+                if (interaction.user.id !== game.hostId && !isMod) {
+                    return interaction.reply({ content: 'Only the host or a moderator can stop the game.', ephemeral: true });
+                }
+                await interaction.deferReply({ ephemeral: true });
+                const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+                if (channel) await impEndGame(game, channel, null, `Game ended early by **${interaction.member?.displayName || interaction.user.username}**.`);
+                await interaction.editReply({ content: 'Game ended.' });
+                return;
+            }
+        }
+
         if (interaction.commandName === 'leaderboard') {
             const pickRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('lbt:xp:month').setLabel('⭐ XP').setStyle(ButtonStyle.Success),
@@ -5359,7 +5719,218 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── Imposter Game modals ─────────────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'imp:clue_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        const channelId = imposterPlayerMap.get(interaction.user.id);
+        const game = channelId ? imposterGames.get(channelId) : null;
+        if (!game || game.phase !== 'clue') {
+            return interaction.editReply({ content: 'No active clue phase right now.' });
+        }
+        const player = game.players.get(interaction.user.id);
+        if (!player || !player.alive) return interaction.editReply({ content: 'You are not in this game.' });
+        if (player.clue !== null) return interaction.editReply({ content: 'You already submitted a clue!' });
+
+        const clue = interaction.fields.getTextInputValue('imp_clue_text').trim().slice(0, 80);
+        player.clue = clue;
+
+        const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+        if (channel) {
+            try {
+                const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
+                if (msg) await msg.edit({ embeds: [impCluePhaseEmbed(game)], components: impCluePhaseComponents() });
+            } catch (_) {}
+
+            // Auto-advance if everyone submitted
+            const alive = [...game.players.values()].filter(p => p.alive);
+            if (alive.every(p => p.clue !== null)) {
+                await impAdvanceToDiscussion(game, channel);
+            }
+        }
+        return interaction.editReply({ content: `✅ Clue submitted: **"${clue}"**` });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'imp:guess_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        const channelId = imposterPlayerMap.get(interaction.user.id);
+        const game = channelId ? imposterGames.get(channelId) : null;
+        if (!game || game.phase !== 'vote') {
+            return interaction.editReply({ content: 'Guessing is only available during the vote phase.' });
+        }
+        if (!game.impostorIds.has(interaction.user.id)) {
+            return interaction.editReply({ content: 'Only the imposter can guess the word.' });
+        }
+        const guess = interaction.fields.getTextInputValue('imp_guess_text').trim();
+        const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+        if (!channel) return interaction.editReply({ content: 'Channel error.' });
+
+        const correct = guess.toLowerCase() === game.word.toLowerCase();
+        const guesserName = interaction.member?.displayName || interaction.user.username;
+
+        if (correct) {
+            await interaction.editReply({ content: `🎯 Correct! The word was **${game.word}**. You win!` });
+            await impEndGame(game, channel, 'imposter', `**${guesserName}** (the Imposter) correctly guessed the word: **${game.word}**\n\n🔴 The Imposter wins!`);
+        } else {
+            await interaction.editReply({ content: `❌ Wrong! The word was **${game.word}**. The crew wins!` });
+            await impEndGame(game, channel, 'crew', `**${guesserName}** (the Imposter) guessed incorrectly: "*${guess}*"\nThe word was **${game.word}**.\n\n🔵 The Crew wins!`);
+        }
+        return;
+    }
+
     if (!interaction.isButton()) return;
+
+    // ── Imposter Game buttons ────────────────────────────────────────────────
+    if (interaction.customId === 'imp:join') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') return interaction.editReply({ content: 'No active lobby right now.' });
+        if (game.players.has(interaction.user.id)) return interaction.editReply({ content: 'You are already in the lobby!' });
+        if (game.players.size >= IMP_MAX_PLAYERS) return interaction.editReply({ content: `The lobby is full (${IMP_MAX_PLAYERS} players max).` });
+
+        game.players.set(interaction.user.id, {
+            name: interaction.member?.displayName || interaction.user.username,
+            avatarUrl: interaction.user.displayAvatarURL({ dynamic: true, size: 64 }),
+            alive: true,
+            clue: null,
+            vote: null,
+        });
+        imposterPlayerMap.set(interaction.user.id, IMPOSTER_CHANNEL_ID);
+
+        try {
+            const msg = await interaction.message.fetch().catch(() => null) ||
+                        await (await client.channels.fetch(IMPOSTER_CHANNEL_ID)).messages.fetch(game.lobbyMsgId).catch(() => null);
+            if (msg) await msg.edit({ embeds: [impLobbyEmbed(game)], components: impLobbyComponents(game) });
+        } catch (_) {}
+        return interaction.editReply({ content: `✅ You've joined the lobby! Wait for the host to start.` });
+    }
+
+    if (interaction.customId === 'imp:start') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') return interaction.editReply({ content: 'No active lobby.' });
+        if (interaction.user.id !== game.hostId) return interaction.editReply({ content: 'Only the host can start the game.' });
+        if (game.players.size < IMP_MIN_PLAYERS) return interaction.editReply({ content: `Need at least ${IMP_MIN_PLAYERS} players. Currently ${game.players.size}.` });
+
+        if (game.phaseTimer) clearTimeout(game.phaseTimer);
+        game.phase = 'clue';
+
+        // Assign impostor(s)
+        const playerIds = [...game.players.keys()];
+        const impCount = game.players.size >= 7 ? 2 : 1;
+        const shuffled = playerIds.sort(() => Math.random() - 0.5);
+        game.impostorIds = new Set(shuffled.slice(0, impCount));
+
+        // DM all players
+        const failed = await impSendDMs(game);
+
+        const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+        if (!channel) return interaction.editReply({ content: 'Channel error.' });
+
+        const lobbyMsg = await channel.messages.fetch(game.lobbyMsgId).catch(() => null);
+        if (lobbyMsg) await lobbyMsg.delete().catch(() => {});
+
+        let clueMsg;
+        const startEmbed = {
+            color: 0xff4444,
+            title: '🎮 The Imposter — Game Starting!',
+            description: `**${game.players.size} players** have entered.\n${impCount === 2 ? 'There are **2 impostors** hiding among you!' : 'There is **1 imposter** hiding among you!'}\n\nCheck your DMs for your role and word, then submit a clue!`,
+            fields: failed.length ? [{ name: '⚠️ DM Failed', value: `Could not DM: ${failed.join(', ')}. They have been removed.` }] : [],
+            footer: { text: `Theme: ${game.theme} — you have 5 minutes to submit your clue` },
+        };
+
+        // Remove players whose DMs failed
+        for (const [uid, p] of game.players) {
+            if (failed.includes(p.name)) {
+                game.players.delete(uid);
+                game.impostorIds.delete(uid);
+                imposterPlayerMap.delete(uid);
+            }
+        }
+
+        await channel.send({ embeds: [startEmbed] });
+        clueMsg = await channel.send({ embeds: [impCluePhaseEmbed(game)], components: impCluePhaseComponents() });
+        game.gameMsgId = clueMsg.id;
+
+        game.phaseTimer = setTimeout(() => impAdvanceToDiscussion(game, channel), IMP_CLUE_TIMEOUT_MS);
+        return interaction.editReply({ content: '✅ Game started! DMs sent.' });
+    }
+
+    if (interaction.customId === 'imp:clue') {
+        const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (!game || game.phase !== 'clue') return interaction.reply({ content: 'No active clue phase.', ephemeral: true });
+        const player = game.players.get(interaction.user.id);
+        if (!player) return interaction.reply({ content: 'You are not in this game.', ephemeral: true });
+        if (!player.alive) return interaction.reply({ content: 'You have been eliminated.', ephemeral: true });
+        if (player.clue !== null) return interaction.reply({ content: 'You already submitted your clue!', ephemeral: true });
+
+        const modal = new ModalBuilder()
+            .setCustomId('imp:clue_modal')
+            .setTitle('Submit Your Clue');
+        const clueInput = new TextInputBuilder()
+            .setCustomId('imp_clue_text')
+            .setLabel(`Give a clue about your ${game.theme} word (1–5 words)`)
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(1)
+            .setMaxLength(80)
+            .setPlaceholder('e.g.  deep blue  /  underwater  /  dark pressure');
+        modal.addComponents(new ActionRowBuilder().addComponents(clueInput));
+        return interaction.showModal(modal);
+    }
+
+    if (interaction.customId.startsWith('imp:vote:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (!game || game.phase !== 'vote') return interaction.editReply({ content: 'No active vote phase.' });
+        const voter = game.players.get(interaction.user.id);
+        if (!voter || !voter.alive) return interaction.editReply({ content: 'You are not an active player.' });
+        if (voter.vote !== null) return interaction.editReply({ content: 'You already voted!' });
+
+        const targetId = interaction.customId.replace('imp:vote:', '');
+        if (targetId === interaction.user.id) return interaction.editReply({ content: 'You cannot vote for yourself.' });
+        const target = game.players.get(targetId);
+        if (!target || !target.alive) return interaction.editReply({ content: 'That player is no longer in the game.' });
+
+        voter.vote = targetId;
+
+        // Auto-tally when everyone voted
+        const alive = [...game.players.values()].filter(p => p.alive);
+        const allVoted = alive.every(p => p.vote !== null);
+        if (allVoted) {
+            const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+            if (channel) await impTallyVotes(game, channel);
+        }
+        return interaction.editReply({ content: `✅ Voted for **${target.name}**. ${allVoted ? 'All votes in — tallying now!' : ''}` });
+    }
+
+    if (interaction.customId === 'imp:guess') {
+        const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (!game || game.phase !== 'vote') return interaction.reply({ content: 'Guessing is only available during the vote phase.', ephemeral: true });
+        if (!game.impostorIds.has(interaction.user.id)) return interaction.reply({ content: 'Only the imposter can guess the word.', ephemeral: true });
+
+        const modal = new ModalBuilder()
+            .setCustomId('imp:guess_modal')
+            .setTitle('Guess the Secret Word');
+        const guessInput = new TextInputBuilder()
+            .setCustomId('imp_guess_text')
+            .setLabel(`What is the crew's ${game.theme} word?`)
+            .setStyle(TextInputStyle.Short)
+            .setMinLength(1)
+            .setMaxLength(80)
+            .setPlaceholder('Type the word exactly...');
+        modal.addComponents(new ActionRowBuilder().addComponents(guessInput));
+        return interaction.showModal(modal);
+    }
+
+    if (interaction.customId === 'imp:end') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (!game || game.phase === 'ended') return interaction.editReply({ content: 'No active game.' });
+        const isMod = interaction.user.id === OWNER_DISCORD_ID || interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+        if (interaction.user.id !== game.hostId && !isMod) return interaction.editReply({ content: 'Only the host or a moderator can end the game.' });
+        const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+        if (channel) await impEndGame(game, channel, null, `Game ended early by **${interaction.member?.displayName || interaction.user.username}**.`);
+        return interaction.editReply({ content: 'Game ended.' });
+    }
 
     // ── Coloured card buttons (non-link, generated by Discord Cards tool) ─────
 
