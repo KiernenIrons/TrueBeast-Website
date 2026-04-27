@@ -4051,6 +4051,7 @@ client.once('clientReady', async () => {
                 .setDescription('Play the Imposter word deduction game in #imposter-game')
                 .addSubcommand(sub => sub.setName('start').setDescription('Start a new game lobby'))
                 .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)'))
+                .addSubcommand(sub => sub.setName('clear').setDescription('Delete all messages in the imposter channel (host or mod)'))
                 .addSubcommand(sub => sub.setName('help').setDescription('How to play + how to edit questions')),
             new SlashCommandBuilder()
                 .setName('redeploy')
@@ -4453,6 +4454,33 @@ client.on('interactionCreate', async (interaction) => {
                 const byName = interaction.member?.displayName || interaction.user.username;
                 if (channel) await impEndGame(game, channel, byName);
                 await interaction.editReply({ content: 'Game ended.' });
+                return;
+            }
+
+            if (sub === 'clear') {
+                const isMod = interaction.user.id === OWNER_DISCORD_ID || interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+                const activeGame = imposterGames.get(IMPOSTER_CHANNEL_ID);
+                const isHost = activeGame && interaction.user.id === activeGame.hostId;
+                if (!isMod && !isHost) {
+                    return interaction.reply({ content: 'Only the host or a moderator can clear the channel.', ephemeral: true });
+                }
+                await interaction.deferReply({ ephemeral: true });
+                const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+                if (!channel) { await interaction.editReply({ content: 'Could not find the imposter channel.' }); return; }
+
+                let deleted = 0;
+                // Bulk delete in batches of 100 (Discord limit; only works for messages < 14 days old)
+                let fetched;
+                do {
+                    fetched = await channel.messages.fetch({ limit: 100 });
+                    if (fetched.size === 0) break;
+                    const result = await channel.bulkDelete(fetched, true).catch(() => null);
+                    deleted += result?.size ?? 0;
+                    if (fetched.size < 100) break;
+                } while (fetched.size > 0);
+
+                await interaction.editReply({ content: `✅ Cleared **${deleted}** message${deleted === 1 ? '' : 's'} from the imposter channel.` });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
                 return;
             }
 
