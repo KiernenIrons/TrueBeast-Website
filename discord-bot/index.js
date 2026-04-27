@@ -4011,17 +4011,30 @@ function impIsHost(interaction, game) {
            interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
 }
 
+// Auto-deletes the ephemeral reply after delayMs
+async function impReply(interaction, content, delayMs = 8000) {
+    await interaction.editReply({ content });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), delayMs);
+}
+
 function impLobbyEmbed(game) {
-    const playerList = [...game.players.values()].map(p => `• ${p.name}`).join('\n') || '*No players yet*';
+    const playerList = [...game.players.values()].map(p => `▸ ${p.name}`).join('\n') || '*No players yet — be the first!*';
     return {
         color: 0xff4444,
-        title: '🔴 The Imposter — Lobby',
-        description: 'Everyone gets the **same question** via DM — except the **Imposter**, who gets a different but similar question. Answer privately, then explain yourself to the group. Can you spot who got the different question?\n\n**Flow:** Answer → Host reveals → Everyone explains → Vote',
+        title: '🔴  THE IMPOSTER  —  LOBBY',
+        description: [
+            '**How it works:**',
+            'Everyone gets the **same question** via DM — except the **Imposter**, who gets a completely different question.',
+            'Submit your answer privately, then explain yourself out loud. Can you spot who answered something else?',
+            '',
+            '**Flow:**  Join → Answer (DMs) → Host reveals → Everyone explains → Vote',
+        ].join('\n'),
         fields: [
-            { name: `Players (${game.players.size}/${IMP_MAX_PLAYERS})`, value: playerList },
-            { name: 'Min to start', value: `${IMP_MIN_PLAYERS} players`, inline: true },
+            { name: '​', value: '─────────────────────────────' },
+            { name: `👥  Players  (${game.players.size} / ${IMP_MAX_PLAYERS})`, value: playerList },
+            { name: '​', value: `Minimum to start: **${IMP_MIN_PLAYERS} players**` },
         ],
-        footer: { text: 'Lobby closes in 15 minutes' },
+        footer: { text: '⏱  Lobby closes in 15 minutes' },
     };
 }
 
@@ -4035,15 +4048,18 @@ function impLobbyComponents() {
 }
 
 function impAnswerEmbed(game) {
-    const list = [...game.players.values()]
-        .map(p => p.answer !== null ? `✅ ${p.name}` : `⏳ ${p.name}`)
-        .join('\n');
     const done = [...game.players.values()].filter(p => p.answer !== null).length;
+    const list = [...game.players.values()]
+        .map(p => p.answer !== null ? `✅  ${p.name}` : `⏳  ${p.name}`)
+        .join('\n');
     return {
         color: 0xf59e0b,
-        title: '✏️ Answer Phase',
-        description: `Everyone has received their question via DM — **check your DMs!**\n\nPress **Submit Answer** to enter your response. Answers are hidden until the host reveals them.\n\n${list}`,
-        fields: [{ name: 'Progress', value: `${done} / ${game.players.size} answered`, inline: true }],
+        title: '✏️  ANSWER PHASE',
+        description: '**Check your DMs!** Your question is waiting.\nPress the button below to submit your answer — it stays hidden until the host reveals everything.',
+        fields: [
+            { name: '​', value: '─────────────────────────────' },
+            { name: `📋  Progress — ${done} / ${game.players.size} answered`, value: list },
+        ],
         footer: { text: 'Host will reveal all answers when ready' },
     };
 }
@@ -4066,18 +4082,23 @@ function impHostRevealComponents() {
 function impRevealedEmbed(game) {
     const answers = [...game.players.entries()]
         .sort(([, a], [, b]) => a.order - b.order)
-        .map(([, p]) => `**${p.name}:** ${p.answer || '*— no answer submitted —*'}`)
-        .join('\n');
+        .map(([, p]) => `**${p.name}**\n> ${p.answer || '*— no answer submitted —*'}`)
+        .join('\n\n');
     const order = [...game.players.entries()]
         .sort(([, a], [, b]) => a.order - b.order)
-        .map(([, p], i) => `${i + 1}. ${p.name}`)
-        .join('\n');
+        .map(([, p], i) => `**${i + 1}.** ${p.name}`)
+        .join('  ·  ');
     return {
         color: 0x60a5fa,
-        title: '🔍 Answers Revealed!',
-        description: `**The real question was:**\n> ${game.realQuestion}\n\n**Everyone's answers:**\n${answers}`,
-        fields: [{ name: '🎙️ Explanation Order', value: order }],
-        footer: { text: 'Each player explain your answer! Host starts voting when ready.' },
+        title: '🔍  ANSWERS REVEALED',
+        fields: [
+            { name: '❓  The Real Question', value: `> ${game.realQuestion}` },
+            { name: '​', value: '─────────────────────────────' },
+            { name: '💬  Everyone\'s Answers', value: answers || '*No answers submitted*' },
+            { name: '​', value: '─────────────────────────────' },
+            { name: '🎙️  Explanation Order', value: order || '*—*' },
+        ],
+        footer: { text: 'Each player: explain your answer!  •  Host starts voting when ready' },
     };
 }
 
@@ -4091,13 +4112,34 @@ function impRevealedComponents() {
 
 function impVoteEmbed(game) {
     const votes = [...game.players.values()].filter(p => p.vote !== null).length;
+    const tally = new Map();
+    for (const [, p] of game.players) {
+        if (p.vote) tally.set(p.vote, (tally.get(p.vote) || 0) + 1);
+    }
+    const voteList = [...game.players.entries()]
+        .map(([uid, p]) => {
+            const count = tally.get(uid) || 0;
+            return count > 0 ? `${p.name}  ·  ${'🔵'.repeat(count)} ${count}` : `${p.name}  ·  —`;
+        })
+        .join('\n');
     return {
         color: 0xa855f7,
-        title: '🗳️ Vote — Who was the Imposter?',
-        description: 'Click the name of the person you think got the **different question**. One vote each!',
-        fields: [{ name: 'Votes cast', value: `${votes} / ${game.players.size}`, inline: true }],
-        footer: { text: 'Host can reveal the result at any time, or wait for all votes' },
+        title: '🗳️  VOTE  —  Who was the Imposter?',
+        description: 'Click a name below — one vote each. Who do you think got the **different question?**',
+        fields: [
+            { name: '​', value: '─────────────────────────────' },
+            { name: `📊  Votes Cast — ${votes} / ${game.players.size}`, value: voteList || '—' },
+        ],
+        footer: { text: 'Host can force-reveal at any time, or wait for everyone to vote' },
     };
+}
+
+function impPlayAgainComponents() {
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('imp:playagain').setLabel('Play Again').setStyle(ButtonStyle.Success).setEmoji('🔄'),
+        new ButtonBuilder().setCustomId('imp:endsession').setLabel('End Session').setStyle(ButtonStyle.Secondary).setEmoji('🏁'),
+    );
+    return [row];
 }
 
 function impVoteComponents(game) {
@@ -4137,28 +4179,34 @@ async function impTallyAndReveal(game, channel) {
     }
     const guessedRight = !tie && topId === game.impostorId;
 
+    const outcomeText = guessedRight
+        ? `✅  The crew correctly identified **${imposter?.name}** as the Imposter!`
+        : tie
+            ? `😅  It was a tie — nobody was eliminated! The Imposter slipped through!`
+            : `😈  The crew voted out **${game.players.get(topId)?.name}** — but they were innocent! The Imposter escaped!`;
+
     const embed = {
         color: guessedRight ? 0x4ade80 : 0xff4444,
-        title: guessedRight ? '🎉 The crew got them!' : '💀 The Imposter got away!',
-        description: guessedRight
-            ? `The crew correctly identified **${imposter?.name}** as the Imposter! 🎉`
-            : tie
-                ? `It was a tie — nobody was eliminated! The Imposter slipped through! 😅`
-                : `The crew voted out **${game.players.get(topId)?.name}** — but they were innocent! The Imposter got away! 😈`,
+        title: guessedRight ? '🎉  THE CREW GOT THEM!' : '💀  THE IMPOSTER GOT AWAY!',
+        description: outcomeText,
         fields: [
-            { name: '🔴 The Imposter was', value: `**${imposter?.name}**`, inline: true },
-            { name: '❓ Real Question', value: game.realQuestion, inline: false },
-            { name: '🔀 Imposter\'s Question', value: game.altQuestion, inline: false },
-            { name: '📊 Vote Results', value: voteResults || '*No votes cast*' },
+            { name: '​', value: '─────────────────────────────' },
+            { name: '🔴  The Imposter was', value: `**${imposter?.name}**`, inline: true },
+            { name: '​', value: '​', inline: true },
+            { name: '​', value: '​', inline: true },
+            { name: '❓  Real Question (everyone else)', value: `> ${game.realQuestion}` },
+            { name: '🔀  Imposter\'s Question', value: `> ${game.altQuestion}` },
+            { name: '​', value: '─────────────────────────────' },
+            { name: '📊  Vote Results', value: voteResults || '*No votes cast*' },
         ],
-        footer: { text: 'Run /imposter start to play again!' },
+        footer: { text: 'Use the buttons below to play again or wrap up!' },
     };
 
     try {
         const msg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
-        if (msg) await msg.edit({ embeds: [embed], components: [] });
-        else await channel.send({ embeds: [embed] });
-    } catch (_) { try { await channel.send({ embeds: [embed] }); } catch (__) {} }
+        if (msg) await msg.edit({ embeds: [embed], components: impPlayAgainComponents() });
+        else await channel.send({ embeds: [embed], components: impPlayAgainComponents() });
+    } catch (_) { try { await channel.send({ embeds: [embed], components: impPlayAgainComponents() }); } catch (__) {} }
 
     impCleanup(game);
 }
@@ -4168,8 +4216,8 @@ async function impEndGame(game, channel, byName) {
 
     const embed = {
         color: 0x6b7280,
-        title: '🚫 Game Ended',
-        description: byName ? `Game ended by **${byName}**.` : 'Game cancelled.',
+        title: '🚫  GAME ENDED',
+        description: byName ? `Game ended by **${byName}**.` : 'Game cancelled — lobby timed out.',
         footer: { text: 'Run /imposter start to play again!' },
     };
     try {
@@ -5737,10 +5785,10 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isModalSubmit() && interaction.customId === 'imp:answer_modal') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'answer') return interaction.editReply({ content: 'No active answer phase.' });
+        if (!game || game.phase !== 'answer') { await impReply(interaction, 'No active answer phase.'); return; }
         const player = game.players.get(interaction.user.id);
-        if (!player) return interaction.editReply({ content: 'You are not in this game.' });
-        if (player.answer !== null) return interaction.editReply({ content: 'You already submitted your answer!' });
+        if (!player) { await impReply(interaction, 'You are not in this game.'); return; }
+        if (player.answer !== null) { await impReply(interaction, 'You already submitted your answer!'); return; }
 
         player.answer = interaction.fields.getTextInputValue('imp_answer_text').trim().slice(0, 200);
 
@@ -5759,7 +5807,8 @@ client.on('interactionCreate', async (interaction) => {
                 } catch (_) {}
             }
         }
-        return interaction.editReply({ content: `✅ Answer submitted!` });
+        await impReply(interaction, '✅ Answer submitted!');
+        return;
     }
 
     if (!interaction.isButton()) return;
@@ -5768,9 +5817,9 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'imp:join') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'lobby') return interaction.editReply({ content: 'No active lobby right now.' });
-        if (game.players.has(interaction.user.id)) return interaction.editReply({ content: 'You are already in the lobby!' });
-        if (game.players.size >= IMP_MAX_PLAYERS) return interaction.editReply({ content: `The lobby is full (${IMP_MAX_PLAYERS} players max).` });
+        if (!game || game.phase !== 'lobby') { await impReply(interaction, 'No active lobby right now.'); return; }
+        if (game.players.has(interaction.user.id)) { await impReply(interaction, 'You are already in the lobby!'); return; }
+        if (game.players.size >= IMP_MAX_PLAYERS) { await impReply(interaction, `The lobby is full (${IMP_MAX_PLAYERS} players max).`); return; }
 
         game.players.set(interaction.user.id, {
             name: interaction.member?.displayName || interaction.user.username,
@@ -5784,15 +5833,16 @@ client.on('interactionCreate', async (interaction) => {
             const lobbyMsg = await interaction.message.fetch().catch(() => null);
             if (lobbyMsg) await lobbyMsg.edit({ embeds: [impLobbyEmbed(game)], components: impLobbyComponents() });
         } catch (_) {}
-        return interaction.editReply({ content: `✅ You've joined the lobby! Wait for the host to start.` });
+        await impReply(interaction, `✅ You've joined the lobby! Wait for the host to start.`);
+        return;
     }
 
     if (interaction.customId === 'imp:start') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'lobby') return interaction.editReply({ content: 'No active lobby.' });
-        if (!impIsHost(interaction, game)) return interaction.editReply({ content: 'Only the host can start the game.' });
-        if (game.players.size < IMP_MIN_PLAYERS) return interaction.editReply({ content: `Need at least ${IMP_MIN_PLAYERS} players. Currently ${game.players.size}.` });
+        if (!game || game.phase !== 'lobby') { await impReply(interaction, 'No active lobby.'); return; }
+        if (!impIsHost(interaction, game)) { await impReply(interaction, 'Only the host can start the game.'); return; }
+        if (game.players.size < IMP_MIN_PLAYERS) { await impReply(interaction, `Need at least ${IMP_MIN_PLAYERS} players. Currently ${game.players.size}.`); return; }
 
         if (game.lobbyTimer) clearTimeout(game.lobbyTimer);
         game.phase = 'answer';
@@ -5827,7 +5877,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
-        if (!channel) return interaction.editReply({ content: 'Channel error.' });
+        if (!channel) { await impReply(interaction, 'Channel error.'); return; }
 
         // Delete lobby message
         const lobbyMsg = await channel.messages.fetch(game.lobbyMsgId).catch(() => null);
@@ -5864,7 +5914,8 @@ client.on('interactionCreate', async (interaction) => {
         });
         game.hostMsgId = hostControlMsg.id;
 
-        return interaction.editReply({ content: `✅ Game started! ${failed.length ? `(${failed.length} player(s) removed — DM failed)` : 'DMs sent to all players.'}` });
+        await impReply(interaction, `✅ Game started! ${failed.length ? `(${failed.length} player(s) removed — DM failed)` : 'DMs sent to all players.'}`);
+        return;
     }
 
     if (interaction.customId === 'imp:answer') {
@@ -5891,12 +5942,12 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId === 'imp:reveal') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'answer') return interaction.editReply({ content: 'Nothing to reveal right now.' });
-        if (!impIsHost(interaction, game)) return interaction.editReply({ content: 'Only the host can reveal answers.' });
+        if (!game || game.phase !== 'answer') { await impReply(interaction, 'Nothing to reveal right now.'); return; }
+        if (!impIsHost(interaction, game)) { await impReply(interaction, 'Only the host can reveal answers.'); return; }
 
         game.phase = 'revealed';
         const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
-        if (!channel) return interaction.editReply({ content: 'Channel error.' });
+        if (!channel) { await impReply(interaction, 'Channel error.'); return; }
 
         // Remove the answer-phase messages
         for (const msgId of [game.gameMsgId, game.hostMsgId]) {
@@ -5906,18 +5957,19 @@ client.on('interactionCreate', async (interaction) => {
         const revealMsg = await channel.send({ embeds: [impRevealedEmbed(game)], components: impRevealedComponents() });
         game.gameMsgId = revealMsg.id;
 
-        return interaction.editReply({ content: '✅ Answers revealed!' });
+        await impReply(interaction, '✅ Answers revealed!');
+        return;
     }
 
     if (interaction.customId === 'imp:startvote') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'revealed') return interaction.editReply({ content: 'Not in the right phase.' });
-        if (!impIsHost(interaction, game)) return interaction.editReply({ content: 'Only the host can start voting.' });
+        if (!game || game.phase !== 'revealed') { await impReply(interaction, 'Not in the right phase.'); return; }
+        if (!impIsHost(interaction, game)) { await impReply(interaction, 'Only the host can start voting.'); return; }
 
         game.phase = 'vote';
         const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
-        if (!channel) return interaction.editReply({ content: 'Channel error.' });
+        if (!channel) { await impReply(interaction, 'Channel error.'); return; }
 
         try {
             const revealMsg = await channel.messages.fetch(game.gameMsgId).catch(() => null);
@@ -5927,21 +5979,22 @@ client.on('interactionCreate', async (interaction) => {
         const voteMsg = await channel.send({ embeds: [impVoteEmbed(game)], components: impVoteComponents(game) });
         game.gameMsgId = voteMsg.id;
 
-        return interaction.editReply({ content: '✅ Voting started!' });
+        await impReply(interaction, '✅ Voting started!');
+        return;
     }
 
     if (interaction.customId.startsWith('imp:vote:')) {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'vote') return interaction.editReply({ content: 'No active vote phase.' });
+        if (!game || game.phase !== 'vote') { await impReply(interaction, 'No active vote phase.'); return; }
         const voter = game.players.get(interaction.user.id);
-        if (!voter) return interaction.editReply({ content: 'You are not in this game.' });
-        if (voter.vote !== null) return interaction.editReply({ content: 'You already voted!' });
+        if (!voter) { await impReply(interaction, 'You are not in this game.'); return; }
+        if (voter.vote !== null) { await impReply(interaction, 'You already voted!'); return; }
 
         const targetId = interaction.customId.replace('imp:vote:', '');
-        if (targetId === interaction.user.id) return interaction.editReply({ content: 'You cannot vote for yourself.' });
+        if (targetId === interaction.user.id) { await impReply(interaction, 'You cannot vote for yourself.'); return; }
         const target = game.players.get(targetId);
-        if (!target) return interaction.editReply({ content: 'That player is not in the game.' });
+        if (!target) { await impReply(interaction, 'That player is not in the game.'); return; }
 
         voter.vote = targetId;
 
@@ -5957,28 +6010,78 @@ client.on('interactionCreate', async (interaction) => {
         const allVoted = [...game.players.values()].every(p => p.vote !== null);
         if (allVoted && channel) await impTallyAndReveal(game, channel);
 
-        return interaction.editReply({ content: `✅ Voted for **${target.name}**!${allVoted ? ' All votes in — revealing now!' : ''}` });
+        await impReply(interaction, `✅ Voted for **${target.name}**!${allVoted ? ' All votes in — revealing now!' : ''}`);
+        return;
     }
 
     if (interaction.customId === 'imp:showresult') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase !== 'vote') return interaction.editReply({ content: 'No active vote phase.' });
-        if (!impIsHost(interaction, game)) return interaction.editReply({ content: 'Only the host can reveal the result.' });
+        if (!game || game.phase !== 'vote') { await impReply(interaction, 'No active vote phase.'); return; }
+        if (!impIsHost(interaction, game)) { await impReply(interaction, 'Only the host can reveal the result.'); return; }
         const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
         if (channel) await impTallyAndReveal(game, channel);
-        return interaction.editReply({ content: '✅ Result revealed!' });
+        await impReply(interaction, '✅ Result revealed!');
+        return;
     }
 
     if (interaction.customId === 'imp:end') {
         await interaction.deferReply({ ephemeral: true });
         const game = imposterGames.get(IMPOSTER_CHANNEL_ID);
-        if (!game || game.phase === 'ended') return interaction.editReply({ content: 'No active game.' });
-        if (!impIsHost(interaction, game)) return interaction.editReply({ content: 'Only the host or a moderator can end the game.' });
+        if (!game || game.phase === 'ended') { await impReply(interaction, 'No active game.'); return; }
+        if (!impIsHost(interaction, game)) { await impReply(interaction, 'Only the host or a moderator can end the game.'); return; }
         const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
         const byName = interaction.member?.displayName || interaction.user.username;
         if (channel) await impEndGame(game, channel, byName);
-        return interaction.editReply({ content: 'Game ended.' });
+        await impReply(interaction, 'Game ended.');
+        return;
+    }
+
+    if (interaction.customId === 'imp:playagain') {
+        await interaction.deferReply({ ephemeral: true });
+        const existingGame = imposterGames.get(IMPOSTER_CHANNEL_ID);
+        if (existingGame && existingGame.phase !== 'ended') { await impReply(interaction, 'A game is already in progress!'); return; }
+        if (!interaction.member?.roles?.cache?.has(MOD_ROLE_ID) && interaction.user.id !== OWNER_DISCORD_ID) {
+            // Any player can start a new lobby
+        }
+        const channel = await client.channels.fetch(IMPOSTER_CHANNEL_ID).catch(() => null);
+        if (!channel) { await impReply(interaction, 'Channel error.'); return; }
+
+        // Remove buttons from the result message
+        try { await interaction.message.edit({ components: [] }); } catch (_) {}
+
+        const qPair = IMPOSTER_QUESTIONS[Math.floor(Math.random() * IMPOSTER_QUESTIONS.length)];
+        const newGame = {
+            channelId: IMPOSTER_CHANNEL_ID,
+            hostId: interaction.user.id,
+            phase: 'lobby',
+            players: new Map(),
+            realQuestion: qPair.real,
+            altQuestion: qPair.alt,
+            impostorId: null,
+            lobbyMsgId: null,
+            gameMsgId: null,
+            hostMsgId: null,
+            lobbyTimer: null,
+        };
+        imposterGames.set(IMPOSTER_CHANNEL_ID, newGame);
+
+        const msg = await channel.send({ embeds: [impLobbyEmbed(newGame)], components: impLobbyComponents() });
+        newGame.lobbyMsgId = msg.id;
+        newGame.lobbyTimer = setTimeout(async () => {
+            if (newGame.phase !== 'lobby') return;
+            await impEndGame(newGame, channel, null);
+        }, IMP_LOBBY_TIMEOUT_MS);
+
+        await impReply(interaction, '✅ New lobby created!');
+        return;
+    }
+
+    if (interaction.customId === 'imp:endsession') {
+        await interaction.deferReply({ ephemeral: true });
+        try { await interaction.message.edit({ components: [] }); } catch (_) {}
+        await impReply(interaction, '✅ Session ended. Thanks for playing!');
+        return;
     }
 
     // ── Coloured card buttons (non-link, generated by Discord Cards tool) ─────
