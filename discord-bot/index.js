@@ -753,12 +753,13 @@ const tempBans    = new Map(); // userId → { guildId, expiresAt, reason }
 
 // ── Counting game ─────────────────────────────────────────────────────────────
 let countingState = {
-    current: 0,       // current count (0 = not started / just reset)
+    current: 0,        // current count (0 = not started / just reset)
     lastUserId: null,  // userId who sent the last correct number
     record: 0,         // all-time highest count reached before a fail
-    ruinedBy: [],      // [{ userId, count, at }] — up to 20, most recent first
-    _loaded: false,    // true once state has been loaded from Firestore — guards shutdown save
+    wallOfShame: [],   // [userId, ...] — unique user IDs, ordered by first ruin
+    _loaded: false,    // true once state has been loaded from backup — guards shutdown save
 };
+let _countingQuickMsgId = null; // Discord message ID for the rapid counting quick-save
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
@@ -935,26 +936,63 @@ function scheduleSpotlight() {
 
 // ── Counting game ─────────────────────────────────────────────────────────────
 
-async function saveCountingState() {
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/countingState?key=${FIREBASE_API_KEY}`;
+// Saves just the count to a dedicated Discord message — updated within 3s of every change.
+// This is the source of truth on restart; far more reliable than waiting 60s for the main backup.
+let _countingQuickTimer = null;
+function scheduleCountingQuickSave() {
+    if (_countingQuickTimer) return;
+    _countingQuickTimer = setTimeout(() => {
+        _countingQuickTimer = null;
+        saveCountingQuick().catch(() => {});
+    }, 3000);
+}
+
+async function saveCountingQuick() {
+    if (!BACKUP_CHANNEL_ID || !client.isReady()) return;
+    const payload = JSON.stringify({
+        savedAt: new Date().toISOString(),
+        current: countingState.current,
+        lastUserId: countingState.lastUserId || '',
+        record: countingState.record,
+        wallOfShame: countingState.wallOfShame,
+    });
+    const content = `🔢 counting-quick ${payload}`;
     try {
-        const res = await fetch(url, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields: {
-                current:    { integerValue: String(countingState.current) },
-                lastUserId: { stringValue: countingState.lastUserId || '' },
-                record:     { integerValue: String(countingState.record) },
-                ruinedBy:   { stringValue: JSON.stringify(countingState.ruinedBy) },
-            }}),
-        });
-        if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            console.error(`[BeastBot] saveCountingState HTTP ${res.status}: ${body}`);
-        } else {
-            console.log(`[BeastBot] 💾 Counting state saved — current: ${countingState.current}, record: ${countingState.record}`);
+        const ch = await client.channels.fetch(BACKUP_CHANNEL_ID);
+        if (_countingQuickMsgId) {
+            try {
+                const msg = await ch.messages.fetch(_countingQuickMsgId);
+                await msg.edit({ content });
+                return;
+            } catch (_) { _countingQuickMsgId = null; }
         }
-    } catch (e) { console.error('[BeastBot] saveCountingState error:', e.message); }
+        const sent = await ch.send({ content });
+        _countingQuickMsgId = sent.id;
+        console.log(`[BeastBot] 🔢 Counting quick-save created (msgId=${sent.id})`);
+    } catch (e) { console.error('[BeastBot] saveCountingQuick failed:', e.message); }
+}
+
+async function loadCountingQuick() {
+    if (!BACKUP_CHANNEL_ID || !client.isReady()) return null;
+    try {
+        const ch = await client.channels.fetch(BACKUP_CHANNEL_ID);
+        const msgs = await ch.messages.fetch({ limit: 50 });
+        let bestData = null, bestTime = 0, bestMsgId = null;
+        for (const m of msgs.values()) {
+            if (m.author.id !== client.user.id) continue;
+            if (!m.content.startsWith('🔢 counting-quick ')) continue;
+            try {
+                const data = JSON.parse(m.content.slice('🔢 counting-quick '.length));
+                const t = new Date(data.savedAt).getTime();
+                if (t > bestTime) { bestTime = t; bestData = data; bestMsgId = m.id; }
+            } catch { continue; }
+        }
+        if (bestData) {
+            _countingQuickMsgId = bestMsgId;
+            console.log(`[BeastBot] 🔢 Counting quick-save loaded: count=${bestData.current}, savedAt=${bestData.savedAt}`);
+        }
+        return bestData;
+    } catch (e) { console.error('[BeastBot] loadCountingQuick failed:', e.message); return null; }
 }
 
 async function handleCountingMessage(message) {
@@ -986,24 +1024,17 @@ async function handleCountingMessage(message) {
         const isNewRecord = ruinedAt > countingState.record;
         if (isNewRecord) countingState.record = ruinedAt;
 
-        countingState.ruinedBy.unshift({ userId: message.author.id, count: ruinedAt, at: Date.now() });
-        if (countingState.ruinedBy.length > 20) countingState.ruinedBy.pop();
+        if (!countingState.wallOfShame.includes(message.author.id)) {
+            countingState.wallOfShame.push(message.author.id);
+        }
         countingState.current = 0;
         countingState.lastUserId = null;
 
         await message.react('❌').catch(() => {});
 
-        // Tally wall of shame
-        const shameTally = {};
-        for (const r of countingState.ruinedBy) {
-            if (!shameTally[r.userId]) shameTally[r.userId] = { count: 0, highest: 0 };
-            shameTally[r.userId].count++;
-            if (r.count > shameTally[r.userId].highest) shameTally[r.userId].highest = r.count;
-        }
-        const shameList = Object.entries(shameTally)
-            .sort((a, b) => b[1].highest - a[1].highest)
-            .slice(0, 5)
-            .map(([uid, d], i) => `${i + 1}. <@${uid}> - ruined **${d.count}x** (highest at **${d.highest}**)`)
+        const shameList = countingState.wallOfShame
+            .slice(0, 10)
+            .map((uid, i) => `${i + 1}. <@${uid}>`)
             .join('\n');
 
         await message.channel.send({ embeds: [{
@@ -1018,6 +1049,8 @@ async function handleCountingMessage(message) {
             footer: { text: 'Type 1 to start a new round!' },
         }] });
 
+        // Save immediately so the reset count is persisted right now
+        await saveCountingQuick();
         return;
     }
 
@@ -1025,6 +1058,7 @@ async function handleCountingMessage(message) {
     countingState.current = num;
     countingState.lastUserId = message.author.id;
     if (num > countingState.record) countingState.record = num;
+    scheduleCountingQuickSave();
 
     // Counting state is persisted via Discord backup every 60s — no per-count Firestore write
 
@@ -1381,7 +1415,7 @@ function buildFullBackup() {
             current: countingState.current || 0,
             record: countingState.record || 0,
             lastUserId: countingState.lastUserId || '',
-            ruinedBy: countingState.ruinedBy || [],
+            wallOfShame: countingState.wallOfShame || [],
         },
         aiHistory: ai,
     };
@@ -1538,19 +1572,38 @@ async function loadFromFirestoreBackup() {
 async function loadState() {
     // Tier 1: Discord live backup (most recent, ~60s old)
     let data = await loadFromDiscordBackup();
-    if (data) { applyBackupToMemory(data); return 'discord-live'; }
+    if (data) { applyBackupToMemory(data); }
+    else {
+        // Tier 2: Latest daily snapshot (up to 24h old)
+        data = await loadLatestDailySnapshot();
+        if (data) { applyBackupToMemory(data); }
+        else {
+            // Tier 3: Firestore fullBackup doc (disaster recovery)
+            data = await loadFromFirestoreBackup();
+            if (data) { applyBackupToMemory(data); }
+            else {
+                console.log('[BeastBot] ⚠️ No backup found — starting fresh');
+            }
+        }
+    }
 
-    // Tier 2: Latest daily snapshot (up to 24h old)
-    data = await loadLatestDailySnapshot();
-    if (data) { applyBackupToMemory(data); return 'daily-snapshot'; }
+    // Always load counting quick-save and override if it's newer — this is updated every 3s
+    // so it's far more current than the 60s main backup, giving 100% accurate count on restart
+    const qData = await loadCountingQuick();
+    if (qData) {
+        const qTime = new Date(qData.savedAt).getTime();
+        const bTime = data ? new Date(data.savedAt || 0).getTime() : 0;
+        if (qTime >= bTime) {
+            countingState.current    = qData.current || 0;
+            countingState.lastUserId = qData.lastUserId || null;
+            countingState.record     = qData.record || 0;
+            if (Array.isArray(qData.wallOfShame)) countingState.wallOfShame = qData.wallOfShame;
+            countingState._loaded    = true;
+            console.log(`[BeastBot] 🔢 Counting overridden from quick-save: count=${countingState.current}`);
+        }
+    }
 
-    // Tier 3: Firestore fullBackup doc (disaster recovery)
-    data = await loadFromFirestoreBackup();
-    if (data) { applyBackupToMemory(data); return 'firestore'; }
-
-    // Tier 4: Fresh start
-    console.log('[BeastBot] ⚠️ No backup found — starting fresh');
-    return 'fresh';
+    return data ? 'discord-live' : 'fresh';
 }
 
 // Applies a backup snapshot to in-memory maps (SET — overwrites, backup IS the source of truth)
@@ -1625,7 +1678,15 @@ function applyBackupToMemory(data) {
         countingState.current    = data.counting.current || 0;
         countingState.lastUserId = data.counting.lastUserId || null;
         countingState.record     = data.counting.record || 0;
-        countingState.ruinedBy   = data.counting.ruinedBy || [];
+        // Support old format (ruinedBy array of objects) → new format (wallOfShame array of userId strings)
+        if (Array.isArray(data.counting.wallOfShame)) {
+            countingState.wallOfShame = data.counting.wallOfShame;
+        } else if (Array.isArray(data.counting.ruinedBy)) {
+            const seen = new Set();
+            countingState.wallOfShame = data.counting.ruinedBy
+                .filter(r => { if (seen.has(r.userId)) return false; seen.add(r.userId); return true; })
+                .map(r => r.userId);
+        }
         countingState._loaded    = true;
     }
     // AI history
@@ -1650,7 +1711,7 @@ async function saveFirestoreDaily() {
     }
     for (const [uid, ach] of rankAchievements) promises.push(saveRankAchievements(uid, ach));
     for (const [uid, dMap] of messageDays) promises.push(saveMessageDays(uid, dMap));
-    if (countingState._loaded) promises.push(saveCountingState());
+    // counting is persisted via quick-save on every change — no Firestore write needed here
     // Full backup doc (disaster recovery — Tier 3 fallback)
     const backup = buildFullBackup();
     promises.push(firestoreSet('botConfig', 'fullBackup', {
@@ -3657,29 +3718,18 @@ client.once('clientReady', async () => {
     const stateSource = await loadState();
     console.log(`[BeastBot] State loaded from: ${stateSource}`);
 
-    // One-time wall of shame restore (remove this block after first successful startup)
-    if (countingState.record === 0 && countingState.ruinedBy.length <= 1) {
-        console.log('[BeastBot] Restoring wall of shame from historical data...');
+    // One-time wall of shame restore — seed historical names if nothing loaded
+    if (countingState.record === 0 && countingState.wallOfShame.length === 0) {
+        console.log('[BeastBot] Seeding wall of shame from historical data...');
         countingState.record = 343;
-        countingState.ruinedBy = [
-            { userId: '753575707329822850', count: 343, at: 1743811200000 }, // Ammar
-            { userId: '392450364340830208', count: 304, at: 1743724800000 }, // TrueBeast
-            { userId: '712687124293615658', count: 282, at: 1743350400000 }, // anetaspageta98
-            { userId: '753575707329822850', count: 184, at: 1743120000000 }, // Ammar
-            { userId: '392450364340830208', count: 166, at: 1742860800000 }, // TrueBeast
-            { userId: '712687124293615658', count: 154, at: 1743897600000 }, // anetaspageta98
-            { userId: '392450364340830208', count: 120, at: 1743638400000 }, // TrueBeast
-            { userId: '392450364340830208', count: 78,  at: 1743552000000 }, // TrueBeast
-            { userId: '803881574587957258', count: 55,  at: 1742774400000 }, // Tom
-            { userId: '518420185913229314', count: 52,  at: 1742688000000 }, // MarsKooty
-            { userId: '392450364340830208', count: 45,  at: 1743465600000 }, // TrueBeast
-            { userId: '392450364340830208', count: 34,  at: 1742342400000 }, // TrueBeast
-            { userId: '753575707329822850', count: 32,  at: 1743340000000 }, // Ammar
-            { userId: '392450364340830208', count: 23,  at: 1743284580000 }, // TrueBeast
-            { userId: '753575707329822850', count: 18,  at: 1742515200000 }, // Ammar
-            { userId: '392450364340830208', count: 11,  at: 1742169600000 }, // TrueBeast
+        countingState.wallOfShame = [
+            '753575707329822850', // Ammar
+            '392450364340830208', // TrueBeast
+            '712687124293615658', // anetaspageta98
+            '803881574587957258', // Tom
+            '518420185913229314', // MarsKooty
         ];
-        console.log(`[BeastBot] ✅ Wall of shame restored: record=${countingState.record}, ${countingState.ruinedBy.length} entries`);
+        console.log(`[BeastBot] ✅ Wall of shame seeded: record=${countingState.record}, ${countingState.wallOfShame.length} entries`);
     }
 
     // Set up voice rank roles and monthly reset
@@ -3860,9 +3910,8 @@ client.once('clientReady', async () => {
                 .addIntegerOption(opt => opt.setName('number').setDescription('The record number').setRequired(true).setMinValue(1)),
             new SlashCommandBuilder()
                 .setName('counting-add-shame')
-                .setDescription('(Owner only) Add a wall of shame entry')
-                .addUserOption(opt => opt.setName('user').setDescription('The user who ruined the count').setRequired(true))
-                .addIntegerOption(opt => opt.setName('ruined_at').setDescription('The count they ruined at').setRequired(true).setMinValue(0)),
+                .setDescription('(Owner only) Add a user to the wall of shame')
+                .addUserOption(opt => opt.setName('user').setDescription('The user to add').setRequired(true)),
             new SlashCommandBuilder()
                 .setName('counting-remove-shame')
                 .setDescription('(Owner only) Remove all wall of shame entries for a user')
@@ -4469,17 +4518,9 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (interaction.commandName === 'counting') {
-            const shameTally = {};
-            for (const r of countingState.ruinedBy) {
-                if (!shameTally[r.userId]) shameTally[r.userId] = { count: 0, highest: 0 };
-                shameTally[r.userId].count++;
-                if (r.count > shameTally[r.userId].highest) shameTally[r.userId].highest = r.count;
-            }
-            const shameList = Object.entries(shameTally)
-                .sort((a, b) => b[1].highest - a[1].highest)
-                .slice(0, 10)
-                .map(([uid, d], i) => `${i + 1}. <@${uid}> — ruined **${d.count}x** (highest ruin at **${d.highest}**)`)
-                .join('\n') || 'No ruins yet — keep counting!';
+            const shameList = countingState.wallOfShame.length
+                ? countingState.wallOfShame.slice(0, 15).map((uid, i) => `${i + 1}. <@${uid}>`).join('\n')
+                : 'No ruins yet — keep counting!';
             await interaction.reply({ embeds: [{
                 color: 0x4ade80,
                 title: '💯 Counting Stats',
@@ -4488,7 +4529,6 @@ client.on('interactionCreate', async (interaction) => {
                     { name: '🏆 All-Time Record', value: `**${countingState.record}**`, inline: true },
                     { name: '🪦 Wall of Shame', value: shameList },
                 ],
-                footer: { text: `${countingState.ruinedBy.length} total ruins recorded` },
             }], ephemeral: true });
             return;
         }
@@ -4501,7 +4541,8 @@ client.on('interactionCreate', async (interaction) => {
             countingState.current = 0;
             countingState.lastUserId = null;
             countingState.record = 0;
-            countingState.ruinedBy = [];
+            countingState.wallOfShame = [];
+            await saveCountingQuick();
             await interaction.reply({ content: '✅ Counting game reset to zero.', ephemeral: true });
             return;
         }
@@ -4515,6 +4556,7 @@ client.on('interactionCreate', async (interaction) => {
             countingState.current = num;
             countingState.lastUserId = null; // anyone can send next number
             if (num > countingState.record) countingState.record = num;
+            await saveCountingQuick();
             await interaction.reply({ content: `✅ Count set to **${num}**. Next number is **${num + 1}**.`, ephemeral: true });
             return;
         }
@@ -4527,6 +4569,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             const num = interaction.options.getInteger('number');
             countingState.record = num;
+            await saveCountingQuick();
             await interaction.reply({ content: `✅ All-time record set to **${num}**.`, ephemeral: true });
             return;
         }
@@ -4538,14 +4581,13 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             const user = interaction.options.getUser('user');
-            const ruinedAt = interaction.options.getInteger('ruined_at');
-            countingState.ruinedBy.push({ userId: user.id, count: ruinedAt, at: Date.now() });
-            // Sort by count desc, keep top 20
-            countingState.ruinedBy.sort((a, b) => b.count - a.count);
-            if (countingState.ruinedBy.length > 20) countingState.ruinedBy.length = 20;
-            const userEntries = countingState.ruinedBy.filter(r => r.userId === user.id);
-            const highest = Math.max(...userEntries.map(r => r.count));
-            await interaction.reply({ content: `✅ Added <@${user.id}> to wall of shame at **${ruinedAt}**. They now have **${userEntries.length}x** (highest: ${highest}).`, ephemeral: true });
+            if (!countingState.wallOfShame.includes(user.id)) {
+                countingState.wallOfShame.push(user.id);
+                await saveCountingQuick();
+                await interaction.reply({ content: `✅ Added <@${user.id}> to the wall of shame.`, ephemeral: true });
+            } else {
+                await interaction.reply({ content: `<@${user.id}> is already on the wall of shame.`, ephemeral: true });
+            }
             return;
         }
 
@@ -4556,10 +4598,15 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             const user = interaction.options.getUser('user');
-            const before = countingState.ruinedBy.length;
-            countingState.ruinedBy = countingState.ruinedBy.filter(r => r.userId !== user.id);
-            const removed = before - countingState.ruinedBy.length;
-            await interaction.reply({ content: `✅ Removed **${removed}** entries for <@${user.id}> from wall of shame.`, ephemeral: true });
+            const before = countingState.wallOfShame.length;
+            countingState.wallOfShame = countingState.wallOfShame.filter(id => id !== user.id);
+            const removed = before - countingState.wallOfShame.length;
+            if (removed > 0) {
+                await saveCountingQuick();
+                await interaction.reply({ content: `✅ Removed <@${user.id}> from the wall of shame.`, ephemeral: true });
+            } else {
+                await interaction.reply({ content: `<@${user.id}> is not on the wall of shame.`, ephemeral: true });
+            }
             return;
         }
 
@@ -4740,7 +4787,7 @@ client.on('interactionCreate', async (interaction) => {
                     { name: '🏆 Ranks', value: `${rankAchievements.size} users tracked`, inline: true },
                     { name: '😀 Reactions', value: `${reactionDays.size} users\n${rxTotal.toLocaleString()} total`, inline: true },
                     { name: '🎯 Bonus XP', value: `${voiceBonusXp.size} users\n${bonusTotal.toLocaleString()} total`, inline: true },
-                    { name: '🔢 Counting', value: `Current: ${countingState.current}\nRecord: ${countingState.record}\nWall: ${countingState.ruinedBy?.length || 0} entries`, inline: true },
+                    { name: '🔢 Counting', value: `Current: ${countingState.current}\nRecord: ${countingState.record}\nWall: ${countingState.wallOfShame?.length || 0} entries`, inline: true },
                 ],
                 timestamp: new Date().toISOString(),
             }]});
@@ -4871,7 +4918,7 @@ client.on('interactionCreate', async (interaction) => {
                 countingState.current = 0;
                 countingState.lastUserId = null;
                 countingState.record = 0;
-                countingState.ruinedBy = [];
+                countingState.wallOfShame = [];
 
                 // Save empty state as live backup
                 await saveDiscordBackup();
