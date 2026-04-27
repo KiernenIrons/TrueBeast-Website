@@ -1024,9 +1024,15 @@ async function handleCountingMessage(message) {
         const isNewRecord = ruinedAt > countingState.record;
         if (isNewRecord) countingState.record = ruinedAt;
 
-        if (!countingState.wallOfShame.includes(message.author.id)) {
-            countingState.wallOfShame.push(message.author.id);
+        // Update wall of shame: one entry per user, tracking their personal highest fail
+        const existing = countingState.wallOfShame.find(e => e.userId === message.author.id);
+        if (existing) {
+            if (ruinedAt > existing.highest) existing.highest = ruinedAt;
+        } else {
+            countingState.wallOfShame.push({ userId: message.author.id, highest: ruinedAt });
         }
+        countingState.wallOfShame.sort((a, b) => b.highest - a.highest);
+
         countingState.current = 0;
         countingState.lastUserId = null;
 
@@ -1034,7 +1040,7 @@ async function handleCountingMessage(message) {
 
         const shameList = countingState.wallOfShame
             .slice(0, 10)
-            .map((uid, i) => `${i + 1}. <@${uid}>`)
+            .map((e, i) => `${i + 1}. <@${e.userId}> — **${e.highest}**`)
             .join('\n');
 
         await message.channel.send({ embeds: [{
@@ -1049,7 +1055,7 @@ async function handleCountingMessage(message) {
             footer: { text: 'Type 1 to start a new round!' },
         }] });
 
-        // Save immediately so the reset count is persisted right now
+        // Save immediately so the reset is persisted right now, not 60s later
         await saveCountingQuick();
         return;
     }
@@ -1597,7 +1603,13 @@ async function loadState() {
             countingState.current    = qData.current || 0;
             countingState.lastUserId = qData.lastUserId || null;
             countingState.record     = qData.record || 0;
-            if (Array.isArray(qData.wallOfShame)) countingState.wallOfShame = qData.wallOfShame;
+            if (Array.isArray(qData.wallOfShame)) {
+                if (qData.wallOfShame.length === 0 || typeof qData.wallOfShame[0] === 'object') {
+                    countingState.wallOfShame = qData.wallOfShame;
+                } else {
+                    countingState.wallOfShame = qData.wallOfShame.map(uid => ({ userId: uid, highest: 0 }));
+                }
+            }
             countingState._loaded    = true;
             console.log(`[BeastBot] 🔢 Counting overridden from quick-save: count=${countingState.current}`);
         }
@@ -1678,14 +1690,24 @@ function applyBackupToMemory(data) {
         countingState.current    = data.counting.current || 0;
         countingState.lastUserId = data.counting.lastUserId || null;
         countingState.record     = data.counting.record || 0;
-        // Support old format (ruinedBy array of objects) → new format (wallOfShame array of userId strings)
         if (Array.isArray(data.counting.wallOfShame)) {
-            countingState.wallOfShame = data.counting.wallOfShame;
+            // Already new format ({ userId, highest }) or plain userId strings (intermediate migration)
+            if (data.counting.wallOfShame.length === 0 || typeof data.counting.wallOfShame[0] === 'object') {
+                countingState.wallOfShame = data.counting.wallOfShame;
+            } else {
+                // Intermediate format: plain userId strings with no highest — set highest=0
+                countingState.wallOfShame = data.counting.wallOfShame.map(uid => ({ userId: uid, highest: 0 }));
+            }
         } else if (Array.isArray(data.counting.ruinedBy)) {
-            const seen = new Set();
-            countingState.wallOfShame = data.counting.ruinedBy
-                .filter(r => { if (seen.has(r.userId)) return false; seen.add(r.userId); return true; })
-                .map(r => r.userId);
+            // Old format: [{ userId, count, at }] with multiple entries per user
+            const map = new Map();
+            for (const r of data.counting.ruinedBy) {
+                const cur = map.get(r.userId) || 0;
+                if ((r.count || 0) > cur) map.set(r.userId, r.count || 0);
+            }
+            countingState.wallOfShame = [...map.entries()]
+                .map(([userId, highest]) => ({ userId, highest }))
+                .sort((a, b) => b.highest - a.highest);
         }
         countingState._loaded    = true;
     }
@@ -3718,16 +3740,16 @@ client.once('clientReady', async () => {
     const stateSource = await loadState();
     console.log(`[BeastBot] State loaded from: ${stateSource}`);
 
-    // One-time wall of shame restore — seed historical names if nothing loaded
+    // One-time wall of shame restore — seed historical data if nothing loaded
     if (countingState.record === 0 && countingState.wallOfShame.length === 0) {
         console.log('[BeastBot] Seeding wall of shame from historical data...');
         countingState.record = 343;
         countingState.wallOfShame = [
-            '753575707329822850', // Ammar
-            '392450364340830208', // TrueBeast
-            '712687124293615658', // anetaspageta98
-            '803881574587957258', // Tom
-            '518420185913229314', // MarsKooty
+            { userId: '753575707329822850', highest: 343 }, // Ammar
+            { userId: '392450364340830208', highest: 304 }, // TrueBeast
+            { userId: '712687124293615658', highest: 282 }, // anetaspageta98
+            { userId: '803881574587957258', highest: 55  }, // Tom
+            { userId: '518420185913229314', highest: 52  }, // MarsKooty
         ];
         console.log(`[BeastBot] ✅ Wall of shame seeded: record=${countingState.record}, ${countingState.wallOfShame.length} entries`);
     }
@@ -3910,8 +3932,9 @@ client.once('clientReady', async () => {
                 .addIntegerOption(opt => opt.setName('number').setDescription('The record number').setRequired(true).setMinValue(1)),
             new SlashCommandBuilder()
                 .setName('counting-add-shame')
-                .setDescription('(Owner only) Add a user to the wall of shame')
-                .addUserOption(opt => opt.setName('user').setDescription('The user to add').setRequired(true)),
+                .setDescription('(Owner only) Add/update a user on the wall of shame')
+                .addUserOption(opt => opt.setName('user').setDescription('The user who ruined the count').setRequired(true))
+                .addIntegerOption(opt => opt.setName('highest_fail').setDescription('Their highest count ruined at').setRequired(true).setMinValue(1)),
             new SlashCommandBuilder()
                 .setName('counting-remove-shame')
                 .setDescription('(Owner only) Remove all wall of shame entries for a user')
@@ -4519,7 +4542,7 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.commandName === 'counting') {
             const shameList = countingState.wallOfShame.length
-                ? countingState.wallOfShame.slice(0, 15).map((uid, i) => `${i + 1}. <@${uid}>`).join('\n')
+                ? countingState.wallOfShame.slice(0, 15).map((e, i) => `${i + 1}. <@${e.userId}> — **${e.highest}**`).join('\n')
                 : 'No ruins yet — keep counting!';
             await interaction.reply({ embeds: [{
                 color: 0x4ade80,
@@ -4581,13 +4604,16 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             const user = interaction.options.getUser('user');
-            if (!countingState.wallOfShame.includes(user.id)) {
-                countingState.wallOfShame.push(user.id);
-                await saveCountingQuick();
-                await interaction.reply({ content: `✅ Added <@${user.id}> to the wall of shame.`, ephemeral: true });
+            const highest = interaction.options.getInteger('highest_fail');
+            const existing = countingState.wallOfShame.find(e => e.userId === user.id);
+            if (existing) {
+                existing.highest = highest;
             } else {
-                await interaction.reply({ content: `<@${user.id}> is already on the wall of shame.`, ephemeral: true });
+                countingState.wallOfShame.push({ userId: user.id, highest });
             }
+            countingState.wallOfShame.sort((a, b) => b.highest - a.highest);
+            await saveCountingQuick();
+            await interaction.reply({ content: `✅ <@${user.id}> set on wall of shame — highest fail: **${highest}**.`, ephemeral: true });
             return;
         }
 
@@ -4599,7 +4625,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             const user = interaction.options.getUser('user');
             const before = countingState.wallOfShame.length;
-            countingState.wallOfShame = countingState.wallOfShame.filter(id => id !== user.id);
+            countingState.wallOfShame = countingState.wallOfShame.filter(e => e.userId !== user.id);
             const removed = before - countingState.wallOfShame.length;
             if (removed > 0) {
                 await saveCountingQuick();
