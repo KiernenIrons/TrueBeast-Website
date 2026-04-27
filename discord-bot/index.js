@@ -3900,7 +3900,11 @@ client.once('clientReady', async () => {
                 .setName('imposter')
                 .setDescription('Play the Imposter word deduction game in #imposter-game')
                 .addSubcommand(sub => sub.setName('start').setDescription('Start a new game lobby'))
-                .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)')),
+                .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)'))
+                .addSubcommand(sub => sub.setName('help').setDescription('How to play + how to edit questions')),
+            new SlashCommandBuilder()
+                .setName('redeploy')
+                .setDescription('(Owner only) Trigger a full bot redeploy via GitHub Actions'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -4253,6 +4257,72 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.editReply({ content: 'Game ended.' });
                 return;
             }
+
+            if (sub === 'help') {
+                const sampleQuestions = IMPOSTER_QUESTIONS.slice(0, 3)
+                    .map((q, i) => `**${i + 1}.** Real: *"${q.real}"*\n      Alt: *"${q.alt}"*`)
+                    .join('\n');
+                return interaction.reply({
+                    ephemeral: true,
+                    embeds: [{
+                        color: 0xff4444,
+                        title: '🔴 The Imposter — Help & Info',
+                        fields: [
+                            {
+                                name: '📖 How to play',
+                                value: '1. `/imposter start` → players join lobby\n2. Host presses **Start Game** → everyone gets a question via DM\n3. Press **Submit Answer** in <#' + IMPOSTER_CHANNEL_ID + '>\n4. Host presses **Reveal Answers** when ready\n5. Each player explains their answer (free chat, follow the order shown)\n6. Host presses **Start Voting** → click who you think is the Imposter\n7. Host presses **Reveal Imposter** (or auto-reveals when all vote)',
+                            },
+                            {
+                                name: '❓ How questions work',
+                                value: 'Questions are **hardcoded** in `discord-bot/index.js` — the `IMPOSTER_QUESTIONS` array (~line 72). There are currently **' + IMPOSTER_QUESTIONS.length + ' question pairs**.\n\nEach pair has a `real` question (everyone gets this) and an `alt` question (the imposter gets this instead).\n\nSample pairs:\n' + sampleQuestions,
+                            },
+                            {
+                                name: '✏️ Adding / editing questions (without AI)',
+                                value: '1. Open `discord-bot/index.js` in any text editor\n2. Find the `IMPOSTER_QUESTIONS` array near the top\n3. Add/edit/remove `{ real: "...", alt: "..." }` entries\n4. Save the file, then run `/redeploy` in Discord (or `git push` — auto-deploys)',
+                            },
+                            {
+                                name: '⚡ Commands',
+                                value: '`/imposter start` — start a game\n`/imposter stop` — end current game\n`/imposter help` — this message\n`/redeploy` — redeploy the bot with latest code (owner only)',
+                            },
+                        ],
+                    }],
+                });
+            }
+        }
+
+        // ── /redeploy ─────────────────────────────────────────────────────────
+        if (interaction.commandName === 'redeploy') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                return interaction.reply({ content: 'Only the server owner can trigger a redeploy.', ephemeral: true });
+            }
+            await interaction.deferReply({ ephemeral: true });
+
+            const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+            if (!GITHUB_TOKEN) {
+                return interaction.editReply({ content: '❌ `GITHUB_TOKEN` env var is not set on the bot. Add it with `flyctl secrets set GITHUB_TOKEN=<your_token>` then redeploy manually once.' });
+            }
+
+            try {
+                const res = await fetch('https://api.github.com/repos/KiernenIrons/TrueBeast-Website/actions/workflows/deploy-bot.yml/dispatches', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                        'Accept': 'application/vnd.github+json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ ref: 'main', inputs: { reason: `Triggered by ${interaction.user.username} via Discord` } }),
+                });
+
+                if (res.status === 204) {
+                    await interaction.editReply({ content: '✅ Redeploy triggered! GitHub Actions is building and deploying the bot now. Takes ~2 minutes. Watch progress at: https://github.com/KiernenIrons/TrueBeast-Website/actions' });
+                } else {
+                    const body = await res.text().catch(() => '');
+                    await interaction.editReply({ content: `❌ GitHub returned status ${res.status}. Check your GITHUB_TOKEN has \`workflow\` scope.\n\`\`\`${body.slice(0, 300)}\`\`\`` });
+                }
+            } catch (e) {
+                await interaction.editReply({ content: `❌ Request failed: ${e.message}` });
+            }
+            return;
         }
 
         if (interaction.commandName === 'leaderboard') {

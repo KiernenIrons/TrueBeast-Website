@@ -1,0 +1,33 @@
+name: Deploy Beast Bot to Fly.io
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "discord-bot/**"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Reason for manual redeploy"
+        required: false
+        default: "Manual trigger"
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: discord-bot
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
