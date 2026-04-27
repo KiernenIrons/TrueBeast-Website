@@ -2,10 +2,12 @@
 
 ## Overview
 
-"The Imposter" is a Spyfall-variant social deduction game built into Beast Bot.
-All crewmates receive the same secret word from a themed category. One (or two)
-impostors receive only the theme — they must bluff their clue without knowing the word.
-Players submit clues, discuss, and vote to eliminate who they think is the imposter.
+"The Imposter" is a social deduction / bluffing party game for the TrueBeast Discord.
+
+Everyone gets the **same question** via DM — except one person (the Imposter) who secretly
+receives a **different but similar question**. Players answer privately, then the host
+reveals all answers and the real question. Each player explains their answer in order;
+the Imposter must sound convincing despite answering a different question. Everyone votes.
 
 **Channel:** `1498354389356904628` (`#imposter-game`)
 **Commands:** `/imposter start` · `/imposter stop`
@@ -18,68 +20,67 @@ Players submit clues, discuss, and vote to eliminate who they think is the impos
 /imposter start
     │
     ▼
-[LOBBY] Join button + Start button (host only)
-    │   Min 4 players, max 12, 10-min lobby timeout
+[LOBBY] Join button + Start button (host only). Min 3 players, max 12. 15-min timeout.
     │
-    ▼
-[CLUE PHASE] Each player presses "Give Clue" → modal → 1–5 word clue
-    │   5-min timeout; skips players who don't submit
+    ▼  host presses Start
+[ANSWER PHASE]
+  - Bot DMs every player their question
+  - Crewmates get: realQuestion
+  - Imposter gets: altQuestion (and is told they are the Imposter)
+  - Players press "Submit Answer" → modal → private answer collected
+  - Bot shows live progress (✅ / ⏳ per player) — NO answers shown yet
+  - Host sees a separate control message with "Reveal Answers" button
     │
-    ▼
-[DISCUSSION] Bot reveals ALL clues at once (anonymous or attributed)
-    │   3-min open chat in the channel
+    ▼  host presses Reveal Answers (when ready)
+[REVEALED]
+  - Bot posts all answers + the REAL question revealed to channel
+  - Shows explanation order (randomised at game start)
+  - Players go around in order explaining their answer (free chat — no bot mechanic)
+  - Host control: "Start Voting" button
     │
-    ▼
-[VOTE] Bot posts embed with vote buttons for each alive player
-    │   2-min timeout; players who don't vote are skipped
-    │   Imposter may press "Guess Word" instead of voting
+    ▼  host presses Start Voting
+[VOTE PHASE]
+  - Bot posts voting embed with one button per player
+  - Players click who they think is the Imposter (one vote each)
+  - Vote count updates live on the embed
+  - Auto-reveals when ALL players have voted
+  - Host can press "Reveal Imposter" at any time to force reveal
     │
-    ▼
-[ELIMINATION] Majority vote out → announce crewmate/imposter
-    │   Tie → no elimination
-    │
-    ▼
-Win check:
-  • Imposter eliminated → CREW WINS
-  • Crewmate eliminated, imposter(s) still alive → imposter scores, new round
-  • ≤3 players remain (imposter alive) → IMPOSTER WINS
-  • Imposter guesses word correctly → IMPOSTER WINS
-  • Imposter guesses word incorrectly → CREW WINS
+    ▼  all voted or host triggers
+[REVEAL]
+  - Shows who was the Imposter, both questions, vote results, winner
+  - Run /imposter start to play again
 ```
 
 ---
 
 ## State Design
 
-Everything is in-memory. No SQLite. Firestore is NOT used for live game state —
-if the bot restarts mid-game, the game cancels gracefully.
+All state is in-memory. No SQLite. No Firestore. If the bot restarts mid-game,
+the game is lost — this is acceptable for a live party game.
 
-### Maps (top of index.js, near other game state)
+### Maps (top of index.js)
 
 ```js
-// channelId → GameState
-const imposterGames = new Map();
-
-// userId → channelId (reverse lookup for interaction handlers)
-const imposterPlayerMap = new Map();
+const imposterGames = new Map();      // channelId → GameState
+const imposterPlayerMap = new Map();  // userId → channelId (reverse lookup)
 ```
 
 ### GameState Object
 
 ```js
 {
-  channelId: string,         // always IMPOSTER_CHANNEL_ID
-  hostId: string,            // user who ran /imposter start
-  phase: string,             // 'lobby' | 'clue' | 'discussion' | 'vote' | 'ended'
-  players: Map,              // userId → { name, avatarUrl, alive, clue, vote }
-  theme: string,             // e.g. "Ocean"
-  word: string,              // e.g. "Submarine" — crewmates' secret word
-  impostorIds: Set,          // Set<userId>
-  round: number,             // starts at 1
-  lobbyMsgId: string,        // message ID of the lobby embed
-  gameMsgId: string,         // message ID of the current phase embed
-  phaseTimer: Timeout|null,  // clearTimeout before each phase transition
-  startedAt: number,         // Date.now() at game start
+  channelId: string,       // always IMPOSTER_CHANNEL_ID
+  hostId: string,          // who ran /imposter start
+  phase: string,           // 'lobby' | 'answer' | 'revealed' | 'vote' | 'ended'
+  players: Map,            // userId → PlayerState (see below)
+  realQuestion: string,    // question sent to crewmates; revealed at end of answer phase
+  altQuestion: string,     // question sent to the imposter only
+  impostorId: string|null, // single imposter's userId
+  lobbyMsgId: string,      // message ID of the lobby embed
+  gameMsgId: string,       // message ID of the current main phase message
+  hostMsgId: string,       // message ID of the host-only control message
+  lobbyTimer: Timeout|null,
 }
 ```
 
@@ -88,11 +89,10 @@ const imposterPlayerMap = new Map();
 ```js
 // value in GameState.players Map
 {
-  name: string,       // display name at join time
-  avatarUrl: string,  // avatar URL for embeds
-  alive: boolean,
-  clue: string|null,  // submitted during clue phase
-  vote: string|null,  // userId they voted for (or 'guess' for imposter guess)
+  name: string,        // display name at join time
+  answer: string|null, // submitted during answer phase
+  vote: string|null,   // userId they voted for (set during vote phase)
+  order: number,       // explanation order (randomised at game start, 1-indexed)
 }
 ```
 
@@ -100,85 +100,78 @@ const imposterPlayerMap = new Map();
 
 ## CustomId Namespacing
 
-All customIds use the `imp:` prefix, matching the `thought:`, `lbt:` pattern.
+All customIds use `imp:` prefix.
 
 | CustomId | Component | Purpose |
 |---|---|---|
 | `imp:join` | Button | Join the lobby |
-| `imp:start` | Button | Host starts game (host only) |
-| `imp:clue` | Button | Open clue submission modal |
-| `imp:vote:{userId}` | Button | Vote to eliminate a player |
-| `imp:guess` | Button | Imposter guesses the secret word |
-| `imp:end` | Button | Mod/owner force-ends the game |
-| `imp:clue_modal` | Modal | customId for clue modal submit |
-| `imp:guess_modal` | Modal | customId for imposter guess modal |
+| `imp:start` | Button | Host starts the game |
+| `imp:answer` | Button | Open answer submission modal |
+| `imp:reveal` | Button | Host reveals all answers + real question |
+| `imp:startvote` | Button | Host starts the voting phase |
+| `imp:vote:{userId}` | Button | Vote for a specific player |
+| `imp:showresult` | Button | Host force-reveals the imposter |
+| `imp:end` | Button | Host/mod ends the game early |
+| `imp:answer_modal` | Modal | Answer submission modal ID |
 
-Note: `imp:vote:{userId}` is safe — Discord user IDs are 18–19 chars, total ≈30 chars well under the 100-char limit.
+`imp:vote:{userId}` — user IDs are 18–19 chars, total ~28 chars, well under 100-char Discord limit.
 
 ---
 
 ## Slash Commands
 
 ```
-/imposter start   — creates lobby embed in IMPOSTER_CHANNEL_ID
-/imposter stop    — host or moderator force-ends current game
+/imposter start   — create lobby in IMPOSTER_CHANNEL_ID
+/imposter stop    — host or mod force-end the game
 ```
 
-Registered as a subcommand group in the existing `clientReady` command array:
+Registered as a subcommand group in the `clientReady` command array.
+
+---
+
+## Question Pairs
+
+Built-in array of 25 `{ real, alt }` pairs. One is selected randomly each game.
+The `real` question goes to all crewmates and is revealed at the end of the answer phase.
+The `alt` question goes to the imposter only (never shown publicly during the game).
+
+To add more questions, edit the `IMPOSTER_QUESTIONS` array near the top of `index.js`.
+Keep pairs similar enough that answers overlap, but different enough to spot.
+
+Good pair examples:
+- Real: "What's something you'd find at a birthday party?" / Alt: "What's something you'd find at a wedding?"
+- Real: "Describe the worst first date imaginable." / Alt: "Describe the most awkward social situation imaginable."
+
+---
+
+## Host Control Flow
+
+The host runs `/imposter start`, joins the game, and controls 3 transitions:
+1. **Start Game** button in lobby → kicks off answer phase
+2. **Reveal Answers** button in host-only message → reveals all answers + real question
+3. **Start Voting** button after reveal → opens voting
+4. **Reveal Imposter** button (optional) → force-reveals if not waiting for all votes
+
+Anyone with the host ID or MOD_ROLE_ID or OWNER_DISCORD_ID can press host buttons.
+(`impIsHost(interaction, game)` checks this.)
+
+---
+
+## Key Constants
 
 ```js
-new SlashCommandBuilder()
-  .setName('imposter')
-  .setDescription('Play the Imposter word deduction game')
-  .addSubcommand(sub => sub.setName('start').setDescription('Start a new game in #imposter-game'))
-  .addSubcommand(sub => sub.setName('stop').setDescription('End the current game'))
+const IMPOSTER_CHANNEL_ID  = '1498354389356904628';
+const IMP_MIN_PLAYERS      = 3;
+const IMP_MAX_PLAYERS      = 12;
+const IMP_LOBBY_TIMEOUT_MS = 15 * 60 * 1000;  // 15 min
 ```
 
 ---
 
-## Word List
+## Bot Feature Flag
 
-Built-in array of `{ theme, words[] }` objects. ~10 themes × 5 words each.
-Picked randomly each game. The bot picks ONE word from the theme for crewmates;
-impostors only receive the theme name.
-
-```js
-const IMPOSTER_WORD_LIST = [
-  { theme: 'Ocean',    words: ['Submarine', 'Coral Reef', 'Shark', 'Lighthouse', 'Surfboard'] },
-  { theme: 'Space',    words: ['Black Hole', 'Astronaut', 'Nebula', 'Satellite', 'Comet'] },
-  { theme: 'Kitchen',  words: ['Wok', 'Colander', 'Pressure Cooker', 'Grater', 'Whisk'] },
-  { theme: 'School',   words: ['Detention', 'Cafeteria', 'Locker', 'Hall Pass', 'Yearbook'] },
-  { theme: 'Jungle',   words: ['Quicksand', 'Canopy', 'Machete', 'Anaconda', 'Hammock'] },
-  { theme: 'Casino',   words: ['Roulette', 'Craps', 'Blackjack', 'Jackpot', 'Chips'] },
-  { theme: 'Hospital', words: ['Scalpel', 'Triage', 'Dialysis', 'Stethoscope', 'Surgery'] },
-  { theme: 'Circus',   words: ['Trapeze', 'Ringmaster', 'Tightrope', 'Acrobat', 'Juggler'] },
-  { theme: 'Arctic',   words: ['Igloo', 'Polar Bear', 'Permafrost', 'Whiteout', 'Dogsled'] },
-  { theme: 'Medieval', words: ['Trebuchet', 'Moat', 'Dungeon', 'Jousting', 'Squire'] },
-];
-```
-
----
-
-## Phase Timers
-
-Each phase transition uses `setTimeout` stored on `game.phaseTimer`.
-Always `clearTimeout(game.phaseTimer)` before setting a new one.
-
-| Phase | Timeout | Behaviour at timeout |
-|---|---|---|
-| Lobby | 10 min | Cancel game, delete lobby message |
-| Clue | 5 min | Skip players with no clue, advance to discussion |
-| Discussion | 3 min | Auto-advance to vote phase |
-| Vote | 2 min | Skip non-voters, tally with submitted votes only |
-
----
-
-## Imposter Count by Player Count
-
-| Players | Impostors |
-|---|---|
-| 4–6 | 1 |
-| 7–12 | 2 |
+`botFeatures.imposterGame` — toggle in Admin Panel → Bot Controls.
+If set to `false`, `/imposter start` replies with a disabled message.
 
 ---
 
@@ -186,88 +179,36 @@ Always `clearTimeout(game.phaseTimer)` before setting a new one.
 
 | Failure | Mitigation |
 |---|---|
-| Bot restarts mid-game | State is in-memory — post "game cancelled" to IMPOSTER_CHANNEL_ID on `clientReady` startup |
-| Player DMs blocked | Catch DM error, remove from `players` and `imposterPlayerMap`, notify channel |
-| Interaction 3s timeout | All async handlers call `deferReply()` or `deferUpdate()` FIRST |
-| Lobby abandoned | 10-min phaseTimer auto-cancels |
-| Vote tie | Announce tie, no elimination, start new round |
-| Game message deleted | On catch editing gameMsgId, send new message and update gameMsgId |
-| Player count drops below 3 | After each elimination, check — if imposter still in and ≤3 remain, imposter wins |
-| Non-participant presses buttons | Check `game.players.has(interaction.user.id)` and reject if not |
-| Wrong-phase button press | Check `game.phase` and reply ephemeral "Not the right time for that" |
-| imposterPlayerMap stale | Always `delete imposterPlayerMap[userId]` when player is removed or game ends |
+| Bot restarts mid-game | State is in-memory — game ends. Message lost. Acceptable for party game. |
+| Player DMs blocked | Caught per-player; that player is removed from game, channel notified |
+| Interaction 3s timeout | All async handlers call `deferReply()` or `deferUpdate()` immediately |
+| Lobby abandoned | `lobbyTimer` (15 min) auto-cancels and posts cancellation embed |
+| Non-participant presses buttons | `game.players.has(userId)` check → ephemeral "not in game" reply |
+| Wrong phase button press | `game.phase` check → ephemeral error reply |
+| `imposterPlayerMap` stale | `impCleanup()` deletes all player entries when game ends |
+| Host message missing | `hostMsgId` fetch wrapped in `.catch(() => {})` |
+| All players same answer | No bot-side deduplication — intentional, adds to social dynamics |
+| Vote tie | `impTallyAndReveal` shows the tie in results embed without picking a winner |
 
 ---
 
 ## Interaction Handler Location
 
-All game interactions are handled inside the existing `client.on('interactionCreate', ...)` block (line ~3951 in index.js).
+Inside `client.on('interactionCreate', ...)` in `index.js`.
 
-Button routing:
+**Modal routing** (before the `if (!interaction.isButton()) return;` gate):
 ```js
-if (interaction.isButton()) {
-  if (interaction.customId === 'imp:join') return handleImpJoin(interaction);
-  if (interaction.customId === 'imp:start') return handleImpStart(interaction);
-  if (interaction.customId === 'imp:clue') return handleImpClueButton(interaction);
-  if (interaction.customId.startsWith('imp:vote:')) return handleImpVote(interaction);
-  if (interaction.customId === 'imp:guess') return handleImpGuessButton(interaction);
-  if (interaction.customId === 'imp:end') return handleImpEnd(interaction);
-}
-
-if (interaction.isModalSubmit()) {
-  if (interaction.customId === 'imp:clue_modal') return handleImpClueModal(interaction);
-  if (interaction.customId === 'imp:guess_modal') return handleImpGuessModal(interaction);
-}
+if (interaction.isModalSubmit() && interaction.customId === 'imp:answer_modal') → handleAnswerModal
 ```
 
-Slash command routing (inside `isChatInputCommand` block):
+**Button routing** (after the gate):
 ```js
-if (interaction.commandName === 'imposter') {
-  const sub = interaction.options.getSubcommand();
-  if (sub === 'start') return handleImposterStart(interaction);
-  if (sub === 'stop') return handleImposterStop(interaction);
-}
+imp:join        → join lobby
+imp:start       → host starts game, DMs sent
+imp:answer      → show answer modal
+imp:reveal      → host reveals answers
+imp:startvote   → host opens vote phase
+imp:vote:{uid}  → player votes; auto-reveals when all voted
+imp:showresult  → host force-reveals imposter
+imp:end         → host/mod ends game
 ```
-
----
-
-## Key Constants (add near top of index.js)
-
-```js
-const IMPOSTER_CHANNEL_ID = '1498354389356904628';
-const IMP_MIN_PLAYERS = 4;
-const IMP_MAX_PLAYERS = 12;
-const IMP_LOBBY_TIMEOUT_MS    = 10 * 60 * 1000;  // 10 min
-const IMP_CLUE_TIMEOUT_MS     =  5 * 60 * 1000;  //  5 min
-const IMP_DISCUSS_TIMEOUT_MS  =  3 * 60 * 1000;  //  3 min
-const IMP_VOTE_TIMEOUT_MS     =  2 * 60 * 1000;  //  2 min
-```
-
----
-
-## Bot Feature Flag
-
-Add to `botFeatures` object:
-```js
-imposterGame: true,
-```
-
-Add to admin panel `BOT_FEATURES` array:
-```js
-{ key: 'imposterGame', label: 'Imposter Game', desc: 'Enable /imposter game in #imposter-game' }
-```
-
-Guard in `/imposter start` handler:
-```js
-if (botFeatures.imposterGame === false) {
-  return interaction.reply({ content: 'The Imposter game is currently disabled.', ephemeral: true });
-}
-```
-
----
-
-## Adding New Word Categories
-
-Edit the `IMPOSTER_WORD_LIST` array near the top of the imposter game section in `index.js`.
-Each entry: `{ theme: 'Name', words: ['Word1', 'Word2', 'Word3', 'Word4', 'Word5'] }`.
-Minimum 5 words per theme (bot picks 1 randomly each game).
