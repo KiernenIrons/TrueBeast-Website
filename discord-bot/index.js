@@ -4104,7 +4104,8 @@ client.once('clientReady', async () => {
                 .addSubcommand(sub => sub.setName('start').setDescription('Start a new game lobby'))
                 .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)'))
                 .addSubcommand(sub => sub.setName('status').setDescription('Show the current game status'))
-                .addSubcommand(sub => sub.setName('help').setDescription('How to play The Traitors')),
+                .addSubcommand(sub => sub.setName('help').setDescription('How to play The Traitors'))
+                .addSubcommand(sub => sub.setName('clear').setDescription('Delete all messages in the traitors channel (host or mod)')),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -5616,11 +5617,37 @@ client.on('interactionCreate', async (interaction) => {
                             },
                             {
                                 name: '⚡ Commands',
-                                value: '`/traitors start` — start a lobby\n`/traitors stop` — end the game\n`/traitors status` — current phase info\n`/traitors help` — this message',
+                                value: '`/traitors start` — start a lobby\n`/traitors stop` — end the game\n`/traitors status` — current phase info\n`/traitors clear` — clear the channel\n`/traitors help` — this message',
                             },
                         ],
                     }],
                 });
+            }
+
+            if (sub === 'clear') {
+                const isMod = interaction.user.id === OWNER_DISCORD_ID || interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+                const activeGame = traitorGames.get(TRT_CHANNEL_ID);
+                const isHost = activeGame && interaction.user.id === activeGame.hostId;
+                if (!isMod && !isHost) {
+                    return interaction.reply({ content: 'Only the host or a moderator can clear the channel.', ephemeral: true });
+                }
+                await interaction.deferReply({ ephemeral: true });
+                const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+                if (!channel) { await interaction.editReply({ content: 'Could not find the traitors channel.' }); return; }
+
+                let deleted = 0;
+                let fetched;
+                do {
+                    fetched = await channel.messages.fetch({ limit: 100 });
+                    if (fetched.size === 0) break;
+                    const result = await channel.bulkDelete(fetched, true).catch(() => null);
+                    deleted += result?.size ?? 0;
+                    if (fetched.size < 100) break;
+                } while (fetched.size > 0);
+
+                await interaction.editReply({ content: `✅ Cleared **${deleted}** message${deleted === 1 ? '' : 's'} from the traitors channel.` });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+                return;
             }
         }
 
