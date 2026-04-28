@@ -5198,6 +5198,7 @@ async function handleTrtNightVote(interaction, game, channel) {
     const traitorId = interaction.user.id;
     if (!game.traitorIds.has(traitorId)) {
         await interaction.reply({ content: '❌ You are not a Traitor or this is not the night phase.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
         return;
     }
     if (game.nightVotes.has(traitorId)) {
@@ -5226,15 +5227,18 @@ async function handleTrtBanVote(interaction, game, channel) {
     const player    = game.players.get(voterId);
     if (!player || !player.alive) {
         await interaction.reply({ content: '❌ You are not an active player.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
         return;
     }
     if (game.banishmentVotes.has(voterId)) {
         await interaction.reply({ content: '❌ You have already voted.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
         return;
     }
     const targetId = interaction.values[0];
     if (targetId === voterId) {
         await interaction.reply({ content: '❌ You cannot vote for yourself.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
         return;
     }
     game.banishmentVotes.set(voterId, targetId);
@@ -5259,6 +5263,7 @@ async function handleTrtRecruitAccept(interaction, game, channel) {
     const userId = interaction.user.id;
     if (!game.recruitPending || game.recruitTarget !== userId) {
         await interaction.reply({ content: '❌ This offer has expired.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
         return;
     }
     if (game.recruitTimer) { clearTimeout(game.recruitTimer); game.recruitTimer = null; }
@@ -5266,7 +5271,11 @@ async function handleTrtRecruitAccept(interaction, game, channel) {
     game.recruitTarget  = null;
 
     const player = game.players.get(userId);
-    if (!player) { await interaction.reply({ content: '❌ Player not found.', ephemeral: true }); return; }
+    if (!player) {
+        await interaction.reply({ content: '❌ Player not found.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+        return;
+    }
     player.role = 'traitor';
     trtUpdateRoleSets(game);
 
@@ -5301,6 +5310,7 @@ async function handleTrtRecruitDecline(interaction, game, channel) {
     const userId = interaction.user.id;
     if (!game.recruitPending || game.recruitTarget !== userId) {
         await interaction.reply({ content: '❌ This offer has expired.', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
         return;
     }
     if (game.recruitTimer) { clearTimeout(game.recruitTimer); game.recruitTimer = null; }
@@ -5482,14 +5492,22 @@ client.on('interactionCreate', async (interaction) => {
 
             if (sub === 'start') {
                 if (botFeatures.traitorsGame === false) {
-                    return interaction.reply({ content: 'The Traitors game is currently disabled.', ephemeral: true });
+                    await interaction.reply({ content: 'The Traitors game is currently disabled.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
                 }
                 const existing = traitorGames.get(TRT_CHANNEL_ID);
                 if (existing && existing.phase !== 'ended') {
-                    return interaction.reply({ content: `A game is already running in <#${TRT_CHANNEL_ID}>! Use \`/traitors stop\` to end it first.`, ephemeral: true });
+                    await interaction.reply({ content: `A game is already running in <#${TRT_CHANNEL_ID}>! Use \`/traitors stop\` to end it first.`, ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
                 }
                 const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
-                if (!channel) return interaction.reply({ content: 'Could not find the Traitors game channel.', ephemeral: true });
+                if (!channel) {
+                    await interaction.reply({ content: 'Could not find the Traitors game channel.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
 
                 const game = {
                     channelId: TRT_CHANNEL_ID,
@@ -5537,35 +5555,45 @@ client.on('interactionCreate', async (interaction) => {
                 }, TRT_LOBBY_TIMEOUT_MS);
 
                 await interaction.reply({ content: `Game lobby created in <#${TRT_CHANNEL_ID}>! Join up.`, ephemeral: true });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
                 return;
             }
 
             if (sub === 'stop') {
                 const game = traitorGames.get(TRT_CHANNEL_ID);
                 if (!game || game.phase === 'ended') {
-                    return interaction.reply({ content: 'No active Traitors game.', ephemeral: true });
+                    await interaction.reply({ content: 'No active Traitors game.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
                 }
                 if (!trtIsHost(interaction, game)) {
-                    return interaction.reply({ content: 'Only the host or a moderator can stop the game.', ephemeral: true });
+                    await interaction.reply({ content: 'Only the host or a moderator can stop the game.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
                 }
                 await interaction.deferReply({ ephemeral: true });
                 const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
                 const byName  = interaction.member?.displayName || interaction.user.username;
                 if (channel) await trtEndGame(game, channel, null, byName);
                 await interaction.editReply({ content: 'Game ended.' });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
                 return;
             }
 
             if (sub === 'status') {
                 const game = traitorGames.get(TRT_CHANNEL_ID);
                 if (!game || game.phase === 'ended') {
-                    return interaction.reply({ content: 'No active Traitors game.', ephemeral: true });
+                    await interaction.reply({ content: 'No active Traitors game.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
                 }
-                return interaction.reply({ embeds: [trtStatusEmbed(game)], ephemeral: true });
+                await interaction.reply({ embeds: [trtStatusEmbed(game)], ephemeral: true });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 20000);
+                return;
             }
 
             if (sub === 'help') {
-                return interaction.reply({
+                await interaction.reply({
                     ephemeral: true,
                     embeds: [{
                         color: 0x1a0a2e,
@@ -5602,6 +5630,8 @@ client.on('interactionCreate', async (interaction) => {
                         ],
                     }],
                 });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 45000);
+                return;
             }
 
             if (sub === 'clear') {
@@ -5609,11 +5639,17 @@ client.on('interactionCreate', async (interaction) => {
                 const activeGame = traitorGames.get(TRT_CHANNEL_ID);
                 const isHost = activeGame && interaction.user.id === activeGame.hostId;
                 if (!isMod && !isHost) {
-                    return interaction.reply({ content: 'Only the host or a moderator can clear the channel.', ephemeral: true });
+                    await interaction.reply({ content: 'Only the host or a moderator can clear the channel.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
                 }
                 await interaction.deferReply({ ephemeral: true });
                 const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
-                if (!channel) { await interaction.editReply({ content: 'Could not find the traitors channel.' }); return; }
+                if (!channel) {
+                    await interaction.editReply({ content: 'Could not find the traitors channel.' });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
 
                 let deleted = 0;
                 let fetched;
