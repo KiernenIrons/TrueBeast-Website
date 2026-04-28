@@ -197,8 +197,10 @@ const TRT_TEXT = {
     CASTLE_SLEEPS:   '🌙 The castle falls silent. The Traitors move through the shadows...',
     CASTLE_SAFE:     '🌅 The castle is safe — no one was found dead this morning.',
     FOUND_DEAD:      (name) => `🩸 The body of **${name}** was found at dawn. Another soul lost to the Traitors.`,
-    DM_YOU_ARE_TRAITOR: (allies) => `🗡️ **You are a TRAITOR.**\n\nYour fellow Traitor${allies.length > 1 ? 's' : ''}:\n${allies.join(', ')}\n\n*Keep your role secret — sharing DMs violates game integrity.*`,
-    DM_YOU_ARE_FAITHFUL: '🛡️ **You are FAITHFUL.**\n\nFind the Traitors and banish them before it\'s too late.\n\n*Keep your role secret — sharing DMs violates game integrity.*',
+    DM_YOU_ARE_TRAITOR: (allies) => allies.length > 0
+        ? `Your fellow Traitor${allies.length > 1 ? 's' : ''}: **${allies.join(', ')}**\n\nYou know who to trust. Hunt wisely.\n\n*Keep your role secret — sharing DMs violates game integrity.*`
+        : `You are the **only Traitor**. You hunt alone.\n\n*Keep your role secret — sharing DMs violates game integrity.*`,
+    DM_YOU_ARE_FAITHFUL: 'Find the Traitors and banish them before it\'s too late.\n\n*Keep your role secret — sharing DMs violates game integrity.*',
     DM_SHIELD:       '🥇 **You are shielded tonight.** If the Traitors choose you, their murder will fail. Keep this secret.',
     DM_RECRUIT_OFFER: (traitorName) => `🗡️ **A Traitor has approached you in the shadows...**\n\n**${traitorName}** wants you to join them as a Traitor.\n\nIf you **Accept**, you become a Traitor and will hunt with them from the next round.\nIf you **Decline**, the night passes safely — but they may try again.\n\n*You have 5 minutes to decide.*`,
     DM_RECRUIT_ACCEPTED: (targetName) => `✅ **${targetName}** has accepted your offer! They are now a Traitor.`,
@@ -4597,14 +4599,16 @@ function trtDiscussionEmbed(game, secondsLeft) {
 }
 
 function trtBanishmentVoteEmbed(game) {
-    const cast    = game.banishmentVotes.size;
-    const total   = trtAliveCount(game);
+    const living  = trtLivingPlayers(game);
+    const voted   = living.filter(([uid]) =>  game.banishmentVotes.has(uid)).map(([, p]) => `✅ ${p.name}`).join('\n') || '—';
+    const waiting = living.filter(([uid]) => !game.banishmentVotes.has(uid)).map(([, p]) => `⏳ ${p.name}`).join('\n') || '—';
     return {
         color: 0x7c3aed,
         title: `🗳️  BANISHMENT VOTE — ROUND ${game.round}`,
-        description: 'Use the dropdown to vote who you think is a Traitor.\n\n⚠️ You may only vote **once**. Choose wisely.',
+        description: 'Use the dropdown to vote who you think is a Traitor. Votes are hidden until results are revealed.',
         fields: [
-            { name: '📊 Votes cast', value: `${cast} / ${total}` },
+            { name: `✅ Voted (${game.banishmentVotes.size})`, value: voted, inline: true },
+            { name: `⏳ Still deciding (${living.length - game.banishmentVotes.size})`, value: waiting, inline: true },
         ],
         footer: { text: 'Voting auto-closes when everyone has voted' },
     };
@@ -4810,15 +4814,7 @@ async function trtEndGame(game, channel, winner, forcedBy) {
     game.phase = 'ended';
     const embed = trtWinEmbed(game, winner);
     if (forcedBy) embed.description = `*(Game ended by ${forcedBy})*`;
-    try {
-        if (game.statusMsgId) {
-            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
-            if (msg) await msg.edit({ embeds: [embed], components: [] });
-            else await channel.send({ embeds: [embed] });
-        } else {
-            await channel.send({ embeds: [embed] });
-        }
-    } catch (_) { try { await channel.send({ embeds: [embed] }); } catch (__) {} }
+    await channel.send({ embeds: [embed] }).catch(() => {});
 
     await trtPostGameLog(game, winner, channel);
     trtCleanup(game);
@@ -4882,14 +4878,7 @@ async function trtStartNight(game, channel) {
     game.recruitTarget   = null;
     game.dmFailedIds     = new Set();
 
-    const nightEmbed = trtNightEmbed(game);
-    const msg = await channel.send({ embeds: [nightEmbed] }).catch(() => null);
-    if (game.statusMsgId) {
-        try {
-            const prev = await channel.messages.fetch(game.statusMsgId).catch(() => null);
-            if (prev) await prev.edit({ embeds: [nightEmbed] });
-        } catch (_) {}
-    }
+    const msg = await channel.send({ embeds: [trtNightEmbed(game)] }).catch(() => null);
     if (msg) game.statusMsgId = msg.id;
 
     if (game.options.shieldChallenge) await trtAssignShield(game);
@@ -5003,17 +4992,7 @@ async function trtResolveNight(game, channel) {
 
 async function trtStartMorning(game, channel, outcome, victimId = null) {
     game.phase = 'morning';
-    const embed = trtMorningEmbed(game, outcome, victimId);
-    try {
-        if (game.statusMsgId) {
-            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
-            if (msg) await msg.edit({ embeds: [embed], components: [] });
-            else await channel.send({ embeds: [embed] });
-        } else {
-            const msg = await channel.send({ embeds: [embed] });
-            game.statusMsgId = msg.id;
-        }
-    } catch (_) { try { await channel.send({ embeds: [embed] }); } catch (__) {} }
+    await channel.send({ embeds: [trtMorningEmbed(game, outcome, victimId)] }).catch(() => {});
 
     // Remove host controls during morning (discussion phase will post fresh ones)
     await trtUpdateHostMsg(game, channel, null, []);
@@ -5032,16 +5011,8 @@ async function trtStartDiscussion(game, channel) {
     const secondsLeft = Math.floor(TRT_DISCUSSION_MS / 1000);
     const embed = trtDiscussionEmbed(game, secondsLeft);
 
-    try {
-        if (game.statusMsgId) {
-            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
-            if (msg) await msg.edit({ embeds: [embed], components: [] });
-            else { const m = await channel.send({ embeds: [embed] }); game.statusMsgId = m.id; }
-        } else {
-            const m = await channel.send({ embeds: [embed] });
-            game.statusMsgId = m.id;
-        }
-    } catch (_) {}
+    const discMsg = await channel.send({ embeds: [embed] }).catch(() => null);
+    if (discMsg) game.statusMsgId = discMsg.id;
 
     await trtUpdateHostMsg(game, channel,
         `**Host controls — Discussion Round ${game.round}**`,
