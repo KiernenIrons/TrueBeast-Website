@@ -24,6 +24,7 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle,
     SlashCommandBuilder, REST, Routes, AttachmentBuilder,
     AuditLogEvent, MessageFlags,
+    StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
@@ -53,6 +54,7 @@ let botFeatures = {
     vcTracking:          true,
     welcomeMessages:     true,
     imposterGame:        true,
+    traitorsGame:        true,
 };
 
 // ── Imposter Game ─────────────────────────────────────────────────────────────
@@ -172,6 +174,46 @@ const IMPOSTER_QUESTIONS = [
     { real: "What's an excuse people use to get someone into their flat?",                   alt: "What's an excuse people use to extend a date that's going well?" },
     { real: "What's something that starts as a joke between two people but becomes something more?", alt: "What's something that starts as a work relationship but becomes something more?" },
 ];
+
+// ── Traitors Game ─────────────────────────────────────────────────────────────
+const TRT_CHANNEL_ID         = '1498657971994099825';
+const TRT_MIN_PLAYERS        = 4;
+const TRT_MAX_PLAYERS        = 20;
+const TRT_LOBBY_TIMEOUT_MS   = 15 * 60 * 1000;
+const TRT_DISCUSSION_MS      =  5 * 60 * 1000;
+const TRT_VOTE_MS            =  3 * 60 * 1000;
+const TRT_RECRUIT_MS         =  5 * 60 * 1000;
+
+function trtGetTraitorCount(n) {
+    if (n >= 15) return 3;
+    if (n >= 9)  return 2;
+    return 1;
+}
+
+const traitorGames     = new Map(); // channelId → GameState
+const traitorPlayerMap = new Map(); // userId → channelId
+
+const TRT_TEXT = {
+    CASTLE_SLEEPS:   '🌙 The castle falls silent. The Traitors move through the shadows...',
+    CASTLE_SAFE:     '🌅 The castle is safe — no one was found dead this morning.',
+    FOUND_DEAD:      (name) => `🩸 The body of **${name}** was found at dawn. Another soul lost to the Traitors.`,
+    DM_YOU_ARE_TRAITOR: (allies) => `🗡️ **You are a TRAITOR.**\n\nYour fellow Traitor${allies.length > 1 ? 's' : ''}:\n${allies.join(', ')}\n\n*Keep your role secret — sharing DMs violates game integrity.*`,
+    DM_YOU_ARE_FAITHFUL: '🛡️ **You are FAITHFUL.**\n\nFind the Traitors and banish them before it\'s too late.\n\n*Keep your role secret — sharing DMs violates game integrity.*',
+    DM_SHIELD:       '🥇 **You are shielded tonight.** If the Traitors choose you, their murder will fail. Keep this secret.',
+    DM_RECRUIT_OFFER: (traitorName) => `🗡️ **A Traitor has approached you in the shadows...**\n\n**${traitorName}** wants you to join them as a Traitor.\n\nIf you **Accept**, you become a Traitor and will hunt with them from the next round.\nIf you **Decline**, the night passes safely — but they may try again.\n\n*You have 5 minutes to decide.*`,
+    DM_RECRUIT_ACCEPTED: (targetName) => `✅ **${targetName}** has accepted your offer! They are now a Traitor.`,
+    DM_RECRUIT_DECLINED: (targetName) => `❌ **${targetName}** declined. The night passes safely.`,
+    DM_NOW_TRAITOR:  (allies) => `🗡️ **You have joined the Traitors!**\n\nYour fellow Traitor${allies.length > 1 ? 's' : ''}:\n${allies.join(', ')}\n\nHunt together from the next round.`,
+    DISCUSSION_START: '⚖️ Gather round the table. Discuss — who do you suspect?',
+    DISCUSSION_3MIN:  '⏳ **3 minutes remaining** — make your case.',
+    DISCUSSION_1MIN:  '⚡ **1 minute remaining** — wrap up your arguments!',
+    DISCUSSION_30SEC: '🔔 **30 seconds!** The vote is coming.',
+    BANISHED:        (name) => `🪓 The table has spoken. **${name}** has been banished from the castle.`,
+    DEADLOCK:        '🤝 The vote is tied — no one is banished.',
+    FAITHFUL_WIN:    '🏆 **THE FAITHFULS WIN!** All Traitors have been banished.',
+    TRAITOR_WIN:     '🗡️ **THE TRAITORS WIN!** They now control the castle.',
+    RESTART_NOTICE:  '⚠️ The Traitors game was interrupted by a bot restart. Any in-progress game has been lost. Run `/traitors start` to play again.',
+};
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 // Queue of unanswered questions waiting for a button click:
@@ -4056,6 +4098,13 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('redeploy')
                 .setDescription('(Owner only) Trigger a full bot redeploy via GitHub Actions'),
+            new SlashCommandBuilder()
+                .setName('traitors')
+                .setDescription('Play The Traitors social deduction game in #traitors-game')
+                .addSubcommand(sub => sub.setName('start').setDescription('Start a new game lobby'))
+                .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)'))
+                .addSubcommand(sub => sub.setName('status').setDescription('Show the current game status'))
+                .addSubcommand(sub => sub.setName('help').setDescription('How to play The Traitors')),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -4144,6 +4193,12 @@ client.once('clientReady', async () => {
 
     // Clean up daily snapshots older than 14 days
     cleanupOldSnapshots().catch(e => console.error('[BeastBot] Snapshot cleanup failed:', e.message));
+
+    // Post Traitors restart notice if a game was in progress
+    try {
+        const trtCh = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (trtCh) await trtCh.send({ embeds: [{ color: 0x6b7280, description: TRT_TEXT.RESTART_NOTICE }] });
+    } catch (_) {}
 
 });
 
@@ -4380,6 +4435,919 @@ async function impEndGame(game, channel, byName) {
     impCleanup(game);
 }
 
+// ── Traitors Game Logic ───────────────────────────────────────────────────────
+
+// ─ A. Helpers ────────────────────────────────────────────────────────────────
+
+function trtIsHost(interaction, game) {
+    return interaction.user.id === game.hostId ||
+           interaction.user.id === OWNER_DISCORD_ID ||
+           interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+}
+
+function trtUpdateRoleSets(game) {
+    game.traitorIds  = new Set();
+    game.faithfulIds = new Set();
+    for (const [uid, p] of game.players) {
+        if (!p.alive) continue;
+        if (p.role === 'traitor')  game.traitorIds.add(uid);
+        if (p.role === 'faithful') game.faithfulIds.add(uid);
+    }
+}
+
+function trtAliveCount(game) {
+    let n = 0;
+    for (const p of game.players.values()) if (p.alive) n++;
+    return n;
+}
+
+function trtLivingPlayers(game) {
+    return [...game.players.entries()].filter(([, p]) => p.alive);
+}
+
+function trtPickRandomFrom(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function trtCanRecruit(game) {
+    return game.options.recruitmentTwist &&
+           game.traitorIds.size === 1 &&
+           trtAliveCount(game) >= 4;
+}
+
+function trtClearDiscussionWarnings(game) {
+    for (const t of game.discussionWarningTimers) clearTimeout(t);
+    game.discussionWarningTimers = [];
+}
+
+function trtCleanup(game) {
+    if (!game) return;
+    if (game.lobbyTimer)  clearTimeout(game.lobbyTimer);
+    if (game.phaseTimer)  clearTimeout(game.phaseTimer);
+    if (game.recruitTimer) clearTimeout(game.recruitTimer);
+    trtClearDiscussionWarnings(game);
+    for (const uid of game.players.keys()) traitorPlayerMap.delete(uid);
+    traitorGames.delete(game.channelId);
+}
+
+async function trtReply(interaction, content, delayMs = 8000) {
+    await interaction.editReply({ content });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), delayMs);
+}
+
+// ─ B. Embed Builders ─────────────────────────────────────────────────────────
+
+function trtLobbyEmbed(game) {
+    const playerList = trtLivingPlayers(game).map(([, p]) => `▸ ${p.name}`).join('\n') ||
+                       [...game.players.values()].map(p => `▸ ${p.name}`).join('\n') ||
+                       '*No players yet — be the first!*';
+    const opts = [
+        `${game.options.hiddenRoleReveal ? '✅' : '⬜'} Hidden Role Reveal (roles shown only at game end)`,
+        `${game.options.shieldChallenge  ? '✅' : '⬜'} Shield Challenge (one Faithful is secretly shielded each night)`,
+        `${game.options.recruitmentTwist ? '✅' : '⬜'} Recruitment Twist (lone Traitor may recruit a Faithful)`,
+    ].join('\n');
+    return {
+        color: 0x1a0a2e,
+        title: '🗡️  THE TRAITORS  —  LOBBY',
+        description: [
+            'A social deduction game inspired by **The Traitors**.',
+            'Traitors hunt Faithfuls by night. Faithfuls banish suspects by day.',
+            'Can the table root out the Traitors before it\'s too late?',
+        ].join('\n'),
+        fields: [
+            { name: `👥 Players (${game.players.size} / ${TRT_MAX_PLAYERS})`, value: playerList },
+            { name: '⚙️ Options', value: opts },
+            { name: '​', value: `Min to start: **${TRT_MIN_PLAYERS}** · Max: **${TRT_MAX_PLAYERS}**` },
+        ],
+        footer: { text: '⏱  Lobby closes in 15 minutes if not started' },
+    };
+}
+
+function trtNightEmbed(game) {
+    return {
+        color: 0x0d0d0d,
+        title: `🌙  NIGHT ${game.round}`,
+        description: TRT_TEXT.CASTLE_SLEEPS,
+        fields: [
+            { name: '🗡️ Traitors', value: 'The Traitors are deciding their target...' },
+        ],
+        footer: { text: 'Traitors: check your DMs' },
+    };
+}
+
+function trtMorningEmbed(game, outcome, victimId) {
+    if (outcome === 'murder' && victimId) {
+        const victim = game.players.get(victimId);
+        const roleReveal = (!game.options.hiddenRoleReveal && victim)
+            ? `\n*(${victim.name} was ${victim.role === 'traitor' ? 'a **TRAITOR**' : '**FAITHFUL**'})*`
+            : '';
+        return {
+            color: 0xf97316,
+            title: `🌅  MORNING — ROUND ${game.round}`,
+            description: TRT_TEXT.FOUND_DEAD(victim?.name || 'Unknown') + roleReveal,
+        };
+    }
+    if (outcome === 'shield') {
+        return {
+            color: 0x22c55e,
+            title: `🌅  MORNING — ROUND ${game.round}`,
+            description: '🥇 The Traitors struck — but a shield protected their target! **The castle is safe.**',
+        };
+    }
+    return {
+        color: 0x22c55e,
+        title: `🌅  MORNING — ROUND ${game.round}`,
+        description: TRT_TEXT.CASTLE_SAFE,
+    };
+}
+
+function trtDiscussionEmbed(game, secondsLeft) {
+    const alive = trtLivingPlayers(game).map(([, p]) => `▸ ${p.name}`).join('\n') || '*none*';
+    const mins  = Math.floor(secondsLeft / 60);
+    const secs  = secondsLeft % 60;
+    return {
+        color: 0x3b82f6,
+        title: `⚖️  ROUND TABLE — ROUND ${game.round}`,
+        description: TRT_TEXT.DISCUSSION_START,
+        fields: [
+            { name: '👥 Still in the game', value: alive },
+            { name: '⏳ Time remaining', value: `${mins}m ${secs}s`, inline: true },
+        ],
+        footer: { text: 'Discuss who you think is a Traitor, then vote to banish.' },
+    };
+}
+
+function trtBanishmentVoteEmbed(game) {
+    const cast    = game.banishmentVotes.size;
+    const total   = trtAliveCount(game);
+    return {
+        color: 0x7c3aed,
+        title: `🗳️  BANISHMENT VOTE — ROUND ${game.round}`,
+        description: 'Use the dropdown to vote who you think is a Traitor.\n\n⚠️ You may only vote **once**. Choose wisely.',
+        fields: [
+            { name: '📊 Votes cast', value: `${cast} / ${total}` },
+        ],
+        footer: { text: 'Voting auto-closes when everyone has voted' },
+    };
+}
+
+function trtBanishmentResultEmbed(game, banishedId, wasTie) {
+    if (wasTie) {
+        return {
+            color: 0x6b7280,
+            title: `🤝  DEADLOCK — ROUND ${game.round}`,
+            description: TRT_TEXT.DEADLOCK,
+        };
+    }
+    const target   = game.players.get(banishedId);
+    const roleText = game.options.hiddenRoleReveal ? '' : ` — they were **${target?.role === 'traitor' ? 'a TRAITOR 🗡️' : 'FAITHFUL 🛡️'}**`;
+    const voteLines = [...game.banishmentVotes.entries()]
+        .reduce((acc, [voterId, targetUserId]) => {
+            acc[targetUserId] = (acc[targetUserId] || 0) + 1;
+            return acc;
+        }, {});
+    const voteSummary = Object.entries(voteLines)
+        .sort(([, a], [, b]) => b - a)
+        .map(([uid, n]) => `${game.players.get(uid)?.name || uid}: **${n}** vote${n !== 1 ? 's' : ''}`)
+        .join('\n') || '*none*';
+    return {
+        color: 0xdc2626,
+        title: `🪓  BANISHED — ROUND ${game.round}`,
+        description: TRT_TEXT.BANISHED(target?.name || 'Unknown') + roleText,
+        fields: [{ name: '📊 Vote tally', value: voteSummary }],
+    };
+}
+
+function trtWinEmbed(game, winner) {
+    const playerLines = [...game.players.values()]
+        .map(p => `${p.alive ? '🟢' : '💀'} **${p.name}** — ${p.role === 'traitor' ? '🗡️ Traitor' : '🛡️ Faithful'}`)
+        .join('\n') || '*none*';
+    const murders     = game.log.murders.map(e => `Round ${e.round}: **${e.victimName}** (${e.victimRole})`).join('\n') || '*none*';
+    const banishments = game.log.banishments.map(e => `Round ${e.round}: **${e.targetName}** (${e.targetRole}, ${e.votes} votes)`).join('\n') || '*none*';
+    return {
+        color: winner === 'faithful' ? 0x22c55e : 0x7c0a02,
+        title: winner === 'faithful' ? `🏆  FAITHFULS WIN! — Round ${game.round}` : `🗡️  TRAITORS WIN! — Round ${game.round}`,
+        description: winner === 'faithful' ? TRT_TEXT.FAITHFUL_WIN : TRT_TEXT.TRAITOR_WIN,
+        fields: [
+            { name: '👥 All Players', value: playerLines },
+            { name: '🩸 Murders', value: murders },
+            { name: '🪓 Banishments', value: banishments },
+        ],
+        footer: { text: 'Run /traitors start to play again!' },
+    };
+}
+
+function trtStatusEmbed(game) {
+    const phaseLabels = { lobby: 'Lobby', night: 'Night', morning: 'Morning', discussion: 'Discussion', vote: 'Vote', ended: 'Ended' };
+    const alive = trtLivingPlayers(game).map(([, p]) => `▸ ${p.name}`).join('\n') || '*none*';
+    return {
+        color: 0x1a0a2e,
+        title: '🗡️  Traitors — Status',
+        fields: [
+            { name: '📍 Phase', value: phaseLabels[game.phase] || game.phase, inline: true },
+            { name: '🔄 Round', value: String(game.round), inline: true },
+            { name: '👥 Living Players', value: alive },
+        ],
+    };
+}
+
+// ─ C. Component Builders ─────────────────────────────────────────────────────
+
+function trtLobbyComponents(game) {
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('trt:join').setLabel('Join').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('trt:leave').setLabel('Leave').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('trt:start').setLabel('Start Game').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('trt:stop').setLabel('End Lobby').setStyle(ButtonStyle.Danger),
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('trt:opt:hidden')
+            .setLabel(`${game.options.hiddenRoleReveal ? '✅' : '⬜'} Hidden Roles`)
+            .setStyle(game.options.hiddenRoleReveal ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('trt:opt:shield')
+            .setLabel(`${game.options.shieldChallenge ? '✅' : '⬜'} Shield`)
+            .setStyle(game.options.shieldChallenge ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('trt:opt:recruit')
+            .setLabel(`${game.options.recruitmentTwist ? '✅' : '⬜'} Recruit`)
+            .setStyle(game.options.recruitmentTwist ? ButtonStyle.Success : ButtonStyle.Secondary),
+    );
+    return [row1, row2];
+}
+
+function trtHostNightComponents(recruitPending = false) {
+    return [new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('trt:resolvenight')
+            .setLabel('Resolve Night')
+            .setStyle(ButtonStyle.Danger)
+            .setDisabled(recruitPending),
+    )];
+}
+
+function trtHostDiscussionComponents() {
+    return [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('trt:skipdisc').setLabel('Skip Discussion').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('trt:stop').setLabel('End Game').setStyle(ButtonStyle.Danger),
+    )];
+}
+
+function trtHostVoteComponents() {
+    return [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('trt:revealvote').setLabel('Reveal Result').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('trt:stop').setLabel('End Game').setStyle(ButtonStyle.Danger),
+    )];
+}
+
+function trtNightVoteSelectMenu(game) {
+    const canRecruit = trtCanRecruit(game);
+    const targets    = trtLivingPlayers(game).filter(([uid]) => !game.traitorIds.has(uid));
+    const options    = [];
+    for (const [uid, p] of targets) {
+        options.push(new StringSelectMenuOptionBuilder()
+            .setLabel(`Murder: ${p.name}`)
+            .setValue(`murder:${uid}`)
+            .setDescription('Eliminate this player tonight')
+            .setEmoji('🗡️'));
+    }
+    if (canRecruit) {
+        for (const [uid, p] of targets) {
+            options.push(new StringSelectMenuOptionBuilder()
+                .setLabel(`Recruit: ${p.name}`)
+                .setValue(`recruit:${uid}`)
+                .setDescription('Offer this player a place as a Traitor')
+                .setEmoji('🤝'));
+        }
+    }
+    const menu = new StringSelectMenuBuilder()
+        .setCustomId('trt:nightvote')
+        .setPlaceholder('Choose your action for tonight...')
+        .addOptions(options.slice(0, 25));
+    return [new ActionRowBuilder().addComponents(menu)];
+}
+
+function trtBanishmentVoteSelectMenu(game) {
+    const options = trtLivingPlayers(game).map(([uid, p]) =>
+        new StringSelectMenuOptionBuilder()
+            .setLabel(p.name)
+            .setValue(uid)
+            .setDescription('Vote to banish this player')
+            .setEmoji('🗳️')
+    );
+    const menu = new StringSelectMenuBuilder()
+        .setCustomId('trt:banvote')
+        .setPlaceholder('Select who you think is a Traitor...')
+        .addOptions(options.slice(0, 25));
+    return [new ActionRowBuilder().addComponents(menu)];
+}
+
+function trtRecruitResponseComponents() {
+    return [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('trt:recruit:accept').setLabel('Accept').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('trt:recruit:decline').setLabel('Decline').setStyle(ButtonStyle.Danger),
+    )];
+}
+
+// ─ D. Phase Functions ─────────────────────────────────────────────────────────
+
+async function trtUpdateStatusEmbed(game, channel) {
+    const embed = trtStatusEmbed(game);
+    if (game.statusMsgId) {
+        try {
+            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
+            if (msg) { await msg.edit({ embeds: [embed] }); return; }
+        } catch (_) {}
+    }
+    const msg = await channel.send({ embeds: [embed] }).catch(() => null);
+    if (msg) game.statusMsgId = msg.id;
+}
+
+async function trtPostGameLog(game, winner, channel) {
+    try {
+        const logChannel = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+        if (!logChannel) return;
+        const murders     = game.log.murders.map(e => `R${e.round}: ${e.victimName} (${e.victimRole})`).join('\n') || 'none';
+        const banishments = game.log.banishments.map(e => `R${e.round}: ${e.targetName} (${e.targetRole}, ${e.votes}v)`).join('\n') || 'none';
+        const recruitments = game.log.recruitments.map(e => `R${e.round}: ${e.recruiterName} → ${e.targetName} (${e.accepted ? 'accepted' : 'declined'})`).join('\n') || 'none';
+        await logChannel.send({ embeds: [{
+            color: 0x1a0a2e,
+            title: `🗡️ Traitors Game Log — ${winner === 'faithful' ? 'Faithfuls Win' : winner === 'traitors' ? 'Traitors Win' : 'Game Ended'}`,
+            fields: [
+                { name: 'Rounds', value: String(game.round), inline: true },
+                { name: 'Players', value: String(game.players.size), inline: true },
+                { name: 'Murders', value: murders },
+                { name: 'Banishments', value: banishments },
+                { name: 'Recruitments', value: recruitments },
+            ],
+            timestamp: new Date().toISOString(),
+        }] });
+    } catch (_) {}
+}
+
+async function trtEndGame(game, channel, winner, forcedBy) {
+    game.phase = 'ended';
+    const embed = trtWinEmbed(game, winner);
+    if (forcedBy) embed.description = `*(Game ended by ${forcedBy})*`;
+    try {
+        if (game.statusMsgId) {
+            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
+            if (msg) await msg.edit({ embeds: [embed], components: [] });
+            else await channel.send({ embeds: [embed] });
+        } else {
+            await channel.send({ embeds: [embed] });
+        }
+    } catch (_) { try { await channel.send({ embeds: [embed] }); } catch (__) {} }
+
+    await trtPostGameLog(game, winner, channel);
+    trtCleanup(game);
+}
+
+async function trtCheckWin(game, channel) {
+    trtUpdateRoleSets(game);
+    if (game.traitorIds.size === 0) {
+        await trtEndGame(game, channel, 'faithful', null);
+        return 'faithful';
+    }
+    if (game.traitorIds.size >= game.faithfulIds.size) {
+        await trtEndGame(game, channel, 'traitors', null);
+        return 'traitors';
+    }
+    if (trtAliveCount(game) < 3) {
+        await trtEndGame(game, channel, 'faithful', null);
+        return 'faithful';
+    }
+    return null;
+}
+
+async function trtAssignShield(game) {
+    const faithfuls = [...game.faithfulIds];
+    if (faithfuls.length === 0) return;
+    const shieldId = trtPickRandomFrom(faithfuls);
+    game.shieldedPlayerId = shieldId;
+    try {
+        const user = await client.users.fetch(shieldId);
+        await user.send({ embeds: [{ color: 0xffd700, title: '🥇 You are Shielded Tonight', description: TRT_TEXT.DM_SHIELD }] });
+    } catch (_) {}
+}
+
+async function trtDmTraitorVote(game, traitorId) {
+    try {
+        const user = await client.users.fetch(traitorId);
+        const components = trtNightVoteSelectMenu(game);
+        const canRecruit = trtCanRecruit(game);
+        await user.send({
+            embeds: [{
+                color: 0x7c0a02,
+                title: `🗡️ Night ${game.round} — Choose Your Action`,
+                description: canRecruit
+                    ? 'You may **Murder** a Faithful to eliminate them, or **Recruit** one to bring them to your side.'
+                    : 'Choose a Faithful to **Murder** tonight.',
+                footer: { text: 'Your vote is anonymous. Choose wisely.' },
+            }],
+            components,
+        });
+    } catch (_) {
+        game.dmFailedIds.add(traitorId);
+    }
+}
+
+async function trtStartNight(game, channel) {
+    game.phase           = 'night';
+    game.nightVotes      = new Map();
+    game.nightMurdered   = null;
+    game.shieldedPlayerId = null;
+    game.recruitPending  = false;
+    game.recruitTarget   = null;
+    game.dmFailedIds     = new Set();
+
+    const nightEmbed = trtNightEmbed(game);
+    const msg = await channel.send({ embeds: [nightEmbed] }).catch(() => null);
+    if (game.statusMsgId) {
+        try {
+            const prev = await channel.messages.fetch(game.statusMsgId).catch(() => null);
+            if (prev) await prev.edit({ embeds: [nightEmbed] });
+        } catch (_) {}
+    }
+    if (msg) game.statusMsgId = msg.id;
+
+    if (game.options.shieldChallenge) await trtAssignShield(game);
+
+    for (const tid of game.traitorIds) {
+        await trtDmTraitorVote(game, tid);
+    }
+
+    if (game.dmFailedIds.size > 0 && game.dmFailedIds.size >= game.traitorIds.size) {
+        try {
+            if (game.hostMsgId) {
+                const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+                if (hMsg) await hMsg.edit({ content: '⚠️ All Traitor DMs failed. Night will be auto-resolved safely.', components: [] });
+            }
+        } catch (_) {}
+        setTimeout(() => trtResolveNight(game, channel).catch(() => {}), 3000);
+        return;
+    }
+
+    if (game.hostMsgId) {
+        try {
+            const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+            if (hMsg) await hMsg.edit({ content: `**Host controls — Night ${game.round}**\nPress Resolve Night to force-resolve if traitors are AFK.`, components: trtHostNightComponents(false) });
+        } catch (_) {}
+    } else {
+        const hMsg = await channel.send({ content: `**Host controls — Night ${game.round}**\nPress Resolve Night to force-resolve if traitors are AFK.`, components: trtHostNightComponents(false) }).catch(() => null);
+        if (hMsg) game.hostMsgId = hMsg.id;
+    }
+}
+
+async function trtRecruitFlow(game, channel, targetId) {
+    game.recruitPending = true;
+    game.recruitTarget  = targetId;
+
+    try {
+        const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+        if (hMsg) await hMsg.edit({ components: trtHostNightComponents(true) });
+    } catch (_) {}
+
+    const traitorId   = [...game.traitorIds][0];
+    const traitorName = game.players.get(traitorId)?.name || 'A Traitor';
+
+    let dmSent = false;
+    try {
+        const targetUser = await client.users.fetch(targetId);
+        await targetUser.send({
+            embeds: [{
+                color: 0x7c0a02,
+                title: '🤫 A Traitor has approached you...',
+                description: TRT_TEXT.DM_RECRUIT_OFFER(traitorName),
+            }],
+            components: trtRecruitResponseComponents(),
+        });
+        dmSent = true;
+    } catch (_) {}
+
+    if (!dmSent) {
+        game.recruitPending = false;
+        game.recruitTarget  = null;
+        try {
+            const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+            if (hMsg) await hMsg.edit({ components: trtHostNightComponents(false) });
+        } catch (_) {}
+        await trtStartMorning(game, channel, 'safe');
+        return;
+    }
+
+    game.recruitTimer = setTimeout(async () => {
+        if (!game.recruitPending || game.recruitTarget !== targetId) return;
+        game.recruitPending = false;
+        game.recruitTarget  = null;
+        game.log.recruitments.push({ round: game.round, recruiterName: traitorName, targetName: game.players.get(targetId)?.name || '?', accepted: false });
+        try {
+            const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+            if (hMsg) await hMsg.edit({ components: trtHostNightComponents(false) });
+        } catch (_) {}
+        await trtStartMorning(game, channel, 'safe');
+    }, TRT_RECRUIT_MS);
+}
+
+async function trtResolveNight(game, channel) {
+    if (game.phase !== 'night') return;
+
+    if (game.nightVotes.size === 0) {
+        await trtStartMorning(game, channel, 'safe');
+        return;
+    }
+
+    const tally = new Map();
+    for (const vote of game.nightVotes.values()) {
+        const key = `${vote.action}:${vote.targetId}`;
+        tally.set(key, (tally.get(key) || 0) + 1);
+    }
+    const maxVotes = Math.max(...tally.values());
+    const winners  = [...tally.entries()].filter(([, v]) => v === maxVotes).map(([k]) => k);
+    const chosen   = trtPickRandomFrom(winners);
+    const [action, targetId] = chosen.split(':');
+
+    if (action === 'recruit') {
+        await trtRecruitFlow(game, channel, targetId);
+        return;
+    }
+
+    // Murder
+    if (targetId === game.shieldedPlayerId) {
+        await trtStartMorning(game, channel, 'shield');
+        return;
+    }
+
+    const victim = game.players.get(targetId);
+    if (victim) {
+        victim.alive = false;
+        game.nightMurdered = targetId;
+        trtUpdateRoleSets(game);
+        game.log.murders.push({ round: game.round, victimName: victim.name, victimRole: victim.role });
+    }
+
+    const win = await trtCheckWin(game, channel);
+    if (!win) await trtStartMorning(game, channel, 'murder', targetId);
+}
+
+async function trtStartMorning(game, channel, outcome, victimId = null) {
+    game.phase = 'morning';
+    const embed = trtMorningEmbed(game, outcome, victimId);
+    try {
+        if (game.statusMsgId) {
+            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
+            if (msg) await msg.edit({ embeds: [embed], components: [] });
+            else await channel.send({ embeds: [embed] });
+        } else {
+            const msg = await channel.send({ embeds: [embed] });
+            game.statusMsgId = msg.id;
+        }
+    } catch (_) { try { await channel.send({ embeds: [embed] }); } catch (__) {} }
+
+    // Hide host controls during morning
+    try {
+        const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+        if (hMsg) await hMsg.edit({ content: '**Host controls** — Discussion will begin shortly...', components: [] });
+    } catch (_) {}
+
+    // Auto-advance to discussion after 4s
+    setTimeout(() => {
+        if (game.phase !== 'morning') return;
+        trtStartDiscussion(game, channel).catch(() => {});
+    }, 4000);
+}
+
+async function trtStartDiscussion(game, channel) {
+    game.phase = 'discussion';
+    game.round++;
+
+    const secondsLeft = Math.floor(TRT_DISCUSSION_MS / 1000);
+    const embed = trtDiscussionEmbed(game, secondsLeft);
+
+    try {
+        if (game.statusMsgId) {
+            const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
+            if (msg) await msg.edit({ embeds: [embed], components: [] });
+            else { const m = await channel.send({ embeds: [embed] }); game.statusMsgId = m.id; }
+        } else {
+            const m = await channel.send({ embeds: [embed] });
+            game.statusMsgId = m.id;
+        }
+    } catch (_) {}
+
+    try {
+        const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+        if (hMsg) await hMsg.edit({ content: `**Host controls — Discussion Round ${game.round}**`, components: trtHostDiscussionComponents() });
+    } catch (_) {}
+
+    // Warning embeds
+    game.discussionWarningTimers = [];
+    const warnings = [
+        { delay: TRT_DISCUSSION_MS - 3 * 60 * 1000, text: TRT_TEXT.DISCUSSION_3MIN, secs: 3 * 60 },
+        { delay: TRT_DISCUSSION_MS - 60 * 1000,     text: TRT_TEXT.DISCUSSION_1MIN, secs: 60 },
+        { delay: TRT_DISCUSSION_MS - 30 * 1000,     text: TRT_TEXT.DISCUSSION_30SEC, secs: 30 },
+    ];
+    for (const w of warnings) {
+        if (w.delay <= 0) continue;
+        game.discussionWarningTimers.push(setTimeout(async () => {
+            if (game.phase !== 'discussion') return;
+            try {
+                const msg = await channel.messages.fetch(game.statusMsgId).catch(() => null);
+                if (msg) await msg.edit({ embeds: [trtDiscussionEmbed(game, w.secs)] });
+            } catch (_) {}
+        }, w.delay));
+    }
+
+    game.phaseTimer = setTimeout(() => {
+        if (game.phase !== 'discussion') return;
+        trtClearDiscussionWarnings(game);
+        trtStartBanishmentVote(game, channel).catch(() => {});
+    }, TRT_DISCUSSION_MS);
+}
+
+async function trtStartBanishmentVote(game, channel) {
+    game.phase          = 'vote';
+    game.banishmentVotes = new Map();
+    trtClearDiscussionWarnings(game);
+    if (game.phaseTimer) { clearTimeout(game.phaseTimer); game.phaseTimer = null; }
+
+    const embed      = trtBanishmentVoteEmbed(game);
+    const selectMenu = trtBanishmentVoteSelectMenu(game);
+
+    // Post the vote embed + select menu
+    let vMsg = null;
+    try {
+        vMsg = await channel.send({ embeds: [embed], components: selectMenu });
+        game.voteMsgId = vMsg.id;
+    } catch (_) {}
+
+    try {
+        const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+        if (hMsg) await hMsg.edit({ content: `**Host controls — Vote Round ${game.round}**`, components: trtHostVoteComponents() });
+    } catch (_) {}
+
+    // Auto-reveal timer
+    game.phaseTimer = setTimeout(() => {
+        if (game.phase !== 'vote') return;
+        trtResolveBanishment(game, channel).catch(() => {});
+    }, TRT_VOTE_MS);
+}
+
+async function trtResolveBanishment(game, channel) {
+    if (game.phase !== 'vote') return;
+    if (game.phaseTimer) { clearTimeout(game.phaseTimer); game.phaseTimer = null; }
+
+    // Disable the vote select menu
+    try {
+        const vMsg = await channel.messages.fetch(game.voteMsgId).catch(() => null);
+        if (vMsg) await vMsg.edit({ components: [] });
+    } catch (_) {}
+
+    // Tally
+    const tally = new Map();
+    for (const targetId of game.banishmentVotes.values()) {
+        tally.set(targetId, (tally.get(targetId) || 0) + 1);
+    }
+
+    if (tally.size === 0) {
+        // No votes cast
+        await channel.send({ embeds: [trtBanishmentResultEmbed(game, null, true)] }).catch(() => {});
+        const win = await trtCheckWin(game, channel);
+        if (!win) await trtStartNight(game, channel);
+        return;
+    }
+
+    const maxVotes = Math.max(...tally.values());
+    const topTargets = [...tally.entries()].filter(([, v]) => v === maxVotes).map(([k]) => k);
+    const wasTie = topTargets.length > 1;
+
+    if (wasTie) {
+        await channel.send({ embeds: [trtBanishmentResultEmbed(game, null, true)] }).catch(() => {});
+        const win = await trtCheckWin(game, channel);
+        if (!win) await trtStartNight(game, channel);
+        return;
+    }
+
+    const banishedId = topTargets[0];
+    const banished   = game.players.get(banishedId);
+    if (banished) {
+        banished.alive = false;
+        game.log.banishments.push({ round: game.round, targetName: banished.name, targetRole: banished.role, votes: maxVotes });
+    }
+    trtUpdateRoleSets(game);
+
+    await channel.send({ embeds: [trtBanishmentResultEmbed(game, banishedId, false)] }).catch(() => {});
+
+    const win = await trtCheckWin(game, channel);
+    if (!win) await trtStartNight(game, channel);
+}
+
+async function trtStartGame(game, channel) {
+    const playerCount  = game.players.size;
+    const traitorCount = trtGetTraitorCount(playerCount);
+    const playerIds    = [...game.players.keys()];
+
+    // Shuffle and assign traitors
+    for (let i = playerIds.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [playerIds[i], playerIds[j]] = [playerIds[j], playerIds[i]];
+    }
+    const traitorIds = new Set(playerIds.slice(0, traitorCount));
+    for (const [uid, p] of game.players) {
+        p.role  = traitorIds.has(uid) ? 'traitor' : 'faithful';
+        p.alive = true;
+    }
+    trtUpdateRoleSets(game);
+    game.round = 0;
+    game.log   = { murders: [], banishments: [], recruitments: [] };
+
+    // DM all players their role
+    const traitorNames = [...game.traitorIds].map(tid => game.players.get(tid)?.name || '?');
+    const dmFailed = [];
+    for (const [uid, p] of game.players) {
+        try {
+            const user    = await client.users.fetch(uid);
+            const dmEmbed = p.role === 'traitor'
+                ? { color: 0x7c0a02, title: '🗡️ Your Role: TRAITOR', description: TRT_TEXT.DM_YOU_ARE_TRAITOR(traitorNames.filter(n => n !== p.name)) }
+                : { color: 0x3b82f6, title: '🛡️ Your Role: FAITHFUL', description: TRT_TEXT.DM_YOU_ARE_FAITHFUL };
+            await user.send({ embeds: [dmEmbed] });
+        } catch (_) {
+            dmFailed.push(uid);
+        }
+    }
+
+    // Remove DM-failed players
+    for (const uid of dmFailed) {
+        game.players.delete(uid);
+        traitorPlayerMap.delete(uid);
+    }
+    trtUpdateRoleSets(game);
+
+    if (dmFailed.length > 0) {
+        await channel.send({ content: `⚠️ Could not DM ${dmFailed.length} player(s) — they have been removed from the game.` }).catch(() => {});
+    }
+
+    if (game.players.size < TRT_MIN_PLAYERS) {
+        await channel.send({ content: '❌ Not enough players after DM failures. Game cancelled.' }).catch(() => {});
+        trtCleanup(game);
+        return;
+    }
+    if (game.traitorIds.size === 0) {
+        await channel.send({ content: '❌ All Traitors failed to receive DMs. Game cancelled.' }).catch(() => {});
+        trtCleanup(game);
+        return;
+    }
+
+    // Post host control message
+    const hMsg = await channel.send({ content: '**Host controls — loading...**', components: [] }).catch(() => null);
+    if (hMsg) game.hostMsgId = hMsg.id;
+
+    await trtStartNight(game, channel);
+}
+
+// ─ E. Interaction Sub-handlers ───────────────────────────────────────────────
+
+async function handleTrtNightVote(interaction, game, channel) {
+    const traitorId = interaction.user.id;
+    if (!game.traitorIds.has(traitorId)) {
+        await interaction.reply({ content: '❌ You are not a Traitor or this is not the night phase.', ephemeral: true });
+        return;
+    }
+    if (game.nightVotes.has(traitorId)) {
+        await interaction.update({ content: '✅ You have already voted tonight.', components: [] });
+        return;
+    }
+
+    const value    = interaction.values[0];
+    const colonIdx = value.indexOf(':');
+    const action   = value.slice(0, colonIdx);
+    const targetId = value.slice(colonIdx + 1);
+
+    game.nightVotes.set(traitorId, { action, targetId });
+    await interaction.update({ content: `✅ Your vote is locked in: **${action === 'murder' ? 'Murder' : 'Recruit'}** ${game.players.get(targetId)?.name || '?'}`, components: [] });
+
+    // Auto-resolve if all traitors (who got DMs) have voted
+    const dmSuccessful = [...game.traitorIds].filter(tid => !game.dmFailedIds.has(tid));
+    const allVoted = dmSuccessful.every(tid => game.nightVotes.has(tid));
+    if (allVoted && game.phase === 'night' && !game.recruitPending) {
+        await trtResolveNight(game, channel);
+    }
+}
+
+async function handleTrtBanVote(interaction, game, channel) {
+    const voterId   = interaction.user.id;
+    const player    = game.players.get(voterId);
+    if (!player || !player.alive) {
+        await interaction.reply({ content: '❌ You are not an active player.', ephemeral: true });
+        return;
+    }
+    if (game.banishmentVotes.has(voterId)) {
+        await interaction.reply({ content: '❌ You have already voted.', ephemeral: true });
+        return;
+    }
+    const targetId = interaction.values[0];
+    if (targetId === voterId) {
+        await interaction.reply({ content: '❌ You cannot vote for yourself.', ephemeral: true });
+        return;
+    }
+    game.banishmentVotes.set(voterId, targetId);
+
+    // Update embed with new vote count
+    try {
+        const vMsg = await channel.messages.fetch(game.voteMsgId).catch(() => null);
+        if (vMsg) await vMsg.edit({ embeds: [trtBanishmentVoteEmbed(game)], components: trtBanishmentVoteSelectMenu(game) });
+    } catch (_) {}
+
+    await interaction.reply({ content: `✅ You voted for **${game.players.get(targetId)?.name || '?'}**.`, ephemeral: true });
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+
+    // Auto-resolve if all living players voted
+    const allVoted = trtLivingPlayers(game).every(([uid]) => game.banishmentVotes.has(uid));
+    if (allVoted && game.phase === 'vote') {
+        await trtResolveBanishment(game, channel);
+    }
+}
+
+async function handleTrtRecruitAccept(interaction, game, channel) {
+    const userId = interaction.user.id;
+    if (!game.recruitPending || game.recruitTarget !== userId) {
+        await interaction.reply({ content: '❌ This offer has expired.', ephemeral: true });
+        return;
+    }
+    if (game.recruitTimer) { clearTimeout(game.recruitTimer); game.recruitTimer = null; }
+    game.recruitPending = false;
+    game.recruitTarget  = null;
+
+    const player = game.players.get(userId);
+    if (!player) { await interaction.reply({ content: '❌ Player not found.', ephemeral: true }); return; }
+    player.role = 'traitor';
+    trtUpdateRoleSets(game);
+
+    const traitorId   = [...game.traitorIds].find(tid => tid !== userId);
+    const traitorName = game.players.get(traitorId)?.name || 'your ally';
+    game.log.recruitments.push({ round: game.round, recruiterName: traitorName, targetName: player.name, accepted: true });
+
+    // DM the new traitor
+    try {
+        await interaction.update({ content: `✅ You have joined the Traitors. Hunt well, ${player.name}.`, components: [] });
+        const allAllyNames = [...game.traitorIds].filter(t => t !== userId).map(t => game.players.get(t)?.name || '?');
+        await interaction.user.send({ embeds: [{ color: 0x7c0a02, title: '🗡️ Welcome, Traitor', description: TRT_TEXT.DM_NOW_TRAITOR(allAllyNames) }] }).catch(() => {});
+    } catch (_) {}
+
+    // DM the recruiting traitor
+    try {
+        if (traitorId) {
+            const tUser = await client.users.fetch(traitorId);
+            await tUser.send({ embeds: [{ color: 0x22c55e, title: '🤝 Recruit Accepted', description: TRT_TEXT.DM_RECRUIT_ACCEPTED(player.name) }] });
+        }
+    } catch (_) {}
+
+    // Update host controls
+    try {
+        const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+        if (hMsg) await hMsg.edit({ components: trtHostNightComponents(false) });
+    } catch (_) {}
+
+    const win = await trtCheckWin(game, channel);
+    if (!win) await trtStartMorning(game, channel, 'safe');
+}
+
+async function handleTrtRecruitDecline(interaction, game, channel) {
+    const userId = interaction.user.id;
+    if (!game.recruitPending || game.recruitTarget !== userId) {
+        await interaction.reply({ content: '❌ This offer has expired.', ephemeral: true });
+        return;
+    }
+    if (game.recruitTimer) { clearTimeout(game.recruitTimer); game.recruitTimer = null; }
+    game.recruitPending = false;
+    game.recruitTarget  = null;
+
+    const player      = game.players.get(userId);
+    const traitorId   = [...game.traitorIds][0];
+    const traitorName = game.players.get(traitorId)?.name || 'a Traitor';
+
+    game.log.recruitments.push({ round: game.round, recruiterName: traitorName, targetName: player?.name || '?', accepted: false });
+
+    try { await interaction.update({ content: '❌ You have declined the offer. The night passes safely.', components: [] }); } catch (_) {}
+
+    // Notify recruiting traitor
+    try {
+        if (traitorId) {
+            const tUser = await client.users.fetch(traitorId);
+            await tUser.send({ embeds: [{ color: 0xdc2626, title: '❌ Recruit Declined', description: TRT_TEXT.DM_RECRUIT_DECLINED(player?.name || '?') }] });
+        }
+    } catch (_) {}
+
+    // Re-enable Resolve Night
+    try {
+        const hMsg = await channel.messages.fetch(game.hostMsgId).catch(() => null);
+        if (hMsg) await hMsg.edit({ components: trtHostNightComponents(false) });
+    } catch (_) {}
+
+    await trtStartMorning(game, channel, 'safe');
+}
+
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
@@ -4509,6 +5477,135 @@ client.on('interactionCreate', async (interaction) => {
                             {
                                 name: '⚡ Commands',
                                 value: '`/imposter start` — start a game\n`/imposter stop` — end current game\n`/imposter help` — this message\n`/redeploy` — redeploy the bot with latest code (owner only)',
+                            },
+                        ],
+                    }],
+                });
+            }
+        }
+
+        // ── /traitors ─────────────────────────────────────────────────────────
+        if (interaction.commandName === 'traitors') {
+            const sub = interaction.options.getSubcommand();
+
+            if (sub === 'start') {
+                if (botFeatures.traitorsGame === false) {
+                    return interaction.reply({ content: 'The Traitors game is currently disabled.', ephemeral: true });
+                }
+                const existing = traitorGames.get(TRT_CHANNEL_ID);
+                if (existing && existing.phase !== 'ended') {
+                    return interaction.reply({ content: `A game is already running in <#${TRT_CHANNEL_ID}>! Use \`/traitors stop\` to end it first.`, ephemeral: true });
+                }
+                const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+                if (!channel) return interaction.reply({ content: 'Could not find the Traitors game channel.', ephemeral: true });
+
+                const game = {
+                    channelId: TRT_CHANNEL_ID,
+                    hostId: interaction.user.id,
+                    phase: 'lobby',
+                    round: 0,
+                    players: new Map(),
+                    traitorIds: new Set(),
+                    faithfulIds: new Set(),
+                    nightVotes: new Map(),
+                    nightMurdered: null,
+                    shieldedPlayerId: null,
+                    recruitPending: false,
+                    recruitTarget: null,
+                    dmFailedIds: new Set(),
+                    banishmentVotes: new Map(),
+                    statusMsgId: null,
+                    hostMsgId: null,
+                    voteMsgId: null,
+                    lobbyTimer: null,
+                    phaseTimer: null,
+                    discussionWarningTimers: [],
+                    recruitTimer: null,
+                    options: { hiddenRoleReveal: false, shieldChallenge: false, recruitmentTwist: true },
+                    log: { murders: [], banishments: [], recruitments: [] },
+                };
+                traitorGames.set(TRT_CHANNEL_ID, game);
+
+                game.players.set(interaction.user.id, {
+                    name: interaction.member?.displayName || interaction.user.username,
+                    role: null,
+                    alive: true,
+                    order: 1,
+                });
+                traitorPlayerMap.set(interaction.user.id, TRT_CHANNEL_ID);
+
+                const msg = await channel.send({ embeds: [trtLobbyEmbed(game)], components: trtLobbyComponents(game) });
+                game.statusMsgId = msg.id;
+
+                game.lobbyTimer = setTimeout(async () => {
+                    if (traitorGames.get(TRT_CHANNEL_ID) === game && game.phase === 'lobby') {
+                        await trtEndGame(game, channel, null, null);
+                        await channel.send({ embeds: [{ color: 0x6b7280, description: '⏰ Lobby timed out with no game started.' }] }).catch(() => {});
+                    }
+                }, TRT_LOBBY_TIMEOUT_MS);
+
+                await interaction.reply({ content: `Game lobby created in <#${TRT_CHANNEL_ID}>! Join up.`, ephemeral: true });
+                return;
+            }
+
+            if (sub === 'stop') {
+                const game = traitorGames.get(TRT_CHANNEL_ID);
+                if (!game || game.phase === 'ended') {
+                    return interaction.reply({ content: 'No active Traitors game.', ephemeral: true });
+                }
+                if (!trtIsHost(interaction, game)) {
+                    return interaction.reply({ content: 'Only the host or a moderator can stop the game.', ephemeral: true });
+                }
+                await interaction.deferReply({ ephemeral: true });
+                const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+                const byName  = interaction.member?.displayName || interaction.user.username;
+                if (channel) await trtEndGame(game, channel, null, byName);
+                await interaction.editReply({ content: 'Game ended.' });
+                return;
+            }
+
+            if (sub === 'status') {
+                const game = traitorGames.get(TRT_CHANNEL_ID);
+                if (!game || game.phase === 'ended') {
+                    return interaction.reply({ content: 'No active Traitors game.', ephemeral: true });
+                }
+                return interaction.reply({ embeds: [trtStatusEmbed(game)], ephemeral: true });
+            }
+
+            if (sub === 'help') {
+                return interaction.reply({
+                    ephemeral: true,
+                    embeds: [{
+                        color: 0x1a0a2e,
+                        title: '🗡️ The Traitors — How to Play',
+                        fields: [
+                            {
+                                name: '🎭 The Setup',
+                                value: 'Players are secretly assigned as **Traitors** or **Faithfuls**. Traitors know each other; Faithfuls do not know who anyone is.',
+                            },
+                            {
+                                name: '🌙 Night Phase',
+                                value: 'Traitors receive a DM with a secret vote: **Murder** a Faithful (eliminating them) or **Recruit** one (if the Recruitment Twist option is on and only 1 Traitor remains with 4+ players).',
+                            },
+                            {
+                                name: '🌅 Morning Phase',
+                                value: 'The channel announces whether someone was found dead, or the castle is safe. Players discuss who they suspect.',
+                            },
+                            {
+                                name: '⚖️ Discussion & Banishment',
+                                value: 'After a 5-min discussion, everyone votes to **banish** a player. The player with the most votes is banished. A tie means no one is banished.',
+                            },
+                            {
+                                name: '🏆 Win Conditions',
+                                value: '**Faithfuls win:** All Traitors are banished.\n**Traitors win:** Traitors equal or outnumber Faithfuls.',
+                            },
+                            {
+                                name: '⚙️ Options (set in lobby)',
+                                value: '• **Hidden Role Reveal** — roles only revealed at game end\n• **Shield Challenge** — one Faithful is secretly shielded each night\n• **Recruitment Twist** — lone Traitor may recruit a Faithful (on by default)',
+                            },
+                            {
+                                name: '⚡ Commands',
+                                value: '`/traitors start` — start a lobby\n`/traitors stop` — end the game\n`/traitors status` — current phase info\n`/traitors help` — this message',
                             },
                         ],
                     }],
@@ -5990,6 +7087,25 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── Traitors — select menu interactions (DM night vote + channel ban vote) ──
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'trt:nightvote') {
+            const channelId = traitorPlayerMap.get(interaction.user.id);
+            const game      = channelId ? traitorGames.get(channelId) : null;
+            if (!game || game.phase !== 'night') { await interaction.reply({ content: '❌ No active night phase.', ephemeral: true }); return; }
+            const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+            if (channel) await handleTrtNightVote(interaction, game, channel);
+            return;
+        }
+        if (interaction.customId === 'trt:banvote') {
+            const game = traitorGames.get(TRT_CHANNEL_ID);
+            if (!game || game.phase !== 'vote') { await interaction.reply({ content: '❌ No active vote.', ephemeral: true }); return; }
+            const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+            if (channel) await handleTrtBanVote(interaction, game, channel);
+            return;
+        }
+    }
+
     if (!interaction.isButton()) return;
 
     // ── Imposter Game buttons ────────────────────────────────────────────────
@@ -6260,6 +7376,178 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferReply({ ephemeral: true });
         try { await interaction.message.edit({ components: [] }); } catch (_) {}
         await impReply(interaction, '✅ Session ended. Thanks for playing!');
+        return;
+    }
+
+    // ── Traitors Game buttons ────────────────────────────────────────────────
+
+    if (interaction.customId === 'trt:join') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await trtReply(interaction, 'No active lobby right now.'); return; }
+        if (game.players.has(interaction.user.id)) { await trtReply(interaction, 'You are already in the lobby!'); return; }
+        if (game.players.size >= TRT_MAX_PLAYERS) { await trtReply(interaction, `The lobby is full (${TRT_MAX_PLAYERS} players max).`); return; }
+
+        game.players.set(interaction.user.id, {
+            name: interaction.member?.displayName || interaction.user.username,
+            role: null,
+            alive: true,
+            order: game.players.size + 1,
+        });
+        traitorPlayerMap.set(interaction.user.id, TRT_CHANNEL_ID);
+
+        try {
+            const msg = await interaction.message.fetch().catch(() => null);
+            if (msg) await msg.edit({ embeds: [trtLobbyEmbed(game)], components: trtLobbyComponents(game) });
+        } catch (_) {}
+        await trtReply(interaction, '✅ You joined the lobby!');
+        return;
+    }
+
+    if (interaction.customId === 'trt:leave') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await trtReply(interaction, 'No active lobby to leave.'); return; }
+        if (!game.players.has(interaction.user.id)) { await trtReply(interaction, 'You are not in the lobby.'); return; }
+        game.players.delete(interaction.user.id);
+        traitorPlayerMap.delete(interaction.user.id);
+        try {
+            const msg = await interaction.message.fetch().catch(() => null);
+            if (msg) await msg.edit({ embeds: [trtLobbyEmbed(game)], components: trtLobbyComponents(game) });
+        } catch (_) {}
+        await trtReply(interaction, '✅ You left the lobby.');
+        return;
+    }
+
+    if (interaction.customId === 'trt:start') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await trtReply(interaction, 'No active lobby.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can start the game.'); return; }
+        if (game.players.size < TRT_MIN_PLAYERS) { await trtReply(interaction, `Need at least ${TRT_MIN_PLAYERS} players to start.`); return; }
+
+        if (game.lobbyTimer) { clearTimeout(game.lobbyTimer); game.lobbyTimer = null; }
+
+        // Disable lobby embed buttons
+        try {
+            const msg = await interaction.message.fetch().catch(() => null);
+            if (msg) await msg.edit({ components: [] });
+        } catch (_) {}
+
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (!channel) { await trtReply(interaction, 'Could not find game channel.'); return; }
+
+        game.hostMsgId = null; // will be set in trtStartGame
+        await trtReply(interaction, '✅ Game starting! Check your DMs for your role.');
+        await trtStartGame(game, channel);
+        return;
+    }
+
+    if (interaction.customId === 'trt:stop') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase === 'ended') { await trtReply(interaction, 'No active game.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host or a moderator can end the game.'); return; }
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        const byName  = interaction.member?.displayName || interaction.user.username;
+        if (channel) await trtEndGame(game, channel, null, byName);
+        await trtReply(interaction, 'Game ended.');
+        return;
+    }
+
+    if (interaction.customId === 'trt:opt:hidden') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await trtReply(interaction, 'No active lobby.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can change options.'); return; }
+        game.options.hiddenRoleReveal = !game.options.hiddenRoleReveal;
+        try {
+            const msg = await interaction.message.fetch().catch(() => null);
+            if (msg) await msg.edit({ embeds: [trtLobbyEmbed(game)], components: trtLobbyComponents(game) });
+        } catch (_) {}
+        await trtReply(interaction, `Hidden Role Reveal: ${game.options.hiddenRoleReveal ? 'ON ✅' : 'OFF ⬜'}`);
+        return;
+    }
+
+    if (interaction.customId === 'trt:opt:shield') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await trtReply(interaction, 'No active lobby.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can change options.'); return; }
+        game.options.shieldChallenge = !game.options.shieldChallenge;
+        try {
+            const msg = await interaction.message.fetch().catch(() => null);
+            if (msg) await msg.edit({ embeds: [trtLobbyEmbed(game)], components: trtLobbyComponents(game) });
+        } catch (_) {}
+        await trtReply(interaction, `Shield Challenge: ${game.options.shieldChallenge ? 'ON ✅' : 'OFF ⬜'}`);
+        return;
+    }
+
+    if (interaction.customId === 'trt:opt:recruit') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await trtReply(interaction, 'No active lobby.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can change options.'); return; }
+        game.options.recruitmentTwist = !game.options.recruitmentTwist;
+        try {
+            const msg = await interaction.message.fetch().catch(() => null);
+            if (msg) await msg.edit({ embeds: [trtLobbyEmbed(game)], components: trtLobbyComponents(game) });
+        } catch (_) {}
+        await trtReply(interaction, `Recruitment Twist: ${game.options.recruitmentTwist ? 'ON ✅' : 'OFF ⬜'}`);
+        return;
+    }
+
+    if (interaction.customId === 'trt:resolvenight') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'night') { await trtReply(interaction, 'No active night phase.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can force-resolve the night.'); return; }
+        if (game.recruitPending) { await trtReply(interaction, '⚠️ A recruitment offer is pending — wait for the player to respond.'); return; }
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (channel) await trtResolveNight(game, channel);
+        await trtReply(interaction, '✅ Night resolved.');
+        return;
+    }
+
+    if (interaction.customId === 'trt:skipdisc') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'discussion') { await trtReply(interaction, 'No active discussion phase.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can skip discussion.'); return; }
+        trtClearDiscussionWarnings(game);
+        if (game.phaseTimer) { clearTimeout(game.phaseTimer); game.phaseTimer = null; }
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (channel) await trtStartBanishmentVote(game, channel);
+        await trtReply(interaction, '✅ Discussion skipped — vote started.');
+        return;
+    }
+
+    if (interaction.customId === 'trt:revealvote') {
+        await interaction.deferReply({ ephemeral: true });
+        const game = traitorGames.get(TRT_CHANNEL_ID);
+        if (!game || game.phase !== 'vote') { await trtReply(interaction, 'No active vote.'); return; }
+        if (!trtIsHost(interaction, game)) { await trtReply(interaction, 'Only the host can reveal the result.'); return; }
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (channel) await trtResolveBanishment(game, channel);
+        await trtReply(interaction, '✅ Vote resolved.');
+        return;
+    }
+
+    if (interaction.customId === 'trt:recruit:accept') {
+        const channelId = traitorPlayerMap.get(interaction.user.id);
+        const game      = channelId ? traitorGames.get(channelId) : null;
+        if (!game) { await interaction.reply({ content: '❌ No active game found.', ephemeral: true }); return; }
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (channel) await handleTrtRecruitAccept(interaction, game, channel);
+        return;
+    }
+
+    if (interaction.customId === 'trt:recruit:decline') {
+        const channelId = traitorPlayerMap.get(interaction.user.id);
+        const game      = channelId ? traitorGames.get(channelId) : null;
+        if (!game) { await interaction.reply({ content: '❌ No active game found.', ephemeral: true }); return; }
+        const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
+        if (channel) await handleTrtRecruitDecline(interaction, game, channel);
         return;
     }
 
