@@ -201,11 +201,13 @@ const TRT_TEXT = {
         ? `Your fellow Traitor${allies.length > 1 ? 's' : ''}: **${allies.join(', ')}**\n\nYou know who to trust. Hunt wisely.\n\n*Keep your role secret — sharing DMs violates game integrity.*`
         : `You are the **only Traitor**. You hunt alone.\n\n*Keep your role secret — sharing DMs violates game integrity.*`,
     DM_YOU_ARE_FAITHFUL: 'Find the Traitors and banish them before it\'s too late.\n\n*Keep your role secret — sharing DMs violates game integrity.*',
-    DM_SHIELD:       '🥇 **You are shielded tonight.** If the Traitors choose you, their murder will fail. Keep this secret.',
-    DM_RECRUIT_OFFER: (traitorName) => `🗡️ **A Traitor has approached you in the shadows...**\n\n**${traitorName}** wants you to join them as a Traitor.\n\nIf you **Accept**, you become a Traitor and will hunt with them from the next round.\nIf you **Decline**, the night passes safely — but they may try again.\n\n*You have 5 minutes to decide.*`,
-    DM_RECRUIT_ACCEPTED: (targetName) => `✅ **${targetName}** has accepted your offer! They are now a Traitor.`,
+    DM_SHIELD:       'If the Traitors choose you tonight, their murder will fail. Keep this secret.',
+    DM_RECRUIT_OFFER: (traitorName) => `**${traitorName}** wants you to join them as a Traitor.\n\n✅ **Accept** — you become a Traitor and hunt with them from next round.\n❌ **Decline** — you will be silenced. The Traitor cannot let you live with this knowledge.\n\n*You have 5 minutes to decide.*`,
+    DM_RECRUIT_ACCEPTED: (targetName) => `**${targetName}** has joined your side. You now have an ally.`,
     DM_RECRUIT_DECLINED: (targetName) => `❌ **${targetName}** declined. The night passes safely.`,
-    DM_NOW_TRAITOR:  (allies) => `🗡️ **You have joined the Traitors!**\n\nYour fellow Traitor${allies.length > 1 ? 's' : ''}:\n${allies.join(', ')}\n\nHunt together from the next round.`,
+    DM_NOW_TRAITOR:  (allies) => allies.length > 0
+        ? `Your fellow Traitor${allies.length > 1 ? 's' : ''}: **${allies.join(', ')}**\n\nHunt together from the next round.`
+        : 'You are now a Traitor. Hunt wisely from the next round.',
     DISCUSSION_START: '⚖️ Gather round the table. Discuss — who do you suspect?',
     DISCUSSION_3MIN:  '⏳ **3 minutes remaining** — make your case.',
     DISCUSSION_1MIN:  '⚡ **1 minute remaining** — wrap up your arguments!',
@@ -5082,6 +5084,14 @@ async function trtResolveBanishment(game, channel) {
         if (vMsg) await vMsg.edit({ components: [] });
     } catch (_) {}
 
+    // Post individual vote breakdown
+    if (game.banishmentVotes.size > 0) {
+        const lines = [...game.banishmentVotes.entries()]
+            .map(([voterId, targetId]) => `**${game.players.get(voterId)?.name || '?'}** voted for **${game.players.get(targetId)?.name || '?'}**`)
+            .join('\n');
+        await channel.send({ content: `📜 **Vote breakdown:**\n${lines}` }).catch(() => {});
+    }
+
     // Tally
     const tally = new Map();
     for (const targetId of game.banishmentVotes.values()) {
@@ -5264,11 +5274,10 @@ async function handleTrtRecruitAccept(interaction, game, channel) {
     const traitorName = game.players.get(traitorId)?.name || 'your ally';
     game.log.recruitments.push({ round: game.round, recruiterName: traitorName, targetName: player.name, accepted: true });
 
-    // DM the new traitor
+    // Update the recruit offer message and DM role details
     try {
-        await interaction.update({ content: `✅ You have joined the Traitors. Hunt well, ${player.name}.`, components: [] });
         const allAllyNames = [...game.traitorIds].filter(t => t !== userId).map(t => game.players.get(t)?.name || '?');
-        await interaction.user.send({ embeds: [{ color: 0x7c0a02, title: '🗡️ Welcome, Traitor', description: TRT_TEXT.DM_NOW_TRAITOR(allAllyNames) }] }).catch(() => {});
+        await interaction.update({ embeds: [{ color: 0x7c0a02, title: '🗡️ Welcome, Traitor', description: TRT_TEXT.DM_NOW_TRAITOR(allAllyNames) }], components: [] });
     } catch (_) {}
 
     // DM the recruiting traitor
