@@ -1460,6 +1460,9 @@ function buildFullBackup() {
     for (const [uid, hist] of conversationHistory) {
         if (hist.length > 0) ai[uid] = hist.slice(-20);
     }
+    const afk = {};
+    for (const [uid, d] of afkUsers) afk[uid] = { reason: d.reason, originalNickname: d.originalNickname, timestamp: d.timestamp };
+
     return {
         savedAt: new Date().toISOString(),
         voiceMinutes: vm,
@@ -1475,6 +1478,7 @@ function buildFullBackup() {
             wallOfShame: countingState.wallOfShame || [],
         },
         aiHistory: ai,
+        afk,
     };
 }
 
@@ -1766,9 +1770,14 @@ function applyBackupToMemory(data) {
     for (const [uid, hist] of Object.entries(data.aiHistory || {})) {
         conversationHistory.set(uid, hist);
     }
+    // AFK state
+    afkUsers.clear();
+    for (const [uid, d] of Object.entries(data.afk || {})) {
+        afkUsers.set(uid, { reason: d.reason, originalNickname: d.originalNickname, timestamp: d.timestamp });
+    }
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
-    console.log(`[BeastBot] ✅ State loaded: ${voiceMinutes.size} voice, ${messageDays.size} msg, ${rankAchievements.size} rank, ${reactionDays.size} reaction users (${voiceTotal} total voice mins)`);
+    console.log(`[BeastBot] ✅ State loaded: ${voiceMinutes.size} voice, ${messageDays.size} msg, ${rankAchievements.size} rank, ${reactionDays.size} reaction users (${voiceTotal} total voice mins), ${afkUsers.size} AFK`);
 }
 
 // Once-per-day Firestore write — writes all collections (not just backups)
@@ -3858,6 +3867,20 @@ client.once('clientReady', async () => {
             }
             if (healed > 0) console.log(`[BeastBot] Self-healed rankAchievements for ${healed} members from Discord roles`);
         } catch (e) { console.error('[BeastBot] rankAchievements self-heal failed:', e.message); }
+
+        // Restore AFK state from member nicknames — catches anyone whose AFK wasn't in backup
+        try {
+            let afkRestored = 0;
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                if (!member.displayName.startsWith('[AFK]')) continue;
+                if (afkUsers.has(member.id)) continue; // already restored from backup
+                const originalNickname = member.displayName.replace(/^\[AFK\]\s*/, '');
+                afkUsers.set(member.id, { reason: 'AFK', originalNickname, timestamp: Date.now() });
+                afkRestored++;
+            }
+            if (afkRestored > 0) console.log(`[BeastBot] Restored ${afkRestored} AFK users from nicknames`);
+        } catch (e) { console.error('[BeastBot] AFK nickname restore failed:', e.message); }
 
         // Pre-warm emoji image cache for rank pill rendering
         Promise.all(VOICE_RANK_ROLES.map(r => {
