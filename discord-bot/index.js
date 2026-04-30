@@ -1114,6 +1114,7 @@ async function handleCountingMessage(message) {
     countingState.lastUserId = message.author.id;
     if (num > countingState.record) countingState.record = num;
     scheduleCountingQuickSave();
+    if (message.guild) checkMessageMilestone(message).catch(() => {});
 
     // Counting state is persisted via Discord backup every 60s — no per-count Firestore write
 
