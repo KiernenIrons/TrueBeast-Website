@@ -315,26 +315,126 @@ const TextArea = ({ label, value, onChange, placeholder, rows = 3 }: any) => (
   </div>
 );
 
+// ── Photo Crop Tool ───────────────────────────────────────────────────────────
+const CROP_CORNERS: Array<{ cursor:string; pos:React.CSSProperties; sx:number; sy:number; fx:boolean; fy:boolean }> = [
+  { cursor:'nw-resize', pos:{top:-6,left:-6},    sx:-1, sy:-1, fx:false, fy:false },
+  { cursor:'ne-resize', pos:{top:-6,right:-6},   sx: 1, sy:-1, fx:true,  fy:false },
+  { cursor:'sw-resize', pos:{bottom:-6,left:-6}, sx:-1, sy: 1, fx:false, fy:true  },
+  { cursor:'se-resize', pos:{bottom:-6,right:-6},sx: 1, sy: 1, fx:true,  fy:true  },
+];
+
+const PhotoCropper = ({ src, onConfirm, onCancel }: { src:string; onConfirm:(url:string)=>void; onCancel:()=>void }) => {
+  const [img, setImg] = useState<HTMLImageElement|null>(null);
+  const [crop, setCrop] = useState({ x:0, y:0, size:100 });
+
+  useEffect(() => {
+    const i = new Image();
+    i.onload = () => {
+      setImg(i);
+      const s = Math.min(i.width, i.height);
+      setCrop({ x: Math.floor((i.width - s) / 2), y: Math.floor((i.height - s) / 2), size: s });
+    };
+    i.src = src;
+  }, [src]);
+
+  const DISP = Math.min(480, typeof window !== 'undefined' ? window.innerWidth - 80 : 480);
+  const sc = img ? Math.min(DISP / img.width, DISP / img.height, 1) : 1;
+  const dW = img ? Math.round(img.width * sc) : DISP;
+  const dH = img ? Math.round(img.height * sc) : DISP;
+  const dc = { x: crop.x * sc, y: crop.y * sc, s: crop.size * sc };
+
+  const startMove = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY, { x:ox, y:oy, size:os } = crop;
+    const mm = (ev: MouseEvent) => {
+      if (!img) return;
+      setCrop({ size:os,
+        x: Math.max(0, Math.min(img.width - os,  ox + (ev.clientX - sx) / sc)),
+        y: Math.max(0, Math.min(img.height - os, oy + (ev.clientY - sy) / sc)),
+      });
+    };
+    const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+    window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
+  };
+
+  const startResize = (e: React.MouseEvent, corner: typeof CROP_CORNERS[number]) => {
+    e.preventDefault(); e.stopPropagation();
+    const sx = e.clientX, sy = e.clientY, { x:ox, y:oy, size:os } = crop;
+    const mm = (ev: MouseEvent) => {
+      if (!img) return;
+      const dx = (ev.clientX - sx) / sc, dy = (ev.clientY - sy) / sc;
+      const delta = corner.sx * dx + corner.sy * dy;
+      let ns = Math.max(40 / sc, os + delta);
+      let nx = corner.fx ? ox : ox - (ns - os);
+      let ny = corner.fy ? oy : oy - (ns - os);
+      if (nx < 0) { ns += nx; nx = 0; }
+      if (ny < 0) { ns += ny; ny = 0; }
+      if (nx + ns > img.width)  ns = img.width  - nx;
+      if (ny + ns > img.height) ns = img.height - ny;
+      setCrop({ x: nx, y: ny, size: Math.max(40 / sc, ns) });
+    };
+    const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); };
+    window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu);
+  };
+
+  const confirm = () => {
+    if (!img) return;
+    const c = document.createElement('canvas');
+    c.width = 300; c.height = 300;
+    c.getContext('2d')!.drawImage(img,
+      Math.round(crop.x), Math.round(crop.y), Math.round(crop.size), Math.round(crop.size),
+      0, 0, 300, 300);
+    onConfirm(c.toDataURL('image/jpeg', 0.92));
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.92)',zIndex:9999,
+      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,padding:16}}>
+      <p style={{color:'#fff',fontWeight:600,fontSize:15,margin:0}}>Drag to position &nbsp;·&nbsp; Drag corners to resize</p>
+      {img ? (
+        <div style={{position:'relative',width:dW,height:dH,userSelect:'none',flexShrink:0}}>
+          <img src={src} style={{width:dW,height:dH,display:'block'}} draggable={false} />
+          <div onMouseDown={startMove} style={{
+            position:'absolute', left:dc.x, top:dc.y, width:dc.s, height:dc.s,
+            boxSizing:'border-box', cursor:'move',
+            border:'2px solid #fff',
+            boxShadow:'0 0 0 9999px rgba(0,0,0,0.58)',
+          }}>
+            {/* rule-of-thirds grid */}
+            {[1/3, 2/3].map(t => (
+              <span key={t} style={{pointerEvents:'none'}}>
+                <span style={{position:'absolute',left:0,right:0,top:`${t*100}%`,height:1,background:'rgba(255,255,255,0.38)',display:'block'}} />
+                <span style={{position:'absolute',top:0,bottom:0,left:`${t*100}%`,width:1,background:'rgba(255,255,255,0.38)',display:'block'}} />
+              </span>
+            ))}
+            {/* corner handles */}
+            {CROP_CORNERS.map((corner, i) => (
+              <div key={i} onMouseDown={e => startResize(e, corner)}
+                style={{position:'absolute',width:12,height:12,background:'#fff',
+                  borderRadius:2,cursor:corner.cursor,...corner.pos} as React.CSSProperties}
+              />
+            ))}
+          </div>
+        </div>
+      ) : <p style={{color:'#888'}}>Loading…</p>}
+      <div style={{display:'flex',gap:10}}>
+        <button onClick={onCancel} className="ghost-btn">Cancel</button>
+        <button onClick={confirm} className="primary-btn">Crop &amp; Use Photo</button>
+      </div>
+    </div>
+  );
+};
+
 // ── Section Editors ───────────────────────────────────────────────────────────
 const PersonalInfoEditor = ({ data, photo, dispatch }: any) => {
   const f = (field: string) => (val: string) => dispatch({ type:'SET_FIELD', path:`sections.personal.data.${field}`, value:val });
+  const [cropSrc, setCropSrc] = useState<string|null>(null);
+
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      const img = new Image();
-      img.onload = () => {
-        const MAX = 300;
-        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
-        dispatch({ type:'SET_PHOTO', value:{ dataUrl: canvas.toDataURL('image/jpeg', 0.8) } });
-      };
-      img.src = (ev.target as FileReader).result as string;
-    };
+    reader.onload = (ev) => setCropSrc((ev.target as FileReader).result as string);
     reader.readAsDataURL(file);
   };
   return (
@@ -366,7 +466,8 @@ const PersonalInfoEditor = ({ data, photo, dispatch }: any) => {
           <div className="flex flex-col gap-2">
             <label className="ghost-btn" style={{cursor:'pointer'}}>
               {photo.dataUrl ? 'Change Photo' : 'Upload Photo'}
-              <input type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}} />
+              {/* key={cropSrc??''} resets the input so re-selecting the same file re-triggers onChange */}
+              <input key={cropSrc ?? ''} type="file" accept="image/*" onChange={handlePhoto} style={{display:'none'}} />
             </label>
             {photo.dataUrl && (
               <button className="pill-btn danger" onClick={() => dispatch({ type:'SET_PHOTO', value:{ dataUrl:null } })}>Remove</button>
@@ -386,6 +487,13 @@ const PersonalInfoEditor = ({ data, photo, dispatch }: any) => {
           </div>
         )}
       </div>
+      {cropSrc && (
+        <PhotoCropper
+          src={cropSrc}
+          onConfirm={(url) => { dispatch({ type:'SET_PHOTO', value:{ dataUrl: url } }); setCropSrc(null); }}
+          onCancel={() => setCropSrc(null)}
+        />
+      )}
     </div>
   );
 };
