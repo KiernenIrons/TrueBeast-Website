@@ -3,6 +3,7 @@ import { useState, useEffect, useReducer, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import PageLayout from '@/components/layout/PageLayout';
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -1160,221 +1161,94 @@ const PreviewPanel = ({ resume, previewRef }: any) => {
 };
 
 // ── Export Functions ───────────────────────────────────────────────────────────
-// ── Pure-jsPDF exporter (no html2canvas — built directly from resume JSON) ────
-function exportPDF(resume: any, docName: string): void {
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
-  const PW = 595.28, PH = 841.89;
-  const ML = 45, MR = 45, MT = 45, MB = 50;
-  const CW = PW - ML - MR;
-  let y = MT;
+// ── PDF exporter: html2canvas renders the styled preview, DOM positions drive clean cuts ──
+async function exportPDF(
+  previewRef: React.RefObject<HTMLDivElement | null>,
+  _resume: any,
+  docName: string
+): Promise<void> {
+  if (!previewRef.current) return;
+  const el = previewRef.current;
 
-  function hexRgb(hex: string): [number,number,number] {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '#2563eb');
-    return m ? [parseInt(m[1],16), parseInt(m[2],16), parseInt(m[3],16)] : [37,99,235];
-  }
-  const [ar,ag,ab] = hexRgb(resume.accentColor || '#2563eb');
-  const serif = ['Merriweather','Playfair Display'].includes(resume.fontFamily);
-  const font = serif ? 'times' : 'helvetica';
-  const fsScale = ({ small:0.85, medium:1, large:1.12 } as Record<string,number>)[resume.fontSize] || 1;
-  const lsScale = ({ compact:1.3, normal:1.5, relaxed:1.7 } as Record<string,number>)[resume.lineSpacing] || 1.5;
+  const PAGE_W_PX = 794;
+  const PAGE_H_PX = Math.round(PAGE_W_PX * 297 / 210); // 1122
+  const SCALE = 2;
+  const PAGE_H_C = PAGE_H_PX * SCALE; // canvas pixels per page height
+  const GUARD_C = 100 * SCALE; // guard zone: if section starts within this many canvas-px of a cut, move cut up
 
-  // ── layout primitives ──────────────────────────────────────────────────────
-  function np(needed: number) {
-    if (y + needed > PH - MB) { pdf.addPage(); y = MT; }
-  }
+  // Measure section Y positions relative to el in canvas-pixel space.
+  // Using getBoundingClientRect: both el and children share the same scroll ancestry,
+  // so scroll cancels out and the difference is stable.
+  const elRect = el.getBoundingClientRect();
+  const sectionTopsC = Array.from(el.querySelectorAll('[data-rb-section]'))
+    .map(s => ((s as HTMLElement).getBoundingClientRect().top - elRect.top) * SCALE)
+    .filter(y => y >= 0)
+    .sort((a, b) => a - b);
 
-  function setStyle(size: number, style: 'normal'|'bold'|'italic' = 'normal', rgb: [number,number,number] = [26,26,26]) {
-    pdf.setFont(font, style); pdf.setFontSize(size); pdf.setTextColor(...rgb);
-  }
-
-  function textLines(text: string, x: number, maxW: number, size: number,
-    style: 'normal'|'bold'|'italic' = 'normal', rgb: [number,number,number] = [26,26,26]) {
-    if (!text?.trim()) return;
-    setStyle(size, style, rgb);
-    const lh = size * lsScale;
-    const lines: string[] = pdf.splitTextToSize(text, maxW);
-    for (const line of lines) { np(lh); pdf.text(line, x, y); y += lh; }
-  }
-
-  function bullet(text: string) {
-    if (!text?.trim()) return;
-    const sz = 9.5 * fsScale, lh = sz * lsScale, ind = 12;
-    setStyle(sz, 'normal', [55,55,55]);
-    const lines: string[] = pdf.splitTextToSize(text, CW - ind);
-    for (let i = 0; i < lines.length; i++) {
-      np(lh);
-      if (i === 0) pdf.text('\u2022', ML, y);
-      pdf.text(lines[i], ML + ind, y);
-      y += lh;
+  const canvas = await html2canvas(el as HTMLElement, {
+    scale: SCALE, useCORS: true, logging: false,
+    width: PAGE_W_PX, scrollX: 0, scrollY: 0,
+    onclone: (doc: Document) => {
+      const cloned = doc.getElementById('resume-print');
+      if (!cloned) return;
+      doc.querySelectorAll('style').forEach(s => s.remove());
+      const s = doc.createElement('style');
+      s.textContent = '*{margin:0;padding:0;box-sizing:border-box;}';
+      doc.head.appendChild(s);
+      let node: HTMLElement | null = cloned.parentElement;
+      while (node && node !== doc.body) {
+        Object.assign(node.style, {
+          transform:'none', position:'static', overflow:'visible',
+          maxHeight:'none', display:'block', justifyContent:'',
+          alignItems:'', padding:'0', margin:'0'
+        });
+        node = node.parentElement;
+      }
+      doc.body.style.cssText = 'margin:0;padding:0;overflow:hidden';
+      Object.assign(cloned.style, {
+        width:`${PAGE_W_PX}px`, height:'auto', minHeight:'auto',
+        overflow:'visible', boxShadow:'none', transform:'none'
+      });
     }
-  }
+  });
 
-  function rule(rgb: [number,number,number] = [ar,ag,ab], w = 1) {
-    pdf.setDrawColor(...rgb); pdf.setLineWidth(w);
-    pdf.line(ML, y, ML + CW, y);
-  }
-
-  function titleDateRow(title: string, date: string, titleSize: number) {
-    if (!title && !date) return;
-    const lh = titleSize * 1.35;
-    np(lh);
-    if (date) { setStyle(9 * fsScale, 'normal', [110,110,110]); pdf.text(date, PW - MR, y, { align: 'right' }); }
-    setStyle(titleSize, 'bold', [26,26,26]);
-    const lines: string[] = pdf.splitTextToSize(title, date ? CW - 88 : CW);
-    pdf.text(lines[0] || '', ML, y); y += lh;
-    for (let i = 1; i < lines.length; i++) { np(lh); pdf.text(lines[i], ML, y); y += lh; }
-  }
-
-  function sectionHead(heading: string) {
-    np(60); // reserve heading + first content line so heading never orphans at page bottom
-    y += 8;
-    setStyle(10 * fsScale, 'bold', [ar,ag,ab]);
-    pdf.text(heading.toUpperCase(), ML, y);
-    y += 4; rule([ar,ag,ab], 0.9); y += 7;
-  }
-
-  function dateRange(start: string, end: string, current: boolean) {
-    if (!start && !end) return '';
-    return current ? `${start} \u2013 Present` : [start, end].filter(Boolean).join(' \u2013 ');
-  }
-
-  // ── header ─────────────────────────────────────────────────────────────────
-  const p = resume.sections?.personal?.data || {};
-  const fullName = [p.firstName, p.lastName].filter(Boolean).join(' ');
-  if (fullName) { setStyle(22 * fsScale, 'bold', [20,20,20]); pdf.text(fullName, ML, y); y += 22 * fsScale * 1.25; }
-  if (p.title) { setStyle(13 * fsScale, 'normal', [ar,ag,ab]); pdf.text(p.title, ML, y); y += 13 * fsScale * 1.4; }
-  const contacts = [p.email, p.phone, p.location, p.website, p.linkedin].filter(Boolean);
-  if (contacts.length) {
-    setStyle(9 * fsScale, 'normal', [100,100,100]);
-    const lines: string[] = pdf.splitTextToSize(contacts.join('   |   '), CW);
-    for (const line of lines) { pdf.text(line, ML, y); y += 9 * fsScale * 1.4; }
-  }
-  y += 4; rule([ar,ag,ab], 1.5); y += 10;
-
-  // ── sections ───────────────────────────────────────────────────────────────
-  for (const key of (resume.sectionOrder || [])) {
-    if (key === 'personal') continue;
-    const sec = resume.sections?.[key];
-    if (!sec?.enabled) continue;
-
-    if (key === 'summary') {
-      if (!sec.data?.text?.trim()) continue;
-      sectionHead(sec.heading || 'Professional Summary');
-      textLines(sec.data.text, ML, CW, 9.5 * fsScale, 'normal', [55,55,55]);
-      y += 4;
-
-    } else if (key === 'experience') {
-      const items = (sec.items || []).filter((i: any) => i.title || i.company);
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Work Experience');
-      for (const item of items) {
-        titleDateRow([item.title, item.company].filter(Boolean).join(' \u2014 '),
-          dateRange(item.startDate, item.endDate, item.current), 11 * fsScale);
-        if (item.location) textLines(item.location, ML, CW, 9 * fsScale, 'normal', [120,120,120]);
-        for (const b of (item.bullets || []).filter(Boolean)) bullet(b);
-        y += 5;
-      }
-
-    } else if (key === 'education') {
-      const items = (sec.items || []).filter((i: any) => i.school || i.degree);
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Education');
-      for (const item of items) {
-        const deg = [item.degree, item.field ? `in ${item.field}` : ''].filter(Boolean).join(' ');
-        titleDateRow(deg || item.school || '', dateRange(item.startDate, item.endDate, false), 11 * fsScale);
-        if (deg && item.school) textLines(item.school, ML, CW, 10 * fsScale, 'normal', [80,80,80]);
-        if (item.gpa) textLines(`GPA: ${item.gpa}`, ML, CW, 9 * fsScale, 'normal', [110,110,110]);
-        for (const b of (item.bullets || []).filter(Boolean)) bullet(b);
-        y += 5;
-      }
-
-    } else if (key === 'skills') {
-      const items = (sec.items || []).filter((i: any) => i.name?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Skills');
-      textLines(items.map((i: any) => i.name).join('   \u2022   '), ML, CW, 9.5 * fsScale, 'normal', [55,55,55]);
-      y += 4;
-
-    } else if (key === 'certifications') {
-      const items = (sec.items || []).filter((i: any) => i.name?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Certifications');
-      for (const item of items)
-        textLines([item.name, item.issuer && `\u2014 ${item.issuer}`, item.date && `(${item.date})`].filter(Boolean).join(' '),
-          ML, CW, 9.5 * fsScale, 'normal', [55,55,55]);
-      y += 2;
-
-    } else if (key === 'languages') {
-      const items = (sec.items || []).filter((i: any) => i.name?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Languages');
-      for (const item of items)
-        textLines(`${item.name}   \u2014   ${item.proficiency || ''}`, ML, CW, 9.5 * fsScale, 'normal', [55,55,55]);
-      y += 2;
-
-    } else if (key === 'projects') {
-      const items = (sec.items || []).filter((i: any) => i.name?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Projects');
-      for (const item of items) {
-        titleDateRow(item.name, dateRange(item.startDate, item.endDate, false), 11 * fsScale);
-        if (item.technologies) textLines(item.technologies, ML, CW, 9 * fsScale, 'normal', [ar,ag,ab]);
-        if (item.description) textLines(item.description, ML, CW, 9.5 * fsScale, 'normal', [75,75,75]);
-        for (const b of (item.bullets || []).filter(Boolean)) bullet(b);
-        y += 5;
-      }
-
-    } else if (key === 'awards') {
-      const items = (sec.items || []).filter((i: any) => i.title?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Awards & Achievements');
-      for (const item of items) {
-        textLines([item.title, item.issuer && `\u2014 ${item.issuer}`, item.date && `(${item.date})`].filter(Boolean).join(' '),
-          ML, CW, 10 * fsScale, 'bold', [40,40,40]);
-        if (item.description) textLines(item.description, ML, CW, 9 * fsScale, 'normal', [85,85,85]);
-        y += 3;
-      }
-
-    } else if (key === 'volunteer') {
-      const items = (sec.items || []).filter((i: any) => i.role || i.organization);
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Volunteer Experience');
-      for (const item of items) {
-        titleDateRow([item.role, item.organization && `at ${item.organization}`].filter(Boolean).join(' '),
-          dateRange(item.startDate, item.endDate, false), 11 * fsScale);
-        for (const b of (item.bullets || []).filter(Boolean)) bullet(b);
-        y += 5;
-      }
-
-    } else if (key === 'references') {
-      const items = (sec.items || []).filter((i: any) => i.name?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'References');
-      for (const item of items) {
-        textLines(item.name, ML, CW, 10 * fsScale, 'bold', [40,40,40]);
-        if (item.title || item.company)
-          textLines([item.title, item.company].filter(Boolean).join(', '), ML, CW, 9 * fsScale, 'normal', [85,85,85]);
-        if (item.email || item.phone)
-          textLines([item.email, item.phone].filter(Boolean).join('   |   '), ML, CW, 9 * fsScale, 'normal', [120,120,120]);
-        y += 4;
-      }
-
-    } else if (key === 'custom') {
-      const items = (sec.items || []).filter((i: any) => i.title?.trim() || i.description?.trim());
-      if (!items.length) continue;
-      sectionHead(sec.heading || 'Additional');
-      for (const item of items) {
-        if (item.title) textLines(item.title, ML, CW, 10 * fsScale, 'bold', [40,40,40]);
-        if (item.subtitle) textLines(item.subtitle, ML, CW, 9 * fsScale, 'normal', [100,100,100]);
-        if (item.description) textLines(item.description, ML, CW, 9.5 * fsScale, 'normal', [65,65,65]);
-        y += 3;
+  // Build page cut positions in canvas pixels.
+  // For each natural cut, check if a section heading falls within GUARD_C canvas-px before
+  // it — if so, move the cut to just above that section so it opens fresh on the next page.
+  const pageCuts: number[] = [];
+  let cutY = PAGE_H_C;
+  while (cutY < canvas.height) {
+    let adjusted = cutY;
+    for (const secY of sectionTopsC) {
+      if (secY > cutY - GUARD_C && secY <= cutY) {
+        adjusted = secY - 8 * SCALE; // land 8 CSS-px above the section top
+        break;
       }
     }
+    pageCuts.push(adjusted);
+    cutY = adjusted + PAGE_H_C;
+  }
+
+  const pdf = new jsPDF({ unit:'px', format:'a4', orientation:'portrait', hotfixes:['px_scaling'] } as any);
+  const pdfW = pdf.internal.pageSize.getWidth();
+  const starts = [0, ...pageCuts];
+  const ends   = [...pageCuts, canvas.height];
+
+  for (let i = 0; i < starts.length; i++) {
+    const sy = starts[i], h = ends[i] - sy;
+    const pg = document.createElement('canvas');
+    pg.width = PAGE_W_PX * SCALE; pg.height = h;
+    const ctx = pg.getContext('2d')!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, pg.width, h);
+    ctx.drawImage(canvas, 0, sy, pg.width, h, 0, 0, pg.width, h);
+    if (i > 0) pdf.addPage();
+    // h / SCALE converts canvas pixels → CSS pixels; pdfW / PAGE_W_PX scales to PDF units
+    pdf.addImage(pg.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, pdfW, (h / SCALE) * (pdfW / PAGE_W_PX));
   }
 
   pdf.save(`${(docName || 'resume').replace(/[^a-zA-Z0-9 ]/g, '_')}.pdf`);
 }
-
 
 function printResume(previewRef: React.RefObject<HTMLDivElement | null>) {
   if (!previewRef.current) return;
@@ -1608,9 +1482,9 @@ export default function ResumeBuilder() {
     e.target.value = '';
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     setExporting(true);
-    try { exportPDF(resume, resume.name); showToast('PDF downloaded!'); }
+    try { await exportPDF(previewRef, resume, resume.name); showToast('PDF downloaded!'); }
     catch(e) { console.error('PDF export error:', e); showToast('PDF export failed', true); }
     finally { setExporting(false); }
   };
