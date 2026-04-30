@@ -3887,12 +3887,12 @@ client.once('clientReady', async () => {
             }));
         console.log(`[BeastBot] Resumed voice tracking for ${voiceStartTimes.size} active members`);
 
-        // Tick every 60s — update voiceMinutes + accumulate camera/stream bonus XP
-        setInterval(() => {
+        // Tick every 60s — update voiceMinutes + bonus XP + rank checks
+        setInterval(async () => {
             const today = todayStr();
             for (const [uid] of voiceStartTimes) {
                 creditVoiceTime(uid);
-                // Bonus XP: camera=+0.5/min, stream=+0.5/min, both=+1.0/min
+                // Bonus XP: +1/min camera, +1/min stream
                 const bonus = getXpMultiplier(uid) - 1.0;
                 if (bonus > 0) {
                     const bData = voiceBonusXp.get(uid) || { total: 0, days: new Map() };
@@ -3900,15 +3900,15 @@ client.once('clientReady', async () => {
                     bData.days.set(today, (bData.days.get(today) || 0) + bonus);
                     voiceBonusXp.set(uid, bData);
                 }
+                // Live rank update — fires rank-up message the minute they cross a threshold
+                const member = guild.members.cache.get(uid);
+                if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
             }
-        }, 60 * 1000);
 
-        // Every 60s: save snapshot to Discord backup channel + trigger daily Firestore if date changed
-        setInterval(async () => {
-            // creditVoiceTime already called in tick 1 — voiceMinutes in-memory is up to date
-            await saveDiscordBackup();
-            await saveDailySnapshot();   // no-op unless date changed — posts immutable snapshot
-            await saveFirestoreDaily();  // no-op unless date changed — mirrors to Firestore
+            // Save snapshot immediately after crediting — guarantees fresh data in backup
+            await saveDiscordBackup().catch(e => console.error('[BeastBot] 60s backup failed:', e.message));
+            await saveDailySnapshot();
+            await saveFirestoreDaily();
         }, 60 * 1000);
     }
 
