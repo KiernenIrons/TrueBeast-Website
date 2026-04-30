@@ -841,10 +841,18 @@ const EduBlock = ({ item, fontFamily, fontSize, darkMode }: any) => {
 
 const SkillsTags = ({ items, accentColor, fontFamily, fontSize, darkMode: _darkMode }: any) => {
   const fs = tfs(fontSize);
+  const tagH = Math.round(20 * fs);
   return (
-    <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+    <div style={{lineHeight:0}}>
       {items.filter((s: any) => s.name).map((s: any) => (
-        <span key={s.id} style={{background:`${accentColor}15`,color:accentColor,padding:'4px 10px',borderRadius:4,fontSize:10*fs,fontFamily,fontWeight:500,display:'inline-flex',alignItems:'center',lineHeight:1}}>{s.name}</span>
+        <span key={s.id} style={{
+          background:`${accentColor}15`, color:accentColor,
+          paddingLeft:10, paddingRight:10,
+          height:tagH, lineHeight:`${tagH}px`,
+          borderRadius:4, fontSize:10*fs, fontFamily, fontWeight:500,
+          display:'inline-block', verticalAlign:'middle',
+          margin:'0 6px 6px 0', whiteSpace:'nowrap',
+        }}>{s.name}</span>
       ))}
     </div>
   );
