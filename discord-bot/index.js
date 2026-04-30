@@ -2681,19 +2681,13 @@ function buildRanksEmbed() {
             {
                 name: '🎙️ How to Earn XP',
                 value: [
-                    '**Voice chat** - 1 XP per minute in a voice or stage channel',
+                    '**Voice chat** - 1 XP per minute',
+                    '**Camera on** - +1 XP per minute (2 XP/min total)',
+                    '**Screen share** - +1 XP per minute (2 XP/min total)',
+                    '**Camera + screen share** - +2 XP per minute (3 XP/min total)',
                     '**Messages** - 1 XP per message sent',
                     '**Reactions** - 1 XP per reaction you add',
-                ].join('\n'),
-            },
-            {
-                name: '✨ XP Multipliers (Voice Only)',
-                value: [
-                    '📷 **Camera on** - 1.5x XP while in voice',
-                    '🖥️ **Screen share** - 1.5x XP while in voice',
-                    '📷🖥️ **Camera + screen share** - 2x XP while in voice',
-                    '🎙️🖥️ **Screen share in a Stage channel** - 2x XP',
-                    '*Multipliers only apply to voice time, not messages or reactions.*',
+                    '*Same rules apply to stage channels.*',
                 ].join('\n'),
             },
             {
@@ -2821,10 +2815,10 @@ function stripEmoji(str) {
 // Returns 2.0 if camera+stream, 1.5 if either alone, 1.0 otherwise
 function getXpMultiplier(uid) {
     const e = voiceEnhancements.get(uid) || { camera: false, stream: false, inStage: false };
-    if (e.inStage && e.stream) return 2.0;  // stage screen share = 2×
-    if (e.camera && e.stream)  return 2.0;  // camera + stream = 2×
-    if (e.camera || e.stream)  return 1.5;  // either alone = 1.5×
-    return 1.0;
+    let mult = 1.0;
+    if (e.camera) mult += 1.0;   // +1 XP/min for camera
+    if (e.stream) mult += 1.0;   // +1 XP/min for screen share
+    return mult;                  // max 3 XP/min (base + camera + stream)
 }
 
 function monthlyActivityScore(userId) {
@@ -3968,15 +3962,28 @@ client.once('clientReady', async () => {
                 .setName('rank-tutorial')
                 .setDescription('Learn how the TrueBeast ranking system works'),
             new SlashCommandBuilder()
-                .setName('counting')
+                .setName('wall-of-shame')
                 .setDescription('View counting game stats and wall of shame'),
             new SlashCommandBuilder()
                 .setName('resetcounting')
                 .setDescription('(Owner only) Reset the counting game to zero'),
             new SlashCommandBuilder()
-                .setName('counter-set')
+                .setName('set-counter')
                 .setDescription('(Owner only) Manually set the current count to a specific number')
                 .addIntegerOption(opt => opt.setName('number').setDescription('The number to set the count to').setRequired(true).setMinValue(1)),
+            new SlashCommandBuilder()
+                .setName('xp')
+                .setDescription('(Owner/Mod) Give or remove XP from a user')
+                .addSubcommand(sub => sub
+                    .setName('give')
+                    .setDescription('Give XP to a user')
+                    .addUserOption(opt => opt.setName('user').setDescription('The user to give XP to').setRequired(true))
+                    .addIntegerOption(opt => opt.setName('amount').setDescription('Amount of XP to give').setRequired(true).setMinValue(1)))
+                .addSubcommand(sub => sub
+                    .setName('remove')
+                    .setDescription('Remove XP from a user')
+                    .addUserOption(opt => opt.setName('user').setDescription('The user to remove XP from').setRequired(true))
+                    .addIntegerOption(opt => opt.setName('amount').setDescription('Amount of XP to remove').setRequired(true).setMinValue(1))),
             new SlashCommandBuilder()
                 .setName('counting-set-record')
                 .setDescription('(Owner only) Set the all-time counting record')
@@ -4204,11 +4211,7 @@ client.once('clientReady', async () => {
     // Clean up daily snapshots older than 14 days
     cleanupOldSnapshots().catch(e => console.error('[BeastBot] Snapshot cleanup failed:', e.message));
 
-    // Post Traitors restart notice if a game was in progress
-    try {
-        const trtCh = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
-        if (trtCh) await trtCh.send({ embeds: [{ color: 0x6b7280, description: TRT_TEXT.RESTART_NOTICE }] });
-    } catch (_) {}
+
 
 });
 
@@ -5724,7 +5727,7 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        if (interaction.commandName === 'counting') {
+        if (interaction.commandName === 'wall-of-shame') {
             const shameList = countingState.wallOfShame.length
                 ? countingState.wallOfShame.slice(0, 15).map((e, i) => `${i + 1}. <@${e.userId}> — **${e.highest}**`).join('\n')
                 : 'No ruins yet — keep counting!';
@@ -5754,7 +5757,7 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        if (interaction.commandName === 'counter-set') {
+        if (interaction.commandName === 'set-counter') {
             if (interaction.user.id !== OWNER_DISCORD_ID) {
                 await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
                 return;
@@ -5765,6 +5768,44 @@ client.on('interactionCreate', async (interaction) => {
             if (num > countingState.record) countingState.record = num;
             await interaction.reply({ content: `✅ Count set to **${num}**. Next number is **${num + 1}**.`, ephemeral: true });
             saveCountingQuick().catch(() => {});
+            return;
+        }
+
+        // ── /xp ──────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'xp') {
+            const isMod = interaction.user.id === OWNER_DISCORD_ID || interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+            if (!isMod) {
+                await interaction.reply({ content: '❌ Only the owner or moderators can adjust XP.', ephemeral: true });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                return;
+            }
+            const sub    = interaction.options.getSubcommand();
+            const target = interaction.options.getUser('user');
+            const amount = interaction.options.getInteger('amount');
+            const today  = todayStr();
+
+            const bData = voiceBonusXp.get(target.id) || { total: 0, days: new Map() };
+            if (sub === 'give') {
+                bData.total += amount;
+                bData.days.set(today, (bData.days.get(today) || 0) + amount);
+                voiceBonusXp.set(target.id, bData);
+                const newTotal = monthlyActivityScore(target.id);
+                const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+                if (member) assignVoiceRank(member, newTotal).catch(() => {});
+                await interaction.reply({ content: `✅ Gave **${amount} XP** to <@${target.id}>. They now have **${newTotal} XP** this month.`, ephemeral: true });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
+            } else {
+                const deduct = Math.min(amount, bData.total);
+                bData.total = Math.max(0, bData.total - amount);
+                const todayVal = bData.days.get(today) || 0;
+                bData.days.set(today, Math.max(0, todayVal - amount));
+                voiceBonusXp.set(target.id, bData);
+                const newTotal = monthlyActivityScore(target.id);
+                const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+                if (member) assignVoiceRank(member, newTotal).catch(() => {});
+                await interaction.reply({ content: `✅ Removed **${deduct} XP** from <@${target.id}>. They now have **${newTotal} XP** this month.`, ephemeral: true });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
+            }
             return;
         }
 
