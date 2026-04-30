@@ -841,17 +841,16 @@ const EduBlock = ({ item, fontFamily, fontSize, darkMode }: any) => {
 
 const SkillsTags = ({ items, accentColor, fontFamily, fontSize, darkMode: _darkMode }: any) => {
   const fs = tfs(fontSize);
-  const tagH = Math.round(20 * fs);
+  const tagFs = Math.round(10 * fs);
   return (
-    <div style={{lineHeight:0}}>
+    <div style={{display:'flex', flexWrap:'wrap', gap:6, alignItems:'flex-start'}}>
       {items.filter((s: any) => s.name).map((s: any) => (
         <span key={s.id} style={{
           background:`${accentColor}15`, color:accentColor,
-          paddingLeft:10, paddingRight:10,
-          height:tagH, lineHeight:`${tagH}px`,
-          borderRadius:4, fontSize:10*fs, fontFamily, fontWeight:500,
-          display:'inline-block', verticalAlign:'middle',
-          margin:'0 6px 6px 0', whiteSpace:'nowrap',
+          padding:`4px 10px`,
+          lineHeight:`${tagFs}px`,
+          borderRadius:4, fontSize:tagFs, fontFamily, fontWeight:500,
+          display:'inline-block', whiteSpace:'nowrap',
         }}>{s.name}</span>
       ))}
     </div>
@@ -1328,9 +1327,13 @@ async function exportPDF(
     }
   });
 
+  // Top margin added above content on continuation pages (white breathing room)
+  const TOP_MARGIN = 30; // CSS px
+  const TOP_MARGIN_C = TOP_MARGIN * SCALE; // canvas px
+
   // Build page cut positions in canvas pixels.
-  // For each natural cut, check if a section heading falls within GUARD_C canvas-px before
-  // it — if so, move the cut to just above that section so it opens fresh on the next page.
+  // Page 1: full PAGE_H_C available. Continuation pages: PAGE_H_C - TOP_MARGIN_C usable
+  // (the top margin takes the rest). Guard zone moves cuts above section headings.
   const pageCuts: number[] = [];
   let cutY = PAGE_H_C;
   while (cutY < canvas.height) {
@@ -1342,7 +1345,7 @@ async function exportPDF(
       }
     }
     pageCuts.push(adjusted);
-    cutY = adjusted + PAGE_H_C;
+    cutY = adjusted + PAGE_H_C - TOP_MARGIN_C; // continuation pages have less usable height
   }
 
   const pdf = new jsPDF({ unit:'px', format:'a4', orientation:'portrait', hotfixes:['px_scaling'] } as any);
@@ -1352,15 +1355,15 @@ async function exportPDF(
 
   for (let i = 0; i < starts.length; i++) {
     const sy = starts[i], h = ends[i] - sy;
+    const topPad = i === 0 ? 0 : TOP_MARGIN_C;
     const pg = document.createElement('canvas');
-    pg.width = PAGE_W_PX * SCALE; pg.height = h;
+    pg.width = PAGE_W_PX * SCALE; pg.height = h + topPad;
     const ctx = pg.getContext('2d')!;
     ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, pg.width, h);
-    ctx.drawImage(canvas, 0, sy, pg.width, h, 0, 0, pg.width, h);
+    ctx.fillRect(0, 0, pg.width, pg.height);
+    ctx.drawImage(canvas, 0, sy, pg.width, h, 0, topPad, pg.width, h);
     if (i > 0) pdf.addPage();
-    // h / SCALE converts canvas pixels → CSS pixels; pdfW / PAGE_W_PX scales to PDF units
-    pdf.addImage(pg.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, pdfW, (h / SCALE) * (pdfW / PAGE_W_PX));
+    pdf.addImage(pg.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, pdfW, ((h + topPad) / SCALE) * (pdfW / PAGE_W_PX));
   }
 
   pdf.save(`${(docName || 'resume').replace(/[^a-zA-Z0-9 ]/g, '_')}.pdf`);
