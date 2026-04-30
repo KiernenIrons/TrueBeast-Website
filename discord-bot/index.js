@@ -1106,6 +1106,7 @@ async function handleCountingMessage(message) {
 
         // Save immediately so the reset is persisted right now, not 60s later
         await saveCountingQuick();
+        if (message.guild) checkMessageMilestone(message).catch(() => {});
         return;
     }
 
