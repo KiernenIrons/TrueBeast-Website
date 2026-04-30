@@ -3201,8 +3201,10 @@ async function generateProfileImage(userId, guild = null) {
         ach.highestRankIdx = rankIdx;
         rankAchievements.set(userId, ach);
     }
-    // apexCount is only finalised at month-end; add 1 if they've hit Apex this month already
-    const displayApexCount = ach.apexCount + (ach.hitApexThisMonth ? 1 : 0);
+    // apexCount is finalised at month-end. Show +1 if they currently hold Apex Predator,
+    // regardless of the hitApexThisMonth flag (which resets to false on every bot restart).
+    const isCurrentlyApex = rankIdx === VOICE_RANK_ROLES.length - 1;
+    const displayApexCount = ach.apexCount + (ach.hitApexThisMonth || isCurrentlyApex ? 1 : 0);
     const peakRank  = VOICE_RANK_ROLES[Math.max(ach.highestRankIdx, rankIdx)];
     const peakEmoji = extractFirstEmoji(peakRank.name);
     const peakClean = stripEmoji(peakRank.name);
