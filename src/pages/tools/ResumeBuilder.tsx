@@ -1212,7 +1212,8 @@ async function exportPDF(previewRef: React.RefObject<HTMLDivElement | null>, nam
 
   // Smart page break: if a section heading falls within GUARD px before a natural cut,
   // move the cut up to just before that section so it starts fresh on the next page.
-  const PAD = 20;   // top overlap on continuation pages (px in PDF units)
+  // PAD=0 means zero overlap between pages — each page shows a clean, non-repeating slice.
+  const PAD = 0;
   const GUARD = 65; // look-back zone for section heading detection
 
   const pageCuts: number[] = [];
