@@ -806,6 +806,7 @@ let countingState = {
     _loaded: false,    // true once state has been loaded from backup — guards shutdown save
 };
 let _countingQuickMsgId = null; // Discord message ID for the rapid counting quick-save
+const countingBotDeletedIds = new Set(); // message IDs the bot deleted for enforcement (prevents false count-back resets)
 const voiceRankRoleCache = new Map(); // roleName → Role object
 const rankAchievements   = new Map(); // userId → { highestRankIdx: number, apexCount: number, hitApexThisMonth: boolean }
 const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
@@ -1050,13 +1051,15 @@ async function handleCountingMessage(message) {
 
     // Not a valid positive integer — delete silently
     if (!isValidNumber) {
-        await message.delete().catch(() => {});
+        countingBotDeletedIds.add(message.id);
+        await message.delete().catch(() => { countingBotDeletedIds.delete(message.id); });
         return;
     }
 
     // Same person sent twice in a row — delete and warn
     if (message.author.id === countingState.lastUserId) {
-        await message.delete().catch(() => {});
+        countingBotDeletedIds.add(message.id);
+        await message.delete().catch(() => { countingBotDeletedIds.delete(message.id); });
         const w = await message.channel.send(`<@${message.author.id}> You can't count twice in a row - wait for someone else!`);
         setTimeout(() => w.delete().catch(() => {}), 6000);
         return;
@@ -5758,8 +5761,8 @@ client.on('interactionCreate', async (interaction) => {
             countingState.current = num;
             countingState.lastUserId = null; // anyone can send next number
             if (num > countingState.record) countingState.record = num;
-            await saveCountingQuick();
             await interaction.reply({ content: `✅ Count set to **${num}**. Next number is **${num + 1}**.`, ephemeral: true });
+            saveCountingQuick().catch(() => {});
             return;
         }
 
@@ -8326,14 +8329,18 @@ client.on('messageReactionAdd', async (reaction, user) => {
 client.on('messageDelete', async (message) => {
     // Counting channel: if current count deleted, step back
     if (message.channelId === COUNTING_CHANNEL_ID && !message.partial) {
-        const num = parseInt(message.content?.trim(), 10);
-        if (!isNaN(num) && num === countingState.current) {
-            countingState.current = Math.max(0, num - 1);
-            countingState.lastUserId = null;
-            const note = await message.channel.send(
-                `🗑️ A counting number was deleted. Count adjusted back to **${countingState.current}**. Next: **${countingState.current + 1}**`
-            ).catch(() => null);
-            if (note) setTimeout(() => note.delete().catch(() => {}), 8000);
+        if (countingBotDeletedIds.has(message.id)) {
+            countingBotDeletedIds.delete(message.id);
+        } else {
+            const num = parseInt(message.content?.trim(), 10);
+            if (!isNaN(num) && num === countingState.current) {
+                countingState.current = Math.max(0, num - 1);
+                countingState.lastUserId = null;
+                const note = await message.channel.send(
+                    `🗑️ A counting number was deleted. Count adjusted back to **${countingState.current}**. Next: **${countingState.current + 1}**`
+                ).catch(() => null);
+                if (note) setTimeout(() => note.delete().catch(() => {}), 8000);
+            }
         }
     }
 
