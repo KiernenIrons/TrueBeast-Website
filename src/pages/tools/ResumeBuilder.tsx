@@ -807,7 +807,7 @@ const renderSection = (key: string, props: any) => {
   if (key === 'summary') {
     if (!sec.data?.text) return null;
     return (
-      <div key={key} style={pba}>
+      <div key={key} style={pba} data-rb-section="1">
         <SectionHeading text={sec.heading||'Professional Summary'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
         <div style={{fontSize:11*tfs(fontSize),color:dmSubTextColor(darkMode, '#444'),fontFamily,lineHeight:tls(props.lineSpacing)}}>{sec.data.text}</div>
       </div>
@@ -816,7 +816,7 @@ const renderSection = (key: string, props: any) => {
   if (key === 'experience') {
     if (!sec.items?.some((i: any) => i.title||i.company)) return null;
     return (
-      <div key={key}>
+      <div key={key} data-rb-section="1">
         <SectionHeading text={sec.heading||'Work Experience'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
         {sec.items.filter((i: any) => i.title||i.company).map((i: any) => <div key={i.id} style={pba}><ExpBlock item={i} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} /></div>)}
       </div>
@@ -825,7 +825,7 @@ const renderSection = (key: string, props: any) => {
   if (key === 'education') {
     if (!sec.items?.some((i: any) => i.school||i.degree)) return null;
     return (
-      <div key={key}>
+      <div key={key} data-rb-section="1">
         <SectionHeading text={sec.heading||'Education'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
         {sec.items.filter((i: any) => i.school||i.degree).map((i: any) => <div key={i.id} style={pba}><EduBlock item={i} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} /></div>)}
       </div>
@@ -834,7 +834,7 @@ const renderSection = (key: string, props: any) => {
   if (key === 'skills') {
     if (!sec.items?.some((i: any) => i.name)) return null;
     return (
-      <div key={key} style={pba}>
+      <div key={key} style={pba} data-rb-section="1">
         <SectionHeading text={sec.heading||'Skills'} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
         <SkillsTags items={sec.items} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />
       </div>
@@ -842,7 +842,7 @@ const renderSection = (key: string, props: any) => {
   }
   if (!sec.items?.length) return null;
   return (
-    <div key={key} style={pba}>
+    <div key={key} style={pba} data-rb-section="1">
       <SectionHeading text={sec.heading} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} />
       <GenericSection section={key} data={sec} accentColor={accentColor} fontFamily={fontFamily} fontSize={fontSize} darkMode={darkMode} />
     </div>
@@ -1164,6 +1164,14 @@ const PreviewPanel = ({ resume, previewRef }: any) => {
 async function exportPDF(previewRef: React.RefObject<HTMLDivElement | null>, name: string) {
   if (!previewRef.current) return;
   const el = previewRef.current;
+
+  // Capture section positions relative to el BEFORE html2canvas clones the DOM
+  const elTop = el.getBoundingClientRect().top;
+  const sectionTops = Array.from(el.querySelectorAll('[data-rb-section]'))
+    .map(s => (s as HTMLElement).getBoundingClientRect().top - elTop)
+    .filter(y => y >= 0)
+    .sort((a, b) => a - b);
+
   const canvas = await html2canvas(el as HTMLElement, {
     scale: 2, useCORS: true, logging: false,
     width: 794, scrollX: 0, scrollY: 0,
@@ -1190,19 +1198,41 @@ async function exportPDF(previewRef: React.RefObject<HTMLDivElement | null>, nam
       });
     }
   });
+
   const pdf = new jsPDF({ unit:'px', format:'a4', orientation:'portrait', hotfixes:['px_scaling'] } as any);
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const imgW = pageW;
   const imgH = (canvas.height * pageW) / canvas.width;
   const imgData = canvas.toDataURL('image/jpeg', 0.98);
-  const PAD = 50;
+
+  // Convert section DOM-px positions → PDF units
+  const domToPdf = pageW / el.offsetWidth;
+  const scaledSections = sectionTops.map(y => y * domToPdf);
+
+  // Smart page break: if a section heading falls within GUARD px before a natural cut,
+  // move the cut up to just before that section so it starts fresh on the next page.
+  const PAD = 20;   // top overlap on continuation pages (px in PDF units)
+  const GUARD = 65; // look-back zone for section heading detection
+
+  const pageCuts: number[] = [];
+  let cutY = pageH;
+  while (cutY < imgH) {
+    let adjusted = cutY;
+    for (const secY of scaledSections) {
+      if (secY > cutY - GUARD && secY <= cutY) {
+        adjusted = secY - 4; // cut 4px above the section so heading starts on next page
+        break;
+      }
+    }
+    pageCuts.push(adjusted);
+    cutY = adjusted + pageH - PAD;
+  }
+
   pdf.addImage(imgData, 'JPEG', 0, 0, imgW, imgH);
-  let contentY = pageH;
-  while (contentY < imgH) {
+  for (const cut of pageCuts) {
     pdf.addPage();
-    pdf.addImage(imgData, 'JPEG', 0, PAD - contentY, imgW, imgH);
-    contentY += pageH - PAD;
+    pdf.addImage(imgData, 'JPEG', 0, PAD - cut, imgW, imgH);
   }
   pdf.save(`${(name||'resume').replace(/[^a-zA-Z0-9 ]/g,'_')}.pdf`);
 }
