@@ -250,7 +250,9 @@ const ACTIVE_KEY  = 'tb_resume_active';
 function loadResumes(): any[] {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || []; } catch { return []; }
 }
-function saveResumes(resumes: any[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(resumes)); }
+function saveResumes(resumes: any[]) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(resumes)); } catch { /* quota exceeded — silently skip */ }
+}
 function getActiveId(): string | null { return localStorage.getItem(ACTIVE_KEY); }
 function setActiveId(id: string) { localStorage.setItem(ACTIVE_KEY, id); }
 
@@ -320,7 +322,19 @@ const PersonalInfoEditor = ({ data, photo, dispatch }: any) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => dispatch({ type:'SET_PHOTO', value:{ dataUrl: (ev.target as FileReader).result } });
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 300;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        dispatch({ type:'SET_PHOTO', value:{ dataUrl: canvas.toDataURL('image/jpeg', 0.8) } });
+      };
+      img.src = (ev.target as FileReader).result as string;
+    };
     reader.readAsDataURL(file);
   };
   return (
