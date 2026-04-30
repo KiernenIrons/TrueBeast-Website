@@ -844,7 +844,7 @@ const SkillsTags = ({ items, accentColor, fontFamily, fontSize, darkMode: _darkM
   return (
     <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
       {items.filter((s: any) => s.name).map((s: any) => (
-        <span key={s.id} style={{background:`${accentColor}15`,color:accentColor,padding:'2px 10px',borderRadius:4,fontSize:10*fs,fontFamily,fontWeight:500}}>{s.name}</span>
+        <span key={s.id} style={{background:`${accentColor}15`,color:accentColor,padding:'4px 10px',borderRadius:4,fontSize:10*fs,fontFamily,fontWeight:500,display:'inline-flex',alignItems:'center',lineHeight:1}}>{s.name}</span>
       ))}
     </div>
   );
