@@ -3194,13 +3194,15 @@ async function generateProfileImage(userId, guild = null) {
     const panelW = COL1 + COL2 + COL3 + COL4; // 730 — same total width as 3-col layout
 
     // Peak rank + Apex count — right-aligned, vertically centred with rank pill
-    const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0 };
+    const ach = rankAchievements.get(userId) || { highestRankIdx: 0, apexCount: 0, hitApexThisMonth: false };
     // If the current Discord role rank is higher than the stored peak (e.g. rankAchievements failed
     // to load due to quota, or the peak was never saved), update it now so it's never wrong.
     if (rankIdx > ach.highestRankIdx) {
         ach.highestRankIdx = rankIdx;
         rankAchievements.set(userId, ach);
     }
+    // apexCount is only finalised at month-end; add 1 if they've hit Apex this month already
+    const displayApexCount = ach.apexCount + (ach.hitApexThisMonth ? 1 : 0);
     const peakRank  = VOICE_RANK_ROLES[Math.max(ach.highestRankIdx, rankIdx)];
     const peakEmoji = extractFirstEmoji(peakRank.name);
     const peakClean = stripEmoji(peakRank.name);
@@ -3209,7 +3211,7 @@ async function generateProfileImage(userId, guild = null) {
     const apexPrefix  = '   ·   Apex ×  ';
     const apexPrefixW = ctx.measureText(apexPrefix).width;
     ctx.font = 'bold 20px "Noto Sans", sans-serif';
-    const apexCountW  = ctx.measureText(String(ach.apexCount)).width;
+    const apexCountW  = ctx.measureText(String(displayApexCount)).width;
     ctx.font = '20px "Noto Sans", sans-serif';
     const peakLblW   = ctx.measureText('Peak:  ').width;
     const peakCleanW = ctx.measureText(peakClean).width;
@@ -3232,7 +3234,7 @@ async function generateProfileImage(userId, guild = null) {
     if (crownImg) { ctx.drawImage(crownImg, pkX, pkY - ECROWN / 2, ECROWN, ECROWN); } pkX += ECROWN + 6;
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 20px "Noto Sans", sans-serif';
-    ctx.fillText(String(ach.apexCount), pkX, pkY);
+    ctx.fillText(String(displayApexCount), pkX, pkY);
 
     // Stats grid
     const GY   = 175;
