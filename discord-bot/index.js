@@ -2554,6 +2554,9 @@ async function playWorkoutAlarm(guild, userId) {
         connection.on('stateChange', (old, next) => {
             console.log(`[BeastBot] Voice state: ${old.status} → ${next.status}`);
         });
+        connection.on('debug', (msg) => {
+            console.log('[BeastBot] Voice debug:', msg);
+        });
         try {
             await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
         } catch (e) {
