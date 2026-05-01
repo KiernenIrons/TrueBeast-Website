@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix /fitness notify firing alarm immediately on save
+
+- Removed the "test on save" block from the `/fitness notify` handler that was immediately playing the voice alarm and sending a DM every time a reminder was set — reminders now only fire at the scheduled time
+- Added 1-minute catch-up window to the notification tick: checks `nowHHMM` and `prevHHMM` (tick − 60s) so a late-firing `setInterval` can't silently skip a reminder minute; `lastSentDate` deduplication prevents double-fires
+
 ## [2026-05-01] — Change voice alarm playback from 3× to 2×
 
 - `playsLeft` reduced from 3 → 2 in `playWorkoutAlarm`

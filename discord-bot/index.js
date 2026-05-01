@@ -4250,11 +4250,13 @@ client.once('clientReady', async () => {
             // Workout notification DMs
             const nowUtc = new Date();
             const nowHHMM = `${String(nowUtc.getUTCHours()).padStart(2, '0')}:${String(nowUtc.getUTCMinutes()).padStart(2, '0')}`;
+            const prevUtc = new Date(nowUtc.getTime() - 60_000);
+            const prevHHMM = `${String(prevUtc.getUTCHours()).padStart(2, '0')}:${String(prevUtc.getUTCMinutes()).padStart(2, '0')}`;
             const nowDay  = nowUtc.getUTCDay();
             const todayNotify = todayStr();
             for (const [notifyUid, fData] of fitnessData) {
                 if (!fData.notify) continue;
-                if (fData.notify.timeUtc !== nowHHMM) continue;
+                if (fData.notify.timeUtc !== nowHHMM && fData.notify.timeUtc !== prevHHMM) continue;
                 if (!fData.notify.daySet.includes(nowDay)) continue;
                 if (fData.notify.lastSentDate === todayNotify) continue;
                 try {
@@ -7145,19 +7147,7 @@ client.on('interactionCreate', async (interaction) => {
                 userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: dayInfo.set, lastSentDate: null };
                 fitnessData.set(uid, userData);
 
-                try {
-                    const dmUser = await client.users.fetch(uid);
-                    const guild = interaction.guild;
-                    let voicePinged = false;
-                    if (guild) voicePinged = await playWorkoutAlarm(guild, uid).catch(() => false);
-                    const dmDesc = voicePinged
-                        ? "Your workout reminder is going off — I beeped in your voice channel! Go crush it 💪\n\nLog your session in #tracking when you're done!"
-                        : "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!";
-                    await dmUser.send({ embeds: [{ color: 0xf59e0b, title: '⏰ Time to Work Out!', description: dmDesc, footer: { text: `⏰ ${timeRaw} · 📅 ${dayInfo.display}` } }] });
-                    await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nTest notification sent to your DMs!${voicePinged ? ' I also beeped in your VC 🔔' : ''}` });
-                } catch (_) {
-                    await interaction.editReply({ content: `✅ Reminder saved!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\n⚠️ Couldn't DM you — enable DMs from server members to receive reminders.` });
-                }
+                await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
                 return;
             }
 
