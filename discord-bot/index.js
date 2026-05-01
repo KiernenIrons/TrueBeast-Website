@@ -29,7 +29,7 @@ const {
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus } = require('@discordjs/voice');
 const { spawn } = require('child_process');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
@@ -761,6 +761,16 @@ const FITNESS_VC_TRIGGER_ID       = '1499568259299676321'; // Workout Together (
 const FITNESS_DISCUSS_CHANNEL_ID  = '1499562699300802570'; // #discussions
 const fitnessData  = new Map(); // userId → { entries: [], notify: null }
 const workoutRooms = new Map(); // channelId → { ownerId, ownerName, deleteTimer, dmMessageId, createdAt }
+const TZ_LABELS = {
+    '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
+    '-8': 'Pacific (UTC-8)', '-7': 'Mountain (UTC-7)', '-6': 'Central (UTC-6)',
+    '-5': 'Eastern (UTC-5)', '-4': 'Atlantic/EDT (UTC-4)', '-3': 'Brazil (UTC-3)',
+    '-2': 'UTC-2', '-1': 'Azores (UTC-1)', '0': 'London/UTC',
+    '1': 'Paris/Berlin (UTC+1)', '2': 'Athens/Cairo (UTC+2)', '3': 'Moscow (UTC+3)',
+    '4': 'Dubai (UTC+4)', '5': 'Pakistan (UTC+5)', '5.5': 'India/IST (UTC+5:30)',
+    '6': 'Bangladesh (UTC+6)', '7': 'Bangkok (UTC+7)', '8': 'Singapore/Beijing (UTC+8)',
+    '9': 'Tokyo/JST (UTC+9)', '10': 'Sydney (UTC+10)', '12': 'Auckland/NZT (UTC+12)',
+};
 
 // ── AFK system ────────────────────────────────────────────────────────────────
 // userId → { reason, originalNickname, timestamp }
@@ -2517,14 +2527,25 @@ async function playWorkoutAlarm(guild, userId) {
             adapterCreator: guild.voiceAdapterCreator,
             selfDeaf: false,
         });
+        connection.on('error', (err) => {
+            console.error('[BeastBot] Voice connection error:', err.message);
+            try { connection.destroy(); } catch (_) {}
+        });
         const ffmpeg = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1']);
         const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
         const player = createAudioPlayer();
         connection.subscribe(player);
         player.play(resource);
-        player.once(AudioPlayerStatus.Idle, () => { connection.destroy(); });
+        player.once(AudioPlayerStatus.Idle, () => { try { connection.destroy(); } catch (_) {} });
+        player.on('error', (err) => {
+            console.error('[BeastBot] Voice player error:', err.message);
+            try { connection.destroy(); } catch (_) {}
+        });
         ffmpeg.stderr.on('data', () => {});
-        ffmpeg.on('error', () => { connection.destroy(); });
+        ffmpeg.on('error', (err) => {
+            console.error('[BeastBot] ffmpeg error:', err.message);
+            try { connection.destroy(); } catch (_) {}
+        });
         return true;
     } catch (e) {
         console.error('[BeastBot] playWorkoutAlarm failed:', e.message);
@@ -4214,7 +4235,9 @@ client.once('clientReady', async () => {
                     }] });
                     fData.notify.lastSentDate = todayNotify;
                     fitnessData.set(notifyUid, fData);
-                } catch (_) {}
+                } catch (e) {
+                    console.error(`[BeastBot] Workout notification failed for ${notifyUid}:`, e.message);
+                }
             }
 
             // Save snapshot immediately after crediting — guarantees fresh data in backup
@@ -4443,7 +4466,38 @@ client.once('clientReady', async () => {
                 .setDescription('Fitness tracking commands')
                 .addSubcommand(sub => sub.setName('progress').setDescription('View your fitness progress (private to you)'))
                 .addSubcommand(sub => sub.setName('manage').setDescription('Edit or delete your past workout entries'))
-                .addSubcommand(sub => sub.setName('notify').setDescription('Set a workout DM reminder'))
+                .addSubcommand(sub => sub
+                    .setName('notify')
+                    .setDescription('Set a daily workout DM reminder (and voice channel bleep)')
+                    .addIntegerOption(opt => opt.setName('hour').setDescription('Hour (1–12)').setRequired(true).addChoices(
+                        { name: '12', value: 12 }, { name: '1', value: 1 }, { name: '2', value: 2 }, { name: '3', value: 3 },
+                        { name: '4', value: 4 }, { name: '5', value: 5 }, { name: '6', value: 6 }, { name: '7', value: 7 },
+                        { name: '8', value: 8 }, { name: '9', value: 9 }, { name: '10', value: 10 }, { name: '11', value: 11 }
+                    ))
+                    .addStringOption(opt => opt.setName('period').setDescription('AM or PM').setRequired(true).addChoices(
+                        { name: 'AM', value: 'AM' }, { name: 'PM', value: 'PM' }
+                    ))
+                    .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes').setRequired(true).addChoices(
+                        { name: ':00', value: 0 }, { name: ':15', value: 15 }, { name: ':30', value: 30 }, { name: ':45', value: 45 }
+                    ))
+                    .addStringOption(opt => opt.setName('timezone').setDescription('Your timezone').setRequired(true).addChoices(
+                        { name: 'UTC-12 (Baker Island)', value: '-12' }, { name: 'UTC-11 (Samoa)', value: '-11' }, { name: 'UTC-10 (Hawaii)', value: '-10' },
+                        { name: 'UTC-9 (Alaska)', value: '-9' }, { name: 'UTC-8 (Pacific — Los Angeles)', value: '-8' }, { name: 'UTC-7 (Mountain — Denver)', value: '-7' },
+                        { name: 'UTC-6 (Central — Chicago)', value: '-6' }, { name: 'UTC-5 (Eastern — New York)', value: '-5' }, { name: 'UTC-4 (Atlantic / Eastern DST)', value: '-4' },
+                        { name: 'UTC-3 (Brazil / Buenos Aires)', value: '-3' }, { name: 'UTC-2', value: '-2' }, { name: 'UTC-1 (Azores)', value: '-1' },
+                        { name: 'UTC+0 (London / Lisbon / UTC)', value: '0' }, { name: 'UTC+1 (Paris / Berlin / CET)', value: '1' }, { name: 'UTC+2 (Athens / Cairo / EET)', value: '2' },
+                        { name: 'UTC+3 (Moscow / Istanbul)', value: '3' }, { name: 'UTC+4 (Dubai)', value: '4' }, { name: 'UTC+5 (Pakistan)', value: '5' },
+                        { name: 'UTC+5:30 (India / IST)', value: '5.5' }, { name: 'UTC+6 (Bangladesh)', value: '6' }, { name: 'UTC+7 (Bangkok / Jakarta)', value: '7' },
+                        { name: 'UTC+8 (Beijing / Singapore / Perth)', value: '8' }, { name: 'UTC+9 (Tokyo / Seoul / JST)', value: '9' },
+                        { name: 'UTC+10 (Sydney / AEST)', value: '10' }, { name: 'UTC+12 (Auckland / NZT)', value: '12' }
+                    ))
+                    .addStringOption(opt => opt.setName('days').setDescription('Which days').setRequired(true).addChoices(
+                        { name: 'Every day', value: 'daily' }, { name: 'Weekdays (Mon–Fri)', value: 'weekdays' }, { name: 'Weekends (Sat & Sun)', value: 'weekends' },
+                        { name: 'Mon, Wed & Fri', value: 'mwf' }, { name: 'Tue & Thu', value: 'tt' },
+                        { name: 'Monday', value: 'mon' }, { name: 'Tuesday', value: 'tue' }, { name: 'Wednesday', value: 'wed' },
+                        { name: 'Thursday', value: 'thu' }, { name: 'Friday', value: 'fri' }, { name: 'Saturday', value: 'sat' }, { name: 'Sunday', value: 'sun' }
+                    ))
+                )
                 .addSubcommand(sub => sub.setName('notify-clear').setDescription('Remove your workout reminder')),
             new SlashCommandBuilder()
                 .setName('fitness-setup')
@@ -6983,7 +7037,7 @@ client.on('interactionCreate', async (interaction) => {
                     { name: '⏱️ Avg Duration', value: avg !== null ? `**${avg} min**` : '*N/A*', inline: true },
                 ];
                 if (userData?.notify) {
-                    fields.push({ name: '⏰ Workout Reminder', value: `${userData.notify.timeRaw} on ${userData.notify.days}`, inline: false });
+                    fields.push({ name: '⏰ Workout Reminder', value: `**${userData.notify.timeRaw}** on **${userData.notify.days}** *(fires at ${userData.notify.timeUtc} UTC)*`, inline: false });
                 }
                 fields.push({
                     name: '📋 Last 5 Workouts',
@@ -7007,19 +7061,58 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (sub === 'notify') {
-                const notifyModal = new ModalBuilder().setCustomId('fitness:notify:modal').setTitle('⏰ Set Workout Reminder');
-                notifyModal.addComponents(
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId('notify_time').setLabel('What time?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 7:30 AM or 19:00').setRequired(true).setMaxLength(20)
-                    ),
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId('notify_days').setLabel('Which days?').setStyle(TextInputStyle.Short).setPlaceholder('Daily · Weekdays · Mon, Wed, Fri · etc.').setRequired(true).setMaxLength(50)
-                    ),
-                    new ActionRowBuilder().addComponents(
-                        new TextInputBuilder().setCustomId('notify_offset').setLabel('Your UTC offset').setStyle(TextInputStyle.Short).setPlaceholder('e.g. -5 for EST, 0 for UTC, +1 for BST').setRequired(true).setMaxLength(6)
-                    ),
-                );
-                await interaction.showModal(notifyModal);
+                const hour    = interaction.options.getInteger('hour');
+                const period  = interaction.options.getString('period');
+                const minute  = interaction.options.getInteger('minute');
+                const tzStr   = interaction.options.getString('timezone');
+                const daysStr = interaction.options.getString('days');
+
+                let h24 = hour;
+                if (period === 'AM' && hour === 12) h24 = 0;
+                else if (period === 'PM' && hour !== 12) h24 = hour + 12;
+
+                const off = parseFloat(tzStr) || 0;
+                const totalMinsLocal = h24 * 60 + minute;
+                const totalMinsUtc = ((totalMinsLocal - off * 60) % 1440 + 1440) % 1440;
+                const utcH = Math.floor(totalMinsUtc / 60);
+                const utcM = totalMinsUtc % 60;
+                const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
+                const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
+
+                const dayPatterns = {
+                    daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
+                    weekdays: { set: [1,2,3,4,5],     display: 'Weekdays (Mon–Fri)' },
+                    weekends: { set: [0,6],            display: 'Weekends (Sat & Sun)' },
+                    mwf:      { set: [1,3,5],          display: 'Mon, Wed & Fri' },
+                    tt:       { set: [2,4],            display: 'Tue & Thu' },
+                    mon:      { set: [1],              display: 'Monday' },
+                    tue:      { set: [2],              display: 'Tuesday' },
+                    wed:      { set: [3],              display: 'Wednesday' },
+                    thu:      { set: [4],              display: 'Thursday' },
+                    fri:      { set: [5],              display: 'Friday' },
+                    sat:      { set: [6],              display: 'Saturday' },
+                    sun:      { set: [0],              display: 'Sunday' },
+                };
+                const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
+                const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
+
+                const userData = fitnessData.get(uid) || { entries: [], notify: null };
+                userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: dayInfo.set, lastSentDate: null };
+                fitnessData.set(uid, userData);
+
+                try {
+                    const dmUser = await client.users.fetch(uid);
+                    const guild = interaction.guild;
+                    let voicePinged = false;
+                    if (guild) voicePinged = await playWorkoutAlarm(guild, uid).catch(() => false);
+                    const dmDesc = voicePinged
+                        ? "Your workout reminder is going off — I beeped in your voice channel! Go crush it 💪\n\nLog your session in #tracking when you're done!"
+                        : "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!";
+                    await dmUser.send({ embeds: [{ color: 0xf59e0b, title: '⏰ Time to Work Out!', description: dmDesc, footer: { text: `⏰ ${timeRaw} · 📅 ${dayInfo.display}` } }] });
+                    await interaction.reply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nTest notification sent to your DMs!${voicePinged ? ' I also beeped in your VC 🔔' : ''}`, flags: 64 });
+                } catch (_) {
+                    await interaction.reply({ content: `✅ Reminder saved!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\n⚠️ Couldn't DM you — enable DMs from server members to receive reminders.`, flags: 64 });
+                }
                 return;
             }
 
@@ -7714,37 +7807,6 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // ── Fitness: notify modal submit ─────────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId === 'fitness:notify:modal') {
-        const rawTime   = interaction.fields.getTextInputValue('notify_time');
-        const rawDays   = interaction.fields.getTextInputValue('notify_days');
-        const rawOffset = interaction.fields.getTextInputValue('notify_offset');
-        const uid       = interaction.user.id;
-        const timeUtc   = parseTimeToUtc(rawTime, rawOffset);
-        const daySet    = parseDays(rawDays);
-        if (!timeUtc) {
-            await interaction.reply({ content: '❌ Couldn\'t parse that time. Try something like "7:30 AM" or "19:00".', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
-            return;
-        }
-        if (!daySet) {
-            await interaction.reply({ content: '❌ Couldn\'t parse those days. Try "Daily", "Weekdays", or "Mon, Wed, Fri".', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
-            return;
-        }
-        const userData = fitnessData.get(uid) || { entries: [], notify: null };
-        userData.notify = { timeUtc, timeRaw: rawTime, days: rawDays, daySet, lastSentDate: null };
-        fitnessData.set(uid, userData);
-        try {
-            const dmUser = await client.users.fetch(uid);
-            await dmUser.send({ embeds: [{ color: 0xf59e0b, title: '⏰ Reminder Set!', description: `You'll receive a workout reminder at **${rawTime}** on **${rawDays}**.\n\nThis is what the reminder will look like!`, footer: { text: 'Use /fitness notify-clear to remove it.' } }] });
-            await interaction.reply({ content: `✅ Reminder set for **${rawTime}** on **${rawDays}**! Check your DMs — I just sent a test.`, flags: 64 });
-        } catch (_) {
-            await interaction.reply({ content: `✅ Reminder saved! I couldn't DM you though — make sure DMs from server members are enabled.`, flags: 64 });
-        }
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
-        return;
-    }
 
     // ── Fitness: workout modal submit ────────────────────────────────────────
     if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:modal:')) {

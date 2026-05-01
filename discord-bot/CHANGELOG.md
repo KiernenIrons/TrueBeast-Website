@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix workout notifications: bump voice package, replace modal with slash choices, add error logging
+
+- Bumped `@discordjs/voice` from 0.17.0 → 0.18.0 (fixes deprecated Discord voice encryption that was silently preventing voice joins); replaced `tweetnacl` with `libsodium-wrappers` which supports the new AEAD encryption modes Discord now requires
+- Replaced `/fitness notify` free-text modal (fragile, UTC offset typos caused silent misfires) with a proper slash command with Discord-choice dropdowns: `hour` (1–12), `period` (AM/PM), `minute` (:00/:15/:30/:45), `timezone` (25 timezone choices), `days` (12 day-pattern choices) — zero parsing, zero typos possible
+- The notify handler now runs the test DM + voice alarm immediately on save so the user can confirm both work right away
+- Added `VoiceConnectionStatus` to voice imports; added `.on('error')` handlers to voice connection, audio player, and ffmpeg process — errors now log to console instead of being swallowed
+- Changed notification tick `catch` from silent `{}` to `console.error(...)` so failures appear in Fly.io logs
+- Added `TZ_LABELS` constant for human-readable timezone display in replies
+- `/fitness progress` now shows the stored UTC time next to the reminder (e.g. "8:00 AM on Weekdays *(fires at 13:00 UTC)*") so users can verify the conversion is correct
+
 ## [2026-05-01] — Add workout edit/delete, Log Another button, and voice alarm
 
 - Added `✏️ Edit` button to every public workout post; clicking it opens a pre-filled modal — on submit, updates the entry in-memory and edits the Discord embed in #tracking (`fitness:edit:{uid}` button + `fitness:edit_modal:{uid}:{msgId}` modal)
