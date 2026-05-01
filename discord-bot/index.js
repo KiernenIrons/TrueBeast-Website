@@ -2546,6 +2546,7 @@ async function playWorkoutAlarm(guild, userId) {
             guildId: guild.id,
             adapterCreator: guild.voiceAdapterCreator,
             selfDeaf: false,
+            debug: true,
         });
         connection.on('error', (err) => {
             console.error('[BeastBot] Voice connection error:', err.message);
