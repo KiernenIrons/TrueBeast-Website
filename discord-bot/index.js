@@ -2535,12 +2535,17 @@ async function createWorkoutRoom(state) {
     }
 }
 
-async function playWorkoutAlarm(guild, userId) {
-    if (!ALARM_OGG) { console.error('[BeastBot] playWorkoutAlarm: alarm audio not ready'); return false; }
+async function playWorkoutAlarm(guild, userId, logFn = null) {
+    const log = (msg) => {
+        console.log('[BeastBot] alarm:', msg);
+        if (logFn) logFn(msg).catch(() => {});
+    };
+    if (!ALARM_OGG) { log('❌ Alarm audio buffer not ready'); return false; }
     try {
         const member = await guild.members.fetch(userId);
         const voiceChannel = member.voice?.channel;
-        if (!voiceChannel) return false;
+        if (!voiceChannel) { log('❌ User is not in a voice channel'); return false; }
+        log(`📡 Joining VC: **${voiceChannel.name}**`);
         const connection = joinVoiceChannel({
             channelId: voiceChannel.id,
             guildId: guild.id,
@@ -2549,39 +2554,39 @@ async function playWorkoutAlarm(guild, userId) {
             debug: true,
         });
         connection.on('error', (err) => {
-            console.error('[BeastBot] Voice connection error:', err.message);
+            log(`❌ Connection error: ${err.message}`);
             try { connection.destroy(); } catch (_) {}
         });
         connection.on('stateChange', (old, next) => {
-            console.log(`[BeastBot] Voice state: ${old.status} → ${next.status}`);
+            log(`🔄 State: \`${old.status}\` → \`${next.status}\``);
         });
         connection.on('debug', (msg) => {
-            console.log('[BeastBot] Voice debug:', msg);
+            log(`🔍 ${msg}`);
         });
         try {
             await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
         } catch (e) {
-            console.error('[BeastBot] Voice connection never became ready (timed out at 15s):', e.message);
+            log(`❌ Never became ready after 15s: ${e.message}`);
             try { connection.destroy(); } catch (_) {}
             return false;
         }
-        // Play from pre-buffered OGG Opus data — no live pipe, no timing issues
+        log('✅ Voice ready — playing audio now');
         const resource = createAudioResource(Readable.from([ALARM_OGG]), { inputType: StreamType.OggOpus });
         const player = createAudioPlayer();
         connection.subscribe(player);
         player.play(resource);
-        player.on(AudioPlayerStatus.Playing, () => console.log('[BeastBot] 🔔 Alarm playing in VC'));
+        player.on(AudioPlayerStatus.Playing, () => log('🔔 Audio is playing'));
         player.once(AudioPlayerStatus.Idle, () => {
-            console.log('[BeastBot] 🔔 Alarm finished');
+            log('✅ Audio finished — leaving VC');
             try { connection.destroy(); } catch (_) {}
         });
         player.on('error', (err) => {
-            console.error('[BeastBot] Voice player error:', err.message);
+            log(`❌ Player error: ${err.message}`);
             try { connection.destroy(); } catch (_) {}
         });
         return true;
     } catch (e) {
-        console.error('[BeastBot] playWorkoutAlarm failed:', e.message);
+        log(`❌ playWorkoutAlarm threw: ${e.message}`);
         return false;
     }
 }
@@ -7058,12 +7063,19 @@ client.on('interactionCreate', async (interaction) => {
 
             if (sub === 'alarm-test') {
                 await interaction.deferReply({ flags: 64 });
+                await interaction.editReply({ content: '🔍 Running alarm test — watch this channel for live steps...' });
                 const guild = interaction.guild;
-                const voicePinged = guild ? await playWorkoutAlarm(guild, uid).catch(() => false) : false;
+                const logCh = guild?.channels.cache.get('1486021237548257330');
+                const logFn = logCh ? (msg) => logCh.send(`\`[alarm-test]\` ${msg}`) : null;
+                if (logCh) await logCh.send('`[alarm-test]` ▶️ Starting alarm test...');
+                const voicePinged = guild ? await playWorkoutAlarm(guild, uid, logFn).catch((e) => {
+                    if (logFn) logFn(`❌ Uncaught: ${e.message}`).catch(() => {});
+                    return false;
+                }) : false;
                 if (voicePinged) {
-                    await interaction.editReply({ content: '🔔 Bot joined your VC and played the alarm. Did you hear it?' });
+                    await interaction.editReply({ content: '🔔 Alarm played! Check the test channel for the full log.' });
                 } else {
-                    await interaction.editReply({ content: '❌ Couldn\'t join a voice channel — make sure you\'re in one first.' });
+                    await interaction.editReply({ content: '❌ Alarm failed. Check the test channel for what went wrong.' });
                 }
                 return;
             }
