@@ -4254,12 +4254,24 @@ client.once('clientReady', async () => {
             const prevHHMM = `${String(prevUtc.getUTCHours()).padStart(2, '0')}:${String(prevUtc.getUTCMinutes()).padStart(2, '0')}`;
             const nowDay  = nowUtc.getUTCDay();
             const todayNotify = todayStr();
+            const activeNotifies = [...fitnessData.values()].filter(d => d.notify).length;
+            if (activeNotifies > 0) console.log(`[BeastBot] 🕐 Notify tick: UTC=${nowHHMM} day=${nowDay} schedules=${activeNotifies}`);
             for (const [notifyUid, fData] of fitnessData) {
                 if (!fData.notify) continue;
-                if (fData.notify.timeUtc !== nowHHMM && fData.notify.timeUtc !== prevHHMM) continue;
-                if (!fData.notify.daySet.includes(nowDay)) continue;
-                if (fData.notify.lastSentDate === todayNotify) continue;
-                console.log(`[BeastBot] ⏰ Firing workout notification for ${notifyUid} (${fData.notify.timeRaw})`);
+                const n = fData.notify;
+                if (n.timeUtc !== nowHHMM && n.timeUtc !== prevHHMM) {
+                    console.log(`[BeastBot] ⏰ skip ${notifyUid}: time mismatch (want=${n.timeUtc} now=${nowHHMM} prev=${prevHHMM})`);
+                    continue;
+                }
+                if (!n.daySet.includes(nowDay)) {
+                    console.log(`[BeastBot] ⏰ skip ${notifyUid}: day mismatch (want=${JSON.stringify(n.daySet)} now=${nowDay})`);
+                    continue;
+                }
+                if (n.lastSentDate === todayNotify) {
+                    console.log(`[BeastBot] ⏰ skip ${notifyUid}: already sent today (${todayNotify})`);
+                    continue;
+                }
+                console.log(`[BeastBot] ⏰ Firing workout notification for ${notifyUid} (${n.timeRaw})`);
                 try {
                     const notifyUser = await client.users.fetch(notifyUid);
                     const notifyGuild = client.guilds.cache.first();
@@ -7164,6 +7176,7 @@ client.on('interactionCreate', async (interaction) => {
                     fitnessData.set(uid, userData);
                     // Save immediately so a bot restart/deploy won't lose the schedule
                     saveDiscordBackup().catch(() => {});
+                    console.log(`[BeastBot] ⏰ Notify saved for ${uid}: timeUtc=${timeUtc} daySet=${JSON.stringify(utcDaySet)}`);
 
                     await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
                     return;
