@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Add workout edit/delete, Log Another button, and voice alarm
+
+- Added `✏️ Edit` button to every public workout post; clicking it opens a pre-filled modal — on submit, updates the entry in-memory and edits the Discord embed in #tracking (`fitness:edit:{uid}` button + `fitness:edit_modal:{uid}:{msgId}` modal)
+- Added `📝 Log Another` button below every public post (reuses `fitness:start` flow) so members don't have to scroll back up to the main button
+- Added `/fitness manage` subcommand — shows an ephemeral embed of the 5 most recent entries with two select menus: ✏️ Edit (pre-fills modal) and 🗑️ Delete (also removes the Discord post if public); uses `StringSelectMenuBuilder` with entry ID as value
+- Added `playWorkoutAlarm(guild, userId)` — when a workout DM reminder fires, the bot joins the user's current voice channel and plays an 880 Hz sine wave tone via ffmpeg (`lavfi` virtual input → raw PCM → `@discordjs/voice`), then leaves; DM description reflects whether a VC bleep occurred
+- Added `@discordjs/voice`, `opusscript`, `tweetnacl` to `package.json`; added `ffmpeg` to Dockerfile `apk add` line
+
 ## [2026-05-01] — Add fitness tracking system, workout notifications, and Join-to-Create workout rooms
 
 - Added `fitnessData` and `workoutRooms` Maps with full Discord backup serialization/deserialization in `buildFullBackup` / `applyBackupToMemory`

@@ -29,6 +29,9 @@ const {
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType } = require('@discordjs/voice');
+const { spawn } = require('child_process');
+
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
 const MOD_CHANNEL_ID    = process.env.MOD_CHANNEL_ID;
@@ -2503,6 +2506,32 @@ async function createWorkoutRoom(state) {
     }
 }
 
+async function playWorkoutAlarm(guild, userId) {
+    try {
+        const member = await guild.members.fetch(userId);
+        const voiceChannel = member.voice?.channel;
+        if (!voiceChannel) return false;
+        const connection = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: guild.id,
+            adapterCreator: guild.voiceAdapterCreator,
+            selfDeaf: false,
+        });
+        const ffmpeg = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1']);
+        const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
+        const player = createAudioPlayer();
+        connection.subscribe(player);
+        player.play(resource);
+        player.once(AudioPlayerStatus.Idle, () => { connection.destroy(); });
+        ffmpeg.stderr.on('data', () => {});
+        ffmpeg.on('error', () => { connection.destroy(); });
+        return true;
+    } catch (e) {
+        console.error('[BeastBot] playWorkoutAlarm failed:', e.message);
+        return false;
+    }
+}
+
 // ── Leave timer store ────────────────────────────────────────────────────────
 // userId -> { mainTimeout, warningTimeout, channelId, textChannelId, reason, minutes }
 const leaveTimers = new Map();
@@ -4171,10 +4200,16 @@ client.once('clientReady', async () => {
                 if (fData.notify.lastSentDate === todayNotify) continue;
                 try {
                     const notifyUser = await client.users.fetch(notifyUid);
+                    const notifyGuild = client.guilds.cache.first();
+                    let voicePinged = false;
+                    if (notifyGuild) voicePinged = await playWorkoutAlarm(notifyGuild, notifyUid).catch(() => false);
+                    const dmDesc = voicePinged
+                        ? "Your workout reminder is going off — I beeped in your voice channel! Go crush it 💪\n\nLog your session in #tracking when you're done!"
+                        : "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!";
                     await notifyUser.send({ embeds: [{
                         color: 0xf59e0b,
                         title: '⏰ Time to Work Out!',
-                        description: "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!",
+                        description: dmDesc,
                         footer: { text: `⏰ ${fData.notify.timeRaw} · 📅 ${fData.notify.days}` },
                     }] });
                     fData.notify.lastSentDate = todayNotify;
@@ -4407,6 +4442,7 @@ client.once('clientReady', async () => {
                 .setName('fitness')
                 .setDescription('Fitness tracking commands')
                 .addSubcommand(sub => sub.setName('progress').setDescription('View your fitness progress (private to you)'))
+                .addSubcommand(sub => sub.setName('manage').setDescription('Edit or delete your past workout entries'))
                 .addSubcommand(sub => sub.setName('notify').setDescription('Set a workout DM reminder'))
                 .addSubcommand(sub => sub.setName('notify-clear').setDescription('Remove your workout reminder')),
             new SlashCommandBuilder()
@@ -6987,6 +7023,48 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
 
+            if (sub === 'manage') {
+                const userData = fitnessData.get(uid);
+                const entries  = userData?.entries || [];
+                if (entries.length === 0) {
+                    await interaction.reply({ content: '📋 You have no logged workouts yet. Use the button in #tracking to log your first one!', flags: 64 });
+                    return;
+                }
+                const newest = [...entries].reverse().slice(0, 5);
+                const opts = newest.map(e => ({
+                    label: `${e.date} — ${e.workout.slice(0, 50)}${e.workout.length > 50 ? '...' : ''}`,
+                    value: e.id,
+                    description: `${e.duration} · ${e.privacy} · ${e.freq}`,
+                }));
+                const editMenu = new StringSelectMenuBuilder()
+                    .setCustomId('fitness:manage:edit')
+                    .setPlaceholder('✏️ Select an entry to edit...')
+                    .addOptions(opts);
+                const deleteMenu = new StringSelectMenuBuilder()
+                    .setCustomId('fitness:manage:del')
+                    .setPlaceholder('🗑️ Select an entry to delete...')
+                    .addOptions(opts);
+                await interaction.reply({
+                    embeds: [{
+                        color: 0x5865f2,
+                        title: '📋 Manage Your Workouts',
+                        description: 'Select a workout below to **edit** or **delete** it. Showing your 5 most recent entries.',
+                        fields: newest.map((e, i) => ({
+                            name: `${i + 1}. ${e.date} — ${e.freq}`,
+                            value: `${e.workout.slice(0, 60)}${e.workout.length > 60 ? '...' : ''}\n*${e.duration} · ${e.privacy}*`,
+                            inline: false,
+                        })),
+                        footer: { text: 'Edits to public posts will also update the #tracking message.' },
+                    }],
+                    components: [
+                        new ActionRowBuilder().addComponents(editMenu),
+                        new ActionRowBuilder().addComponents(deleteMenu),
+                    ],
+                    flags: 64,
+                });
+                return;
+            }
+
             if (sub === 'notify-clear') {
                 const userData = fitnessData.get(uid) || { entries: [], notify: null };
                 userData.notify = null;
@@ -7592,6 +7670,48 @@ client.on('interactionCreate', async (interaction) => {
             if (channel) await handleTrtBanVote(interaction, game, channel);
             return;
         }
+
+        // ── Fitness: manage delete ────────────────────────────────────────────
+        if (interaction.customId === 'fitness:manage:del') {
+            const entryId  = interaction.values[0];
+            const uid      = interaction.user.id;
+            const userData = fitnessData.get(uid);
+            if (!userData) { await interaction.update({ content: '❌ No data found.', embeds: [], components: [] }); return; }
+            const idx = userData.entries.findIndex(e => e.id === entryId);
+            if (idx < 0) { await interaction.update({ content: '❌ Entry not found.', embeds: [], components: [] }); return; }
+            const entry = userData.entries[idx];
+            if (entry.messageId) {
+                try {
+                    const trackCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+                    const msg = await trackCh.messages.fetch(entry.messageId);
+                    await msg.delete();
+                } catch (_) {}
+            }
+            userData.entries.splice(idx, 1);
+            fitnessData.set(uid, userData);
+            await interaction.update({ content: '✅ Workout entry deleted.', embeds: [], components: [] });
+            return;
+        }
+
+        // ── Fitness: manage edit (show pre-filled modal) ──────────────────────
+        if (interaction.customId === 'fitness:manage:edit') {
+            const entryId  = interaction.values[0];
+            const uid      = interaction.user.id;
+            const userData = fitnessData.get(uid);
+            if (!userData) { await interaction.reply({ content: '❌ No data found.', ephemeral: true }); return; }
+            const entry = userData.entries.find(e => e.id === entryId);
+            if (!entry) { await interaction.reply({ content: '❌ Entry not found.', ephemeral: true }); return; }
+            const modal = new ModalBuilder().setCustomId(`fitness:manage:edit_modal:${entryId}`).setTitle('✏️ Edit Workout Entry');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setValue(entry.workout).setRequired(true).setMaxLength(200)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_duration').setLabel('How long?').setStyle(TextInputStyle.Short).setValue(entry.duration).setRequired(true).setMaxLength(50)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_weight').setLabel('Current weight (optional)').setStyle(TextInputStyle.Short).setValue(entry.weight || '').setRequired(false).setMaxLength(30)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_energy').setLabel('Energy level (optional)').setStyle(TextInputStyle.Short).setValue(entry.energy || '').setRequired(false).setMaxLength(50)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph).setValue(entry.notes || '').setRequired(false).setMaxLength(300)),
+            );
+            await interaction.showModal(modal);
+            return;
+        }
     }
 
     // ── Fitness: notify modal submit ─────────────────────────────────────────
@@ -7671,13 +7791,19 @@ client.on('interactionCreate', async (interaction) => {
                     footer: { text: 'React to hype them up!' },
                     timestamp: new Date().toISOString(),
                 }],
-                components: [new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`fitness:react:flex:${uid}`).setLabel('💪').setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder().setCustomId(`fitness:react:fire:${uid}`).setLabel('🔥').setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder().setCustomId(`fitness:react:clap:${uid}`).setLabel('👏').setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder().setCustomId(`fitness:thread:${uid}`).setLabel('💬 Discuss').setStyle(ButtonStyle.Secondary),
-                    new ButtonBuilder().setCustomId(`fitness:delete:${uid}`).setLabel('🗑️').setStyle(ButtonStyle.Danger),
-                )],
+                components: [
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`fitness:react:flex:${uid}`).setLabel('💪').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fitness:react:fire:${uid}`).setLabel('🔥').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fitness:react:clap:${uid}`).setLabel('👏').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fitness:thread:${uid}`).setLabel('💬 Discuss').setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fitness:edit:${uid}`).setLabel('✏️ Edit').setStyle(ButtonStyle.Primary),
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`fitness:delete:${uid}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId('fitness:start').setLabel('📝 Log Another').setStyle(ButtonStyle.Success),
+                    ),
+                ],
             });
             const updatedData = fitnessData.get(uid);
             const idx = updatedData.entries.findIndex(e => e.id === entryId);
@@ -7742,6 +7868,82 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ content: '❌ Couldn\'t set the limit. The channel may have been deleted.', ephemeral: true });
             setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         }
+        return;
+    }
+
+    // ── Fitness: manage edit modal submit ─────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:manage:edit_modal:')) {
+        const entryId  = interaction.customId.slice('fitness:manage:edit_modal:'.length);
+        const uid      = interaction.user.id;
+        const userData = fitnessData.get(uid);
+        if (!userData) { await interaction.reply({ content: '❌ No data found.', ephemeral: true }); return; }
+        const idx = userData.entries.findIndex(e => e.id === entryId);
+        if (idx < 0) { await interaction.reply({ content: '❌ Entry not found.', ephemeral: true }); return; }
+        const entry    = userData.entries[idx];
+        const workout  = interaction.fields.getTextInputValue('fit_workout').trim();
+        const duration = interaction.fields.getTextInputValue('fit_duration').trim();
+        const weight   = interaction.fields.getTextInputValue('fit_weight').trim() || null;
+        const energy   = interaction.fields.getTextInputValue('fit_energy').trim() || null;
+        const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
+        entry.workout  = workout; entry.duration = duration; entry.weight = weight; entry.energy = energy; entry.notes = notes;
+        entry.durationMins = parseDurationToMins(duration);
+        fitnessData.set(uid, userData);
+        if (entry.messageId) {
+            try {
+                const trackCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+                const msg = await trackCh.messages.fetch(entry.messageId);
+                const member = interaction.member;
+                const display = member?.displayName || interaction.user.username;
+                const embedFields = [
+                    { name: '⏱️ Duration', value: duration, inline: true },
+                    { name: '📅 Frequency', value: entry.freq.charAt(0).toUpperCase() + entry.freq.slice(1) + ' Log', inline: true },
+                ];
+                if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
+                if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
+                if (notes)  embedFields.push({ name: '📝 Notes', value: notes, inline: false });
+                await msg.edit({ embeds: [{ color: 0x22c55e, author: { name: `${display} logged a workout 🏋️`, icon_url: interaction.user.displayAvatarURL({ dynamic: true }) }, title: workout, fields: embedFields, footer: { text: 'React to hype them up! · Edited' }, timestamp: new Date().toISOString() }] });
+            } catch (_) {}
+        }
+        await interaction.reply({ content: '✅ Workout updated!', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        return;
+    }
+
+    // ── Fitness: public post edit modal submit ────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:edit_modal:')) {
+        const parts    = interaction.customId.split(':');
+        const ownerUid = parts[2];
+        const msgId    = parts[3];
+        const uid      = interaction.user.id;
+        if (uid !== ownerUid) { await interaction.reply({ content: '❌ You can only edit your own posts.', ephemeral: true }); return; }
+        const userData = fitnessData.get(uid);
+        const idx      = userData?.entries.findIndex(e => e.messageId === msgId) ?? -1;
+        if (idx < 0) { await interaction.reply({ content: '❌ Entry not found.', ephemeral: true }); return; }
+        const entry    = userData.entries[idx];
+        const workout  = interaction.fields.getTextInputValue('fit_workout').trim();
+        const duration = interaction.fields.getTextInputValue('fit_duration').trim();
+        const weight   = interaction.fields.getTextInputValue('fit_weight').trim() || null;
+        const energy   = interaction.fields.getTextInputValue('fit_energy').trim() || null;
+        const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
+        entry.workout  = workout; entry.duration = duration; entry.weight = weight; entry.energy = energy; entry.notes = notes;
+        entry.durationMins = parseDurationToMins(duration);
+        fitnessData.set(uid, userData);
+        try {
+            const trackCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+            const msg = await trackCh.messages.fetch(msgId);
+            const member = interaction.member;
+            const display = member?.displayName || interaction.user.username;
+            const embedFields = [
+                { name: '⏱️ Duration', value: duration, inline: true },
+                { name: '📅 Frequency', value: entry.freq.charAt(0).toUpperCase() + entry.freq.slice(1) + ' Log', inline: true },
+            ];
+            if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
+            if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
+            if (notes)  embedFields.push({ name: '📝 Notes', value: notes, inline: false });
+            await msg.edit({ embeds: [{ color: 0x22c55e, author: { name: `${display} logged a workout 🏋️`, icon_url: interaction.user.displayAvatarURL({ dynamic: true }) }, title: workout, fields: embedFields, footer: { text: 'React to hype them up! · Edited' }, timestamp: new Date().toISOString() }] });
+        } catch (_) {}
+        await interaction.reply({ content: '✅ Your workout post has been updated!', ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 
@@ -8689,6 +8891,35 @@ client.on('interactionCreate', async (interaction) => {
         modal.addComponents(new ActionRowBuilder().addComponents(
             new TextInputBuilder().setCustomId('room_name').setLabel('New session name').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 🧘 Yoga · 🚴 Spin Class · 💪 Chest Day').setRequired(true).setMaxLength(100)
         ));
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Fitness: edit button on public post ───────────────────────────────────
+    if (interaction.customId.startsWith('fitness:edit:')) {
+        const ownerUid = interaction.customId.split(':')[2];
+        const uid      = interaction.user.id;
+        if (uid !== ownerUid) {
+            await interaction.reply({ content: '❌ You can only edit your own posts.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const msgId    = interaction.message.id;
+        const userData = fitnessData.get(uid);
+        const entry    = userData?.entries.find(e => e.messageId === msgId);
+        if (!entry) {
+            await interaction.reply({ content: '❌ Could not find this workout entry. It may have been deleted.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const modal = new ModalBuilder().setCustomId(`fitness:edit_modal:${uid}:${msgId}`).setTitle('✏️ Edit Your Workout');
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setValue(entry.workout).setRequired(true).setMaxLength(200)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_duration').setLabel('How long?').setStyle(TextInputStyle.Short).setValue(entry.duration).setRequired(true).setMaxLength(50)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_weight').setLabel('Current weight (optional)').setStyle(TextInputStyle.Short).setValue(entry.weight || '').setRequired(false).setMaxLength(30)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_energy').setLabel('Energy level (optional)').setStyle(TextInputStyle.Short).setValue(entry.energy || '').setRequired(false).setMaxLength(50)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph).setValue(entry.notes || '').setRequired(false).setMaxLength(300)),
+        );
         await interaction.showModal(modal);
         return;
     }

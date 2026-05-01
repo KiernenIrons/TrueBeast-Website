@@ -12,6 +12,9 @@
     "dependencies": {
         "discord.js": "^14.15.3",
         "dotenv": "^16.4.5",
-        "@napi-rs/canvas": "^0.1.68"
+        "@napi-rs/canvas": "^0.1.68",
+        "@discordjs/voice": "^0.17.0",
+        "opusscript": "^0.1.1",
+        "tweetnacl": "^1.0.3"
     }
 }

@@ -1,5 +1,5 @@
 FROM node:20-alpine
-RUN apk add --no-cache font-noto font-noto-emoji
+RUN apk add --no-cache font-noto font-noto-emoji ffmpeg
 WORKDIR /app
 COPY package.json .
 RUN npm install --omit=dev
