@@ -1,5 +1,24 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Add fitness tracking system, workout notifications, and Join-to-Create workout rooms
+
+- Added `fitnessData` and `workoutRooms` Maps with full Discord backup serialization/deserialization in `buildFullBackup` / `applyBackupToMemory`
+- Added constants: `FITNESS_TRACKING_CHANNEL_ID`, `FITNESS_VC_TRIGGER_ID`, `FITNESS_DISCUSS_CHANNEL_ID`
+- Added helper functions: `parseDurationToMins`, `parseTimeToUtc`, `parseDays`, `calcStreak`, `calcAvgDuration`
+- `/fitness-setup` (owner only): posts the persistent "🏋️ Log a Workout" button embed to #tracking
+- Workout logging button flow: `fitness:start` → frequency (daily/weekly/monthly) → privacy (public/private) → 5-field modal (workout, duration, weight, energy, notes)
+- Public entries post an embed to #tracking with 💪/🔥/👏 reaction buttons, a Discuss thread button, and a delete button; reactor DMs the post owner on click
+- Private entries store silently with ephemeral confirmation only
+- `/fitness progress` (ephemeral): shows total workouts, current streak, average duration, last 5 entries, and active reminder config
+- `/fitness notify`: modal to set workout DM reminders (time + days + UTC offset); sends test DM immediately on save
+- `/fitness notify-clear`: removes reminder
+- Notification tick added to existing 60s `setInterval`: checks each user's stored UTC time/daySet, sends DM, sets `lastSentDate` to prevent double-send
+- `createWorkoutRoom(state)`: triggered when a user joins `FITNESS_VC_TRIGGER_ID`; creates a named voice channel in the FITNESS category with full owner/mod/bot permission overwrites, moves the user in, DMs them rename and user-limit buttons, posts announcement in #discussions
+- Workout room lifecycle in `voiceStateUpdate`: join → cancel delete timer; leave → if empty start 60s auto-delete timer
+- Startup cleanup: stale workout room channels from pre-restart are deleted and removed from the Map
+- `FITNESS_VC_TRIGGER_ID` excluded from XP session-start tracking (pass-through channel)
+- `fitness:room:rename` / `fitness:room:limit` DM buttons trigger modals to rename the channel or set a user cap
+
 ## [2026-04-25] — Fix bot intercepting Mee6 ticket button interactions
 
 - Added early return in the `interactionCreate` catch-all so it only fires for `answer:` and `skip:` prefixed buttons (the question DM system)

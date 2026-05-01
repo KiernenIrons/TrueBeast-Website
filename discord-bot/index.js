@@ -752,6 +752,13 @@ const TEMP_VC_TRIGGER_ID = '1484970124292128992';
 // channelId → { ownerId, ownerName, deleteTimer }
 const tempVoiceChannels = new Map();
 
+// ── Fitness Tracking ──────────────────────────────────────────────────────────
+const FITNESS_TRACKING_CHANNEL_ID = '1499562548767490058'; // #tracking
+const FITNESS_VC_TRIGGER_ID       = '1499568259299676321'; // Workout Together (join-to-create)
+const FITNESS_DISCUSS_CHANNEL_ID  = '1499562699300802570'; // #discussions
+const fitnessData  = new Map(); // userId → { entries: [], notify: null }
+const workoutRooms = new Map(); // channelId → { ownerId, ownerName, deleteTimer, dmMessageId, createdAt }
+
 // ── AFK system ────────────────────────────────────────────────────────────────
 // userId → { reason, originalNickname, timestamp }
 const afkUsers = new Map();
@@ -1414,6 +1421,80 @@ function todayStr() {
     return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 }
 
+function parseDurationToMins(str) {
+    if (!str) return null;
+    const s = str.toLowerCase().trim();
+    const hm = s.match(/(\d+)\s*h(?:r|ours?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/);
+    if (hm) return parseInt(hm[1]) * 60 + (parseInt(hm[2] || '0') || 0);
+    const m = s.match(/(\d+)\s*m(?:in(?:utes?)?)?/);
+    if (m) return parseInt(m[1]);
+    const n = s.match(/^(\d+)$/);
+    if (n) return parseInt(n[1]);
+    return null;
+}
+
+function parseTimeToUtc(rawTime, offsetHours) {
+    const normalized = rawTime.trim().toUpperCase().replace(/\s+/g, '');
+    let h, m;
+    const ampm = normalized.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)$/);
+    const plain = normalized.match(/^(\d{1,2}):(\d{2})$/);
+    if (ampm) {
+        h = parseInt(ampm[1]);
+        m = parseInt(ampm[2] || '0');
+        if (ampm[3] === 'PM' && h !== 12) h += 12;
+        if (ampm[3] === 'AM' && h === 12) h = 0;
+    } else if (plain) {
+        h = parseInt(plain[1]);
+        m = parseInt(plain[2]);
+    } else {
+        return null;
+    }
+    if (h > 23 || m > 59) return null;
+    const totalMinsLocal = h * 60 + m;
+    const off = parseFloat(offsetHours) || 0;
+    const totalMinsUtc = ((totalMinsLocal - off * 60) % 1440 + 1440) % 1440;
+    const utcH = Math.floor(totalMinsUtc / 60);
+    const utcM = totalMinsUtc % 60;
+    return `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
+}
+
+function parseDays(rawDays) {
+    const s = rawDays.trim().toUpperCase();
+    if (['DAILY', 'EVERY DAY', 'EVERYDAY', 'ALL'].includes(s)) return [0, 1, 2, 3, 4, 5, 6];
+    if (['WEEKDAYS', 'WORKDAYS', 'MON-FRI'].includes(s)) return [1, 2, 3, 4, 5];
+    if (s === 'WEEKENDS') return [0, 6];
+    const map = { SUN: 0, SUNDAY: 0, MON: 1, MONDAY: 1, TUE: 2, TUES: 2, TUESDAY: 2, WED: 3, WEDNESDAY: 3, THU: 4, THURS: 4, THURSDAY: 4, FRI: 5, FRIDAY: 5, SAT: 6, SATURDAY: 6 };
+    const parts = s.split(/[\s,]+/).map(p => p.trim()).filter(Boolean);
+    const result = [];
+    for (const p of parts) {
+        if (map[p] !== undefined && !result.includes(map[p])) result.push(map[p]);
+    }
+    return result.length ? result.sort((a, b) => a - b) : null;
+}
+
+function calcStreak(entries) {
+    if (!entries || entries.length === 0) return 0;
+    const days = new Set(entries.map(e => e.date));
+    const today = todayStr();
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 1);
+    let streak = 0;
+    while (true) {
+        const key = d.toISOString().slice(0, 10);
+        if (!days.has(key)) break;
+        streak++;
+        d.setUTCDate(d.getUTCDate() - 1);
+    }
+    if (days.has(today)) streak++;
+    return streak;
+}
+
+function calcAvgDuration(entries) {
+    const valid = entries.filter(e => typeof e.durationMins === 'number');
+    if (valid.length === 0) return null;
+    return Math.round(valid.reduce((s, e) => s + e.durationMins, 0) / valid.length);
+}
+
 // ── Discord-channel backup (primary) + once-daily Firestore backup ─────────────
 
 function buildFullBackup() {
@@ -1479,6 +1560,16 @@ function buildFullBackup() {
         },
         aiHistory: ai,
         afk,
+        fitnessData: (() => {
+            const fd = {};
+            for (const [uid, data] of fitnessData) fd[uid] = { entries: data.entries, notify: data.notify };
+            return fd;
+        })(),
+        workoutRooms: (() => {
+            const wr = {};
+            for (const [chId, room] of workoutRooms) wr[chId] = { ownerId: room.ownerId, ownerName: room.ownerName, createdAt: room.createdAt };
+            return wr;
+        })(),
     };
 }
 
@@ -1774,6 +1865,16 @@ function applyBackupToMemory(data) {
     afkUsers.clear();
     for (const [uid, d] of Object.entries(data.afk || {})) {
         afkUsers.set(uid, { reason: d.reason, originalNickname: d.originalNickname, timestamp: d.timestamp });
+    }
+    // Fitness data
+    fitnessData.clear();
+    for (const [uid, snap] of Object.entries(data.fitnessData || {})) {
+        fitnessData.set(uid, { entries: snap.entries || [], notify: snap.notify || null });
+    }
+    // Workout rooms (channels may no longer exist after restart — cleaned up on startup)
+    workoutRooms.clear();
+    for (const [chId, snap] of Object.entries(data.workoutRooms || {})) {
+        workoutRooms.set(chId, { ownerId: snap.ownerId, ownerName: snap.ownerName, deleteTimer: null, dmMessageId: null, createdAt: snap.createdAt || 0 });
     }
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
@@ -2311,6 +2412,97 @@ async function createTempVC(state) {
     }
 }
 
+// ── Fitness Workout Room logic ────────────────────────────────────────────────
+
+async function createWorkoutRoom(state) {
+    const member     = state.member;
+    const guild      = state.guild;
+    const trigger    = guild.channels.cache.get(FITNESS_VC_TRIGGER_ID);
+    const categoryId = trigger?.parentId || null;
+    const channelName = `${member.displayName}'s Workout 🏋️`;
+
+    // Guard: user already owns a room → move them there
+    for (const [chId, room] of workoutRooms) {
+        if (room.ownerId === member.id) {
+            const existing = guild.channels.cache.get(chId);
+            if (existing) { await member.voice.setChannel(existing).catch(() => {}); return; }
+            workoutRooms.delete(chId);
+        }
+    }
+
+    try {
+        const permOverwrites = [
+            {
+                id: member.id,
+                allow: [
+                    PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers,
+                    PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers,
+                    PermissionFlagsBits.PrioritySpeaker, PermissionFlagsBits.Stream,
+                    PermissionFlagsBits.Speak, PermissionFlagsBits.Connect,
+                    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.UseVAD,
+                    PermissionFlagsBits.SendMessages,
+                ],
+            },
+            {
+                id: client.user.id,
+                allow: [
+                    PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers,
+                    PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                ],
+            },
+        ];
+        if (MOD_ROLE_ID) {
+            permOverwrites.push({ id: MOD_ROLE_ID, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Speak, PermissionFlagsBits.SendMessages] });
+        }
+        const guildOwner = await guild.fetchOwner().catch(() => null);
+        if (guildOwner && guildOwner.id !== member.id) {
+            permOverwrites.push({ id: guildOwner.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Speak, PermissionFlagsBits.SendMessages] });
+        }
+
+        const workoutChannel = await guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildVoice,
+            parent: categoryId,
+            permissionOverwrites: permOverwrites,
+            reason: `Workout room for ${member.user.tag}`,
+        });
+
+        await member.voice.setChannel(workoutChannel);
+
+        workoutRooms.set(workoutChannel.id, { ownerId: member.id, ownerName: member.displayName, deleteTimer: null, dmMessageId: null, createdAt: Date.now() });
+
+        // DM owner with setup buttons
+        try {
+            const dmUser = await client.users.fetch(member.id);
+            const dmRow  = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('fitness:room:rename').setLabel('✏️ Rename Session').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('fitness:room:limit').setLabel('👥 Set User Limit').setStyle(ButtonStyle.Secondary),
+            );
+            const dmMsg = await dmUser.send({
+                embeds: [{
+                    color: 0x22c55e,
+                    title: '🏋️ Your Workout Room is Ready!',
+                    description: `**${channelName}** has been created. It auto-deletes 60 seconds after everyone leaves.\n\nUse the buttons below to customise your session.`,
+                    footer: { text: 'These buttons work until the channel is deleted.' },
+                }],
+                components: [dmRow],
+            });
+            workoutRooms.get(workoutChannel.id).dmMessageId = dmMsg.id;
+        } catch (_) {}
+
+        // Announce in #discussions
+        try {
+            const discuss = await client.channels.fetch(FITNESS_DISCUSS_CHANNEL_ID);
+            await discuss.send({ embeds: [{ color: 0x22c55e, description: `🏋️ **${member.displayName}** just opened a workout session! Jump into **${channelName}** to sweat together.`, timestamp: new Date().toISOString() }] });
+        } catch (_) {}
+
+        console.log(`[BeastBot] 🏋️ Workout room created: "${channelName}" for ${member.user.tag}`);
+    } catch (e) {
+        console.error('[BeastBot] Failed to create workout room:', e.message);
+    }
+}
+
 // ── Leave timer store ────────────────────────────────────────────────────────
 // userId -> { mainTimeout, warningTimeout, channelId, textChannelId, reason, minutes }
 const leaveTimers = new Map();
@@ -2419,7 +2611,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             }
         }
         // Session start: joined a real channel (not AFK, not trigger, not no-XP)
-        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID && !NO_XP_VC_IDS.has(newCh)) {
+        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID && newCh !== FITNESS_VC_TRIGGER_ID && !NO_XP_VC_IDS.has(newCh)) {
             const existing = voiceMinutes.get(uid) || { total: 0, days: new Map() };
             voiceStartTimes.set(uid, {
                 startMs: Date.now(),
@@ -2436,6 +2628,35 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         await logToChannel(`🎙️ **voiceStateUpdate fired** — ${newState.member?.user?.tag} joined trigger channel`);
         await createTempVC(newState);
         return;
+    }
+
+    // ── Someone joined the fitness VC trigger → create their workout room ─────
+    if (newCh === FITNESS_VC_TRIGGER_ID) {
+        await createWorkoutRoom(newState);
+        return;
+    }
+
+    // ── Someone joined an existing workout room → cancel its delete timer ─────
+    if (newCh && workoutRooms.has(newCh)) {
+        const room = workoutRooms.get(newCh);
+        if (room.deleteTimer) { clearTimeout(room.deleteTimer); room.deleteTimer = null; workoutRooms.set(newCh, room); }
+    }
+
+    // ── Someone left a workout room → if empty, start 60s delete timer ────────
+    if (oldCh && workoutRooms.has(oldCh)) {
+        const vcChannel = newState.guild.channels.cache.get(oldCh);
+        const room = workoutRooms.get(oldCh);
+        if ((vcChannel?.members.size ?? 0) === 0) {
+            if (room.deleteTimer) clearTimeout(room.deleteTimer);
+            room.deleteTimer = setTimeout(async () => {
+                try {
+                    const ch = client.channels.cache.get(oldCh);
+                    if (ch) await ch.delete('Workout room: empty for 60s');
+                } catch (_) {}
+                workoutRooms.delete(oldCh);
+            }, 60 * 1000);
+            workoutRooms.set(oldCh, room);
+        }
     }
 
     // ── Someone joined an existing temp VC → cancel its delete timer ──────────
@@ -3910,6 +4131,16 @@ client.once('clientReady', async () => {
             }));
         console.log(`[BeastBot] Resumed voice tracking for ${voiceStartTimes.size} active members`);
 
+        // Clean up stale workout rooms from previous sessions
+        for (const [chId] of workoutRooms) {
+            const ch = guild.channels.cache.get(chId);
+            if (!ch || ch.members.size === 0) {
+                try { if (ch) await ch.delete('Workout room: stale after restart').catch(() => {}); } catch (_) {}
+                workoutRooms.delete(chId);
+            }
+        }
+        if (workoutRooms.size > 0) console.log(`[BeastBot] 🏋️ ${workoutRooms.size} workout room(s) still active after restart`);
+
         // Tick every 60s — update voiceMinutes + bonus XP + rank checks
         setInterval(async () => {
             const today = todayStr();
@@ -3926,6 +4157,29 @@ client.once('clientReady', async () => {
                 // Live rank update — fires rank-up message the minute they cross a threshold
                 const member = guild.members.cache.get(uid);
                 if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
+            }
+
+            // Workout notification DMs
+            const nowUtc = new Date();
+            const nowHHMM = `${String(nowUtc.getUTCHours()).padStart(2, '0')}:${String(nowUtc.getUTCMinutes()).padStart(2, '0')}`;
+            const nowDay  = nowUtc.getUTCDay();
+            const todayNotify = todayStr();
+            for (const [notifyUid, fData] of fitnessData) {
+                if (!fData.notify) continue;
+                if (fData.notify.timeUtc !== nowHHMM) continue;
+                if (!fData.notify.daySet.includes(nowDay)) continue;
+                if (fData.notify.lastSentDate === todayNotify) continue;
+                try {
+                    const notifyUser = await client.users.fetch(notifyUid);
+                    await notifyUser.send({ embeds: [{
+                        color: 0xf59e0b,
+                        title: '⏰ Time to Work Out!',
+                        description: "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!",
+                        footer: { text: `⏰ ${fData.notify.timeRaw} · 📅 ${fData.notify.days}` },
+                    }] });
+                    fData.notify.lastSentDate = todayNotify;
+                    fitnessData.set(notifyUid, fData);
+                } catch (_) {}
             }
 
             // Save snapshot immediately after crediting — guarantees fresh data in backup
@@ -4149,6 +4403,15 @@ client.once('clientReady', async () => {
                 .addSubcommand(sub => sub.setName('status').setDescription('Show the current game status'))
                 .addSubcommand(sub => sub.setName('help').setDescription('How to play The Traitors'))
                 .addSubcommand(sub => sub.setName('clear').setDescription('Delete all messages in the traitors channel (host or mod)')),
+            new SlashCommandBuilder()
+                .setName('fitness')
+                .setDescription('Fitness tracking commands')
+                .addSubcommand(sub => sub.setName('progress').setDescription('View your fitness progress (private to you)'))
+                .addSubcommand(sub => sub.setName('notify').setDescription('Set a workout DM reminder'))
+                .addSubcommand(sub => sub.setName('notify-clear').setDescription('Remove your workout reminder')),
+            new SlashCommandBuilder()
+                .setName('fitness-setup')
+                .setDescription('(Owner only) Post the Log Your Workout button in #tracking'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -6636,6 +6899,104 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /fitness-setup ───────────────────────────────────────────────────
+        if (interaction.commandName === 'fitness-setup') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
+            }
+            try {
+                const ch = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+                await ch.send({
+                    embeds: [{
+                        color: 0x22c55e,
+                        title: '🏋️ TrueBeast Fitness Tracker',
+                        description: 'Track your workouts, share your progress, and hold each other accountable.\n\nClick the button below to log a workout — choose how often you train and whether to share publicly or keep it private.',
+                        fields: [
+                            { name: '📅 Frequency', value: 'Daily · Weekly · Monthly', inline: true },
+                            { name: '🔒 Privacy', value: 'Public (shared) or Private (just you)', inline: true },
+                        ],
+                        footer: { text: 'Use /fitness progress to see your stats anytime.' },
+                    }],
+                    components: [new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('fitness:start').setLabel('🏋️ Log a Workout').setStyle(ButtonStyle.Success)
+                    )],
+                });
+                await interaction.reply({ content: '✅ Fitness tracker posted in #tracking.', flags: 64 });
+            } catch (e) {
+                await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
+            }
+            return;
+        }
+
+        // ── /fitness ─────────────────────────────────────────────────────────
+        if (interaction.commandName === 'fitness') {
+            const sub  = interaction.options.getSubcommand();
+            const user = interaction.user;
+            const uid  = user.id;
+
+            if (sub === 'progress') {
+                const userData = fitnessData.get(uid);
+                const entries  = userData?.entries || [];
+                const total    = entries.length;
+                const streak   = calcStreak(entries);
+                const avg      = calcAvgDuration(entries);
+                const last5    = [...entries].reverse().slice(0, 5);
+                const fields = [
+                    { name: '📊 Total Workouts', value: `**${total}**`, inline: true },
+                    { name: '🔥 Current Streak', value: `**${streak} day${streak !== 1 ? 's' : ''}**`, inline: true },
+                    { name: '⏱️ Avg Duration', value: avg !== null ? `**${avg} min**` : '*N/A*', inline: true },
+                ];
+                if (userData?.notify) {
+                    fields.push({ name: '⏰ Workout Reminder', value: `${userData.notify.timeRaw} on ${userData.notify.days}`, inline: false });
+                }
+                fields.push({
+                    name: '📋 Last 5 Workouts',
+                    value: last5.length > 0
+                        ? last5.map(e => `**${e.date}** — ${e.workout.slice(0, 40)}${e.workout.length > 40 ? '...' : ''} *(${e.duration})*`).join('\n')
+                        : '*No workouts logged yet. Hit that button in #tracking!*',
+                    inline: false,
+                });
+                const member = interaction.member;
+                await interaction.reply({
+                    embeds: [{
+                        color: 0x5865f2,
+                        author: { name: `${member?.displayName || user.username}'s Fitness Progress`, icon_url: user.displayAvatarURL({ dynamic: true }) },
+                        fields,
+                        footer: { text: 'Log more workouts with the button in #tracking' },
+                        timestamp: new Date().toISOString(),
+                    }],
+                    flags: 64,
+                });
+                return;
+            }
+
+            if (sub === 'notify') {
+                const notifyModal = new ModalBuilder().setCustomId('fitness:notify:modal').setTitle('⏰ Set Workout Reminder');
+                notifyModal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('notify_time').setLabel('What time?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 7:30 AM or 19:00').setRequired(true).setMaxLength(20)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('notify_days').setLabel('Which days?').setStyle(TextInputStyle.Short).setPlaceholder('Daily · Weekdays · Mon, Wed, Fri · etc.').setRequired(true).setMaxLength(50)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder().setCustomId('notify_offset').setLabel('Your UTC offset').setStyle(TextInputStyle.Short).setPlaceholder('e.g. -5 for EST, 0 for UTC, +1 for BST').setRequired(true).setMaxLength(6)
+                    ),
+                );
+                await interaction.showModal(notifyModal);
+                return;
+            }
+
+            if (sub === 'notify-clear') {
+                const userData = fitnessData.get(uid) || { entries: [], notify: null };
+                userData.notify = null;
+                fitnessData.set(uid, userData);
+                await interaction.reply({ content: '✅ Workout reminder removed.', flags: 64 });
+                return;
+            }
+            return;
+        }
+
         // ── /say ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'say') {
             if (interaction.user.id !== OWNER_DISCORD_ID) {
@@ -7231,6 +7592,157 @@ client.on('interactionCreate', async (interaction) => {
             if (channel) await handleTrtBanVote(interaction, game, channel);
             return;
         }
+    }
+
+    // ── Fitness: notify modal submit ─────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'fitness:notify:modal') {
+        const rawTime   = interaction.fields.getTextInputValue('notify_time');
+        const rawDays   = interaction.fields.getTextInputValue('notify_days');
+        const rawOffset = interaction.fields.getTextInputValue('notify_offset');
+        const uid       = interaction.user.id;
+        const timeUtc   = parseTimeToUtc(rawTime, rawOffset);
+        const daySet    = parseDays(rawDays);
+        if (!timeUtc) {
+            await interaction.reply({ content: '❌ Couldn\'t parse that time. Try something like "7:30 AM" or "19:00".', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
+            return;
+        }
+        if (!daySet) {
+            await interaction.reply({ content: '❌ Couldn\'t parse those days. Try "Daily", "Weekdays", or "Mon, Wed, Fri".', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
+            return;
+        }
+        const userData = fitnessData.get(uid) || { entries: [], notify: null };
+        userData.notify = { timeUtc, timeRaw: rawTime, days: rawDays, daySet, lastSentDate: null };
+        fitnessData.set(uid, userData);
+        try {
+            const dmUser = await client.users.fetch(uid);
+            await dmUser.send({ embeds: [{ color: 0xf59e0b, title: '⏰ Reminder Set!', description: `You'll receive a workout reminder at **${rawTime}** on **${rawDays}**.\n\nThis is what the reminder will look like!`, footer: { text: 'Use /fitness notify-clear to remove it.' } }] });
+            await interaction.reply({ content: `✅ Reminder set for **${rawTime}** on **${rawDays}**! Check your DMs — I just sent a test.`, flags: 64 });
+        } catch (_) {
+            await interaction.reply({ content: `✅ Reminder saved! I couldn't DM you though — make sure DMs from server members are enabled.`, flags: 64 });
+        }
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
+        return;
+    }
+
+    // ── Fitness: workout modal submit ────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:modal:')) {
+        const parts    = interaction.customId.split(':');
+        const freq     = parts[2];
+        const privacy  = parts[3];
+        const user     = interaction.user;
+        const member   = interaction.member;
+        const uid      = user.id;
+        const display  = member?.displayName || user.username;
+        const workout  = interaction.fields.getTextInputValue('fit_workout').trim();
+        const duration = interaction.fields.getTextInputValue('fit_duration').trim();
+        const weight   = interaction.fields.getTextInputValue('fit_weight').trim() || null;
+        const energy   = interaction.fields.getTextInputValue('fit_energy').trim() || null;
+        const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
+        const durationMins = parseDurationToMins(duration);
+        const entryId  = `${uid}-${Date.now()}`;
+        const entry = { id: entryId, date: todayStr(), freq, privacy, workout, duration, weight, energy, notes, durationMins, messageId: null };
+        const userData = fitnessData.get(uid) || { entries: [], notify: null };
+        userData.entries.push(entry);
+        fitnessData.set(uid, userData);
+
+        if (privacy === 'private') {
+            await interaction.reply({ content: '✅ Workout logged! Only you can see this. Use `/fitness progress` to review your stats.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
+            return;
+        }
+
+        try {
+            const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+            const embedFields = [
+                { name: '⏱️ Duration', value: duration, inline: true },
+                { name: '📅 Frequency', value: freq.charAt(0).toUpperCase() + freq.slice(1) + ' Log', inline: true },
+            ];
+            if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
+            if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
+            if (notes)  embedFields.push({ name: '📝 Notes', value: notes, inline: false });
+            const sent = await trackingCh.send({
+                embeds: [{
+                    color: 0x22c55e,
+                    author: { name: `${display} logged a workout 🏋️`, icon_url: user.displayAvatarURL({ dynamic: true }) },
+                    title: workout,
+                    fields: embedFields,
+                    footer: { text: 'React to hype them up!' },
+                    timestamp: new Date().toISOString(),
+                }],
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`fitness:react:flex:${uid}`).setLabel('💪').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`fitness:react:fire:${uid}`).setLabel('🔥').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`fitness:react:clap:${uid}`).setLabel('👏').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`fitness:thread:${uid}`).setLabel('💬 Discuss').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`fitness:delete:${uid}`).setLabel('🗑️').setStyle(ButtonStyle.Danger),
+                )],
+            });
+            const updatedData = fitnessData.get(uid);
+            const idx = updatedData.entries.findIndex(e => e.id === entryId);
+            if (idx >= 0) updatedData.entries[idx].messageId = sent.id;
+            fitnessData.set(uid, updatedData);
+            await interaction.reply({ content: '✅ Workout posted! Nice work 💪', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        } catch (e) {
+            console.error('[BeastBot] Failed to post public workout:', e.message);
+            await interaction.reply({ content: '❌ Could not post your workout. Try again.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
+        return;
+    }
+
+    // ── Fitness: workout room rename modal ────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'fitness:room:rename:modal') {
+        const newName = interaction.fields.getTextInputValue('room_name').trim().slice(0, 100);
+        const uid     = interaction.user.id;
+        let found = null;
+        for (const [chId, room] of workoutRooms) { if (room.ownerId === uid) { found = { chId, room }; break; } }
+        if (!found) {
+            await interaction.reply({ content: '❌ You don\'t have an active workout room.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        try {
+            const ch = await client.channels.fetch(found.chId);
+            await ch.setName(newName);
+            await interaction.reply({ content: `✅ Session renamed to **${newName}**!`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        } catch (e) {
+            await interaction.reply({ content: '❌ Couldn\'t rename the channel. It may have been deleted.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
+        return;
+    }
+
+    // ── Fitness: workout room user limit modal ────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'fitness:room:limit:modal') {
+        const raw   = interaction.fields.getTextInputValue('room_limit').trim();
+        const limit = parseInt(raw);
+        const uid   = interaction.user.id;
+        if (isNaN(limit) || limit < 0 || limit > 99) {
+            await interaction.reply({ content: '❌ Please enter a number between 0 and 99 (0 = unlimited).', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        let found = null;
+        for (const [chId, room] of workoutRooms) { if (room.ownerId === uid) { found = { chId, room }; break; } }
+        if (!found) {
+            await interaction.reply({ content: '❌ You don\'t have an active workout room.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        try {
+            const ch = await client.channels.fetch(found.chId);
+            await ch.setUserLimit(limit);
+            await interaction.reply({ content: `✅ User limit set to **${limit === 0 ? 'unlimited' : limit}**!`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        } catch (e) {
+            await interaction.reply({ content: '❌ Couldn\'t set the limit. The channel may have been deleted.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
+        return;
     }
 
     if (!interaction.isButton()) return;
@@ -8039,6 +8551,165 @@ client.on('interactionCreate', async (interaction) => {
     //     console.log('[BeastBot] Discadia bump confirmed — 24h timer started');
     //     return;
     // }
+
+    // ── Fitness: start button ────────────────────────────────────────────────
+    if (interaction.customId === 'fitness:start') {
+        await interaction.reply({
+            content: '📅 **How often will you be logging your workouts?**',
+            components: [new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('fitness:freq:daily').setLabel('📆 Daily').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('fitness:freq:weekly').setLabel('📅 Weekly').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('fitness:freq:monthly').setLabel('🗓️ Monthly').setStyle(ButtonStyle.Secondary),
+            )],
+            ephemeral: true,
+        });
+        return;
+    }
+
+    // ── Fitness: frequency selection ─────────────────────────────────────────
+    if (interaction.customId.startsWith('fitness:freq:')) {
+        const freq = interaction.customId.split(':')[2];
+        await interaction.update({
+            content: '🔒 **Who can see your workout log?**',
+            components: [new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`fitness:privacy:${freq}:public`).setLabel('🌍 Public').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`fitness:privacy:${freq}:private`).setLabel('🔒 Private').setStyle(ButtonStyle.Secondary),
+            )],
+        });
+        return;
+    }
+
+    // ── Fitness: privacy selection → show modal ───────────────────────────────
+    if (interaction.customId.startsWith('fitness:privacy:')) {
+        const parts   = interaction.customId.split(':');
+        const freq    = parts[2];
+        const privacy = parts[3];
+        const modal   = new ModalBuilder()
+            .setCustomId(`fitness:modal:${freq}:${privacy}`)
+            .setTitle(`🏋️ Log Your Workout — ${freq.charAt(0).toUpperCase() + freq.slice(1)}`);
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setPlaceholder('e.g. Chest & Back — 3x10 bench, 3x8 rows, 20min cardio').setRequired(true).setMaxLength(200)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('fit_duration').setLabel('How long?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 45 minutes, 1h 30m, 1 hour').setRequired(true).setMaxLength(50)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('fit_weight').setLabel('Current weight (optional)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 180 lbs, 82 kg').setRequired(false).setMaxLength(30)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('fit_energy').setLabel('Energy level (optional)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 9/10, High, Absolutely smashed it').setRequired(false).setMaxLength(50)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('fit_notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph).setPlaceholder("PR'd something? New exercises? How do you feel?").setRequired(false).setMaxLength(300)
+            ),
+        );
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Fitness: reaction buttons ─────────────────────────────────────────────
+    if (interaction.customId.startsWith('fitness:react:')) {
+        const parts       = interaction.customId.split(':');
+        const emojiKey    = parts[2]; // flex | fire | clap
+        const ownerUid    = parts[3];
+        const emojiMap    = { flex: '💪', fire: '🔥', clap: '👏' };
+        const emoji       = emojiMap[emojiKey] || '💪';
+        const reactorName = interaction.member?.displayName || interaction.user.username;
+        if (ownerUid !== interaction.user.id) {
+            try {
+                const ownerUser = await client.users.fetch(ownerUid);
+                await ownerUser.send({ embeds: [{ color: 0x22c55e, description: `${emoji} **${reactorName}** reacted to your workout!` }] });
+            } catch (_) {}
+        }
+        await interaction.reply({ content: `${emoji} Hyped up their workout!`, ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
+        return;
+    }
+
+    // ── Fitness: thread button ────────────────────────────────────────────────
+    if (interaction.customId.startsWith('fitness:thread:')) {
+        const msg = interaction.message;
+        if (msg.thread) {
+            await interaction.reply({ content: `💬 There's already a discussion thread here: ${msg.thread}`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const title = msg.embeds[0]?.title || '🏋️ Workout Discussion';
+        try {
+            const thread = await msg.startThread({ name: title.slice(0, 50), autoArchiveDuration: 1440 });
+            await interaction.reply({ content: `💬 Thread started — head to ${thread}!`, ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        } catch (e) {
+            await interaction.reply({ content: '❌ Couldn\'t create a thread.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
+        return;
+    }
+
+    // ── Fitness: delete button ────────────────────────────────────────────────
+    if (interaction.customId.startsWith('fitness:delete:')) {
+        const ownerUid = interaction.customId.split(':')[2];
+        const uid      = interaction.user.id;
+        const isMod    = interaction.member?.roles.cache.has(MOD_ROLE_ID);
+        const isOwner  = uid === OWNER_DISCORD_ID;
+        if (uid !== ownerUid && !isMod && !isOwner) {
+            await interaction.reply({ content: '❌ You can only delete your own posts.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const msgId = interaction.message.id;
+        try {
+            await interaction.reply({ content: '🗑️ Workout post deleted.', ephemeral: true });
+            await interaction.message.delete();
+            const ownerData = fitnessData.get(ownerUid);
+            if (ownerData) {
+                const idx = ownerData.entries.findIndex(e => e.messageId === msgId);
+                if (idx >= 0) ownerData.entries[idx].messageId = null;
+                fitnessData.set(ownerUid, ownerData);
+            }
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        } catch (e) {
+            await interaction.followUp({ content: '❌ Couldn\'t delete that post.', ephemeral: true }).catch(() => {});
+        }
+        return;
+    }
+
+    // ── Fitness: workout room rename button ───────────────────────────────────
+    if (interaction.customId === 'fitness:room:rename') {
+        const uid = interaction.user.id;
+        let hasRoom = false;
+        for (const [, room] of workoutRooms) { if (room.ownerId === uid) { hasRoom = true; break; } }
+        if (!hasRoom) {
+            await interaction.reply({ content: '❌ Your workout room no longer exists.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const modal = new ModalBuilder().setCustomId('fitness:room:rename:modal').setTitle('✏️ Rename Your Session');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('room_name').setLabel('New session name').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 🧘 Yoga · 🚴 Spin Class · 💪 Chest Day').setRequired(true).setMaxLength(100)
+        ));
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Fitness: workout room user limit button ────────────────────────────────
+    if (interaction.customId === 'fitness:room:limit') {
+        const uid = interaction.user.id;
+        let hasRoom = false;
+        for (const [, room] of workoutRooms) { if (room.ownerId === uid) { hasRoom = true; break; } }
+        if (!hasRoom) {
+            await interaction.reply({ content: '❌ Your workout room no longer exists.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        const modal = new ModalBuilder().setCustomId('fitness:room:limit:modal').setTitle('👥 Set User Limit');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('room_limit').setLabel('Max members (0 = unlimited)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 5').setRequired(true).setMaxLength(3)
+        ));
+        await interaction.showModal(modal);
+        return;
+    }
 
     if (!interaction.customId.startsWith('answer:') && !interaction.customId.startsWith('skip:')) return;
 
