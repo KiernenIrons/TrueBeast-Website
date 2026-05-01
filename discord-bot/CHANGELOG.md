@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix /fitness notify: day-crossing timezone bug + immediate backup on save
+
+- Fixed day-of-week mismatch for users whose reminder time crosses midnight in UTC: when local → UTC conversion shifts the calendar day (e.g. 10 PM Eastern = 3 AM UTC next day), the stored `daySet` is now adjusted by ±1 day so the tick matches the correct UTC day
+- Notification data is now saved to the backup immediately when a reminder is set, preventing data loss if the bot restarts or is deployed within 60 s of the `/fitness notify` command
+- Added a `console.log` in the notification tick so successful fires are visible in Fly.io logs for debugging
+
 ## [2026-05-01] — Reorder /fitness notify command options (minute before period)
 
 - Moved `minute` option before `period` (AM/PM) in the `/fitness notify` slash command registration so Discord displays options in order: hour → minute → AM/PM → timezone → days

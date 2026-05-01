@@ -4259,6 +4259,7 @@ client.once('clientReady', async () => {
                 if (fData.notify.timeUtc !== nowHHMM && fData.notify.timeUtc !== prevHHMM) continue;
                 if (!fData.notify.daySet.includes(nowDay)) continue;
                 if (fData.notify.lastSentDate === todayNotify) continue;
+                console.log(`[BeastBot] ⏰ Firing workout notification for ${notifyUid} (${fData.notify.timeRaw})`);
                 try {
                     const notifyUser = await client.users.fetch(notifyUid);
                     const notifyGuild = client.guilds.cache.first();
@@ -7128,11 +7129,14 @@ client.on('interactionCreate', async (interaction) => {
 
                     const off = parseFloat(tzStr) || 0;
                     const totalMinsLocal = h24 * 60 + minute;
-                    const totalMinsUtc = ((totalMinsLocal - off * 60) % 1440 + 1440) % 1440;
+                    const rawUtcMins = totalMinsLocal - off * 60;
+                    const totalMinsUtc = ((rawUtcMins) % 1440 + 1440) % 1440;
                     const utcH = Math.floor(totalMinsUtc / 60);
                     const utcM = totalMinsUtc % 60;
                     const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
                     const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
+                    // If the UTC conversion crosses midnight, the day of week shifts
+                    const dayShift = rawUtcMins >= 1440 ? 1 : rawUtcMins < 0 ? -1 : 0;
 
                     const dayPatterns = {
                         daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
@@ -7149,11 +7153,17 @@ client.on('interactionCreate', async (interaction) => {
                         sun:      { set: [0],              display: 'Sunday' },
                     };
                     const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
+                    // Shift days to UTC equivalents so the tick (which uses UTC day) matches correctly
+                    const utcDaySet = dayShift === 0
+                        ? dayInfo.set
+                        : dayInfo.set.map(d => (d + dayShift + 7) % 7);
                     const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
 
                     const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                    userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: dayInfo.set, lastSentDate: null };
+                    userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: utcDaySet, lastSentDate: null };
                     fitnessData.set(uid, userData);
+                    // Save immediately so a bot restart/deploy won't lose the schedule
+                    saveDiscordBackup().catch(() => {});
 
                     await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
                     return;
