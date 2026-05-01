@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix /fitness notify timezone label: London is BST (UTC+1) in summer
+
+- Relabelled UTC+0 option to clarify it is "London GMT — winter only"
+- Relabelled UTC+1 option to "London BST / Paris / Berlin — UK summer" so UK users in summer pick the correct offset
+- Updated TZ_LABELS to match
+
 ## [2026-05-01] — Add notification tick debug logging
 
 - Notification tick now logs the UTC time and active schedule count every minute when any notify schedules exist
