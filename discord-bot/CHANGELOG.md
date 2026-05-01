@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Play voice alarm 3× and remove test-channel logging
+
+- `playWorkoutAlarm` now plays the alarm sound 3 times before leaving the VC — uses a `playsLeft` counter that decrements on each `AudioPlayerStatus.Idle` event and calls `playNext()` (fresh `createAudioResource` per play) until done
+- Removed `logFn` parameter and all test-channel message sends from `playWorkoutAlarm` — debug info now goes to Fly.io console only via `console.log`
+- Removed `stateChange` and `debug` event listeners that were added for debugging the DAVE E2EE issue (now resolved)
+- Simplified `/fitness alarm-test` handler — no longer fetches the test channel or wires up a `logFn`; ephemeral reply now says "🔔 Alarm played (3×)!" or a plain error
+
 ## [2026-05-01] — Replace voice alarm sound with iPhone Radar audio file
 
 - Replaced generated 880 Hz sine wave alarm with the bundled `alarm.mp3` (iPhone Radar tone) — ffmpeg now encodes the MP3 file to OGG Opus at startup instead of synthesising a lavfi sine source
