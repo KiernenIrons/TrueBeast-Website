@@ -2554,7 +2554,8 @@ async function playWorkoutAlarm(guild, userId, logFn = null) {
             ...methods,
             onVoiceServerUpdate(data) {
                 const key = `${data.endpoint}|${data.token}`;
-                if (key === lastVsuKey) { log('🔁 Duplicate VOICE_SERVER_UPDATE suppressed'); return; }
+                log(`📨 VSU #${lastVsuKey === null ? 1 : 2}: endpoint=\`${data.endpoint}\` token=\`${data.token}\``);
+                if (key === lastVsuKey) { log('🔁 Duplicate suppressed'); return; }
                 lastVsuKey = key;
                 methods.onVoiceServerUpdate(data);
             },
