@@ -2567,7 +2567,7 @@ async function playWorkoutAlarm(guild, userId) {
             console.log(`[BeastBot] alarm: ❌ Player error: ${err.message}`);
             try { connection.destroy(); } catch (_) {}
         });
-        let playsLeft = 3;
+        let playsLeft = 2;
         const playNext = () => {
             const resource = createAudioResource(Readable.from([ALARM_OGG]), { inputType: StreamType.OggOpus });
             player.play(resource);
@@ -2577,7 +2577,7 @@ async function playWorkoutAlarm(guild, userId) {
             if (playsLeft > 0) {
                 playNext();
             } else {
-                console.log('[BeastBot] alarm: ✅ Audio finished (3x) — leaving VC');
+                console.log('[BeastBot] alarm: ✅ Audio finished (2x) — leaving VC');
                 player.off(AudioPlayerStatus.Idle, onIdle);
                 try { connection.destroy(); } catch (_) {}
             }
@@ -7064,7 +7064,7 @@ client.on('interactionCreate', async (interaction) => {
             if (sub === 'alarm-test') {
                 await interaction.deferReply({ flags: 64 });
                 const voicePinged = interaction.guild ? await playWorkoutAlarm(interaction.guild, uid).catch(() => false) : false;
-                await interaction.editReply({ content: voicePinged ? '🔔 Alarm played (3×)!' : '❌ Alarm failed — make sure you\'re in a voice channel.' });
+                await interaction.editReply({ content: voicePinged ? '🔔 Alarm played (2×)!' : '❌ Alarm failed — make sure you\'re in a voice channel.' });
                 return;
             }
 

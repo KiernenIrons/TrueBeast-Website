@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Change voice alarm playback from 3× to 2×
+
+- `playsLeft` reduced from 3 → 2 in `playWorkoutAlarm`
+- Updated log message and `/fitness alarm-test` ephemeral reply to reflect the new count
+
 ## [2026-05-01] — Play voice alarm 3× and remove test-channel logging
 
 - `playWorkoutAlarm` now plays the alarm sound 3 times before leaving the VC — uses a `playsLeft` counter that decrements on each `AudioPlayerStatus.Idle` event and calls `playNext()` (fresh `createAudioResource` per play) until done
