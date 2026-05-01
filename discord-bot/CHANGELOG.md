@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Replace voice alarm sound with iPhone Radar audio file
+
+- Replaced generated 880 Hz sine wave alarm with the bundled `alarm.mp3` (iPhone Radar tone) — ffmpeg now encodes the MP3 file to OGG Opus at startup instead of synthesising a lavfi sine source
+- Added `const path = require('path')` and used `path.join(__dirname, 'alarm.mp3')` so the path resolves correctly both locally and inside the Fly.io Docker container (`/app/alarm.mp3`)
+- `alarm.mp3` is included in the repo and automatically bundled by the existing `COPY . .` Dockerfile step — no Dockerfile changes needed
+
 ## [2026-05-01] — Fix voice alarm: initialize libsodium-wrappers explicitly, add state logging, extend timeout
 
 - Explicitly `require('libsodium-wrappers')` at startup and call `sodium.ready` so the encryption library is fully initialized before any voice connection handshake attempts — missing initialization was likely causing the UDP handshake to stall

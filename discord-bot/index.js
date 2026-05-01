@@ -32,6 +32,7 @@ try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { spawn } = require('child_process');
 const { Readable } = require('stream');
+const path = require('path');
 const sodium = require('libsodium-wrappers');
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
@@ -40,7 +41,7 @@ sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).
 let ALARM_OGG = null;
 {
     const _chunks = [];
-    const _proc = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3:sample_rate=48000', '-c:a', 'libopus', '-b:a', '128k', '-f', 'ogg', 'pipe:1']);
+    const _proc = spawn('ffmpeg', ['-i', path.join(__dirname, 'alarm.mp3'), '-c:a', 'libopus', '-b:a', '128k', '-f', 'ogg', 'pipe:1']);
     _proc.stdout.on('data', c => _chunks.push(c));
     _proc.stderr.on('data', d => { const l = d.toString().trim().split('\n').pop(); if (l) console.log('[BeastBot] alarm-gen:', l); });
     _proc.on('error', e => console.error('[BeastBot] alarm-gen spawn failed:', e.message));
