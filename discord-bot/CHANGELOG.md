@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Wrap /fitness handler in try/catch to prevent silent failures
+
+- Added try/catch around the entire `/fitness` command body — any unhandled throw now logs the error to Fly.io console and sends an ephemeral "Something went wrong" reply instead of leaving Discord showing "The application did not respond"
+- Catch block tries `editReply` first (in case `deferReply` already fired) then falls back to `reply`
+
 ## [2026-05-01] — Fix /fitness notify firing alarm immediately on save
 
 - Removed the "test on save" block from the `/fitness notify` handler that was immediately playing the voice alarm and sending a DM every time a reminder was set — reminders now only fire at the scheduled time

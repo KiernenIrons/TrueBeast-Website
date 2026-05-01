@@ -7059,6 +7059,7 @@ client.on('interactionCreate', async (interaction) => {
 
         // ── /fitness ─────────────────────────────────────────────────────────
         if (interaction.commandName === 'fitness') {
+          try {
             const sub  = interaction.options.getSubcommand();
             const user = interaction.user;
             const uid  = user.id;
@@ -7201,6 +7202,11 @@ client.on('interactionCreate', async (interaction) => {
                 return;
             }
             return;
+          } catch (e) {
+            console.error('[BeastBot] /fitness error:', e.message, e.stack);
+            const reply = { content: '❌ Something went wrong — please try again.', flags: 64 };
+            try { await interaction.editReply(reply); } catch (_) { try { await interaction.reply(reply); } catch (__) {} }
+          }
         }
 
         // ── /say ─────────────────────────────────────────────────────────────
