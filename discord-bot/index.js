@@ -4514,10 +4514,10 @@ client.once('clientReady', async () => {
                         { name: '4', value: 4 }, { name: '5', value: 5 }, { name: '6', value: 6 }, { name: '7', value: 7 },
                         { name: '8', value: 8 }, { name: '9', value: 9 }, { name: '10', value: 10 }, { name: '11', value: 11 }
                     ))
+                    .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes (0–59)').setRequired(true).setMinValue(0).setMaxValue(59))
                     .addStringOption(opt => opt.setName('period').setDescription('AM or PM').setRequired(true).addChoices(
                         { name: 'AM', value: 'AM' }, { name: 'PM', value: 'PM' }
                     ))
-                    .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes (0–59)').setRequired(true).setMinValue(0).setMaxValue(59))
                     .addStringOption(opt => opt.setName('timezone').setDescription('Your timezone').setRequired(true).addChoices(
                         { name: 'UTC-12 (Baker Island)', value: '-12' }, { name: 'UTC-11 (Samoa)', value: '-11' }, { name: 'UTC-10 (Hawaii)', value: '-10' },
                         { name: 'UTC-9 (Alaska)', value: '-9' }, { name: 'UTC-8 (Pacific — Los Angeles)', value: '-8' }, { name: 'UTC-7 (Mountain — Denver)', value: '-7' },

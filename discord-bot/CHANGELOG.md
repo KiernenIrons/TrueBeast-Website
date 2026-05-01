@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Reorder /fitness notify command options (minute before period)
+
+- Moved `minute` option before `period` (AM/PM) in the `/fitness notify` slash command registration so Discord displays options in order: hour → minute → AM/PM → timezone → days
+
 ## [2026-05-01] — Fix /fitness interaction timeout: defer before routing
 
 - Moved `deferReply({ flags: MessageFlags.Ephemeral })` to be the absolute first call in the `/fitness` handler, before `getSubcommand()` or any routing logic — this guarantees Discord receives an acknowledgement within 3 s regardless of what follows
