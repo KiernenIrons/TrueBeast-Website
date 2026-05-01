@@ -4500,9 +4500,7 @@ client.once('clientReady', async () => {
                     .addStringOption(opt => opt.setName('period').setDescription('AM or PM').setRequired(true).addChoices(
                         { name: 'AM', value: 'AM' }, { name: 'PM', value: 'PM' }
                     ))
-                    .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes').setRequired(true).addChoices(
-                        { name: ':00', value: 0 }, { name: ':15', value: 15 }, { name: ':30', value: 30 }, { name: ':45', value: 45 }
-                    ))
+                    .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes (0–59)').setRequired(true).setMinValue(0).setMaxValue(59))
                     .addStringOption(opt => opt.setName('timezone').setDescription('Your timezone').setRequired(true).addChoices(
                         { name: 'UTC-12 (Baker Island)', value: '-12' }, { name: 'UTC-11 (Samoa)', value: '-11' }, { name: 'UTC-10 (Hawaii)', value: '-10' },
                         { name: 'UTC-9 (Alaska)', value: '-9' }, { name: 'UTC-8 (Pacific — Los Angeles)', value: '-8' }, { name: 'UTC-7 (Mountain — Denver)', value: '-7' },
@@ -4521,7 +4519,8 @@ client.once('clientReady', async () => {
                         { name: 'Thursday', value: 'thu' }, { name: 'Friday', value: 'fri' }, { name: 'Saturday', value: 'sat' }, { name: 'Sunday', value: 'sun' }
                     ))
                 )
-                .addSubcommand(sub => sub.setName('notify-clear').setDescription('Remove your workout reminder')),
+                .addSubcommand(sub => sub.setName('notify-clear').setDescription('Remove your workout reminder'))
+                .addSubcommand(sub => sub.setName('alarm-test').setDescription('Test the voice alarm — bot will join your VC and play the beep')),
             new SlashCommandBuilder()
                 .setName('fitness-setup')
                 .setDescription('(Owner only) Post the Log Your Workout button in #tracking'),
@@ -7046,6 +7045,18 @@ client.on('interactionCreate', async (interaction) => {
             const sub  = interaction.options.getSubcommand();
             const user = interaction.user;
             const uid  = user.id;
+
+            if (sub === 'alarm-test') {
+                await interaction.deferReply({ flags: 64 });
+                const guild = interaction.guild;
+                const voicePinged = guild ? await playWorkoutAlarm(guild, uid).catch(() => false) : false;
+                if (voicePinged) {
+                    await interaction.editReply({ content: '🔔 Bot joined your VC and played the alarm. Did you hear it?' });
+                } else {
+                    await interaction.editReply({ content: '❌ Couldn\'t join a voice channel — make sure you\'re in one first.' });
+                }
+                return;
+            }
 
             if (sub === 'progress') {
                 const userData = fitnessData.get(uid);

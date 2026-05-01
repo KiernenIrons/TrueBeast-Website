@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Add /fitness alarm-test; minute option now accepts 0–59
+
+- Added `/fitness alarm-test` subcommand — joins the user's current VC and plays the alarm beep immediately, no DM, ephemeral result message; useful for debugging the voice alarm
+- Changed `/fitness notify minute` from 4 fixed choices (:00/:15/:30/:45) to a free integer option (0–59) so any minute can be set
+
 ## [2026-05-01] — Fix voice alarm: pre-buffer OGG audio at startup, add playback logging
 
 - Pre-generate the alarm OGG Opus clip at bot startup using ffmpeg into a `Buffer` (previously the live ffmpeg pipe had timing issues causing the audio packets to be silently dropped); startup log now shows byte count or an explicit error if libopus is unavailable
