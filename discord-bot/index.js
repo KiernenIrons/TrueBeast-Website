@@ -2546,10 +2546,23 @@ async function playWorkoutAlarm(guild, userId, logFn = null) {
         const voiceChannel = member.voice?.channel;
         if (!voiceChannel) { log('❌ User is not in a voice channel'); return false; }
         log(`📡 Joining VC: **${voiceChannel.name}**`);
+        // Deduplicate identical VOICE_SERVER_UPDATEs: Discord sometimes sends the same
+        // endpoint+token twice in quick succession. The first IDENTIFY consumes the token,
+        // so the second networking instance would fail. Filter the duplicate at the adapter.
+        let lastVsuKey = null;
+        const deduplicatedAdapter = (methods) => guild.voiceAdapterCreator({
+            ...methods,
+            onVoiceServerUpdate(data) {
+                const key = `${data.endpoint}|${data.token}`;
+                if (key === lastVsuKey) { log('🔁 Duplicate VOICE_SERVER_UPDATE suppressed'); return; }
+                lastVsuKey = key;
+                methods.onVoiceServerUpdate(data);
+            },
+        });
         const connection = joinVoiceChannel({
             channelId: voiceChannel.id,
             guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
+            adapterCreator: deduplicatedAdapter,
             selfDeaf: false,
             debug: true,
         });
