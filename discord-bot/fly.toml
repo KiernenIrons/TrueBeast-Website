@@ -20,3 +20,6 @@ primary_region = 'ord'
 [deploy]
   # Give the bot 30s to flush voice data to Firestore before SIGKILL
   kill_timeout = '30s'
+  # Headless bot must always stay running — never auto-stop
+  auto_stop_machines = 'off'
+  min_machines_running = 1
