@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix voice alarm sound and /fitness notify interaction timeout
+
+- Fixed no-sound bug: switched ffmpeg output from raw s16le PCM (`StreamType.Raw`) to OGG Opus (`StreamType.OggOpus`) — ffmpeg now handles Opus encoding via `libopus`, bypassing unreliable Node-side `opusscript` entirely
+- Added `entersState(connection, VoiceConnectionStatus.Ready, 5000)` wait before playing audio — previously the player fired before the voice connection was fully established, which caused the audio to be missed
+- Fixed "application did not respond" error on `/fitness notify`: added `interaction.deferReply` at the top of the handler (Discord requires acknowledgement within 3s; joining voice + fetching members was taking longer); switched subsequent `reply()` calls to `editReply()`
+- Added `entersState` to voice imports
+
 ## [2026-05-01] — Fix workout notifications: bump voice package, replace modal with slash choices, add error logging
 
 - Bumped `@discordjs/voice` from 0.17.0 → 0.18.0 (fixes deprecated Discord voice encryption that was silently preventing voice joins); replaced `tweetnacl` with `libsodium-wrappers` which supports the new AEAD encryption modes Discord now requires

@@ -29,7 +29,7 @@ const {
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { spawn } = require('child_process');
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
@@ -2531,8 +2531,17 @@ async function playWorkoutAlarm(guild, userId) {
             console.error('[BeastBot] Voice connection error:', err.message);
             try { connection.destroy(); } catch (_) {}
         });
-        const ffmpeg = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3', '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1']);
-        const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw });
+        // Wait for the connection to be established before playing (max 5s)
+        try {
+            await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
+        } catch (e) {
+            console.error('[BeastBot] Voice connection never became ready:', e.message);
+            try { connection.destroy(); } catch (_) {}
+            return false;
+        }
+        // ffmpeg outputs OGG Opus directly — no Node-side Opus encoder needed
+        const ffmpeg = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3', '-c:a', 'libopus', '-ar', '48000', '-ac', '2', '-b:a', '128k', '-f', 'ogg', 'pipe:1']);
+        const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.OggOpus });
         const player = createAudioPlayer();
         connection.subscribe(player);
         player.play(resource);
@@ -7061,6 +7070,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (sub === 'notify') {
+                await interaction.deferReply({ flags: 64 });
                 const hour    = interaction.options.getInteger('hour');
                 const period  = interaction.options.getString('period');
                 const minute  = interaction.options.getInteger('minute');
@@ -7109,9 +7119,9 @@ client.on('interactionCreate', async (interaction) => {
                         ? "Your workout reminder is going off — I beeped in your voice channel! Go crush it 💪\n\nLog your session in #tracking when you're done!"
                         : "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!";
                     await dmUser.send({ embeds: [{ color: 0xf59e0b, title: '⏰ Time to Work Out!', description: dmDesc, footer: { text: `⏰ ${timeRaw} · 📅 ${dayInfo.display}` } }] });
-                    await interaction.reply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nTest notification sent to your DMs!${voicePinged ? ' I also beeped in your VC 🔔' : ''}`, flags: 64 });
+                    await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nTest notification sent to your DMs!${voicePinged ? ' I also beeped in your VC 🔔' : ''}` });
                 } catch (_) {
-                    await interaction.reply({ content: `✅ Reminder saved!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\n⚠️ Couldn't DM you — enable DMs from server members to receive reminders.`, flags: 64 });
+                    await interaction.editReply({ content: `✅ Reminder saved!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\n⚠️ Couldn't DM you — enable DMs from server members to receive reminders.` });
                 }
                 return;
             }
