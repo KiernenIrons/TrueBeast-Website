@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix voice alarm: initialize libsodium-wrappers explicitly, add state logging, extend timeout
+
+- Explicitly `require('libsodium-wrappers')` at startup and call `sodium.ready` so the encryption library is fully initialized before any voice connection handshake attempts — missing initialization was likely causing the UDP handshake to stall
+- Added `stateChange` listener to `playWorkoutAlarm` so every voice connection state transition is logged to Fly.io console for debugging (`Signalling → Connecting → Ready`)
+- Increased `entersState(Ready)` timeout from 5 s → 15 s to tolerate slower Fly.io → Discord voice server round-trips
+
 ## [2026-05-01] — Add /fitness alarm-test; minute option now accepts 0–59
 
 - Added `/fitness alarm-test` subcommand — joins the user's current VC and plays the alarm beep immediately, no DM, ephemeral result message; useful for debugging the voice alarm

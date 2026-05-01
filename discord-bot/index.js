@@ -32,6 +32,9 @@ try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { spawn } = require('child_process');
 const { Readable } = require('stream');
+const sodium = require('libsodium-wrappers');
+// libsodium-wrappers must be initialized before any voice encryption operations
+sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
 // Pre-generate alarm beep once at startup so playback is from a buffer (no pipe timing issues)
 let ALARM_OGG = null;
@@ -2548,10 +2551,13 @@ async function playWorkoutAlarm(guild, userId) {
             console.error('[BeastBot] Voice connection error:', err.message);
             try { connection.destroy(); } catch (_) {}
         });
+        connection.on('stateChange', (old, next) => {
+            console.log(`[BeastBot] Voice state: ${old.status} → ${next.status}`);
+        });
         try {
-            await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
+            await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
         } catch (e) {
-            console.error('[BeastBot] Voice connection never became ready:', e.message);
+            console.error('[BeastBot] Voice connection never became ready (timed out at 15s):', e.message);
             try { connection.destroy(); } catch (_) {}
             return false;
         }
