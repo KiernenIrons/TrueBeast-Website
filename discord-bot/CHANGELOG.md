@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix voice alarm: pre-buffer OGG audio at startup, add playback logging
+
+- Pre-generate the alarm OGG Opus clip at bot startup using ffmpeg into a `Buffer` (previously the live ffmpeg pipe had timing issues causing the audio packets to be silently dropped); startup log now shows byte count or an explicit error if libopus is unavailable
+- `playWorkoutAlarm` now plays from `Readable.from([ALARM_OGG])` (buffered) rather than a live pipe
+- Added `AudioPlayerStatus.Playing` and `.Idle` log lines so Fly.io console confirms whether audio is actually sent
+- Added `const { Readable } = require('stream')` at top of file
+
 ## [2026-05-01] — Fix voice alarm sound and /fitness notify interaction timeout
 
 - Fixed no-sound bug: switched ffmpeg output from raw s16le PCM (`StreamType.Raw`) to OGG Opus (`StreamType.OggOpus`) — ffmpeg now handles Opus encoding via `libopus`, bypassing unreliable Node-side `opusscript` entirely

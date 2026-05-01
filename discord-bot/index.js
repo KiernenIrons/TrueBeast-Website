@@ -31,6 +31,22 @@ try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { spawn } = require('child_process');
+const { Readable } = require('stream');
+
+// Pre-generate alarm beep once at startup so playback is from a buffer (no pipe timing issues)
+let ALARM_OGG = null;
+{
+    const _chunks = [];
+    const _proc = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3:sample_rate=48000', '-c:a', 'libopus', '-b:a', '128k', '-f', 'ogg', 'pipe:1']);
+    _proc.stdout.on('data', c => _chunks.push(c));
+    _proc.stderr.on('data', d => { const l = d.toString().trim().split('\n').pop(); if (l) console.log('[BeastBot] alarm-gen:', l); });
+    _proc.on('error', e => console.error('[BeastBot] alarm-gen spawn failed:', e.message));
+    _proc.stdout.on('end', () => {
+        const buf = Buffer.concat(_chunks);
+        if (buf.length > 0) { ALARM_OGG = buf; console.log(`[BeastBot] ✅ Alarm audio ready: ${buf.length} bytes`); }
+        else console.error('[BeastBot] ❌ Alarm audio empty — libopus may be unavailable in ffmpeg');
+    });
+}
 
 const TOKEN             = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_IDS       = (process.env.SUPPORT_CHANNEL_ID || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -2517,6 +2533,7 @@ async function createWorkoutRoom(state) {
 }
 
 async function playWorkoutAlarm(guild, userId) {
+    if (!ALARM_OGG) { console.error('[BeastBot] playWorkoutAlarm: alarm audio not ready'); return false; }
     try {
         const member = await guild.members.fetch(userId);
         const voiceChannel = member.voice?.channel;
@@ -2531,7 +2548,6 @@ async function playWorkoutAlarm(guild, userId) {
             console.error('[BeastBot] Voice connection error:', err.message);
             try { connection.destroy(); } catch (_) {}
         });
-        // Wait for the connection to be established before playing (max 5s)
         try {
             await entersState(connection, VoiceConnectionStatus.Ready, 5_000);
         } catch (e) {
@@ -2539,20 +2555,18 @@ async function playWorkoutAlarm(guild, userId) {
             try { connection.destroy(); } catch (_) {}
             return false;
         }
-        // ffmpeg outputs OGG Opus directly — no Node-side Opus encoder needed
-        const ffmpeg = spawn('ffmpeg', ['-f', 'lavfi', '-i', 'sine=frequency=880:duration=3', '-c:a', 'libopus', '-ar', '48000', '-ac', '2', '-b:a', '128k', '-f', 'ogg', 'pipe:1']);
-        const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.OggOpus });
+        // Play from pre-buffered OGG Opus data — no live pipe, no timing issues
+        const resource = createAudioResource(Readable.from([ALARM_OGG]), { inputType: StreamType.OggOpus });
         const player = createAudioPlayer();
         connection.subscribe(player);
         player.play(resource);
-        player.once(AudioPlayerStatus.Idle, () => { try { connection.destroy(); } catch (_) {} });
-        player.on('error', (err) => {
-            console.error('[BeastBot] Voice player error:', err.message);
+        player.on(AudioPlayerStatus.Playing, () => console.log('[BeastBot] 🔔 Alarm playing in VC'));
+        player.once(AudioPlayerStatus.Idle, () => {
+            console.log('[BeastBot] 🔔 Alarm finished');
             try { connection.destroy(); } catch (_) {}
         });
-        ffmpeg.stderr.on('data', () => {});
-        ffmpeg.on('error', (err) => {
-            console.error('[BeastBot] ffmpeg error:', err.message);
+        player.on('error', (err) => {
+            console.error('[BeastBot] Voice player error:', err.message);
             try { connection.destroy(); } catch (_) {}
         });
         return true;
