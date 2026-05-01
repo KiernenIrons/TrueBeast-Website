@@ -7059,17 +7059,14 @@ client.on('interactionCreate', async (interaction) => {
 
         // ── /fitness ─────────────────────────────────────────────────────────
         if (interaction.commandName === 'fitness') {
-            const _dbgCh = interaction.guild?.channels.cache.get('1490542501302636726');
-            const _dbg = (msg) => { console.log('[fitness-dbg]', msg); _dbgCh?.send(`\`[fitness]\` ${msg}`).catch(() => {}); };
-            _dbg(`▶️ interaction received — sub: ${interaction.options.getSubcommand(false) ?? '?'}, user: ${interaction.user.tag}`);
-
+            // deferReply FIRST — before getSubcommand() or any routing that could throw.
+            // This guarantees Discord receives an acknowledgement within 3 s regardless
+            // of what happens next. All subcommand responses use editReply().
             try {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-                _dbg('✅ deferReply succeeded');
             } catch (e) {
-                _dbg(`❌ deferReply FAILED: ${e.message}`);
                 console.error('[BeastBot] /fitness deferReply failed:', e.message);
-                return;
+                return; // token is dead — nothing we can do
             }
 
             try {
@@ -7119,7 +7116,6 @@ client.on('interactionCreate', async (interaction) => {
                 }
 
                 if (sub === 'notify') {
-                    _dbg('🔔 entering notify handler');
                     const hour    = interaction.options.getInteger('hour');
                     const period  = interaction.options.getString('period');
                     const minute  = interaction.options.getInteger('minute');
@@ -7213,7 +7209,6 @@ client.on('interactionCreate', async (interaction) => {
                 }
             } catch (e) {
                 console.error('[BeastBot] /fitness error:', e.message, e.stack);
-                _dbg(`❌ caught error: ${e.message}`);
                 await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
             }
         }
