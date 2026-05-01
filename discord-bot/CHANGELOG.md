@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-05-01] — Fix /fitness interaction timeout: defer before routing
+
+- Moved `deferReply({ flags: MessageFlags.Ephemeral })` to be the absolute first call in the `/fitness` handler, before `getSubcommand()` or any routing logic — this guarantees Discord receives an acknowledgement within 3 s regardless of what follows
+- Separated `deferReply` into its own isolated try/catch: if it fails, log and return immediately (token is dead; nothing else can recover it)
+- Changed `getSubcommand()` → `getSubcommand(false)` to return `null` instead of throwing when no subcommand is present
+- Converted all subcommand responses from `interaction.reply({ flags: 64 })` to `interaction.editReply()` (required since the interaction is now always pre-deferred)
+- Replaced raw `flags: 64` with `MessageFlags.Ephemeral` throughout
+
 ## [2026-05-01] — Wrap /fitness handler in try/catch to prevent silent failures
 
 - Added try/catch around the entire `/fitness` command body — any unhandled throw now logs the error to Fly.io console and sends an ephemeral "Something went wrong" reply instead of leaving Discord showing "The application did not respond"

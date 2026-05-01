@@ -7059,154 +7059,158 @@ client.on('interactionCreate', async (interaction) => {
 
         // ── /fitness ─────────────────────────────────────────────────────────
         if (interaction.commandName === 'fitness') {
-          try {
-            const sub  = interaction.options.getSubcommand();
-            const user = interaction.user;
-            const uid  = user.id;
-
-            if (sub === 'alarm-test') {
-                await interaction.deferReply({ flags: 64 });
-                const voicePinged = interaction.guild ? await playWorkoutAlarm(interaction.guild, uid).catch(() => false) : false;
-                await interaction.editReply({ content: voicePinged ? '🔔 Alarm played (2×)!' : '❌ Alarm failed — make sure you\'re in a voice channel.' });
-                return;
+            // deferReply FIRST — before getSubcommand() or any routing that could throw.
+            // This guarantees Discord receives an acknowledgement within 3 s regardless
+            // of what happens next. All subcommand responses use editReply().
+            try {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            } catch (e) {
+                console.error('[BeastBot] /fitness deferReply failed:', e.message);
+                return; // token is dead — nothing we can do
             }
 
-            if (sub === 'progress') {
-                const userData = fitnessData.get(uid);
-                const entries  = userData?.entries || [];
-                const total    = entries.length;
-                const streak   = calcStreak(entries);
-                const avg      = calcAvgDuration(entries);
-                const last5    = [...entries].reverse().slice(0, 5);
-                const fields = [
-                    { name: '📊 Total Workouts', value: `**${total}**`, inline: true },
-                    { name: '🔥 Current Streak', value: `**${streak} day${streak !== 1 ? 's' : ''}**`, inline: true },
-                    { name: '⏱️ Avg Duration', value: avg !== null ? `**${avg} min**` : '*N/A*', inline: true },
-                ];
-                if (userData?.notify) {
-                    fields.push({ name: '⏰ Workout Reminder', value: `**${userData.notify.timeRaw}** on **${userData.notify.days}** *(fires at ${userData.notify.timeUtc} UTC)*`, inline: false });
-                }
-                fields.push({
-                    name: '📋 Last 5 Workouts',
-                    value: last5.length > 0
-                        ? last5.map(e => `**${e.date}** — ${e.workout.slice(0, 40)}${e.workout.length > 40 ? '...' : ''} *(${e.duration})*`).join('\n')
-                        : '*No workouts logged yet. Hit that button in #tracking!*',
-                    inline: false,
-                });
-                const member = interaction.member;
-                await interaction.reply({
-                    embeds: [{
-                        color: 0x5865f2,
-                        author: { name: `${member?.displayName || user.username}'s Fitness Progress`, icon_url: user.displayAvatarURL({ dynamic: true }) },
-                        fields,
-                        footer: { text: 'Log more workouts with the button in #tracking' },
-                        timestamp: new Date().toISOString(),
-                    }],
-                    flags: 64,
-                });
-                return;
-            }
+            try {
+                const sub  = interaction.options.getSubcommand(false);
+                const user = interaction.user;
+                const uid  = user.id;
 
-            if (sub === 'notify') {
-                await interaction.deferReply({ flags: 64 });
-                const hour    = interaction.options.getInteger('hour');
-                const period  = interaction.options.getString('period');
-                const minute  = interaction.options.getInteger('minute');
-                const tzStr   = interaction.options.getString('timezone');
-                const daysStr = interaction.options.getString('days');
-
-                let h24 = hour;
-                if (period === 'AM' && hour === 12) h24 = 0;
-                else if (period === 'PM' && hour !== 12) h24 = hour + 12;
-
-                const off = parseFloat(tzStr) || 0;
-                const totalMinsLocal = h24 * 60 + minute;
-                const totalMinsUtc = ((totalMinsLocal - off * 60) % 1440 + 1440) % 1440;
-                const utcH = Math.floor(totalMinsUtc / 60);
-                const utcM = totalMinsUtc % 60;
-                const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
-                const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
-
-                const dayPatterns = {
-                    daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
-                    weekdays: { set: [1,2,3,4,5],     display: 'Weekdays (Mon–Fri)' },
-                    weekends: { set: [0,6],            display: 'Weekends (Sat & Sun)' },
-                    mwf:      { set: [1,3,5],          display: 'Mon, Wed & Fri' },
-                    tt:       { set: [2,4],            display: 'Tue & Thu' },
-                    mon:      { set: [1],              display: 'Monday' },
-                    tue:      { set: [2],              display: 'Tuesday' },
-                    wed:      { set: [3],              display: 'Wednesday' },
-                    thu:      { set: [4],              display: 'Thursday' },
-                    fri:      { set: [5],              display: 'Friday' },
-                    sat:      { set: [6],              display: 'Saturday' },
-                    sun:      { set: [0],              display: 'Sunday' },
-                };
-                const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
-                const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
-
-                const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: dayInfo.set, lastSentDate: null };
-                fitnessData.set(uid, userData);
-
-                await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
-                return;
-            }
-
-            if (sub === 'manage') {
-                const userData = fitnessData.get(uid);
-                const entries  = userData?.entries || [];
-                if (entries.length === 0) {
-                    await interaction.reply({ content: '📋 You have no logged workouts yet. Use the button in #tracking to log your first one!', flags: 64 });
+                if (sub === 'alarm-test') {
+                    const voicePinged = interaction.guild ? await playWorkoutAlarm(interaction.guild, uid).catch(() => false) : false;
+                    await interaction.editReply({ content: voicePinged ? '🔔 Alarm played (2×)!' : '❌ Alarm failed — make sure you\'re in a voice channel.' });
                     return;
                 }
-                const newest = [...entries].reverse().slice(0, 5);
-                const opts = newest.map(e => ({
-                    label: `${e.date} — ${e.workout.slice(0, 50)}${e.workout.length > 50 ? '...' : ''}`,
-                    value: e.id,
-                    description: `${e.duration} · ${e.privacy} · ${e.freq}`,
-                }));
-                const editMenu = new StringSelectMenuBuilder()
-                    .setCustomId('fitness:manage:edit')
-                    .setPlaceholder('✏️ Select an entry to edit...')
-                    .addOptions(opts);
-                const deleteMenu = new StringSelectMenuBuilder()
-                    .setCustomId('fitness:manage:del')
-                    .setPlaceholder('🗑️ Select an entry to delete...')
-                    .addOptions(opts);
-                await interaction.reply({
-                    embeds: [{
-                        color: 0x5865f2,
-                        title: '📋 Manage Your Workouts',
-                        description: 'Select a workout below to **edit** or **delete** it. Showing your 5 most recent entries.',
-                        fields: newest.map((e, i) => ({
-                            name: `${i + 1}. ${e.date} — ${e.freq}`,
-                            value: `${e.workout.slice(0, 60)}${e.workout.length > 60 ? '...' : ''}\n*${e.duration} · ${e.privacy}*`,
-                            inline: false,
-                        })),
-                        footer: { text: 'Edits to public posts will also update the #tracking message.' },
-                    }],
-                    components: [
-                        new ActionRowBuilder().addComponents(editMenu),
-                        new ActionRowBuilder().addComponents(deleteMenu),
-                    ],
-                    flags: 64,
-                });
-                return;
-            }
 
-            if (sub === 'notify-clear') {
-                const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                userData.notify = null;
-                fitnessData.set(uid, userData);
-                await interaction.reply({ content: '✅ Workout reminder removed.', flags: 64 });
-                return;
+                if (sub === 'progress') {
+                    const userData = fitnessData.get(uid);
+                    const entries  = userData?.entries || [];
+                    const total    = entries.length;
+                    const streak   = calcStreak(entries);
+                    const avg      = calcAvgDuration(entries);
+                    const last5    = [...entries].reverse().slice(0, 5);
+                    const fields = [
+                        { name: '📊 Total Workouts', value: `**${total}**`, inline: true },
+                        { name: '🔥 Current Streak', value: `**${streak} day${streak !== 1 ? 's' : ''}**`, inline: true },
+                        { name: '⏱️ Avg Duration', value: avg !== null ? `**${avg} min**` : '*N/A*', inline: true },
+                    ];
+                    if (userData?.notify) {
+                        fields.push({ name: '⏰ Workout Reminder', value: `**${userData.notify.timeRaw}** on **${userData.notify.days}** *(fires at ${userData.notify.timeUtc} UTC)*`, inline: false });
+                    }
+                    fields.push({
+                        name: '📋 Last 5 Workouts',
+                        value: last5.length > 0
+                            ? last5.map(e => `**${e.date}** — ${e.workout.slice(0, 40)}${e.workout.length > 40 ? '...' : ''} *(${e.duration})*`).join('\n')
+                            : '*No workouts logged yet. Hit that button in #tracking!*',
+                        inline: false,
+                    });
+                    const member = interaction.member;
+                    await interaction.editReply({
+                        embeds: [{
+                            color: 0x5865f2,
+                            author: { name: `${member?.displayName || user.username}'s Fitness Progress`, icon_url: user.displayAvatarURL({ dynamic: true }) },
+                            fields,
+                            footer: { text: 'Log more workouts with the button in #tracking' },
+                            timestamp: new Date().toISOString(),
+                        }],
+                    });
+                    return;
+                }
+
+                if (sub === 'notify') {
+                    const hour    = interaction.options.getInteger('hour');
+                    const period  = interaction.options.getString('period');
+                    const minute  = interaction.options.getInteger('minute');
+                    const tzStr   = interaction.options.getString('timezone');
+                    const daysStr = interaction.options.getString('days');
+
+                    let h24 = hour;
+                    if (period === 'AM' && hour === 12) h24 = 0;
+                    else if (period === 'PM' && hour !== 12) h24 = hour + 12;
+
+                    const off = parseFloat(tzStr) || 0;
+                    const totalMinsLocal = h24 * 60 + minute;
+                    const totalMinsUtc = ((totalMinsLocal - off * 60) % 1440 + 1440) % 1440;
+                    const utcH = Math.floor(totalMinsUtc / 60);
+                    const utcM = totalMinsUtc % 60;
+                    const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
+                    const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
+
+                    const dayPatterns = {
+                        daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
+                        weekdays: { set: [1,2,3,4,5],     display: 'Weekdays (Mon–Fri)' },
+                        weekends: { set: [0,6],            display: 'Weekends (Sat & Sun)' },
+                        mwf:      { set: [1,3,5],          display: 'Mon, Wed & Fri' },
+                        tt:       { set: [2,4],            display: 'Tue & Thu' },
+                        mon:      { set: [1],              display: 'Monday' },
+                        tue:      { set: [2],              display: 'Tuesday' },
+                        wed:      { set: [3],              display: 'Wednesday' },
+                        thu:      { set: [4],              display: 'Thursday' },
+                        fri:      { set: [5],              display: 'Friday' },
+                        sat:      { set: [6],              display: 'Saturday' },
+                        sun:      { set: [0],              display: 'Sunday' },
+                    };
+                    const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
+                    const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
+
+                    const userData = fitnessData.get(uid) || { entries: [], notify: null };
+                    userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: dayInfo.set, lastSentDate: null };
+                    fitnessData.set(uid, userData);
+
+                    await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
+                    return;
+                }
+
+                if (sub === 'manage') {
+                    const userData = fitnessData.get(uid);
+                    const entries  = userData?.entries || [];
+                    if (entries.length === 0) {
+                        await interaction.editReply({ content: '📋 You have no logged workouts yet. Use the button in #tracking to log your first one!' });
+                        return;
+                    }
+                    const newest = [...entries].reverse().slice(0, 5);
+                    const opts = newest.map(e => ({
+                        label: `${e.date} — ${e.workout.slice(0, 50)}${e.workout.length > 50 ? '...' : ''}`,
+                        value: e.id,
+                        description: `${e.duration} · ${e.privacy} · ${e.freq}`,
+                    }));
+                    const editMenu = new StringSelectMenuBuilder()
+                        .setCustomId('fitness:manage:edit')
+                        .setPlaceholder('✏️ Select an entry to edit...')
+                        .addOptions(opts);
+                    const deleteMenu = new StringSelectMenuBuilder()
+                        .setCustomId('fitness:manage:del')
+                        .setPlaceholder('🗑️ Select an entry to delete...')
+                        .addOptions(opts);
+                    await interaction.editReply({
+                        embeds: [{
+                            color: 0x5865f2,
+                            title: '📋 Manage Your Workouts',
+                            description: 'Select a workout below to **edit** or **delete** it. Showing your 5 most recent entries.',
+                            fields: newest.map((e, i) => ({
+                                name: `${i + 1}. ${e.date} — ${e.freq}`,
+                                value: `${e.workout.slice(0, 60)}${e.workout.length > 60 ? '...' : ''}\n*${e.duration} · ${e.privacy}*`,
+                                inline: false,
+                            })),
+                            footer: { text: 'Edits to public posts will also update the #tracking message.' },
+                        }],
+                        components: [
+                            new ActionRowBuilder().addComponents(editMenu),
+                            new ActionRowBuilder().addComponents(deleteMenu),
+                        ],
+                    });
+                    return;
+                }
+
+                if (sub === 'notify-clear') {
+                    const userData = fitnessData.get(uid) || { entries: [], notify: null };
+                    userData.notify = null;
+                    fitnessData.set(uid, userData);
+                    await interaction.editReply({ content: '✅ Workout reminder removed.' });
+                    return;
+                }
+            } catch (e) {
+                console.error('[BeastBot] /fitness error:', e.message, e.stack);
+                await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
             }
-            return;
-          } catch (e) {
-            console.error('[BeastBot] /fitness error:', e.message, e.stack);
-            const reply = { content: '❌ Something went wrong — please try again.', flags: 64 };
-            try { await interaction.editReply(reply); } catch (_) { try { await interaction.reply(reply); } catch (__) {} }
-          }
         }
 
         // ── /say ─────────────────────────────────────────────────────────────
