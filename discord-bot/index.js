@@ -7052,11 +7052,8 @@ client.on('interactionCreate', async (interaction) => {
                     embeds: [{
                         color: 0x22c55e,
                         title: '🏋️ TrueBeast Fitness Tracker',
-                        description: 'Track your workouts, share your progress, and hold each other accountable.\n\nClick the button below to log a workout — choose how often you train and whether to share publicly or keep it private.',
-                        fields: [
-                            { name: '📅 Frequency', value: 'Daily · Weekly · Monthly', inline: true },
-                            { name: '🔒 Privacy', value: 'Public (shared) or Private (just you)', inline: true },
-                        ],
+                        description: 'Track your workouts, share your progress, and hold each other accountable.\n\nClick the button below to log a workout.',
+                        fields: [],
                         footer: { text: 'Use /fitness progress to see your stats anytime.' },
                     }],
                     components: [new ActionRowBuilder().addComponents(
@@ -7193,7 +7190,7 @@ client.on('interactionCreate', async (interaction) => {
                     const opts = newest.map(e => ({
                         label: `${e.date} — ${e.workout.slice(0, 50)}${e.workout.length > 50 ? '...' : ''}`,
                         value: e.id,
-                        description: `${e.duration} · ${e.privacy} · ${e.freq}`,
+                        description: e.duration,
                     }));
                     const editMenu = new StringSelectMenuBuilder()
                         .setCustomId('fitness:manage:edit')
@@ -7209,11 +7206,11 @@ client.on('interactionCreate', async (interaction) => {
                             title: '📋 Manage Your Workouts',
                             description: 'Select a workout below to **edit** or **delete** it. Showing your 5 most recent entries.',
                             fields: newest.map((e, i) => ({
-                                name: `${i + 1}. ${e.date} — ${e.freq}`,
-                                value: `${e.workout.slice(0, 60)}${e.workout.length > 60 ? '...' : ''}\n*${e.duration} · ${e.privacy}*`,
+                                name: `${i + 1}. ${e.date}`,
+                                value: `${e.workout.slice(0, 60)}${e.workout.length > 60 ? '...' : ''}\n*${e.duration}*`,
                                 inline: false,
                             })),
-                            footer: { text: 'Edits to public posts will also update the #tracking message.' },
+                            footer: { text: 'Edits will also update the #tracking message.' },
                         }],
                         components: [
                             new ActionRowBuilder().addComponents(editMenu),
@@ -7877,10 +7874,7 @@ client.on('interactionCreate', async (interaction) => {
 
 
     // ── Fitness: workout modal submit ────────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:modal:')) {
-        const parts    = interaction.customId.split(':');
-        const freq     = parts[2];
-        const privacy  = parts[3];
+    if (interaction.isModalSubmit() && interaction.customId === 'fitness:modal') {
         const user     = interaction.user;
         const member   = interaction.member;
         const uid      = user.id;
@@ -7892,22 +7886,15 @@ client.on('interactionCreate', async (interaction) => {
         const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
         const durationMins = parseDurationToMins(duration);
         const entryId  = `${uid}-${Date.now()}`;
-        const entry = { id: entryId, date: todayStr(), freq, privacy, workout, duration, weight, energy, notes, durationMins, messageId: null };
+        const entry = { id: entryId, date: todayStr(), workout, duration, weight, energy, notes, durationMins, messageId: null };
         const userData = fitnessData.get(uid) || { entries: [], notify: null };
         userData.entries.push(entry);
         fitnessData.set(uid, userData);
-
-        if (privacy === 'private') {
-            await interaction.reply({ content: '✅ Workout logged! Only you can see this. Use `/fitness progress` to review your stats.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 8000);
-            return;
-        }
 
         try {
             const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
             const embedFields = [
                 { name: '⏱️ Duration', value: duration, inline: true },
-                { name: '📅 Frequency', value: freq.charAt(0).toUpperCase() + freq.slice(1) + ' Log', inline: true },
             ];
             if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
             if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
@@ -8026,7 +8013,6 @@ client.on('interactionCreate', async (interaction) => {
                 const display = member?.displayName || interaction.user.username;
                 const embedFields = [
                     { name: '⏱️ Duration', value: duration, inline: true },
-                    { name: '📅 Frequency', value: entry.freq.charAt(0).toUpperCase() + entry.freq.slice(1) + ' Log', inline: true },
                 ];
                 if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
                 if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
@@ -8065,7 +8051,6 @@ client.on('interactionCreate', async (interaction) => {
             const display = member?.displayName || interaction.user.username;
             const embedFields = [
                 { name: '⏱️ Duration', value: duration, inline: true },
-                { name: '📅 Frequency', value: entry.freq.charAt(0).toUpperCase() + entry.freq.slice(1) + ' Log', inline: true },
             ];
             if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
             if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
@@ -8886,39 +8871,9 @@ client.on('interactionCreate', async (interaction) => {
 
     // ── Fitness: start button ────────────────────────────────────────────────
     if (interaction.customId === 'fitness:start') {
-        await interaction.reply({
-            content: '📅 **How often will you be logging your workouts?**',
-            components: [new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('fitness:freq:daily').setLabel('📆 Daily').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('fitness:freq:weekly').setLabel('📅 Weekly').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('fitness:freq:monthly').setLabel('🗓️ Monthly').setStyle(ButtonStyle.Secondary),
-            )],
-            ephemeral: true,
-        });
-        return;
-    }
-
-    // ── Fitness: frequency selection ─────────────────────────────────────────
-    if (interaction.customId.startsWith('fitness:freq:')) {
-        const freq = interaction.customId.split(':')[2];
-        await interaction.update({
-            content: '🔒 **Who can see your workout log?**',
-            components: [new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`fitness:privacy:${freq}:public`).setLabel('🌍 Public').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`fitness:privacy:${freq}:private`).setLabel('🔒 Private').setStyle(ButtonStyle.Secondary),
-            )],
-        });
-        return;
-    }
-
-    // ── Fitness: privacy selection → show modal ───────────────────────────────
-    if (interaction.customId.startsWith('fitness:privacy:')) {
-        const parts   = interaction.customId.split(':');
-        const freq    = parts[2];
-        const privacy = parts[3];
-        const modal   = new ModalBuilder()
-            .setCustomId(`fitness:modal:${freq}:${privacy}`)
-            .setTitle(`🏋️ Log Your Workout — ${freq.charAt(0).toUpperCase() + freq.slice(1)}`);
+        const modal = new ModalBuilder()
+            .setCustomId('fitness:modal')
+            .setTitle('🏋️ Log Your Workout');
         modal.addComponents(
             new ActionRowBuilder().addComponents(
                 new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setPlaceholder('e.g. Chest & Back — 3x10 bench, 3x8 rows, 20min cardio').setRequired(true).setMaxLength(200)

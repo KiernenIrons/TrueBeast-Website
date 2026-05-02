@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-05-02] — Remove frequency and publicity options from fitness tracker
+
+- Clicking "🏋️ Log a Workout" now opens the workout modal directly — the two-step frequency (Daily/Weekly/Monthly) and privacy (Public/Private) selection screens have been removed
+- All workouts are now always posted publicly to #tracking; the private log option is gone
+- Entry objects no longer store `freq` or `privacy` fields
+- Removed the `📅 Frequency` embed field from new workout posts and both edit flows
+- Cleaned up the `/fitness-setup` embed description and removed the Frequency/Privacy info fields
+- `/fitness manage` entry list now shows date and duration only (no freq/privacy labels)
+
 ## [2026-05-01] — Fix /fitness notify timezone label: London is BST (UTC+1) in summer
 
 - Relabelled UTC+0 option to clarify it is "London GMT — winter only"
