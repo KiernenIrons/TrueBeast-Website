@@ -1442,8 +1442,9 @@ async function saveRankAchievements(userId, ach) {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fields: {
-                highestRankIdx: { integerValue: String(ach.highestRankIdx) },
-                apexCount:      { integerValue: String(ach.apexCount) },
+                highestRankIdx:    { integerValue: String(ach.highestRankIdx) },
+                apexCount:         { integerValue: String(ach.apexCount) },
+                hitApexThisMonth:  { booleanValue: !!ach.hitApexThisMonth },
             }}),
         });
         if (!res.ok) console.error(`[BeastBot] saveRankAchievements ${userId} → ${res.status} ${await res.text()}`);
@@ -1548,7 +1549,7 @@ function buildFullBackup() {
     for (const [uid, count] of messageCounts) if (count > 0) mc[uid] = count;
     const ra = {};
     for (const [uid, ach] of rankAchievements) {
-        if (ach.highestRankIdx > 0 || ach.apexCount > 0) ra[uid] = { highestRankIdx: ach.highestRankIdx, apexCount: ach.apexCount };
+        if (ach.highestRankIdx > 0 || ach.apexCount > 0 || ach.hitApexThisMonth) ra[uid] = { highestRankIdx: ach.highestRankIdx, apexCount: ach.apexCount, hitApexThisMonth: !!ach.hitApexThisMonth };
     }
     const rx = {};
     for (const [uid, rMap] of reactionDays) {
@@ -1833,9 +1834,9 @@ function applyBackupToMemory(data) {
     // rankAchievements
     for (const [uid, ach] of Object.entries(data.rankAchievements || {})) {
         rankAchievements.set(uid, {
-            highestRankIdx: ach.highestRankIdx || 0,
-            apexCount: ach.apexCount || 0,
-            hitApexThisMonth: false,
+            highestRankIdx:   ach.highestRankIdx || 0,
+            apexCount:        ach.apexCount || 0,
+            hitApexThisMonth: !!ach.hitApexThisMonth,
         });
     }
     // reactions (days + emojiTally + emojiDays)
@@ -4393,6 +4394,11 @@ client.once('clientReady', async () => {
                 .setName('reset-ranks')
                 .setDescription('(Owner only) Reset everyone to Bronze I and clear rank achievement records'),
             new SlashCommandBuilder()
+                .setName('apex-grant')
+                .setDescription('(Owner only) Manually set a user\'s Apex count')
+                .addUserOption(opt => opt.setName('user').setDescription('User to adjust').setRequired(true))
+                .addIntegerOption(opt => opt.setName('count').setDescription('Apex count to set').setRequired(true).setMinValue(0)),
+            new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
             // ── Mod commands ──────────────────────────────────────────────────
@@ -6294,6 +6300,22 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         // ── /reset-ranks ─────────────────────────────────────────────────────
+        if (interaction.commandName === 'apex-grant') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const target = interaction.options.getUser('user');
+            const count  = interaction.options.getInteger('count');
+            const ach    = rankAchievements.get(target.id) || { highestRankIdx: 0, apexCount: 0, hitApexThisMonth: false };
+            ach.apexCount = count;
+            rankAchievements.set(target.id, ach);
+            await saveRankAchievements(target.id, ach);
+            saveDiscordBackup().catch(() => {});
+            await interaction.reply({ content: `✅ Set **${target.username}**'s Apex count to **${count}**. Their \`/me\` card will now show 👑${count}.`, ephemeral: true });
+            return;
+        }
+
         if (interaction.commandName === 'reset-ranks') {
             if (interaction.user.id !== OWNER_DISCORD_ID) {
                 await interaction.reply({ content: '❌ Owner only.', ephemeral: true });

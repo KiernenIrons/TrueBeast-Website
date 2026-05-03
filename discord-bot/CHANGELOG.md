@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-03] — Fix Apex count lost on bot restart; add /apex-grant command
+
+- `hitApexThisMonth` is now persisted in both the full backup and individual Firestore rankAchievements documents — previously it was always reset to `false` on startup, causing the month-end reset to skip incrementing `apexCount` for anyone who hit Apex after the last deploy
+- Backup load (`applyBackupToMemory`) now restores `hitApexThisMonth` from saved data instead of hardcoding `false`
+- Added owner-only `/apex-grant @user count` command to manually set a user's Apex count (used to correct counts lost due to the above bug)
+
 ## [2026-05-02] — Remove frequency and publicity options from fitness tracker
 
 - Clicking "🏋️ Log a Workout" now opens the workout modal directly — the two-step frequency (Daily/Weekly/Monthly) and privacy (Public/Private) selection screens have been removed
