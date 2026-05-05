@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-05-05] — Add 30-day challenge system with daily check-ins and auto leaderboard
+
+- New `challenges` Map persisted through full backup save/load cycle
+- `/challenge setup title: description: [start_date:]` — owner-only command that posts a challenge announcement in #tracking; start date defaults to tomorrow UTC
+- `/challenge progress` — ephemeral view of your joined challenges, days completed, current streak, and days remaining
+- `/challenge list` — ephemeral list of all active challenges with participant counts and current day number
+- Daily check-in embeds auto-post to #tracking at 09:00 UTC each day for each active challenge, with a single "✅ Done for Today" button
+- Clicking Done auto-joins the challenge on first click; duplicate clicks on the same day are blocked
+- Check-in embed updates live as participants click Done, showing a growing list of completers
+- Leaderboard auto-posts to #tracking on day 31 (midnight after Day 30), ranked by days completed with `█░` progress bars; challenge is then marked inactive
+
 ## [2026-05-03] — Fix Apex count lost on bot restart; add /apex-grant command
 
 - `hitApexThisMonth` is now persisted in both the full backup and individual Firestore rankAchievements documents — previously it was always reset to `false` on startup, causing the month-end reset to skip incrementing `apexCount` for anyone who hit Apex after the last deploy

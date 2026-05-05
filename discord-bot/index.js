@@ -781,6 +781,7 @@ const FITNESS_VC_TRIGGER_ID       = '1499568259299676321'; // Workout Together (
 const FITNESS_DISCUSS_CHANNEL_ID  = '1499562699300802570'; // #discussions
 const fitnessData  = new Map(); // userId → { entries: [], notify: null }
 const workoutRooms = new Map(); // channelId → { ownerId, ownerName, deleteTimer, dmMessageId, createdAt }
+const challenges   = new Map(); // challengeId → { id, title, description, startDate, endDate, announceMsgId, active, dailyPosts, participants }
 const TZ_LABELS = {
     '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
     '-8': 'Pacific (UTC-8)', '-7': 'Mountain (UTC-7)', '-6': 'Central (UTC-6)',
@@ -1604,6 +1605,16 @@ function buildFullBackup() {
             for (const [chId, room] of workoutRooms) wr[chId] = { ownerId: room.ownerId, ownerName: room.ownerName, createdAt: room.createdAt };
             return wr;
         })(),
+        challenges: (() => {
+            const ch = {};
+            for (const [cid, c] of challenges) {
+                ch[cid] = { id: c.id, title: c.title, description: c.description,
+                    startDate: c.startDate, endDate: c.endDate,
+                    announceMsgId: c.announceMsgId, active: c.active,
+                    dailyPosts: c.dailyPosts, participants: c.participants };
+            }
+            return ch;
+        })(),
     };
 }
 
@@ -1909,6 +1920,17 @@ function applyBackupToMemory(data) {
     workoutRooms.clear();
     for (const [chId, snap] of Object.entries(data.workoutRooms || {})) {
         workoutRooms.set(chId, { ownerId: snap.ownerId, ownerName: snap.ownerName, deleteTimer: null, dmMessageId: null, createdAt: snap.createdAt || 0 });
+    }
+    // Challenges
+    challenges.clear();
+    for (const [cid, snap] of Object.entries(data.challenges || {})) {
+        challenges.set(cid, {
+            id: snap.id || cid, title: snap.title || 'Challenge',
+            description: snap.description || '', startDate: snap.startDate || '',
+            endDate: snap.endDate || '', announceMsgId: snap.announceMsgId || null,
+            active: snap.active !== false,
+            dailyPosts: snap.dailyPosts || {}, participants: snap.participants || {},
+        });
     }
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
@@ -4092,6 +4114,65 @@ async function pollDiscordCards() {
     }
 }
 
+// ── 30-Day Challenge helpers ─────────────────────────────────────────────────
+
+async function postChallengeLeaderboard(challenge, trackingCh) {
+    if (!challenge.active) return;
+    challenge.active = false;
+    challenges.set(challenge.id, challenge);
+    const ranked = Object.entries(challenge.participants)
+        .map(([uid, p]) => ({ uid, displayName: p.displayName, count: p.completedDays.length }))
+        .sort((a, b) => b.count - a.count || a.displayName.localeCompare(b.displayName));
+    const medals = ['🥇', '🥈', '🥉'];
+    const lines = ranked.map((p, i) => {
+        const medal  = medals[i] || `**${i + 1}.**`;
+        const filled = Math.round(p.count / 30 * 10);
+        const bar    = '█'.repeat(filled) + '░'.repeat(10 - filled);
+        return `${medal} **${p.displayName}** — ${p.count}/30 days  \`${bar}\``;
+    });
+    const winner = ranked[0];
+    await trackingCh.send({
+        embeds: [{
+            color: 0xf59e0b,
+            title: `🏆 30-Day Challenge Complete — ${challenge.title}`,
+            description: lines.length > 0 ? lines.join('\n') : '_No one completed any days._',
+            fields: [
+                { name: '🎯 Winner', value: winner ? `${winner.displayName} with **${winner.count}/30 days**` : '—', inline: false },
+                { name: '👥 Participants', value: String(ranked.length), inline: true },
+                { name: '📅 Ran', value: `${challenge.startDate} → ${challenge.endDate}`, inline: true },
+            ],
+            footer: { text: 'Congratulations to everyone who participated!' },
+            timestamp: new Date().toISOString(),
+        }],
+    });
+    console.log(`[BeastBot] 🏆 Challenge "${challenge.title}" leaderboard posted`);
+    saveDiscordBackup().catch(() => {});
+}
+
+async function updateChallengeCheckInEmbed(challenge, dateStr) {
+    const post = challenge.dailyPosts[dateStr];
+    if (!post) return;
+    try {
+        const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+        const msg = await trackingCh.messages.fetch(post.messageId);
+        const completedNames = Object.values(challenge.participants)
+            .filter(p => p.completedDays.includes(dateStr))
+            .map(p => p.displayName);
+        const completedField = completedNames.length > 0
+            ? completedNames.map(n => `✅ ${n}`).join('\n')
+            : '_No one yet — be first!_';
+        const existingEmbed = msg.embeds[0];
+        await msg.edit({
+            embeds: [{
+                ...existingEmbed.data,
+                fields: [{ name: `✅ Completed today (${completedNames.length})`, value: completedField, inline: false }],
+            }],
+        });
+    } catch (e) {
+        console.error('[BeastBot] Failed to update challenge check-in embed:', e.message);
+    }
+}
+
 // ── Bot Ready ─────────────────────────────────────────────────────────────────
 
 client.once('clientReady', async () => {
@@ -4291,6 +4372,42 @@ client.once('clientReady', async () => {
                     fitnessData.set(notifyUid, fData);
                 } catch (e) {
                     console.error(`[BeastBot] Workout notification failed for ${notifyUid}:`, e.message);
+                }
+            }
+
+            // ── 30-Day Challenge daily posts (09:00 UTC) ──────────────────────
+            if (nowHHMM === '09:00') {
+                const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID).catch(() => null);
+                if (trackingCh) {
+                    for (const [cid, challenge] of challenges) {
+                        if (!challenge.active) continue;
+                        const startMs   = new Date(challenge.startDate + 'T00:00:00.000Z').getTime();
+                        const todayMs   = new Date(today + 'T00:00:00.000Z').getTime();
+                        const dayNumber = Math.floor((todayMs - startMs) / 86400000) + 1;
+                        if (dayNumber > 30) { await postChallengeLeaderboard(challenge, trackingCh); continue; }
+                        if (dayNumber < 1)  continue;
+                        if (challenge.dailyPosts[today]) continue; // already posted (restart guard)
+                        const sent = await trackingCh.send({
+                            content: `📣 **Day ${dayNumber} of 30** — ${challenge.title}`,
+                            embeds: [{
+                                color: 0x3b82f6,
+                                title: `Day ${dayNumber}/30 — ${challenge.title}`,
+                                description: challenge.description,
+                                fields: [{ name: '✅ Completed today (0)', value: '_No one yet — be first!_', inline: false }],
+                                footer: { text: `Challenge ends ${challenge.endDate} · Click the button below when you complete today's task` },
+                                timestamp: new Date().toISOString(),
+                            }],
+                            components: [new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`challenge:done:${cid}:${today}`)
+                                    .setLabel('✅ Done for Today')
+                                    .setStyle(ButtonStyle.Success)
+                            )],
+                        });
+                        challenge.dailyPosts[today] = { messageId: sent.id, dayNumber };
+                        challenges.set(cid, challenge);
+                        console.log(`[BeastBot] 📅 Challenge "${challenge.title}" Day ${dayNumber} posted`);
+                    }
                 }
             }
 
@@ -4560,6 +4677,18 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('fitness-setup')
                 .setDescription('(Owner only) Post the Log Your Workout button in #tracking'),
+            new SlashCommandBuilder()
+                .setName('challenge')
+                .setDescription('30-day challenge commands')
+                .addSubcommand(sub => sub
+                    .setName('setup')
+                    .setDescription('(Owner only) Create and post a new 30-day challenge')
+                    .addStringOption(opt => opt.setName('title').setDescription('Challenge name').setRequired(true).setMaxLength(80))
+                    .addStringOption(opt => opt.setName('description').setDescription('What to do each day').setRequired(true).setMaxLength(500))
+                    .addStringOption(opt => opt.setName('start_date').setDescription('Start date YYYY-MM-DD (defaults to tomorrow UTC)').setRequired(false))
+                )
+                .addSubcommand(sub => sub.setName('progress').setDescription('View your progress on active challenges (private)'))
+                .addSubcommand(sub => sub.setName('list').setDescription('Show all active challenges')),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -7089,6 +7218,117 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /challenge ───────────────────────────────────────────────────────
+        if (interaction.commandName === 'challenge') {
+            const sub  = interaction.options.getSubcommand(false);
+            const user = interaction.user;
+            const uid  = user.id;
+
+            if (sub === 'setup') {
+                if (uid !== OWNER_DISCORD_ID) {
+                    await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
+                }
+                const title       = interaction.options.getString('title').trim();
+                const description = interaction.options.getString('description').trim();
+                let startDateRaw  = interaction.options.getString('start_date');
+                // Default: tomorrow UTC
+                if (!startDateRaw) {
+                    startDateRaw = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+                }
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(startDateRaw)) {
+                    await interaction.reply({ content: '❌ Invalid date format — use YYYY-MM-DD.', flags: 64 }); return;
+                }
+                if (startDateRaw < todayStr()) {
+                    await interaction.reply({ content: '❌ Start date must be today or in the future.', flags: 64 }); return;
+                }
+                const startMs  = new Date(startDateRaw + 'T00:00:00.000Z').getTime();
+                const endDate  = new Date(startMs + 29 * 86400000).toISOString().slice(0, 10);
+                const cid      = `chal-${Date.now()}`;
+                try {
+                    const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
+                    const sent = await trackingCh.send({
+                        embeds: [{
+                            color: 0x3b82f6,
+                            title: `🏁 30-Day Challenge: ${title}`,
+                            description,
+                            fields: [
+                                { name: '📅 Starts', value: startDateRaw, inline: true },
+                                { name: '🏁 Ends', value: endDate, inline: true },
+                                { name: '⏳ Duration', value: '30 days', inline: true },
+                            ],
+                            footer: { text: 'The bot will post a daily check-in at 10 AM BST — click ✅ Done for Today each day you complete the challenge' },
+                        }],
+                    });
+                    challenges.set(cid, {
+                        id: cid, title, description, startDate: startDateRaw, endDate,
+                        announceMsgId: sent.id, active: true, dailyPosts: {}, participants: {},
+                    });
+                    saveDiscordBackup().catch(() => {});
+                    await interaction.reply({ content: `✅ Challenge posted! Day 1 check-in will appear on **${startDateRaw}** at 09:00 UTC.`, flags: 64 });
+                } catch (e) {
+                    await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
+                }
+                return;
+            }
+
+            if (sub === 'progress') {
+                try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch { return; }
+                const active = [...challenges.values()].filter(c => c.active && c.participants[uid]);
+                if (active.length === 0) {
+                    await interaction.editReply({ content: '📋 You haven\'t joined any active challenges yet — click ✅ Done for Today on a daily check-in post to join automatically.' });
+                    return;
+                }
+                const today = todayStr();
+                const fields = active.map(c => {
+                    const p           = c.participants[uid];
+                    const count       = p.completedDays.length;
+                    const startMs     = new Date(c.startDate + 'T00:00:00.000Z').getTime();
+                    const todayMs     = new Date(today + 'T00:00:00.000Z').getTime();
+                    const elapsed     = Math.max(1, Math.min(30, Math.floor((todayMs - startMs) / 86400000) + 1));
+                    const remaining   = Math.max(0, 30 - elapsed);
+                    // streak: count consecutive days backwards from today
+                    let streak = 0;
+                    const d = new Date(today + 'T00:00:00.000Z');
+                    while (true) {
+                        const key = d.toISOString().slice(0, 10);
+                        if (!p.completedDays.includes(key)) break;
+                        streak++;
+                        d.setUTCDate(d.getUTCDate() - 1);
+                    }
+                    return {
+                        name: `🏁 ${c.title}`,
+                        value: `✅ **${count}/30** days completed · 🔥 **${streak}** day streak · 📅 **${remaining}** days remaining`,
+                        inline: false,
+                    };
+                });
+                await interaction.editReply({ embeds: [{ color: 0x3b82f6, title: '📋 Your Challenge Progress', fields, timestamp: new Date().toISOString() }] });
+                return;
+            }
+
+            if (sub === 'list') {
+                try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch { return; }
+                const active = [...challenges.values()].filter(c => c.active);
+                if (active.length === 0) {
+                    await interaction.editReply({ content: '📋 No active challenges right now. Watch for the next one!' });
+                    return;
+                }
+                const today = todayStr();
+                const fields = active.map(c => {
+                    const startMs   = new Date(c.startDate + 'T00:00:00.000Z').getTime();
+                    const todayMs   = new Date(today + 'T00:00:00.000Z').getTime();
+                    const dayNumber = Math.max(1, Math.min(30, Math.floor((todayMs - startMs) / 86400000) + 1));
+                    const count     = Object.keys(c.participants).length;
+                    return {
+                        name: `🏁 ${c.title}`,
+                        value: `📅 ${c.startDate} → ${c.endDate}\n👥 **${count}** participant${count !== 1 ? 's' : ''} · Day **${dayNumber}**/30`,
+                        inline: false,
+                    };
+                });
+                await interaction.editReply({ embeds: [{ color: 0x3b82f6, title: '🏁 Active 30-Day Challenges', fields }] });
+                return;
+            }
+        }
+
         // ── /fitness ─────────────────────────────────────────────────────────
         if (interaction.commandName === 'fitness') {
             // deferReply FIRST — before getSubcommand() or any routing that could throw.
@@ -9046,6 +9286,46 @@ client.on('interactionCreate', async (interaction) => {
             new TextInputBuilder().setCustomId('room_limit').setLabel('Max members (0 = unlimited)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 5').setRequired(true).setMaxLength(3)
         ));
         await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Challenge: done button ────────────────────────────────────────────────
+    if (interaction.customId.startsWith('challenge:done:')) {
+        const parts       = interaction.customId.split(':');
+        const challengeId = parts[2];
+        const dateStr     = parts[3];
+        const uid         = interaction.user.id;
+        const member      = interaction.member;
+        const challenge   = challenges.get(challengeId);
+        if (!challenge || !challenge.active) {
+            await interaction.reply({ content: '❌ Challenge not found or already ended.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+        // Duplicate check
+        if (challenge.participants[uid]?.completedDays.includes(dateStr)) {
+            await interaction.reply({ content: '✅ Already logged for that day! Keep it up 🔥', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
+            return;
+        }
+        // Auto-join if new
+        if (!challenge.participants[uid]) {
+            challenge.participants[uid] = {
+                displayName: member?.displayName || interaction.user.username,
+                joinedAt: todayStr(),
+                completedDays: [],
+            };
+        }
+        challenge.participants[uid].completedDays.push(dateStr);
+        challenge.participants[uid].completedDays.sort();
+        challenges.set(challengeId, challenge);
+        const count = challenge.participants[uid].completedDays.length;
+        const post  = challenge.dailyPosts[dateStr];
+        const dayN  = post?.dayNumber || '?';
+        await interaction.reply({ content: `✅ Day ${dayN} logged for **${challenge.title}**! Total: **${count}/30** days`, ephemeral: true });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        await updateChallengeCheckInEmbed(challenge, dateStr);
+        saveDiscordBackup().catch(() => {});
         return;
     }
 
