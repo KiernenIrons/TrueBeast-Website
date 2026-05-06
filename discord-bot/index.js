@@ -4713,19 +4713,19 @@ client.once('clientReady', async () => {
                     .addStringOption(opt => opt.setName('description').setDescription('Panel description').setRequired(true).setMaxLength(500))
                     .addRoleOption(opt => opt.setName('role1').setDescription('Role for button 1').setRequired(true))
                     .addStringOption(opt => opt.setName('label1').setDescription('Label for button 1').setRequired(true).setMaxLength(25))
-                    .addStringOption(opt => opt.setName('emoji1').setDescription('Emoji for button 1').setRequired(true).setMaxLength(10))
+                    .addStringOption(opt => opt.setName('emoji1').setDescription('Emoji for button 1 — type to search server emojis').setRequired(true).setMaxLength(100).setAutocomplete(true))
                     .addRoleOption(opt => opt.setName('role2').setDescription('Role for button 2').setRequired(false))
                     .addStringOption(opt => opt.setName('label2').setDescription('Label for button 2').setRequired(false).setMaxLength(25))
-                    .addStringOption(opt => opt.setName('emoji2').setDescription('Emoji for button 2').setRequired(false).setMaxLength(10))
+                    .addStringOption(opt => opt.setName('emoji2').setDescription('Emoji for button 2 — type to search server emojis').setRequired(false).setMaxLength(100).setAutocomplete(true))
                     .addRoleOption(opt => opt.setName('role3').setDescription('Role for button 3').setRequired(false))
                     .addStringOption(opt => opt.setName('label3').setDescription('Label for button 3').setRequired(false).setMaxLength(25))
-                    .addStringOption(opt => opt.setName('emoji3').setDescription('Emoji for button 3').setRequired(false).setMaxLength(10))
+                    .addStringOption(opt => opt.setName('emoji3').setDescription('Emoji for button 3 — type to search server emojis').setRequired(false).setMaxLength(100).setAutocomplete(true))
                     .addRoleOption(opt => opt.setName('role4').setDescription('Role for button 4').setRequired(false))
                     .addStringOption(opt => opt.setName('label4').setDescription('Label for button 4').setRequired(false).setMaxLength(25))
-                    .addStringOption(opt => opt.setName('emoji4').setDescription('Emoji for button 4').setRequired(false).setMaxLength(10))
+                    .addStringOption(opt => opt.setName('emoji4').setDescription('Emoji for button 4 — type to search server emojis').setRequired(false).setMaxLength(100).setAutocomplete(true))
                     .addRoleOption(opt => opt.setName('role5').setDescription('Role for button 5').setRequired(false))
                     .addStringOption(opt => opt.setName('label5').setDescription('Label for button 5').setRequired(false).setMaxLength(25))
-                    .addStringOption(opt => opt.setName('emoji5').setDescription('Emoji for button 5').setRequired(false).setMaxLength(10))
+                    .addStringOption(opt => opt.setName('emoji5').setDescription('Emoji for button 5 — type to search server emojis').setRequired(false).setMaxLength(100).setAutocomplete(true))
                 ),
         ].map(c => c.toJSON());
 
@@ -5965,12 +5965,19 @@ async function handleTrtRecruitDecline(interaction, game, channel) {
 
 // ── Reaction role helpers ─────────────────────────────────────────────────────
 
+function parseEmoji(str) {
+    // Custom emoji: <:name:id> or <a:name:id>
+    const m = str.trim().match(/^<(a?):(\w+):(\d+)>$/);
+    if (m) return { animated: m[1] === 'a', name: m[2], id: m[3] };
+    return str.trim(); // unicode emoji
+}
+
 function buildRolePanelComponents(panelId, buttons) {
     const roleBtns = buttons.map(b =>
         new ButtonBuilder()
             .setCustomId(`rr:role:${panelId}:${b.roleId}`)
             .setLabel(b.label)
-            .setEmoji(b.emoji)
+            .setEmoji(parseEmoji(b.emoji))
             .setStyle(ButtonStyle.Secondary)
     );
     const editBtn = new ButtonBuilder()
@@ -5990,6 +5997,30 @@ function buildRolePanelComponents(panelId, buttons) {
 
 client.on('interactionCreate', async (interaction) => {
     // ── Slash commands ───────────────────────────────────────────────────────
+    // ── Autocomplete ─────────────────────────────────────────────────────────
+    if (interaction.isAutocomplete()) {
+        if (interaction.commandName === 'role-panel') {
+            const focused = interaction.options.getFocused(true);
+            if (focused.name.startsWith('emoji')) {
+                const query = focused.value.toLowerCase();
+                const choices = [];
+                for (const [, emoji] of interaction.guild.emojis.cache) {
+                    if (!query || emoji.name.toLowerCase().includes(query)) {
+                        choices.push({
+                            name: `:${emoji.name}:`,
+                            value: `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`,
+                        });
+                    }
+                    if (choices.length >= 25) break;
+                }
+                await interaction.respond(choices);
+            } else {
+                await interaction.respond([]);
+            }
+        }
+        return;
+    }
+
     if (interaction.isChatInputCommand()) {
 
         // ── /imposter ────────────────────────────────────────────────────────
@@ -9460,31 +9491,35 @@ client.on('interactionCreate', async (interaction) => {
         }
         const panelId = interaction.customId.split(':')[2];
         const panel   = reactionRoles.get(panelId);
-        if (!panel) { await interaction.reply({ content: '❌ Panel not found.', ephemeral: true }); return; }
-
-        const btnsText = panel.buttons.map(b => `${b.emoji} | ${b.label} | ${b.roleId}`).join('\n');
-        const modal = new ModalBuilder()
-            .setCustomId(`rr:edit_modal:${panelId}`)
-            .setTitle('✏️ Edit Role Panel');
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('rr_title').setLabel('Title').setStyle(TextInputStyle.Short).setValue(panel.title).setRequired(true).setMaxLength(80)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('rr_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setValue(panel.description).setRequired(true).setMaxLength(500)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('rr_buttons')
-                    .setLabel('Buttons (one per line: emoji | label | roleId)')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setValue(btnsText)
-                    .setRequired(true)
-                    .setMaxLength(1000)
-                    .setPlaceholder('🎮 | Gamer | 123456789012345678')
-            ),
-        );
-        await interaction.showModal(modal);
+        if (!panel) { await interaction.reply({ content: '❌ Panel not found in memory — try re-creating it with `/role-panel create`.', ephemeral: true }); return; }
+        try {
+            const btnsText = (panel.buttons || []).map(b => `${b.emoji} | ${b.label} | ${b.roleId}`).join('\n');
+            const modal = new ModalBuilder()
+                .setCustomId(`rr:edit_modal:${panelId}`)
+                .setTitle('Edit Role Panel');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('rr_title').setLabel('Title').setStyle(TextInputStyle.Short).setValue(panel.title || '').setRequired(true).setMaxLength(80)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('rr_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setValue(panel.description || '').setRequired(true).setMaxLength(500)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('rr_buttons')
+                        .setLabel('Buttons: emoji | label | roleId (one per line)')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setValue(btnsText || ' ')
+                        .setRequired(true)
+                        .setMaxLength(1000)
+                        .setPlaceholder('🎮 | Gamer | 123456789012345678')
+                ),
+            );
+            await interaction.showModal(modal);
+        } catch (e) {
+            console.error('[BeastBot] rr:edit modal error:', e);
+            await interaction.reply({ content: `❌ Could not open edit modal: ${e.message}`, ephemeral: true }).catch(() => {});
+        }
         return;
     }
 

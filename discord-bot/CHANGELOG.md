@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-05-06] — Fix role panel edit button; add server emoji autocomplete
+
+- Wrapped the Edit Panel button handler in try/catch — unhandled exceptions were causing Discord to show "interaction failed" with no feedback
+- Modal title stripped of emoji prefix (was causing a Discord.js edge case); `.setValue()` now falls back to `' '` if a field is empty to avoid SDK validation throws
+- Added `parseEmoji()` helper to correctly resolve custom emoji format (`<:name:id>` / `<a:name:id>`) into Discord.js emoji objects for ButtonBuilder; previously only unicode strings worked
+- Added autocomplete to all 5 emoji options in `/role-panel create` — typing in the emoji field now shows a searchable list of every server custom emoji
+- Increased emoji option maxLength from 10 → 100 to accommodate custom emoji strings
+- Added `isAutocomplete()` handler in interactionCreate for `role-panel` emoji fields
+
 ## [2026-05-06] — Add reaction roles panel system
 
 - New `reactionRoles` Map persisted through full backup save/load cycle
