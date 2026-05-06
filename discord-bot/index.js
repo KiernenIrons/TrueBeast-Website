@@ -5999,24 +5999,34 @@ client.on('interactionCreate', async (interaction) => {
     // ── Slash commands ───────────────────────────────────────────────────────
     // ── Autocomplete ─────────────────────────────────────────────────────────
     if (interaction.isAutocomplete()) {
-        if (interaction.commandName === 'role-panel') {
-            const focused = interaction.options.getFocused(true);
-            if (focused.name.startsWith('emoji')) {
-                const query = focused.value.toLowerCase();
-                const choices = [];
-                for (const [, emoji] of interaction.guild.emojis.cache) {
-                    if (!query || emoji.name.toLowerCase().includes(query)) {
-                        choices.push({
-                            name: `:${emoji.name}:`,
-                            value: `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`,
-                        });
+        try {
+            if (interaction.commandName === 'role-panel') {
+                const focused = interaction.options.getFocused(true);
+                if (focused.name.startsWith('emoji')) {
+                    const query   = focused.value.toLowerCase();
+                    const choices = [];
+                    const cache   = interaction.guild?.emojis.cache;
+                    if (cache) {
+                        for (const [, emoji] of cache) {
+                            if (!query || emoji.name.toLowerCase().includes(query)) {
+                                choices.push({
+                                    name:  `:${emoji.name}:`,
+                                    value: `<${emoji.animated ? 'a' : ''}:${emoji.name}:${emoji.id}>`,
+                                });
+                            }
+                            if (choices.length >= 25) break;
+                        }
                     }
-                    if (choices.length >= 25) break;
+                    await interaction.respond(choices);
+                } else {
+                    await interaction.respond([]);
                 }
-                await interaction.respond(choices);
             } else {
                 await interaction.respond([]);
             }
+        } catch (e) {
+            console.error('[BeastBot] Autocomplete error:', e.message);
+            await interaction.respond([]).catch(() => {});
         }
         return;
     }
