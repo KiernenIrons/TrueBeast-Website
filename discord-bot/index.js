@@ -7904,21 +7904,22 @@ client.on('interactionCreate', async (interaction) => {
             }
             const sub = interaction.options.getSubcommand();
             if (sub === 'create') {
-                const title       = interaction.options.getString('title');
-                const description = interaction.options.getString('description');
-                const buttons = [];
-                for (let i = 1; i <= 5; i++) {
-                    const role  = interaction.options.getRole(`role${i}`);
-                    const label = interaction.options.getString(`label${i}`);
-                    const emoji = interaction.options.getString(`emoji${i}`);
-                    if (!role || !label || !emoji) continue;
-                    buttons.push({ roleId: role.id, roleName: role.name, label, emoji });
-                }
-                if (buttons.length === 0) {
-                    await interaction.reply({ content: '❌ Provide at least one complete button (role + label + emoji).', flags: 64 }); return;
-                }
-                const panelId = `rr-${Date.now()}`;
+                await interaction.deferReply({ flags: 64 });
                 try {
+                    const title       = interaction.options.getString('title');
+                    const description = interaction.options.getString('description');
+                    const buttons = [];
+                    for (let i = 1; i <= 5; i++) {
+                        const role  = interaction.options.getRole(`role${i}`);
+                        const label = interaction.options.getString(`label${i}`);
+                        const emoji = interaction.options.getString(`emoji${i}`);
+                        if (!role || !label || !emoji) continue;
+                        buttons.push({ roleId: role.id, roleName: role.name, label, emoji });
+                    }
+                    if (buttons.length === 0) {
+                        await interaction.editReply({ content: '❌ Provide at least one complete button (role + label + emoji).' }); return;
+                    }
+                    const panelId = `rr-${Date.now()}`;
                     const ch   = await client.channels.fetch(REACTION_ROLES_CHANNEL_ID);
                     const sent = await ch.send({
                         embeds: [{ color: 0x5865f2, title, description, footer: { text: 'Click a button to add or remove that role' } }],
@@ -7926,9 +7927,10 @@ client.on('interactionCreate', async (interaction) => {
                     });
                     reactionRoles.set(panelId, { panelId, messageId: sent.id, title, description, buttons });
                     saveDiscordBackup().catch(() => {});
-                    await interaction.reply({ content: `✅ Role panel posted in <#${REACTION_ROLES_CHANNEL_ID}>!`, flags: 64 });
+                    await interaction.editReply({ content: `✅ Role panel posted in <#${REACTION_ROLES_CHANNEL_ID}>!` });
                 } catch (e) {
-                    await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
+                    console.error('[BeastBot] /role-panel create error:', e);
+                    await interaction.editReply({ content: `❌ Failed: ${e.message}` }).catch(() => {});
                 }
             }
             return;
@@ -9453,38 +9455,44 @@ client.on('interactionCreate', async (interaction) => {
 
     // ── Reaction Roles: edit panel button ────────────────────────────────────
     if (interaction.isButton() && interaction.customId.startsWith('rr:edit:')) {
-        if (interaction.user.id !== OWNER_DISCORD_ID) {
-            await interaction.reply({ content: '❌ Only the server owner can edit panels.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
-            return;
+        try {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Only the server owner can edit panels.', ephemeral: true });
+                return;
+            }
+            const panelId = interaction.customId.split(':')[2];
+            const panel   = reactionRoles.get(panelId);
+            if (!panel) {
+                await interaction.reply({ content: '❌ Panel not found — please re-create it with `/role-panel create`.', ephemeral: true });
+                return;
+            }
+            const btnsText = (panel.buttons || []).map(b => `${b.emoji} | ${b.label} | ${b.roleId}`).join('\n');
+            const modal = new ModalBuilder()
+                .setCustomId(`rr:edit_modal:${panelId}`)
+                .setTitle('Edit Role Panel');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('rr_title').setLabel('Title').setStyle(TextInputStyle.Short).setValue(panel.title || 'Title').setRequired(true).setMaxLength(80)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('rr_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setValue(panel.description || 'Description').setRequired(true).setMaxLength(500)
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('rr_buttons')
+                        .setLabel('Buttons (one per line: emoji | label | roleId)')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setValue(btnsText || '🎮 | Label | roleId')
+                        .setRequired(true)
+                        .setMaxLength(1000)
+                        .setPlaceholder('🎮 | Gamer | 123456789012345678')
+                ),
+            );
+            await interaction.showModal(modal);
+        } catch (e) {
+            console.error('[BeastBot] rr:edit error:', e);
+            try { await interaction.reply({ content: `❌ Error: ${e.message}`, ephemeral: true }); } catch {}
         }
-        const panelId = interaction.customId.split(':')[2];
-        const panel   = reactionRoles.get(panelId);
-        if (!panel) { await interaction.reply({ content: '❌ Panel not found.', ephemeral: true }); return; }
-
-        const btnsText = panel.buttons.map(b => `${b.emoji} | ${b.label} | ${b.roleId}`).join('\n');
-        const modal = new ModalBuilder()
-            .setCustomId(`rr:edit_modal:${panelId}`)
-            .setTitle('✏️ Edit Role Panel');
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('rr_title').setLabel('Title').setStyle(TextInputStyle.Short).setValue(panel.title).setRequired(true).setMaxLength(80)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('rr_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setValue(panel.description).setRequired(true).setMaxLength(500)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                    .setCustomId('rr_buttons')
-                    .setLabel('Buttons (one per line: emoji | label | roleId)')
-                    .setStyle(TextInputStyle.Paragraph)
-                    .setValue(btnsText)
-                    .setRequired(true)
-                    .setMaxLength(1000)
-                    .setPlaceholder('🎮 | Gamer | 123456789012345678')
-            ),
-        );
-        await interaction.showModal(modal);
         return;
     }
 
