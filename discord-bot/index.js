@@ -782,6 +782,10 @@ const FITNESS_DISCUSS_CHANNEL_ID  = '1499562699300802570'; // #discussions
 const fitnessData  = new Map(); // userId → { entries: [], notify: null }
 const workoutRooms = new Map(); // channelId → { ownerId, ownerName, deleteTimer, dmMessageId, createdAt }
 const challenges   = new Map(); // challengeId → { id, title, description, startDate, endDate, announceMsgId, active, dailyPosts, participants }
+
+// ── Reaction Roles ────────────────────────────────────────────────────────────
+const REACTION_ROLES_CHANNEL_ID = '1465784739477590088';
+const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
     '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
     '-8': 'Pacific (UTC-8)', '-7': 'Mountain (UTC-7)', '-6': 'Central (UTC-6)',
@@ -1615,6 +1619,11 @@ function buildFullBackup() {
             }
             return ch;
         })(),
+        reactionRoles: (() => {
+            const rr = {};
+            for (const [pid, panel] of reactionRoles) rr[pid] = panel;
+            return rr;
+        })(),
     };
 }
 
@@ -1931,6 +1940,11 @@ function applyBackupToMemory(data) {
             active: snap.active !== false,
             dailyPosts: snap.dailyPosts || {}, participants: snap.participants || {},
         });
+    }
+    // Reaction roles
+    reactionRoles.clear();
+    for (const [pid, panel] of Object.entries(data.reactionRoles || {})) {
+        reactionRoles.set(pid, panel);
     }
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
@@ -4689,6 +4703,30 @@ client.once('clientReady', async () => {
                 )
                 .addSubcommand(sub => sub.setName('progress').setDescription('View your progress on active challenges (private)'))
                 .addSubcommand(sub => sub.setName('list').setDescription('Show all active challenges')),
+            new SlashCommandBuilder()
+                .setName('role-panel')
+                .setDescription('Manage reaction role panels')
+                .addSubcommand(sub => sub
+                    .setName('create')
+                    .setDescription('(Owner only) Create a new role panel')
+                    .addStringOption(opt => opt.setName('title').setDescription('Panel title').setRequired(true).setMaxLength(80))
+                    .addStringOption(opt => opt.setName('description').setDescription('Panel description').setRequired(true).setMaxLength(500))
+                    .addRoleOption(opt => opt.setName('role1').setDescription('Role for button 1').setRequired(true))
+                    .addStringOption(opt => opt.setName('label1').setDescription('Label for button 1').setRequired(true).setMaxLength(25))
+                    .addStringOption(opt => opt.setName('emoji1').setDescription('Emoji for button 1').setRequired(true).setMaxLength(10))
+                    .addRoleOption(opt => opt.setName('role2').setDescription('Role for button 2').setRequired(false))
+                    .addStringOption(opt => opt.setName('label2').setDescription('Label for button 2').setRequired(false).setMaxLength(25))
+                    .addStringOption(opt => opt.setName('emoji2').setDescription('Emoji for button 2').setRequired(false).setMaxLength(10))
+                    .addRoleOption(opt => opt.setName('role3').setDescription('Role for button 3').setRequired(false))
+                    .addStringOption(opt => opt.setName('label3').setDescription('Label for button 3').setRequired(false).setMaxLength(25))
+                    .addStringOption(opt => opt.setName('emoji3').setDescription('Emoji for button 3').setRequired(false).setMaxLength(10))
+                    .addRoleOption(opt => opt.setName('role4').setDescription('Role for button 4').setRequired(false))
+                    .addStringOption(opt => opt.setName('label4').setDescription('Label for button 4').setRequired(false).setMaxLength(25))
+                    .addStringOption(opt => opt.setName('emoji4').setDescription('Emoji for button 4').setRequired(false).setMaxLength(10))
+                    .addRoleOption(opt => opt.setName('role5').setDescription('Role for button 5').setRequired(false))
+                    .addStringOption(opt => opt.setName('label5').setDescription('Label for button 5').setRequired(false).setMaxLength(25))
+                    .addStringOption(opt => opt.setName('emoji5').setDescription('Emoji for button 5').setRequired(false).setMaxLength(10))
+                ),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -5923,6 +5961,29 @@ async function handleTrtRecruitDecline(interaction, game, channel) {
 
     const win = await trtCheckWin(game, channel);
     if (!win) await trtStartMorning(game, channel, 'murder', userId);
+}
+
+// ── Reaction role helpers ─────────────────────────────────────────────────────
+
+function buildRolePanelComponents(panelId, buttons) {
+    const roleBtns = buttons.map(b =>
+        new ButtonBuilder()
+            .setCustomId(`rr:role:${panelId}:${b.roleId}`)
+            .setLabel(b.label)
+            .setEmoji(b.emoji)
+            .setStyle(ButtonStyle.Secondary)
+    );
+    const editBtn = new ButtonBuilder()
+        .setCustomId(`rr:edit:${panelId}`)
+        .setLabel('✏️ Edit Panel')
+        .setStyle(ButtonStyle.Primary);
+
+    const allBtns = [...roleBtns, editBtn];
+    const rows = [];
+    for (let i = 0; i < allBtns.length; i += 5) {
+        rows.push(new ActionRowBuilder().addComponents(...allBtns.slice(i, i + 5)));
+    }
+    return rows;
 }
 
 // ── Button interactions ───────────────────────────────────────────────────────
@@ -7836,6 +7897,43 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /role-panel ───────────────────────────────────────────────────────
+        if (interaction.commandName === 'role-panel') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
+            }
+            const sub = interaction.options.getSubcommand();
+            if (sub === 'create') {
+                const title       = interaction.options.getString('title');
+                const description = interaction.options.getString('description');
+                const buttons = [];
+                for (let i = 1; i <= 5; i++) {
+                    const role  = interaction.options.getRole(`role${i}`);
+                    const label = interaction.options.getString(`label${i}`);
+                    const emoji = interaction.options.getString(`emoji${i}`);
+                    if (!role || !label || !emoji) continue;
+                    buttons.push({ roleId: role.id, roleName: role.name, label, emoji });
+                }
+                if (buttons.length === 0) {
+                    await interaction.reply({ content: '❌ Provide at least one complete button (role + label + emoji).', flags: 64 }); return;
+                }
+                const panelId = `rr-${Date.now()}`;
+                try {
+                    const ch   = await client.channels.fetch(REACTION_ROLES_CHANNEL_ID);
+                    const sent = await ch.send({
+                        embeds: [{ color: 0x5865f2, title, description, footer: { text: 'Click a button to add or remove that role' } }],
+                        components: buildRolePanelComponents(panelId, buttons),
+                    });
+                    reactionRoles.set(panelId, { panelId, messageId: sent.id, title, description, buttons });
+                    saveDiscordBackup().catch(() => {});
+                    await interaction.reply({ content: `✅ Role panel posted in <#${REACTION_ROLES_CHANNEL_ID}>!`, flags: 64 });
+                } catch (e) {
+                    await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
+                }
+            }
+            return;
+        }
+
         // ── /server-info ──────────────────────────────────────────────────────
         if (interaction.commandName === 'server-info') {
             const guild = interaction.guild;
@@ -9326,6 +9424,114 @@ client.on('interactionCreate', async (interaction) => {
         setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         await updateChallengeCheckInEmbed(challenge, dateStr);
         saveDiscordBackup().catch(() => {});
+        return;
+    }
+
+    // ── Reaction Roles: role toggle button ───────────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith('rr:role:')) {
+        const parts   = interaction.customId.split(':');
+        const panelId = parts[2];
+        const roleId  = parts[3];
+        const member  = interaction.member;
+        if (!member) { await interaction.reply({ content: '❌ Could not find your member data.', ephemeral: true }); return; }
+        try {
+            const role = interaction.guild.roles.cache.get(roleId);
+            const roleName = role?.name || 'that role';
+            if (member.roles.cache.has(roleId)) {
+                await member.roles.remove(roleId);
+                await interaction.reply({ content: `✅ Removed the **${roleName}** role.`, ephemeral: true });
+            } else {
+                await member.roles.add(roleId);
+                await interaction.reply({ content: `✅ Added the **${roleName}** role!`, ephemeral: true });
+            }
+        } catch (e) {
+            await interaction.reply({ content: `❌ Could not update your role: ${e.message}`, ephemeral: true });
+        }
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        return;
+    }
+
+    // ── Reaction Roles: edit panel button ────────────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith('rr:edit:')) {
+        if (interaction.user.id !== OWNER_DISCORD_ID) {
+            await interaction.reply({ content: '❌ Only the server owner can edit panels.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
+            return;
+        }
+        const panelId = interaction.customId.split(':')[2];
+        const panel   = reactionRoles.get(panelId);
+        if (!panel) { await interaction.reply({ content: '❌ Panel not found.', ephemeral: true }); return; }
+
+        const btnsText = panel.buttons.map(b => `${b.emoji} | ${b.label} | ${b.roleId}`).join('\n');
+        const modal = new ModalBuilder()
+            .setCustomId(`rr:edit_modal:${panelId}`)
+            .setTitle('✏️ Edit Role Panel');
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('rr_title').setLabel('Title').setStyle(TextInputStyle.Short).setValue(panel.title).setRequired(true).setMaxLength(80)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('rr_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setValue(panel.description).setRequired(true).setMaxLength(500)
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('rr_buttons')
+                    .setLabel('Buttons (one per line: emoji | label | roleId)')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setValue(btnsText)
+                    .setRequired(true)
+                    .setMaxLength(1000)
+                    .setPlaceholder('🎮 | Gamer | 123456789012345678')
+            ),
+        );
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Reaction Roles: edit modal submit ────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('rr:edit_modal:')) {
+        const panelId = interaction.customId.split(':')[2];
+        const panel   = reactionRoles.get(panelId);
+        if (!panel) { await interaction.reply({ content: '❌ Panel not found.', ephemeral: true }); return; }
+
+        const newTitle       = interaction.fields.getTextInputValue('rr_title').trim();
+        const newDescription = interaction.fields.getTextInputValue('rr_description').trim();
+        const btnsRaw        = interaction.fields.getTextInputValue('rr_buttons').trim();
+
+        const newButtons = [];
+        for (const line of btnsRaw.split('\n')) {
+            const parts = line.split('|').map(s => s.trim());
+            if (parts.length < 3) continue;
+            const [emoji, label, rawId] = parts;
+            if (!emoji || !label || !rawId) continue;
+            const roleId = rawId.replace(/\D/g, '');
+            const role   = interaction.guild.roles.cache.get(roleId);
+            if (!role) continue;
+            newButtons.push({ emoji, label, roleId: role.id, roleName: role.name });
+        }
+
+        if (newButtons.length === 0) {
+            await interaction.reply({ content: '❌ No valid buttons parsed. Format: `emoji | Label | roleId` (one per line)', ephemeral: true });
+            return;
+        }
+
+        try {
+            const ch  = await client.channels.fetch(REACTION_ROLES_CHANNEL_ID);
+            const msg = await ch.messages.fetch(panel.messageId);
+            await msg.edit({
+                embeds: [{ color: 0x5865f2, title: newTitle, description: newDescription, footer: { text: 'Click a button to add or remove that role' } }],
+                components: buildRolePanelComponents(panelId, newButtons),
+            });
+            panel.title       = newTitle;
+            panel.description = newDescription;
+            panel.buttons     = newButtons;
+            reactionRoles.set(panelId, panel);
+            saveDiscordBackup().catch(() => {});
+            await interaction.reply({ content: '✅ Panel updated!', ephemeral: true });
+        } catch (e) {
+            await interaction.reply({ content: `❌ Failed to update: ${e.message}`, ephemeral: true });
+        }
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
         return;
     }
 

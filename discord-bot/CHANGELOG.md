@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-05-06] — Add reaction roles panel system
+
+- New `reactionRoles` Map persisted through full backup save/load cycle
+- New `REACTION_ROLES_CHANNEL_ID` constant pointing to channel `1465784739477590088`
+- `/role-panel create` (owner-only) — posts an embed with up to 5 role-toggle buttons (emoji + label + role, each configurable) into the roles channel
+- Clicking a role button adds the role if the user doesn't have it, or removes it if they do — ephemeral confirmation reply auto-deletes after 5 seconds
+- `✏️ Edit Panel` button on every panel (owner-only) — opens a pre-filled modal to update the title, description, and button config (format: `emoji | label | roleId` one per line)
+- `buildRolePanelComponents()` helper builds ActionRow arrays from a button list, always appending the Edit button
+- Edit modal parses the text input, resolves role IDs from guild cache, and re-edits the live message in place
+
 ## [2026-05-05] — Add 30-day challenge system with daily check-ins and auto leaderboard
 
 - New `challenges` Map persisted through full backup save/load cycle
