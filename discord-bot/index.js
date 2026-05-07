@@ -9480,7 +9480,7 @@ client.on('interactionCreate', async (interaction) => {
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
                         .setCustomId('rr_buttons')
-                        .setLabel('Buttons (one per line: emoji | label | roleId)')
+                        .setLabel('Buttons (emoji | label | roleId per line)')
                         .setStyle(TextInputStyle.Paragraph)
                         .setValue(btnsText || '🎮 | Label | roleId')
                         .setRequired(true)

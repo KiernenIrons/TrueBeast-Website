@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-05-06] — Fix edit modal label exceeding Discord 45-char limit
+
+- Changed the "Buttons" TextInput label in the Edit Panel modal from `'Buttons (one per line: emoji | label | roleId)'` (46 chars) to `'Buttons (emoji | label | roleId per line)'` (41 chars) — Discord enforces a 45-character maximum and was throwing "Invalid string length" on every edit button click
+
 ## [2026-05-06] — Fix role panel edit button; add server emoji autocomplete
 
 - Wrapped the Edit Panel button handler in try/catch — unhandled exceptions were causing Discord to show "interaction failed" with no feedback
