@@ -826,6 +826,7 @@ const messageDays          = new Map(); // userId → Map<"YYYY-MM-DD", count>
 const reactionDays         = new Map(); // userId → Map<"YYYY-MM-DD", count>            (reactions given)
 const emojiTally           = new Map(); // userId → Map<emojiKey, count>                 (all-time emoji tally)
 const reactionEmojiDays    = new Map(); // userId → Map<"YYYY-MM-DD", Map<emoji, count>> (per-day emoji tally)
+const creditedReactions    = new Set(); // `${userId}:${messageId}:${emojiKey}` — prevents react/unreact spam from awarding XP multiple times
 const memberNameCache      = new Map(); // userId → displayName (populated at startup, kept fresh)
 const memberCache          = new Map(); // userId → { displayName, avatarUrl } (for image generation)
 const MILESTONE_THRESHOLDS = [100, 500, 1000, 2500, 5000, 10000];
@@ -9864,6 +9865,17 @@ client.on('messageReactionAdd', async (reaction, user) => {
     const userId = user.id;
     const today = todayStr();
 
+    const emojiKey = reaction.emoji.id
+        ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
+        : (reaction.emoji.name || '?');
+
+    // Dedup: one XP credit per user per message per emoji — react/unreact/re-react gives no extra credit
+    const creditKey = `${userId}:${reaction.message.id}:${emojiKey}`;
+    if (creditedReactions.has(creditKey)) return;
+    creditedReactions.add(creditKey);
+    // Safety valve: if the set grows extremely large, clear it (restarts also clear it naturally)
+    if (creditedReactions.size > 100000) creditedReactions.clear();
+
     // Message XP credit
     const count = (messageCounts.get(userId) || 0) + 1;
     messageCounts.set(userId, count);
@@ -9874,10 +9886,6 @@ client.on('messageReactionAdd', async (reaction, user) => {
     let rMap = reactionDays.get(userId);
     if (!rMap) { rMap = new Map(); reactionDays.set(userId, rMap); }
     rMap.set(today, (rMap.get(today) ?? 0) + 1);
-
-    const emojiKey = reaction.emoji.id
-        ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
-        : (reaction.emoji.name || '?');
 
     // All-time emoji tally
     let eMap = emojiTally.get(userId);

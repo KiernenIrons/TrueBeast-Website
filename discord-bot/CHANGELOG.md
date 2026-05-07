@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-05-07] — Prevent react/unreact spam from inflating XP
+
+- Added `creditedReactions` Set tracking `userId:messageId:emojiKey` tuples
+- `messageReactionAdd` now bails immediately if the user has already been credited for that message+emoji combination — re-reacting after unreacting yields no additional XP
+- `emojiKey` computation moved before the dedup check so the key is available at bail time
+- Safety valve: if the Set ever exceeds 100,000 entries it is cleared (in-memory only; resets on restart naturally)
+
 ## [2026-05-06] — Fix edit modal label exceeding Discord 45-char limit
 
 - Changed the "Buttons" TextInput label in the Edit Panel modal from `'Buttons (one per line: emoji | label | roleId)'` (46 chars) to `'Buttons (emoji | label | roleId per line)'` (41 chars) — Discord enforces a 45-character maximum and was throwing "Invalid string length" on every edit button click
