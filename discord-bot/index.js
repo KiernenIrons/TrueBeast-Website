@@ -9970,6 +9970,50 @@ client.on('messageReactionAdd', async (reaction, user) => {
     }
 });
 
+client.on('messageReactionRemove', async (reaction, user) => {
+    if (user.bot) return;
+    if (!reaction.message.guild) return;
+
+    const userId   = user.id;
+    const emojiKey = reaction.emoji.id
+        ? `<:${reaction.emoji.name}:${reaction.emoji.id}>`
+        : (reaction.emoji.name || '?');
+    const creditKey = `${userId}:${reaction.message.id}:${emojiKey}`;
+
+    // Only undo if this reaction was previously credited
+    if (!creditedReactions.has(creditKey)) return;
+    creditedReactions.delete(creditKey);
+
+    const today = todayStr();
+
+    // Decrement today's reaction count (clamp at 0)
+    const rMap = reactionDays.get(userId);
+    if (rMap) {
+        const cur = rMap.get(today) ?? 0;
+        if (cur <= 1) rMap.delete(today);
+        else rMap.set(today, cur - 1);
+    }
+
+    // Decrement all-time emoji tally
+    const eMap = emojiTally.get(userId);
+    if (eMap) {
+        const cur = eMap.get(emojiKey) ?? 0;
+        if (cur <= 1) eMap.delete(emojiKey);
+        else eMap.set(emojiKey, cur - 1);
+    }
+
+    // Decrement per-day emoji tally
+    const edMap = reactionEmojiDays.get(userId);
+    if (edMap) {
+        const dayEmojiMap = edMap.get(today);
+        if (dayEmojiMap) {
+            const cur = dayEmojiMap.get(emojiKey) ?? 0;
+            if (cur <= 1) dayEmojiMap.delete(emojiKey);
+            else dayEmojiMap.set(emojiKey, cur - 1);
+        }
+    }
+});
+
 // ── Message delete / edit ─────────────────────────────────────────────────────
 
 client.on('messageDelete', async (message) => {

@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-05-08] — Decrement reaction counts on unreact
+
+- Added `messageReactionRemove` handler — when a user removes a reaction, their counts are decremented and the credit key is cleared from `creditedReactions` so a subsequent re-react is counted correctly
+- Decrements today's `reactionDays` count (clamped at 0, deletes the day entry if it hits 0)
+- Decrements `emojiTally` all-time count for the emoji (deletes entry at 0)
+- Decrements `reactionEmojiDays` per-day emoji count (deletes entry at 0)
+- Only acts if the reaction was previously credited — unreacting something the bot never saw doesn't underflow counts
+
 ## [2026-05-08] — Add /adjust-stats owner command to correct user stats
 
 - New `/adjust-stats user: stat: value:` command (owner only) to manually set a user's messages, reactions, or voice minutes to any total
