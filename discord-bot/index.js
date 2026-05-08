@@ -4531,6 +4531,19 @@ client.once('clientReady', async () => {
                 .addUserOption(opt => opt.setName('user').setDescription('User to adjust').setRequired(true))
                 .addIntegerOption(opt => opt.setName('count').setDescription('Apex count to set').setRequired(true).setMinValue(0)),
             new SlashCommandBuilder()
+                .setName('adjust-stats')
+                .setDescription('(Owner only) Manually set a user\'s messages, reactions, or voice minutes')
+                .addUserOption(opt => opt.setName('user').setDescription('User to adjust').setRequired(true))
+                .addStringOption(opt => opt.setName('stat')
+                    .setDescription('Which stat to adjust')
+                    .setRequired(true)
+                    .addChoices(
+                        { name: 'Messages (total sent)', value: 'messages' },
+                        { name: 'Reactions (total given)', value: 'reactions' },
+                        { name: 'Voice minutes (total)', value: 'voice' },
+                    ))
+                .addIntegerOption(opt => opt.setName('value').setDescription('New total value to set').setRequired(true).setMinValue(0)),
+            new SlashCommandBuilder()
                 .setName('restart')
                 .setDescription('(Owner only) Restart the bot'),
             // ── Mod commands ──────────────────────────────────────────────────
@@ -6504,6 +6517,63 @@ client.on('interactionCreate', async (interaction) => {
             await saveRankAchievements(target.id, ach);
             saveDiscordBackup().catch(() => {});
             await interaction.reply({ content: `✅ Set **${target.username}**'s Apex count to **${count}**. Their \`/me\` card will now show 👑${count}.`, ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'adjust-stats') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', ephemeral: true });
+                return;
+            }
+            const target   = interaction.options.getUser('user');
+            const stat     = interaction.options.getString('stat');
+            const newValue = interaction.options.getInteger('value');
+            const uid      = target.id;
+
+            // Trim a days Map so its sum equals newTotal, removing from most recent days first.
+            function trimDaysMap(daysMap, newTotal) {
+                let current = 0;
+                for (const v of daysMap.values()) current += v;
+                if (newTotal >= current) return; // nothing to trim
+                let excess = current - newTotal;
+                const sorted = [...daysMap.keys()].sort().reverse(); // newest first
+                for (const day of sorted) {
+                    if (excess <= 0) break;
+                    const dayCount = daysMap.get(day);
+                    if (dayCount <= excess) { daysMap.delete(day); excess -= dayCount; }
+                    else { daysMap.set(day, dayCount - excess); excess = 0; }
+                }
+            }
+
+            let summary = '';
+            if (stat === 'messages') {
+                const dMap = messageDays.get(uid) || new Map();
+                messageDays.set(uid, dMap);
+                trimDaysMap(dMap, newValue);
+                messageCounts.set(uid, newValue);
+                await saveMessageDays(uid, dMap);
+                // Re-sync rank with corrected score
+                const member = interaction.guild.members.cache.get(uid);
+                if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
+                summary = `📨 Messages set to **${newValue}**`;
+            } else if (stat === 'reactions') {
+                const rMap = reactionDays.get(uid) || new Map();
+                reactionDays.set(uid, rMap);
+                trimDaysMap(rMap, newValue);
+                summary = `💬 Reactions set to **${newValue}**`;
+            } else if (stat === 'voice') {
+                const vcData = voiceMinutes.get(uid) || { total: 0, days: new Map() };
+                trimDaysMap(vcData.days, newValue);
+                vcData.total = newValue;
+                voiceMinutes.set(uid, vcData);
+                // Re-sync rank with corrected score
+                const member = interaction.guild.members.cache.get(uid);
+                if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
+                summary = `🎙️ Voice minutes set to **${newValue}**`;
+            }
+
+            saveDiscordBackup().catch(() => {});
+            await interaction.reply({ content: `✅ **${target.username}**: ${summary}. Their \`/me\` card has been updated.`, ephemeral: true });
             return;
         }
 

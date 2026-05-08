@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-05-08] — Add /adjust-stats owner command to correct user stats
+
+- New `/adjust-stats user: stat: value:` command (owner only) to manually set a user's messages, reactions, or voice minutes to any total
+- `trimDaysMap` helper trims the per-day breakdown from most recent days backward so both the total and monthly/weekly/daily breakdowns stay consistent
+- Messages stat: sets `messageCounts`, trims `messageDays`, calls `saveMessageDays`, and re-syncs the user's rank role
+- Reactions stat: trims `reactionDays` (no Firestore save needed — reactions are backup-only)
+- Voice stat: sets `voiceMinutes.total`, trims `voiceMinutes.days`, and re-syncs rank role
+- All paths call `saveDiscordBackup()` to persist immediately
+
 ## [2026-05-08] — Fix reactions incorrectly incrementing message count
 
 - Removed `messageCounts` and `messageDays` writes from `messageReactionAdd` — reactions were being counted as sent messages, inflating message XP
