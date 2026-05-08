@@ -9876,16 +9876,11 @@ client.on('messageReactionAdd', async (reaction, user) => {
     // Safety valve: if the set grows extremely large, clear it (restarts also clear it naturally)
     if (creditedReactions.size > 100000) creditedReactions.clear();
 
-    // Message XP credit
-    const count = (messageCounts.get(userId) || 0) + 1;
-    messageCounts.set(userId, count);
-    let dMap = messageDays.get(userId);
-    if (!dMap) { dMap = new Map(); messageDays.set(userId, dMap); }
-    dMap.set(today, (dMap.get(today) ?? 0) + 1);
-    // Reaction-specific tracking
+    // Reaction-specific tracking (reactions do NOT increment messageCounts/messageDays)
     let rMap = reactionDays.get(userId);
     if (!rMap) { rMap = new Map(); reactionDays.set(userId, rMap); }
-    rMap.set(today, (rMap.get(today) ?? 0) + 1);
+    const reactionCount = (rMap.get(today) ?? 0) + 1;
+    rMap.set(today, reactionCount);
 
     // All-time emoji tally
     let eMap = emojiTally.get(userId);
@@ -9899,7 +9894,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (!dayEmojiMap) { dayEmojiMap = new Map(); edMap.set(today, dayEmojiMap); }
     dayEmojiMap.set(emojiKey, (dayEmojiMap.get(emojiKey) ?? 0) + 1);
 
-    if (count % 10 === 0 && reaction.message.guild) {
+    if (reactionCount % 10 === 0 && reaction.message.guild) {
         const member = reaction.message.guild.members.cache.get(userId);
         if (member) assignVoiceRank(member, monthlyActivityScore(userId)).catch(() => {});
     }

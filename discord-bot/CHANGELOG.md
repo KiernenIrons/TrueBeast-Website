@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-08] — Fix reactions incorrectly incrementing message count
+
+- Removed `messageCounts` and `messageDays` writes from `messageReactionAdd` — reactions were being counted as sent messages, inflating message XP
+- Rank sync check in the reaction handler now triggers off `reactionCount` (today's reaction tally) instead of the message count
+
 ## [2026-05-07] — Prevent react/unreact spam from inflating XP
 
 - Added `creditedReactions` Set tracking `userId:messageId:emojiKey` tuples
