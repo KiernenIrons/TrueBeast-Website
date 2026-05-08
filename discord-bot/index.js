@@ -3184,9 +3184,11 @@ function monthlyActivityScore(userId) {
     const bData  = voiceBonusXp.get(userId)  || { total: 0, days: new Map() };
     const dMap   = messageDays.get(userId)   || new Map();
     const mCount = messageCounts.get(userId) || 0;
+    const rMap   = reactionDays.get(userId)  || new Map();
     return getTotal(vcData.days, vcData.total, 'month')
          + getTotal(bData.days, bData.total, 'month')
-         + getTotal(dMap, mCount, 'month') * MSGS_TO_MIN;
+         + getTotal(dMap, mCount, 'month') * MSGS_TO_MIN
+         + getTotal(rMap, 0, 'month');
 }
 
 // ── Twemoji emoji image helpers ───────────────────────────────────────────────
@@ -10012,6 +10014,10 @@ client.on('messageReactionRemove', async (reaction, user) => {
             else dayEmojiMap.set(emojiKey, cur - 1);
         }
     }
+
+    // Sync rank role so it can drop if score fell below a threshold
+    const member = reaction.message.guild.members.cache.get(userId);
+    if (member) assignVoiceRank(member, monthlyActivityScore(userId)).catch(() => {});
 });
 
 // ── Message delete / edit ─────────────────────────────────────────────────────

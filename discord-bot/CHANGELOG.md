@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-08] — Make reactions give 1 XP each; unreact removes 1 XP
+
+- Added `reactionDays` to `monthlyActivityScore` — each credited reaction now contributes exactly 1 XP to the monthly score (same weight as a message)
+- Added `assignVoiceRank` call in `messageReactionRemove` so rank roles sync downward immediately when a user's score drops from unreacting
+
 ## [2026-05-08] — Decrement reaction counts on unreact
 
 - Added `messageReactionRemove` handler — when a user removes a reaction, their counts are decremented and the credit key is cleared from `creditedReactions` so a subsequent re-react is counted correctly
