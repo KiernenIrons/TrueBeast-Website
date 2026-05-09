@@ -333,6 +333,14 @@ let _knowledgeCache    = null;
 let _knowledgeCacheAt  = 0;
 const KNOWLEDGE_TTL    = 60 * 60 * 1000; // refresh from Firestore at most once per hour
 
+let _discordContextCache   = null;
+let _discordContextCacheAt = 0;
+const DISCORD_CONTEXT_TTL  = 2 * 60 * 1000; // 2 minutes
+
+let _steamCache   = null;
+let _steamCacheAt = 0;
+const STEAM_TTL   = 5 * 60 * 1000; // 5 minutes
+
 // Cached month for checkMonthlyReset — loaded once at startup, avoids hourly Firestore reads
 let _cachedCurrentMonth = null;
 
@@ -454,6 +462,11 @@ async function saveToKnowledgeBase(question, answer) {
 // ── Discord live context ──────────────────────────────────────────────────────
 
 async function fetchDiscordContext(guild) {
+    const now = Date.now();
+    if (_discordContextCache !== null && now - _discordContextCacheAt < DISCORD_CONTEXT_TTL) {
+        return _discordContextCache;
+    }
+
     const parts = [];
 
     try {
@@ -529,28 +542,36 @@ async function fetchDiscordContext(guild) {
         }
     }
 
-    return parts.join('\n\n');
+    const result = parts.join('\n\n');
+    _discordContextCache   = result;
+    _discordContextCacheAt = now;
+    return result;
 }
 
 // ── Steam ─────────────────────────────────────────────────────────────────────
 
 async function fetchSteamGames() {
     if (!STEAM_API_KEY || !STEAM_ID) return '';
+    const now = Date.now();
+    if (_steamCache !== null && now - _steamCacheAt < STEAM_TTL) return _steamCache;
     try {
         const url = `https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v0001/?key=${STEAM_API_KEY}&steamid=${STEAM_ID}&count=5&format=json`;
         const res = await fetch(url);
-        if (!res.ok) return '';
+        if (!res.ok) return _steamCache ?? '';
         const data  = await res.json();
         const games = data.response?.games;
-        if (!games?.length) return '### Kiernen\'s Recently Played Games (Steam)\nNothing played recently.';
-        const list = games.map(g => {
-            const hrs = Math.round(g.playtime_2weeks / 60 * 10) / 10;
-            return `- **${g.name}** (${hrs}h in the last 2 weeks)`;
-        }).join('\n');
-        return `### Kiernen's Recently Played Games (Steam)\n${list}`;
+        const result = !games?.length
+            ? '### Kiernen\'s Recently Played Games (Steam)\nNothing played recently.'
+            : `### Kiernen's Recently Played Games (Steam)\n${games.map(g => {
+                const hrs = Math.round(g.playtime_2weeks / 60 * 10) / 10;
+                return `- **${g.name}** (${hrs}h in the last 2 weeks)`;
+            }).join('\n')}`;
+        _steamCache   = result;
+        _steamCacheAt = now;
+        return result;
     } catch (e) {
         console.error('[BeastBot] Steam fetch failed:', e.message);
-        return '';
+        return _steamCache ?? '';
     }
 }
 
@@ -4743,6 +4764,24 @@ client.once('clientReady', async () => {
                     .addStringOption(opt => opt.setName('label5').setDescription('Label for button 5').setRequired(false).setMaxLength(25))
                     .addStringOption(opt => opt.setName('emoji5').setDescription('Emoji for button 5').setRequired(false).setMaxLength(100))
                 ),
+            new SlashCommandBuilder()
+                .setName('ai-context')
+                .setDescription('(Owner only) Manage the AI bot knowledge base')
+                .addSubcommand(sub => sub
+                    .setName('add')
+                    .setDescription('Add a new entry to the AI knowledge base')
+                    .addStringOption(opt => opt.setName('topic').setDescription('Topic/title for this entry').setRequired(true).setMaxLength(100))
+                    .addStringOption(opt => opt.setName('content').setDescription('The information to store').setRequired(true).setMaxLength(1500))
+                )
+                .addSubcommand(sub => sub
+                    .setName('remove')
+                    .setDescription('Remove an entry from the AI knowledge base')
+                    .addStringOption(opt => opt.setName('topic').setDescription('Topic to remove — use /ai-context list to see exact names').setRequired(true))
+                )
+                .addSubcommand(sub => sub
+                    .setName('list')
+                    .setDescription('List all current AI knowledge base entries')
+                ),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -7659,6 +7698,63 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.reply({ content: `❌ Failed to send: ${e.message}`, flags: 64 });
             }
             return;
+        }
+
+        // ── /ai-context ──────────────────────────────────────────────────────
+        if (interaction.commandName === 'ai-context') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                return interaction.reply({ content: '❌ Owner only.', flags: 64 });
+            }
+            const sub = interaction.options.getSubcommand();
+            await interaction.deferReply({ ephemeral: true });
+
+            const kbUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase?key=${FIREBASE_API_KEY}&pageSize=50`;
+
+            if (sub === 'list') {
+                const res = await fetch(kbUrl);
+                if (!res.ok) return interaction.editReply('❌ Failed to fetch knowledge base.');
+                const data = await res.json();
+                const docs = data.documents || [];
+                if (!docs.length) return interaction.editReply('ℹ️ Knowledge base is empty.');
+                const lines = docs.map((doc, i) => {
+                    const topic   = doc.fields?.topic?.stringValue || '(untitled)';
+                    const content = doc.fields?.content?.stringValue || '';
+                    return `**${i + 1}.** ${topic}\n↳ ${content.slice(0, 80)}${content.length > 80 ? '…' : ''}`;
+                });
+                const header = `**Knowledge Base — ${docs.length} entr${docs.length === 1 ? 'y' : 'ies'}:**\n\n`;
+                let body = lines.join('\n\n');
+                if (header.length + body.length > 1900) body = lines.slice(0, 10).join('\n\n') + `\n\n…and ${docs.length - 10} more`;
+                return interaction.editReply(header + body);
+            }
+
+            if (sub === 'add') {
+                const topic   = interaction.options.getString('topic');
+                const content = interaction.options.getString('content');
+                const id  = `manual-${Date.now()}`;
+                const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/knowledgeBase/${id}?key=${FIREBASE_API_KEY}`;
+                const res = await fetch(url, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fields: { topic: { stringValue: topic }, content: { stringValue: content } } }),
+                });
+                if (!res.ok) return interaction.editReply(`❌ Failed to save: ${res.status}`);
+                _knowledgeCache = null;
+                return interaction.editReply(`✅ Added **${topic}** to the knowledge base.`);
+            }
+
+            if (sub === 'remove') {
+                const query = interaction.options.getString('topic').toLowerCase();
+                const listRes = await fetch(kbUrl);
+                if (!listRes.ok) return interaction.editReply('❌ Failed to fetch knowledge base.');
+                const listData = await listRes.json();
+                const docs = listData.documents || [];
+                const match = docs.find(doc => (doc.fields?.topic?.stringValue || '').toLowerCase().includes(query));
+                if (!match) return interaction.editReply(`❌ No entry found matching **${interaction.options.getString('topic')}**.\nUse \`/ai-context list\` to see available topics.`);
+                const delRes = await fetch(`https://firestore.googleapis.com/v1/${match.name}?key=${FIREBASE_API_KEY}`, { method: 'DELETE' });
+                if (!delRes.ok) return interaction.editReply(`❌ Failed to delete: ${delRes.status}`);
+                _knowledgeCache = null;
+                return interaction.editReply(`✅ Removed **${match.fields?.topic?.stringValue || query}** from the knowledge base.`);
+            }
         }
 
         // ── /dm ──────────────────────────────────────────────────────────────

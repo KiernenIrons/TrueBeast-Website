@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-05-09] — Cache Discord/Steam context; add /ai-context command
+
+- Added 2-minute in-memory cache for `fetchDiscordContext` — prevents multiple simultaneous messages from hammering the Discord API with 3 sequential guild calls each, which was causing rate-limit stalls and response delays
+- Added 5-minute in-memory cache for `fetchSteamGames` — Steam API is now called at most once per 5 minutes instead of on every AI message
+- Both caches return stale data on error rather than empty string, so a failed refresh doesn't wipe context
+- Added `/ai-context` owner-only slash command with three subcommands: `add` (write a new knowledge base entry to Firestore), `remove` (find and delete by topic name, partial match), `list` (show all entries with a preview of each)
+- Adding or removing entries immediately invalidates `_knowledgeCache` so the next AI response reflects the change
+
 ## [2026-05-08] — Make reactions give 1 XP each; unreact removes 1 XP
 
 - Added `reactionDays` to `monthlyActivityScore` — each credited reaction now contributes exactly 1 XP to the monthly score (same weight as a message)
