@@ -4379,16 +4379,23 @@ async function generateCountdownGif() {
     const encoder = new GifEncoder(W, H, 'neuquant', true);
     encoder.setDelay(1000);
     encoder.setRepeat(0);
-    encoder.start();
 
+    // Use ReadStream mode: each frame's bytes are flushed to a Buffer immediately
+    // and encoder.out.data is cleared — avoids building a massive JS array in memory
+    const chunks = [];
+    const rs = encoder.createReadStream();
+    rs.on('data', chunk => chunks.push(chunk));
+
+    encoder.start();
     for (let i = 0; i < 60; i++) {
         const remainingMs = nextStream.getTime() - (alignedNow + i * 1000);
         renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage);
         encoder.addFrame(ctx.getImageData(0, 0, W, H).data);
     }
-
     encoder.finish();
-    return Buffer.from(encoder.out.getData());
+
+    await new Promise(resolve => rs.once('end', resolve));
+    return Buffer.concat(chunks);
 }
 
 async function postOrUpdateScheduleGif() {

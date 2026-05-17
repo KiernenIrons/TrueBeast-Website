@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Fix OOM crash during GIF generation
+
+- Switched `generateCountdownGif` to ReadStream mode: each frame's encoded bytes are flushed to a `Buffer` immediately and `encoder.out.data` is cleared, instead of accumulating all 60 frames in a single JS array (~150 MB → ~15 MB peak)
+- The bot was being OOM-killed by the Linux kernel ~2 minutes after receiving `/post-countdown` because the old buffer-accumulation approach used ~8× more memory than a proper Buffer
+
 ## [2026-05-17] — Redesign countdown GIF + persist channel across restarts
 
 - `renderCountdownFrame` fully rewritten: portrait 420×490 canvas, Me.png background image (drawn at 28% opacity with gradient dark overlay), rounded green-glow border, monospace countdown digits with text colons (Noto Mono available via fontconfig), apostrophe/slash/colon text strings restored, day schedule section with dots, footer
