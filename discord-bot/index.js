@@ -34,6 +34,7 @@ const { spawn } = require('child_process');
 const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
+const GifEncoder = require('gif-encoder-2');
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
@@ -805,7 +806,9 @@ const workoutRooms = new Map(); // channelId → { ownerId, ownerName, deleteTim
 const challenges   = new Map(); // challengeId → { id, title, description, startDate, endDate, announceMsgId, active, dailyPosts, participants }
 
 // ── Reaction Roles ────────────────────────────────────────────────────────────
-const REACTION_ROLES_CHANNEL_ID = '1465784739477590088';
+const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
+const SCHEDULE_GIF_CHANNEL_ID   = '1486021237548257330'; // test; swap to '1324878590101159957' for live
+let   scheduleGifMessageId      = null;
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
     '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
@@ -4211,6 +4214,218 @@ async function updateChallengeCheckInEmbed(challenge, dateStr) {
     }
 }
 
+// ── Schedule GIF countdown ────────────────────────────────────────────────────
+
+function getNextStreamUTC() {
+    const SCHED_DAYS = new Set([0, 2, 4]); // Sun, Tue, Thu
+    const TZ = 'Europe/Dublin';
+    const now = new Date();
+    for (let d = 0; d <= 7; d++) {
+        const probe = new Date(now.getTime() + d * 86_400_000);
+        const dayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(probe);
+        const dayNum = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayShort);
+        if (!SCHED_DAYS.has(dayNum)) continue;
+        const dateStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(probe);
+        const [y, mo, dy] = dateStr.split('-').map(Number);
+        const nominalUTC = new Date(Date.UTC(y, mo - 1, dy, 19, 0, 0));
+        const dublinHour = parseInt(
+            new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }).format(nominalUTC), 10,
+        );
+        const streamUTC = new Date(nominalUTC.getTime() - (dublinHour - 19) * 3_600_000);
+        if (streamUTC > now) return streamUTC;
+    }
+    return new Date(now.getTime() + 7 * 86_400_000);
+}
+
+function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
+    const pad2 = n => String(Math.max(0, n)).padStart(2, '0');
+    const totalSecs = Math.max(0, Math.floor(remainingMs / 1000));
+    const days    = Math.floor(totalSecs / 86400);
+    const hours   = Math.floor((totalSecs % 86400) / 3600);
+    const mins    = Math.floor((totalSecs % 3600) / 60);
+    const secs    = totalSecs % 60;
+
+    // Background
+    ctx.fillStyle = '#0b0b12';
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle frame border
+    ctx.strokeStyle = 'rgba(74,222,128,0.12)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(1, 1, W - 2, H - 2);
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText("COUNTDOWN TO REALTRUEBEAST'S NEXT STREAM", W / 2, 32);
+
+    // ── Countdown digits ─────────────────────────────────────────
+    // Measure digit pair width at the chosen font so layout is exact
+    ctx.font = 'bold 64px monospace';
+    const pairW   = ctx.measureText('00').width;
+    ctx.font = 'bold 60px monospace';
+    const colonW  = ctx.measureText(':').width;
+
+    const totalGroupW = 4 * pairW + 3 * colonW;
+    let curX = (W - totalGroupW) / 2;
+
+    const labelY = 74;
+    const numY   = 138;
+
+    const segs = [
+        { label: 'DAYS',    val: pad2(days)  },
+        { label: 'HOURS',   val: pad2(hours) },
+        { label: 'MINUTES', val: pad2(mins)  },
+        { label: 'SECONDS', val: pad2(secs)  },
+    ];
+
+    for (let i = 0; i < 4; i++) {
+        const cx = curX + pairW / 2;
+
+        // Label above digit
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.38)';
+        ctx.textAlign = 'center';
+        ctx.fillText(segs[i].label, cx, labelY);
+
+        // Digit pair
+        ctx.font = 'bold 64px monospace';
+        ctx.fillStyle = '#4ade80';
+        ctx.fillText(segs[i].val, cx, numY);
+
+        curX += pairW;
+
+        if (i < 3) {
+            // Colon separator
+            ctx.font = 'bold 60px monospace';
+            ctx.fillStyle = '#4ade80';
+            ctx.fillText(':', curX + colonW / 2, numY - 2);
+            curX += colonW;
+        }
+    }
+
+    // Divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(30, 158);
+    ctx.lineTo(W - 30, 158);
+    ctx.stroke();
+
+    // ── Day bubbles ──────────────────────────────────────────────
+    const TZ = 'Europe/Dublin';
+    const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
+    const nextDayNum   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(nextDayShort);
+    const schedule     = [{ short: 'SUN', dayNum: 0 }, { short: 'TUE', dayNum: 2 }, { short: 'THU', dayNum: 4 }];
+    const bxs          = [W * 0.25, W * 0.5, W * 0.75];
+    const dotY         = 186;
+
+    for (let i = 0; i < 3; i++) {
+        const { short, dayNum } = schedule[i];
+        const isNext = dayNum === nextDayNum;
+        const x      = bxs[i];
+
+        ctx.beginPath();
+        ctx.arc(x, dotY, 6, 0, Math.PI * 2);
+        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.15)';
+        ctx.fill();
+
+        ctx.font = `bold 13px sans-serif`;
+        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.4)';
+        ctx.textAlign = 'center';
+        ctx.fillText(short, x, dotY + 21);
+
+        ctx.font = '12px sans-serif';
+        ctx.fillStyle = isNext ? '#86efac' : 'rgba(255,255,255,0.22)';
+        ctx.fillText('07:00 PM', x, dotY + 38);
+    }
+
+    // Footer
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.textAlign = 'center';
+    ctx.fillText('TIMES SHOWN AS EUROPE/DUBLIN', W / 2, H - 12);
+}
+
+async function generateCountdownGif() {
+    const W = 520, H = 264;
+    const nextStream  = getNextStreamUTC();
+    // Align start to the next whole second so frames are clock-synced
+    const alignedNow  = Math.ceil(Date.now() / 1000) * 1000;
+
+    const canvas = createCanvas(W, H);
+    const ctx    = canvas.getContext('2d');
+
+    const encoder = new GifEncoder(W, H, 'neuquant', true);
+    encoder.setDelay(1000);
+    encoder.setRepeat(0);
+    encoder.start();
+
+    for (let i = 0; i < 60; i++) {
+        const remainingMs = nextStream.getTime() - (alignedNow + i * 1000);
+        renderCountdownFrame(ctx, W, H, remainingMs, nextStream);
+        encoder.addFrame(ctx.getImageData(0, 0, W, H).data);
+    }
+
+    encoder.finish();
+    return Buffer.from(encoder.out.getData());
+}
+
+async function postOrUpdateScheduleGif() {
+    try {
+        const channel = await client.channels.fetch(SCHEDULE_GIF_CHANNEL_ID);
+        if (!channel) return;
+
+        const buf        = await generateCountdownGif();
+        const attachment = new AttachmentBuilder(buf, { name: 'schedule.gif' });
+
+        if (scheduleGifMessageId) {
+            try {
+                const msg = await channel.messages.fetch(scheduleGifMessageId);
+                await msg.edit({ content: '', files: [attachment] });
+                return;
+            } catch (_) {
+                scheduleGifMessageId = null; // message was deleted — fall through and post fresh
+            }
+        }
+
+        // Try to find an existing bot countdown message in recent history
+        const recent = await channel.messages.fetch({ limit: 20 }).catch(() => null);
+        if (recent) {
+            for (const [id, m] of recent) {
+                if (m.author.id === client.user.id && m.attachments.some(a => a.name === 'schedule.gif')) {
+                    scheduleGifMessageId = id;
+                    await m.edit({ content: '', files: [attachment] });
+                    return;
+                }
+            }
+        }
+
+        const sent = await channel.send({ content: '', files: [attachment] });
+        scheduleGifMessageId = sent.id;
+    } catch (e) {
+        console.error('[ScheduleGif] Error updating countdown GIF:', e.message);
+    }
+}
+
+function startScheduleGifUpdater() {
+    // Post immediately on startup
+    postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Startup post failed:', e.message));
+
+    // Then sync to minute boundaries so each GIF starts at :00 seconds
+    const now              = new Date();
+    const msToNextMinute   = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+    setTimeout(() => {
+        postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Minute tick failed:', e.message));
+        setInterval(() => {
+            postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Interval tick failed:', e.message));
+        }, 60_000);
+    }, msToNextMinute);
+}
+
 // ── Bot Ready ─────────────────────────────────────────────────────────────────
 
 client.once('clientReady', async () => {
@@ -4459,6 +4674,9 @@ client.once('clientReady', async () => {
     // Check for anniversary milestones daily
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
     setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
+
+    // Start animated countdown GIF updater
+    startScheduleGifUpdater();
 
     // Register slash commands
     try {
@@ -8132,35 +8350,8 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (interaction.commandName === 'schedule') {
-            // Find next stream: Sun/Tue/Thu at 19:00 Europe/Dublin
-            const SCHED_DAYS = new Set([0, 2, 4]);
             const TZ = 'Europe/Dublin';
-            const now = new Date();
-            let nextStream = null;
-
-            for (let d = 0; d <= 7; d++) {
-                const probe = new Date(now.getTime() + d * 86_400_000);
-                const dayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(probe);
-                const dayNum = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayShort);
-                if (!SCHED_DAYS.has(dayNum)) continue;
-
-                const dateStr = new Intl.DateTimeFormat('en-CA', {
-                    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-                }).format(probe);
-                const [y, mo, dy] = dateStr.split('-').map(Number);
-                const nominalUTC = new Date(Date.UTC(y, mo - 1, dy, 19, 0, 0));
-                const dublinHour = parseInt(
-                    new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }).format(nominalUTC), 10,
-                );
-                const streamUTC = new Date(nominalUTC.getTime() - (dublinHour - 19) * 3_600_000);
-                if (streamUTC > now) { nextStream = streamUTC; break; }
-            }
-
-            if (!nextStream) {
-                await interaction.reply({ content: '❌ Could not determine next stream time.', ephemeral: true });
-                return;
-            }
-
+            const nextStream = getNextStreamUTC();
             const unixTs = Math.floor(nextStream.getTime() / 1000);
             const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
 

@@ -10,11 +10,12 @@
         "node": ">=20"
     },
     "dependencies": {
+        "@discordjs/voice": "^0.19.2",
+        "@napi-rs/canvas": "^0.1.68",
+        "@snazzah/davey": "^0.1.6",
         "discord.js": "^14.15.3",
         "dotenv": "^16.4.5",
-        "@napi-rs/canvas": "^0.1.68",
-        "@discordjs/voice": "^0.19.2",
-        "@snazzah/davey": "^0.1.6",
+        "gif-encoder-2": "^1.0.5",
         "libsodium-wrappers": "^0.7.15"
     }
 }

@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Animated GIF countdown posted and updated every minute
+
+- Added `gif-encoder-2` dependency for in-process GIF encoding without native binaries
+- `getNextStreamUTC()` extracted as a shared helper (was inlined in `/schedule` handler; now reused by both the command and the GIF updater)
+- `renderCountdownFrame(ctx, W, H, remainingMs, nextStream)` — draws one 520×264 canvas frame: dark background, green DD:HH:MM:SS countdown with measured font layout, SUN/TUE/THU day bubbles with the next one highlighted, Europe/Dublin footer
+- `generateCountdownGif()` — encodes 60 frames (one per second) into an animated GIF using neuquant quantization; frames are clock-synced to the next whole second so the GIF ticks accurately
+- `postOrUpdateScheduleGif()` — posts to `SCHEDULE_GIF_CHANNEL_ID` on first run; subsequently edits the same message; recovers the message ID on restart by scanning recent channel history for a bot attachment named `schedule.gif`
+- `startScheduleGifUpdater()` — posts immediately at startup, then syncs to minute boundaries so each new GIF starts at :00 seconds; all promise rejections caught
+- Called from `clientReady` after the anniversary check
+
 ## [2026-05-17] — Add /schedule command with stream countdown and schedule embed
 
 - New `/schedule` slash command — computes the next Sun/Tue/Thu 19:00 Europe/Dublin stream time, accounting for DST (IST/GMT), using `Intl.DateTimeFormat` offset arithmetic
