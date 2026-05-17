@@ -4262,15 +4262,16 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage) {
 
     if (bgImage) {
         ctx.save();
-        const scale  = Math.max(W / bgImage.width, H / bgImage.height);
-        const iw     = bgImage.width * scale;
-        const ih     = bgImage.height * scale;
-        const ox     = (W - iw) / 2;
-        const oy     = (H - ih) / 2;
-        const bleed  = 14;
-        ctx.filter   = 'blur(7px)';
-        ctx.drawImage(bgImage, ox - bleed, oy - bleed, iw + bleed * 2, ih + bleed * 2);
-        ctx.filter   = 'none';
+        // Downsample to a tiny canvas then upscale — creates blur-like softness without
+        // ctx.filter, which causes Skia to allocate multi-pass pixel buffers and OOM
+        const DS       = 8;
+        const dsCanvas = createCanvas(Math.ceil(W / DS), Math.ceil(H / DS));
+        const dsCtx    = dsCanvas.getContext('2d');
+        const scale    = Math.max(dsCanvas.width / bgImage.width, dsCanvas.height / bgImage.height);
+        const iw       = bgImage.width * scale;
+        const ih       = bgImage.height * scale;
+        dsCtx.drawImage(bgImage, (dsCanvas.width - iw) / 2, (dsCanvas.height - ih) / 2, iw, ih);
+        ctx.drawImage(dsCanvas, 0, 0, W, H);
         ctx.restore();
     }
 
