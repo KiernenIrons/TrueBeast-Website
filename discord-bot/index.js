@@ -4465,6 +4465,9 @@ client.once('clientReady', async () => {
         const rest = new REST({ version: '10' }).setToken(TOKEN);
         const commands = [
             new SlashCommandBuilder()
+                .setName('schedule')
+                .setDescription('View the stream schedule and countdown to the next RealTrueBeast stream'),
+            new SlashCommandBuilder()
                 .setName('leaderboard')
                 .setDescription('Show the top 10 most active members in the server'),
             new SlashCommandBuilder()
@@ -8125,6 +8128,74 @@ client.on('interactionCreate', async (interaction) => {
                 ],
                 timestamp: new Date().toISOString(),
             }] });
+            return;
+        }
+
+        if (interaction.commandName === 'schedule') {
+            // Find next stream: Sun/Tue/Thu at 19:00 Europe/Dublin
+            const SCHED_DAYS = new Set([0, 2, 4]);
+            const TZ = 'Europe/Dublin';
+            const now = new Date();
+            let nextStream = null;
+
+            for (let d = 0; d <= 7; d++) {
+                const probe = new Date(now.getTime() + d * 86_400_000);
+                const dayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(probe);
+                const dayNum = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayShort);
+                if (!SCHED_DAYS.has(dayNum)) continue;
+
+                const dateStr = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+                }).format(probe);
+                const [y, mo, dy] = dateStr.split('-').map(Number);
+                const nominalUTC = new Date(Date.UTC(y, mo - 1, dy, 19, 0, 0));
+                const dublinHour = parseInt(
+                    new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }).format(nominalUTC), 10,
+                );
+                const streamUTC = new Date(nominalUTC.getTime() - (dublinHour - 19) * 3_600_000);
+                if (streamUTC > now) { nextStream = streamUTC; break; }
+            }
+
+            if (!nextStream) {
+                await interaction.reply({ content: '❌ Could not determine next stream time.', ephemeral: true });
+                return;
+            }
+
+            const unixTs = Math.floor(nextStream.getTime() / 1000);
+            const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
+
+            const scheduleLines = [
+                { short: 'Sun', label: 'Sunday'   },
+                { short: 'Tue', label: 'Tuesday'  },
+                { short: 'Thu', label: 'Thursday' },
+            ].map(({ short, label }) =>
+                `${short === nextDayShort ? '🟢' : '⚫'} **${label}** — 7:00 PM`
+            ).join('\n');
+
+            const embed = {
+                color: 0x4ade80,
+                title: '📅 RealTrueBeast Stream Schedule',
+                description: `**Next stream:** <t:${unixTs}:F>\n**Starting** <t:${unixTs}:R>`,
+                fields: [
+                    { name: '🗓️ Weekly Schedule', value: scheduleLines },
+                    { name: '🌍 Timezone', value: 'Europe/Dublin (IST/GMT)', inline: true },
+                ],
+                footer: { text: 'Times shown in your local timezone' },
+                timestamp: new Date().toISOString(),
+            };
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('View Schedule')
+                    .setURL('https://truebeast.io/schedule')
+                    .setStyle(ButtonStyle.Link),
+                new ButtonBuilder()
+                    .setLabel('Watch on Twitch')
+                    .setURL('https://twitch.tv/realtruebeast')
+                    .setStyle(ButtonStyle.Link),
+            );
+
+            await interaction.reply({ embeds: [embed], components: [row] });
             return;
         }
 

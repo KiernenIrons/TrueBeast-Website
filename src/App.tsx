@@ -18,6 +18,7 @@ const Ripple = lazy(() => import('./pages/tools/Ripple'))
 const SocialsRotator = lazy(() => import('./pages/tools/SocialsRotator'))
 const CloutClicker = lazy(() => import('./pages/games/CloutClicker'))
 const SubmitReview = lazy(() => import('./pages/SubmitReview'))
+const Schedule = lazy(() => import('./pages/Schedule'))
 
 function LoadingFallback() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/games" element={<Games />} />
         <Route path="/games/clout-clicker" element={<CloutClicker />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/schedule" element={<Schedule />} />
       </Routes>
     </Suspense>
   )

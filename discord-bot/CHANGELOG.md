@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Add /schedule command with stream countdown and schedule embed
+
+- New `/schedule` slash command — computes the next Sun/Tue/Thu 19:00 Europe/Dublin stream time, accounting for DST (IST/GMT), using `Intl.DateTimeFormat` offset arithmetic
+- Posts a rich green embed with Discord-native `<t:timestamp:F>` and `<t:timestamp:R>` timestamps (auto-localised per user) plus the full weekly schedule with the next stream day highlighted via 🟢/⚫
+- Two link buttons on the reply: "View Schedule" → `truebeast.io/schedule`, "Watch on Twitch" → `twitch.tv/realtruebeast`
+
 ## [2026-05-09] — Cache Discord/Steam context; add /ai-context command
 
 - Added 2-minute in-memory cache for `fetchDiscordContext` — prevents multiple simultaneous messages from hammering the Discord API with 3 sequential guild calls each, which was causing rate-limit stalls and response delays
