@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Fix GIF box characters; add /post-countdown command
+
+- Replaced `ctx.fillText(':' ...)` colon separators with two drawn `ctx.arc` dots — fixes box/tofu glyphs on Alpine Linux where the fallback monospace font lacks colon glyphs
+- Removed apostrophe from title (`REALTRUEBEAST'S` → `REALTRUEBEAST`) and slash from footer (`EUROPE/DUBLIN` → `DUBLIN TIME`) — both characters also rendered as boxes
+- Simplified stream time label from `07:00 PM` to `7 PM` — avoids the colon glyph entirely
+- Changed `const SCHEDULE_GIF_CHANNEL_ID` → `let scheduleGifChannelId` so it can be updated at runtime
+- Added `/post-countdown` owner-only slash command with a required `channel` option — updates `scheduleGifChannelId`, resets the tracked message ID, and immediately posts a fresh countdown GIF to the chosen channel
+
 ## [2026-05-17] — Animated GIF countdown posted and updated every minute
 
 - Added `gif-encoder-2` dependency for in-process GIF encoding without native binaries

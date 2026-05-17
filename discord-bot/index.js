@@ -807,7 +807,7 @@ const challenges   = new Map(); // challengeId → { id, title, description, sta
 
 // ── Reaction Roles ────────────────────────────────────────────────────────────
 const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
-const SCHEDULE_GIF_CHANNEL_ID   = '1486021237548257330'; // test; swap to '1324878590101159957' for live
+let   scheduleGifChannelId      = '1486021237548257330'; // test; swap to '1324878590101159957' for live
 let   scheduleGifMessageId      = null;
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
@@ -4260,16 +4260,14 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
     ctx.textAlign = 'center';
     ctx.font = 'bold 12px sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText("COUNTDOWN TO REALTRUEBEAST'S NEXT STREAM", W / 2, 32);
+    ctx.fillText('COUNTDOWN TO REALTRUEBEAST NEXT STREAM', W / 2, 32);
 
     // ── Countdown digits ─────────────────────────────────────────
-    // Measure digit pair width at the chosen font so layout is exact
     ctx.font = 'bold 64px monospace';
     const pairW   = ctx.measureText('00').width;
-    ctx.font = 'bold 60px monospace';
-    const colonW  = ctx.measureText(':').width;
+    const SEP_W   = 28;
 
-    const totalGroupW = 4 * pairW + 3 * colonW;
+    const totalGroupW = 4 * pairW + 3 * SEP_W;
     let curX = (W - totalGroupW) / 2;
 
     const labelY = 74;
@@ -4299,11 +4297,16 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
         curX += pairW;
 
         if (i < 3) {
-            // Colon separator
-            ctx.font = 'bold 60px monospace';
+            // Colon separator — two drawn dots (avoids font glyph issues on Alpine)
+            const sepCx = curX + SEP_W / 2;
             ctx.fillStyle = '#4ade80';
-            ctx.fillText(':', curX + colonW / 2, numY - 2);
-            curX += colonW;
+            ctx.beginPath();
+            ctx.arc(sepCx, numY - 38, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(sepCx, numY - 16, 4, 0, Math.PI * 2);
+            ctx.fill();
+            curX += SEP_W;
         }
     }
 
@@ -4340,14 +4343,14 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
 
         ctx.font = '12px sans-serif';
         ctx.fillStyle = isNext ? '#86efac' : 'rgba(255,255,255,0.22)';
-        ctx.fillText('07:00 PM', x, dotY + 38);
+        ctx.fillText('7 PM', x, dotY + 38);
     }
 
     // Footer
     ctx.font = '11px sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.2)';
     ctx.textAlign = 'center';
-    ctx.fillText('TIMES SHOWN AS EUROPE/DUBLIN', W / 2, H - 12);
+    ctx.fillText('DUBLIN TIME', W / 2, H - 12);
 }
 
 async function generateCountdownGif() {
@@ -4376,7 +4379,7 @@ async function generateCountdownGif() {
 
 async function postOrUpdateScheduleGif() {
     try {
-        const channel = await client.channels.fetch(SCHEDULE_GIF_CHANNEL_ID);
+        const channel = await client.channels.fetch(scheduleGifChannelId);
         if (!channel) return;
 
         const buf        = await generateCountdownGif();
@@ -5003,6 +5006,10 @@ client.once('clientReady', async () => {
                     .setName('list')
                     .setDescription('List all current AI knowledge base entries')
                 ),
+            new SlashCommandBuilder()
+                .setName('post-countdown')
+                .setDescription('(Owner only) Post the live countdown GIF to a channel')
+                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post the countdown in').setRequired(true)),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -8387,6 +8394,19 @@ client.on('interactionCreate', async (interaction) => {
             );
 
             await interaction.reply({ embeds: [embed], components: [row] });
+            return;
+        }
+
+        if (interaction.commandName === 'post-countdown') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: 'Only the server owner can use this command.', ephemeral: true });
+                return;
+            }
+            const target = interaction.options.getChannel('channel');
+            scheduleGifChannelId  = target.id;
+            scheduleGifMessageId  = null;
+            await interaction.reply({ content: `Posting the countdown GIF to <#${target.id}>...`, ephemeral: true });
+            postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] post-countdown failed:', e.message));
             return;
         }
 
