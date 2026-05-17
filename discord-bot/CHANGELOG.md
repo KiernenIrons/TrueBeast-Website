@@ -1,5 +1,18 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Redesign countdown GIF visuals; fix box characters
+
+- `renderCountdownFrame` rewritten to match reference image design
+- Me.png now cover-fits the full canvas (was partial height at 28% opacity); drawn with `ctx.filter = 'blur(7px)'` and 14px overdraw bleed to avoid edge artifacts
+- Gradient overlay flipped: transparent at top (face visible) → dark at bottom (text readable)
+- Border replaced: was thin green-glow stroke; now 8px dark charcoal (#1c1c20) rounded rect with lighter top highlight strip, darker bottom shadow strip, and green inner glow on left/right walls
+- Green changed from `#4ade80` to `#00FF00`
+- Font changed from `monospace` to `sans-serif` for all text — fixes box/tofu glyphs for `:`, `'`, `/` on Alpine Linux where monospace maps to a broken font
+- DAYS/HOURS/MINUTES/SECONDS labels now light gray (`rgba(185,185,190,0.80)`) instead of green; label positions calculated from measured font metrics
+- Title text and footer changed from white/green to light gray
+- TUE/THU day names white, times light gray, indicator dots light gray (SUN stays fully green)
+- `discord-bot/Me.png` added to repo so Docker build context includes it
+
 ## [2026-05-17] — Fix EPIPE and concurrent GIF generation
 
 - Removed `await new Promise(resolve => rs.once('end', resolve))` — in a flowing Readable stream, `push()` emits 'data' synchronously so chunks is already complete when `encoder.finish()` returns; awaiting 'end' caused a write EPIPE

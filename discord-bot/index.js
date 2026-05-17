@@ -4248,82 +4248,126 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage) {
     const mins  = Math.floor((totalSecs % 3600) / 60);
     const secs  = totalSecs % 60;
 
+    const GREEN          = '#00FF00';
+    const LABEL_GRAY     = 'rgba(185,185,190,0.80)';
+    const TITLE_GRAY     = 'rgba(185,185,190,0.80)';
+    const FOOTER_GRAY    = 'rgba(140,140,145,0.70)';
+    const INACTIVE_WHITE = '#ffffff';
+    const INACTIVE_TIME  = 'rgba(155,155,160,0.80)';
+    const INACTIVE_DOT   = 'rgba(155,155,160,0.45)';
+
     // ── Background ────────────────────────────────────────────────
-    ctx.fillStyle = '#0c0c10';
+    ctx.fillStyle = '#080a0d';
     ctx.fillRect(0, 0, W, H);
 
     if (bgImage) {
         ctx.save();
-        ctx.globalAlpha = 0.28;
-        const scale = Math.max(W / bgImage.width, (H * 0.7) / bgImage.height);
-        const iw = bgImage.width * scale;
-        const ih = bgImage.height * scale;
-        ctx.drawImage(bgImage, (W - iw) / 2, 0, iw, ih);
+        const scale  = Math.max(W / bgImage.width, H / bgImage.height);
+        const iw     = bgImage.width * scale;
+        const ih     = bgImage.height * scale;
+        const ox     = (W - iw) / 2;
+        const oy     = (H - ih) / 2;
+        const bleed  = 14;
+        ctx.filter   = 'blur(7px)';
+        ctx.drawImage(bgImage, ox - bleed, oy - bleed, iw + bleed * 2, ih + bleed * 2);
+        ctx.filter   = 'none';
         ctx.restore();
     }
 
-    // Gradient overlay: light at top (photo shows), dark at bottom (text area)
+    // Gradient overlay: transparent at top → dark at bottom
     const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0,   'rgba(12,12,16,0.30)');
-    grad.addColorStop(0.5, 'rgba(12,12,16,0.65)');
-    grad.addColorStop(1,   'rgba(12,12,16,0.92)');
+    grad.addColorStop(0,    'rgba(8,10,13,0.10)');
+    grad.addColorStop(0.50, 'rgba(8,10,13,0.72)');
+    grad.addColorStop(1,    'rgba(8,10,13,0.95)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // ── Border with green glow ────────────────────────────────────
-    const r = 14;
+    // ── Border (3D dark-grey bevel) ───────────────────────────────
+    const BW = 8;
+    const r  = 12;
+    const roundRect = (x, y, w, h, rad) => {
+        ctx.beginPath();
+        ctx.moveTo(x + rad, y);
+        ctx.lineTo(x + w - rad, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+        ctx.lineTo(x + w, y + h - rad);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+        ctx.lineTo(x + rad, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+        ctx.lineTo(x, y + rad);
+        ctx.quadraticCurveTo(x, y, x + rad, y);
+        ctx.closePath();
+    };
+
     ctx.save();
-    ctx.shadowColor = 'rgba(74,222,128,0.55)';
-    ctx.shadowBlur  = 16;
-    ctx.strokeStyle = 'rgba(74,222,128,0.5)';
+    ctx.strokeStyle = '#1c1c20';
+    ctx.lineWidth   = BW;
+    roundRect(BW / 2, BW / 2, W - BW, H - BW, r);
+    ctx.stroke();
+
+    // Top highlight strip
+    ctx.strokeStyle = 'rgba(75,75,85,0.65)';
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
-    ctx.moveTo(r, 1);
-    ctx.lineTo(W - r, 1);
-    ctx.quadraticCurveTo(W - 1, 1, W - 1, r);
-    ctx.lineTo(W - 1, H - r);
-    ctx.quadraticCurveTo(W - 1, H - 1, W - r, H - 1);
-    ctx.lineTo(r, H - 1);
-    ctx.quadraticCurveTo(1, H - 1, 1, H - r);
-    ctx.lineTo(1, r);
-    ctx.quadraticCurveTo(1, 1, r, 1);
-    ctx.closePath();
+    ctx.moveTo(r + BW, BW / 2);
+    ctx.lineTo(W - r - BW, BW / 2);
+    ctx.stroke();
+
+    // Bottom shadow strip
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(r + BW, H - BW / 2);
+    ctx.lineTo(W - r - BW, H - BW / 2);
     ctx.stroke();
     ctx.restore();
 
+    // Inner left/right green glow
+    const leftGlow = ctx.createLinearGradient(BW, 0, BW + 28, 0);
+    leftGlow.addColorStop(0, 'rgba(0,255,0,0.14)');
+    leftGlow.addColorStop(1, 'rgba(0,255,0,0)');
+    ctx.fillStyle = leftGlow;
+    ctx.fillRect(BW, BW, 28, H - BW * 2);
+
+    const rightGlow = ctx.createLinearGradient(W - BW, 0, W - BW - 28, 0);
+    rightGlow.addColorStop(0, 'rgba(0,255,0,0.14)');
+    rightGlow.addColorStop(1, 'rgba(0,255,0,0)');
+    ctx.fillStyle = rightGlow;
+    ctx.fillRect(W - BW - 28, BW, 28, H - BW * 2);
+
     // ── Countdown digits ─────────────────────────────────────────
-    // In monospace, all chars are equal width — use that to pin label positions
-    ctx.font = 'bold 56px monospace';
-    const charW     = ctx.measureText('0').width;
-    const totalNumW = 11 * charW; // "00:00:00:00" = 11 chars
-    const numStartX = (W - totalNumW) / 2;
-    const labelY    = 94;
-    const numY      = 160;
+    const numStr = `${pad2(days)}:${pad2(hours)}:${pad2(mins)}:${pad2(secs)}`;
+    ctx.font = 'bold 56px sans-serif';
+    const fullW  = ctx.measureText(numStr).width;
+    const pairW  = ctx.measureText('00').width;
+    const colonW = ctx.measureText(':').width;
+    const startX = (W - fullW) / 2;
+    const labelY = 94;
+    const numY   = 160;
 
     // DAYS / HOURS / MINUTES / SECONDS labels
-    // Centers in monospace: pair i has center at numStartX + (i*3 + 1) * charW
-    ctx.font      = '11px sans-serif';
-    ctx.fillStyle = '#4ade80';
+    ctx.font      = '10px sans-serif';
+    ctx.fillStyle = LABEL_GRAY;
     ctx.textAlign = 'center';
     ['DAYS', 'HOURS', 'MINUTES', 'SECONDS'].forEach((lbl, i) => {
-        ctx.fillText(lbl, numStartX + (i * 3 + 1) * charW, labelY);
+        ctx.fillText(lbl, startX + i * (pairW + colonW) + pairW / 2, labelY);
     });
 
-    // Numbers — Noto Mono handles colons correctly
-    ctx.font      = 'bold 56px monospace';
-    ctx.fillStyle = '#4ade80';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${pad2(days)}:${pad2(hours)}:${pad2(mins)}:${pad2(secs)}`, W / 2, numY);
+    // Digit string — sans-serif renders all ASCII glyphs correctly on Alpine
+    ctx.font      = 'bold 56px sans-serif';
+    ctx.fillStyle = GREEN;
+    ctx.textAlign = 'left';
+    ctx.fillText(numStr, startX, numY);
 
     // ── Title ─────────────────────────────────────────────────────
     ctx.font      = '14px sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillStyle = TITLE_GRAY;
     ctx.textAlign = 'center';
     ctx.fillText("COUNTDOWN TO REALTRUEBEAST'S", W / 2, numY + 44);
     ctx.fillText('UPCOMING TWITCH STREAM', W / 2, numY + 63);
 
     // Divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth   = 1;
     ctx.beginPath();
     ctx.moveTo(34, numY + 83);
@@ -4331,7 +4375,7 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage) {
     ctx.stroke();
 
     // ── Day schedule ──────────────────────────────────────────────
-    const TZ         = 'Europe/Dublin';
+    const TZ           = 'Europe/Dublin';
     const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
     const nextDayNum   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(nextDayShort);
     const schedule     = [{ short: 'SUN', dayNum: 0 }, { short: 'TUE', dayNum: 2 }, { short: 'THU', dayNum: 4 }];
@@ -4345,22 +4389,22 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage) {
 
         ctx.beginPath();
         ctx.arc(x, dotY, 5, 0, Math.PI * 2);
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.28)';
+        ctx.fillStyle = isNext ? GREEN : INACTIVE_DOT;
         ctx.fill();
 
         ctx.font      = 'bold 13px sans-serif';
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.45)';
+        ctx.fillStyle = isNext ? GREEN : INACTIVE_WHITE;
         ctx.textAlign = 'center';
         ctx.fillText(short, x, dotY + 20);
 
         ctx.font      = '12px sans-serif';
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.3)';
+        ctx.fillStyle = isNext ? GREEN : INACTIVE_TIME;
         ctx.fillText('07:00 PM', x, dotY + 37);
     }
 
     // ── Footer ────────────────────────────────────────────────────
     ctx.font      = '10px sans-serif';
-    ctx.fillStyle = 'rgba(74,222,128,0.65)';
+    ctx.fillStyle = FOOTER_GRAY;
     ctx.textAlign = 'center';
     ctx.fillText('TIMES SHOWN AS EUROPE/DUBLIN', W / 2, H - 18);
 }
