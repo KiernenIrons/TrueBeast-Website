@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Fix EPIPE and concurrent GIF generation
+
+- Removed `await new Promise(resolve => rs.once('end', resolve))` — in a flowing Readable stream, `push()` emits 'data' synchronously so chunks is already complete when `encoder.finish()` returns; awaiting 'end' caused a write EPIPE
+- Added `scheduleGifBusy` boolean guard: if a GIF is already being generated/uploaded, subsequent calls to `postOrUpdateScheduleGif` return immediately — prevents concurrent uploads that caused the EPIPE
+
 ## [2026-05-17] — Fix OOM crash during GIF generation
 
 - Switched `generateCountdownGif` to ReadStream mode: each frame's encoded bytes are flushed to a `Buffer` immediately and `encoder.out.data` is cleared, instead of accumulating all 60 frames in a single JS array (~150 MB → ~15 MB peak)

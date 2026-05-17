@@ -809,6 +809,7 @@ const challenges   = new Map(); // challengeId → { id, title, description, sta
 const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
 let   scheduleGifChannelId      = null; // set via /post-countdown; null = don't auto-post
 let   scheduleGifMessageId      = null;
+let   scheduleGifBusy           = false; // prevents concurrent GIF generations
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
     '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
@@ -4394,12 +4395,13 @@ async function generateCountdownGif() {
     }
     encoder.finish();
 
-    await new Promise(resolve => rs.once('end', resolve));
+    // 'data' events fire synchronously on a flowing Readable, so chunks is complete here
     return Buffer.concat(chunks);
 }
 
 async function postOrUpdateScheduleGif() {
-    if (!scheduleGifChannelId) return;
+    if (!scheduleGifChannelId || scheduleGifBusy) return;
+    scheduleGifBusy = true;
     try {
         const channel = await client.channels.fetch(scheduleGifChannelId);
         if (!channel) return;
@@ -4435,6 +4437,8 @@ async function postOrUpdateScheduleGif() {
         firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
     } catch (e) {
         console.error('[ScheduleGif] Error updating countdown GIF:', e.message);
+    } finally {
+        scheduleGifBusy = false;
     }
 }
 
