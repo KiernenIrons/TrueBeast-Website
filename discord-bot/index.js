@@ -4395,7 +4395,10 @@ async function generateCountdownGif() {
     }
     encoder.finish();
 
-    // 'data' events fire synchronously on a flowing Readable, so chunks is complete here
+    await new Promise((resolve, reject) => {
+        rs.once('end', resolve);
+        rs.once('error', reject);
+    });
     return Buffer.concat(chunks);
 }
 
