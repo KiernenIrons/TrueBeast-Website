@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Redesign countdown GIF + persist channel across restarts
+
+- `renderCountdownFrame` fully rewritten: portrait 420×490 canvas, Me.png background image (drawn at 28% opacity with gradient dark overlay), rounded green-glow border, monospace countdown digits with text colons (Noto Mono available via fontconfig), apostrophe/slash/colon text strings restored, day schedule section with dots, footer
+- `generateCountdownGif` loads Me.png once before the 60-frame loop; gracefully skips if file not present
+- `scheduleGifChannelId` and `scheduleGifMessageId` now persisted to Firestore (`botState/scheduleGif`) — the bot resumes updating the correct channel/message after a restart without needing `/post-countdown` again
+- Me.png must be placed in `discord-bot/Me.png` to be included in the Docker build
+
 ## [2026-05-17] — Stop bot from auto-posting countdown GIF
 
 - `scheduleGifChannelId` now starts as `null` — bot no longer posts or updates the GIF unless `/post-countdown` has been used

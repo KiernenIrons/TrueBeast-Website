@@ -4239,92 +4239,103 @@ function getNextStreamUTC() {
     return new Date(now.getTime() + 7 * 86_400_000);
 }
 
-function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
+function renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage) {
     const pad2 = n => String(Math.max(0, n)).padStart(2, '0');
     const totalSecs = Math.max(0, Math.floor(remainingMs / 1000));
-    const days    = Math.floor(totalSecs / 86400);
-    const hours   = Math.floor((totalSecs % 86400) / 3600);
-    const mins    = Math.floor((totalSecs % 3600) / 60);
-    const secs    = totalSecs % 60;
+    const days  = Math.floor(totalSecs / 86400);
+    const hours = Math.floor((totalSecs % 86400) / 3600);
+    const mins  = Math.floor((totalSecs % 3600) / 60);
+    const secs  = totalSecs % 60;
 
-    // Background
-    ctx.fillStyle = '#0b0b12';
+    // ── Background ────────────────────────────────────────────────
+    ctx.fillStyle = '#0c0c10';
     ctx.fillRect(0, 0, W, H);
 
-    // Subtle frame border
-    ctx.strokeStyle = 'rgba(74,222,128,0.12)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(1, 1, W - 2, H - 2);
-
-    // Title
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('COUNTDOWN TO REALTRUEBEAST NEXT STREAM', W / 2, 32);
-
-    // ── Countdown digits ─────────────────────────────────────────
-    ctx.font = 'bold 64px monospace';
-    const pairW   = ctx.measureText('00').width;
-    const SEP_W   = 28;
-
-    const totalGroupW = 4 * pairW + 3 * SEP_W;
-    let curX = (W - totalGroupW) / 2;
-
-    const labelY = 74;
-    const numY   = 138;
-
-    const segs = [
-        { label: 'DAYS',    val: pad2(days)  },
-        { label: 'HOURS',   val: pad2(hours) },
-        { label: 'MINUTES', val: pad2(mins)  },
-        { label: 'SECONDS', val: pad2(secs)  },
-    ];
-
-    for (let i = 0; i < 4; i++) {
-        const cx = curX + pairW / 2;
-
-        // Label above digit
-        ctx.font = '11px sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.38)';
-        ctx.textAlign = 'center';
-        ctx.fillText(segs[i].label, cx, labelY);
-
-        // Digit pair
-        ctx.font = 'bold 64px monospace';
-        ctx.fillStyle = '#4ade80';
-        ctx.fillText(segs[i].val, cx, numY);
-
-        curX += pairW;
-
-        if (i < 3) {
-            // Colon separator — two drawn dots (avoids font glyph issues on Alpine)
-            const sepCx = curX + SEP_W / 2;
-            ctx.fillStyle = '#4ade80';
-            ctx.beginPath();
-            ctx.arc(sepCx, numY - 38, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(sepCx, numY - 16, 4, 0, Math.PI * 2);
-            ctx.fill();
-            curX += SEP_W;
-        }
+    if (bgImage) {
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        const scale = Math.max(W / bgImage.width, (H * 0.7) / bgImage.height);
+        const iw = bgImage.width * scale;
+        const ih = bgImage.height * scale;
+        ctx.drawImage(bgImage, (W - iw) / 2, 0, iw, ih);
+        ctx.restore();
     }
 
-    // Divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
+    // Gradient overlay: light at top (photo shows), dark at bottom (text area)
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0,   'rgba(12,12,16,0.30)');
+    grad.addColorStop(0.5, 'rgba(12,12,16,0.65)');
+    grad.addColorStop(1,   'rgba(12,12,16,0.92)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // ── Border with green glow ────────────────────────────────────
+    const r = 14;
+    ctx.save();
+    ctx.shadowColor = 'rgba(74,222,128,0.55)';
+    ctx.shadowBlur  = 16;
+    ctx.strokeStyle = 'rgba(74,222,128,0.5)';
+    ctx.lineWidth   = 1.5;
     ctx.beginPath();
-    ctx.moveTo(30, 158);
-    ctx.lineTo(W - 30, 158);
+    ctx.moveTo(r, 1);
+    ctx.lineTo(W - r, 1);
+    ctx.quadraticCurveTo(W - 1, 1, W - 1, r);
+    ctx.lineTo(W - 1, H - r);
+    ctx.quadraticCurveTo(W - 1, H - 1, W - r, H - 1);
+    ctx.lineTo(r, H - 1);
+    ctx.quadraticCurveTo(1, H - 1, 1, H - r);
+    ctx.lineTo(1, r);
+    ctx.quadraticCurveTo(1, 1, r, 1);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    // ── Countdown digits ─────────────────────────────────────────
+    // In monospace, all chars are equal width — use that to pin label positions
+    ctx.font = 'bold 56px monospace';
+    const charW     = ctx.measureText('0').width;
+    const totalNumW = 11 * charW; // "00:00:00:00" = 11 chars
+    const numStartX = (W - totalNumW) / 2;
+    const labelY    = 94;
+    const numY      = 160;
+
+    // DAYS / HOURS / MINUTES / SECONDS labels
+    // Centers in monospace: pair i has center at numStartX + (i*3 + 1) * charW
+    ctx.font      = '11px sans-serif';
+    ctx.fillStyle = '#4ade80';
+    ctx.textAlign = 'center';
+    ['DAYS', 'HOURS', 'MINUTES', 'SECONDS'].forEach((lbl, i) => {
+        ctx.fillText(lbl, numStartX + (i * 3 + 1) * charW, labelY);
+    });
+
+    // Numbers — Noto Mono handles colons correctly
+    ctx.font      = 'bold 56px monospace';
+    ctx.fillStyle = '#4ade80';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${pad2(days)}:${pad2(hours)}:${pad2(mins)}:${pad2(secs)}`, W / 2, numY);
+
+    // ── Title ─────────────────────────────────────────────────────
+    ctx.font      = '14px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.textAlign = 'center';
+    ctx.fillText("COUNTDOWN TO REALTRUEBEAST'S", W / 2, numY + 44);
+    ctx.fillText('UPCOMING TWITCH STREAM', W / 2, numY + 63);
+
+    // Divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.moveTo(34, numY + 83);
+    ctx.lineTo(W - 34, numY + 83);
     ctx.stroke();
 
-    // ── Day bubbles ──────────────────────────────────────────────
-    const TZ = 'Europe/Dublin';
+    // ── Day schedule ──────────────────────────────────────────────
+    const TZ         = 'Europe/Dublin';
     const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
     const nextDayNum   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(nextDayShort);
     const schedule     = [{ short: 'SUN', dayNum: 0 }, { short: 'TUE', dayNum: 2 }, { short: 'THU', dayNum: 4 }];
     const bxs          = [W * 0.25, W * 0.5, W * 0.75];
-    const dotY         = 186;
+    const dotY         = numY + 125;
 
     for (let i = 0; i < 3; i++) {
         const { short, dayNum } = schedule[i];
@@ -4332,32 +4343,35 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
         const x      = bxs[i];
 
         ctx.beginPath();
-        ctx.arc(x, dotY, 6, 0, Math.PI * 2);
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.15)';
+        ctx.arc(x, dotY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.28)';
         ctx.fill();
 
-        ctx.font = `bold 13px sans-serif`;
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.4)';
+        ctx.font      = 'bold 13px sans-serif';
+        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.45)';
         ctx.textAlign = 'center';
-        ctx.fillText(short, x, dotY + 21);
+        ctx.fillText(short, x, dotY + 20);
 
-        ctx.font = '12px sans-serif';
-        ctx.fillStyle = isNext ? '#86efac' : 'rgba(255,255,255,0.22)';
-        ctx.fillText('7 PM', x, dotY + 38);
+        ctx.font      = '12px sans-serif';
+        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.3)';
+        ctx.fillText('07:00 PM', x, dotY + 37);
     }
 
-    // Footer
-    ctx.font = '11px sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    // ── Footer ────────────────────────────────────────────────────
+    ctx.font      = '10px sans-serif';
+    ctx.fillStyle = 'rgba(74,222,128,0.65)';
     ctx.textAlign = 'center';
-    ctx.fillText('DUBLIN TIME', W / 2, H - 12);
+    ctx.fillText('TIMES SHOWN AS EUROPE/DUBLIN', W / 2, H - 18);
 }
 
 async function generateCountdownGif() {
-    const W = 520, H = 264;
-    const nextStream  = getNextStreamUTC();
-    // Align start to the next whole second so frames are clock-synced
-    const alignedNow  = Math.ceil(Date.now() / 1000) * 1000;
+    const W = 420, H = 490;
+    const nextStream = getNextStreamUTC();
+    const alignedNow = Math.ceil(Date.now() / 1000) * 1000;
+
+    // Load background image once; fail gracefully if Me.png not present
+    let bgImage = null;
+    try { bgImage = await loadImage(path.join(__dirname, 'Me.png')); } catch (_) {}
 
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
@@ -4369,7 +4383,7 @@ async function generateCountdownGif() {
 
     for (let i = 0; i < 60; i++) {
         const remainingMs = nextStream.getTime() - (alignedNow + i * 1000);
-        renderCountdownFrame(ctx, W, H, remainingMs, nextStream);
+        renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage);
         encoder.addFrame(ctx.getImageData(0, 0, W, H).data);
     }
 
@@ -4402,6 +4416,7 @@ async function postOrUpdateScheduleGif() {
             for (const [id, m] of recent) {
                 if (m.author.id === client.user.id && m.attachments.some(a => a.name === 'schedule.gif')) {
                     scheduleGifMessageId = id;
+                    firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
                     await m.edit({ content: '', files: [attachment] });
                     return;
                 }
@@ -4410,6 +4425,7 @@ async function postOrUpdateScheduleGif() {
 
         const sent = await channel.send({ content: '', files: [attachment] });
         scheduleGifMessageId = sent.id;
+        firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
     } catch (e) {
         console.error('[ScheduleGif] Error updating countdown GIF:', e.message);
     }
@@ -4675,6 +4691,16 @@ client.once('clientReady', async () => {
     // Check for anniversary milestones daily
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
     setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
+
+    // Restore schedule GIF channel/message from Firestore so updates resume after restart
+    try {
+        const gifState = await firestoreGet('botState', 'scheduleGif');
+        if (gifState && gifState.channelId) {
+            scheduleGifChannelId = gifState.channelId;
+            scheduleGifMessageId = gifState.messageId || null;
+            console.log(`[ScheduleGif] Restored: channel=${scheduleGifChannelId} message=${scheduleGifMessageId}`);
+        }
+    } catch (e) { console.error('[ScheduleGif] Failed to restore state:', e.message); }
 
     // Start animated countdown GIF updater
     startScheduleGifUpdater();
@@ -8403,6 +8429,7 @@ client.on('interactionCreate', async (interaction) => {
             const target = interaction.options.getChannel('channel');
             scheduleGifChannelId  = target.id;
             scheduleGifMessageId  = null;
+            firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: '' });
             await interaction.reply({ content: `Posting the countdown GIF to <#${target.id}>...`, ephemeral: true });
             postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] post-countdown failed:', e.message));
             return;
