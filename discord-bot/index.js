@@ -807,7 +807,7 @@ const challenges   = new Map(); // challengeId → { id, title, description, sta
 
 // ── Reaction Roles ────────────────────────────────────────────────────────────
 const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
-let   scheduleGifChannelId      = '1486021237548257330'; // test; swap to '1324878590101159957' for live
+let   scheduleGifChannelId      = null; // set via /post-countdown; null = don't auto-post
 let   scheduleGifMessageId      = null;
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
@@ -4378,6 +4378,7 @@ async function generateCountdownGif() {
 }
 
 async function postOrUpdateScheduleGif() {
+    if (!scheduleGifChannelId) return;
     try {
         const channel = await client.channels.fetch(scheduleGifChannelId);
         if (!channel) return;
@@ -4415,12 +4416,9 @@ async function postOrUpdateScheduleGif() {
 }
 
 function startScheduleGifUpdater() {
-    // Post immediately on startup
-    postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Startup post failed:', e.message));
-
-    // Then sync to minute boundaries so each GIF starts at :00 seconds
-    const now              = new Date();
-    const msToNextMinute   = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+    // Sync to minute boundaries; only updates if /post-countdown has been used
+    const now            = new Date();
+    const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
     setTimeout(() => {
         postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Minute tick failed:', e.message));
         setInterval(() => {

@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-05-17] — Stop bot from auto-posting countdown GIF
+
+- `scheduleGifChannelId` now starts as `null` — bot no longer posts or updates the GIF unless `/post-countdown` has been used
+- Removed the startup auto-post from `startScheduleGifUpdater`; interval still runs every minute but `postOrUpdateScheduleGif` returns immediately if no channel is set
+- Result: only one GIF is ever active at a time, and it only exists when the owner explicitly posts it
+
 ## [2026-05-17] — Fix GIF box characters; add /post-countdown command
 
 - Replaced `ctx.fillText(':' ...)` colon separators with two drawn `ctx.arc` dots — fixes box/tofu glyphs on Alpine Linux where the fallback monospace font lacks colon glyphs
