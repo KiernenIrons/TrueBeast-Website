@@ -4402,6 +4402,7 @@ async function postOrUpdateScheduleGif() {
             for (const [id, m] of recent) {
                 if (m.author.id === client.user.id && m.attachments.some(a => a.name === 'schedule.gif')) {
                     scheduleGifMessageId = id;
+                    firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
                     await m.edit({ content: '', files: [attachment] });
                     return;
                 }
@@ -4410,6 +4411,7 @@ async function postOrUpdateScheduleGif() {
 
         const sent = await channel.send({ content: '', files: [attachment] });
         scheduleGifMessageId = sent.id;
+        firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
     } catch (e) {
         console.error('[ScheduleGif] Error updating countdown GIF:', e.message);
     }
@@ -4675,6 +4677,16 @@ client.once('clientReady', async () => {
     // Check for anniversary milestones daily
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
     setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
+
+    // Restore schedule GIF channel/message from Firestore so updates resume after restart
+    try {
+        const gifState = await firestoreGet('botState', 'scheduleGif');
+        if (gifState?.channelId) {
+            scheduleGifChannelId = gifState.channelId;
+            scheduleGifMessageId = gifState.messageId || null;
+            console.log(`[ScheduleGif] Restored: channel=${scheduleGifChannelId} message=${scheduleGifMessageId}`);
+        }
+    } catch (e) { console.error('[ScheduleGif] Failed to restore state:', e.message); }
 
     // Start animated countdown GIF updater
     startScheduleGifUpdater();
@@ -8403,6 +8415,7 @@ client.on('interactionCreate', async (interaction) => {
             const target = interaction.options.getChannel('channel');
             scheduleGifChannelId  = target.id;
             scheduleGifMessageId  = null;
+            firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: '' });
             await interaction.reply({ content: `Posting the countdown GIF to <#${target.id}>...`, ephemeral: true });
             postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] post-countdown failed:', e.message));
             return;
