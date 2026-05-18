@@ -1,34 +1,13 @@
 # Beast Bot Changelog
 
-## [2026-05-17] — Redesign countdown GIF visuals; fix box characters
+## [2026-05-18] — Simplify countdown GIF design and generation
 
-- `renderCountdownFrame` rewritten to match reference image design
-- Me.png now cover-fits the full canvas (was partial height at 28% opacity); drawn with `ctx.filter = 'blur(7px)'` and 14px overdraw bleed to avoid edge artifacts
-- Gradient overlay flipped: transparent at top (face visible) → dark at bottom (text readable)
-- Border replaced: was thin green-glow stroke; now 8px dark charcoal (#1c1c20) rounded rect with lighter top highlight strip, darker bottom shadow strip, and green inner glow on left/right walls
-- Green changed from `#4ade80` to `#00FF00`
-- Font changed from `monospace` to `sans-serif` for all text — fixes box/tofu glyphs for `:`, `'`, `/` on Alpine Linux where monospace maps to a broken font
-- DAYS/HOURS/MINUTES/SECONDS labels now light gray (`rgba(185,185,190,0.80)`) instead of green; label positions calculated from measured font metrics
-- Title text and footer changed from white/green to light gray
-- TUE/THU day names white, times light gray, indicator dots light gray (SUN stays fully green)
-- `discord-bot/Me.png` added to repo so Docker build context includes it
-
-## [2026-05-17] — Fix EPIPE and concurrent GIF generation
-
-- Removed `await new Promise(resolve => rs.once('end', resolve))` — in a flowing Readable stream, `push()` emits 'data' synchronously so chunks is already complete when `encoder.finish()` returns; awaiting 'end' caused a write EPIPE
-- Added `scheduleGifBusy` boolean guard: if a GIF is already being generated/uploaded, subsequent calls to `postOrUpdateScheduleGif` return immediately — prevents concurrent uploads that caused the EPIPE
-
-## [2026-05-17] — Fix OOM crash during GIF generation
-
-- Switched `generateCountdownGif` to ReadStream mode: each frame's encoded bytes are flushed to a `Buffer` immediately and `encoder.out.data` is cleared, instead of accumulating all 60 frames in a single JS array (~150 MB → ~15 MB peak)
-- The bot was being OOM-killed by the Linux kernel ~2 minutes after receiving `/post-countdown` because the old buffer-accumulation approach used ~8× more memory than a proper Buffer
-
-## [2026-05-17] — Redesign countdown GIF + persist channel across restarts
-
-- `renderCountdownFrame` fully rewritten: portrait 420×490 canvas, Me.png background image (drawn at 28% opacity with gradient dark overlay), rounded green-glow border, monospace countdown digits with text colons (Noto Mono available via fontconfig), apostrophe/slash/colon text strings restored, day schedule section with dots, footer
-- `generateCountdownGif` loads Me.png once before the 60-frame loop; gracefully skips if file not present
-- `scheduleGifChannelId` and `scheduleGifMessageId` now persisted to Firestore (`botState/scheduleGif`) — the bot resumes updating the correct channel/message after a restart without needing `/post-countdown` again
-- Me.png must be placed in `discord-bot/Me.png` to be included in the Docker build
+- Canvas resized to 520×264 (landscape) — smaller memory footprint
+- Removed Me.png background, gradient overlay, and shadow/glow border to eliminate OOM
+- Title moved to top; digits drawn pair-by-pair with dot separators (avoids font glyph box chars on Alpine)
+- Time label simplified to "7 PM"; footer to "DUBLIN TIME"
+- GIF buffer reverted to direct `encoder.out.getData()` (ReadStream overhead not needed at this canvas size)
+- Removed `scheduleGifBusy` concurrency guard and Firestore persistence for GIF channel/message state
 
 ## [2026-05-17] — Stop bot from auto-posting countdown GIF
 
