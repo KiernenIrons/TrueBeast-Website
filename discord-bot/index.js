@@ -4252,14 +4252,14 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
     ctx.fillRect(0, 0, W, H);
 
     // Subtle frame border
-    ctx.strokeStyle = 'rgba(74,222,128,0.12)';
+    ctx.strokeStyle = 'rgba(0,255,0,0.20)';
     ctx.lineWidth = 1;
     ctx.strokeRect(1, 1, W - 2, H - 2);
 
     // Title
     ctx.textAlign = 'center';
     ctx.font = 'bold 12px sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillStyle = '#ffffff';
     ctx.fillText('COUNTDOWN TO REALTRUEBEAST NEXT STREAM', W / 2, 32);
 
     // ── Countdown digits ─────────────────────────────────────────
@@ -4285,13 +4285,13 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
 
         // Label above digit
         ctx.font = '11px sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.38)';
+        ctx.fillStyle = 'rgba(180,180,185,0.80)';
         ctx.textAlign = 'center';
         ctx.fillText(segs[i].label, cx, labelY);
 
         // Digit pair
         ctx.font = 'bold 64px monospace';
-        ctx.fillStyle = '#4ade80';
+        ctx.fillStyle = '#00FF00';
         ctx.fillText(segs[i].val, cx, numY);
 
         curX += pairW;
@@ -4299,7 +4299,7 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
         if (i < 3) {
             // Colon separator — two drawn dots (avoids font glyph issues on Alpine)
             const sepCx = curX + SEP_W / 2;
-            ctx.fillStyle = '#4ade80';
+            ctx.fillStyle = '#00FF00';
             ctx.beginPath();
             ctx.arc(sepCx, numY - 38, 4, 0, Math.PI * 2);
             ctx.fill();
@@ -4311,7 +4311,7 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
     }
 
     // Divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(30, 158);
@@ -4333,22 +4333,22 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
 
         ctx.beginPath();
         ctx.arc(x, dotY, 6, 0, Math.PI * 2);
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.15)';
+        ctx.fillStyle = isNext ? '#00FF00' : 'rgba(160,160,165,0.45)';
         ctx.fill();
 
-        ctx.font = `bold 13px sans-serif`;
-        ctx.fillStyle = isNext ? '#4ade80' : 'rgba(255,255,255,0.4)';
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillStyle = isNext ? '#00FF00' : '#ffffff';
         ctx.textAlign = 'center';
         ctx.fillText(short, x, dotY + 21);
 
         ctx.font = '12px sans-serif';
-        ctx.fillStyle = isNext ? '#86efac' : 'rgba(255,255,255,0.22)';
+        ctx.fillStyle = isNext ? '#00FF00' : 'rgba(160,160,165,0.75)';
         ctx.fillText('7 PM', x, dotY + 38);
     }
 
     // Footer
     ctx.font = '11px sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    ctx.fillStyle = 'rgba(160,160,165,0.65)';
     ctx.textAlign = 'center';
     ctx.fillText('DUBLIN TIME', W / 2, H - 12);
 }
