@@ -4253,13 +4253,7 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream, bgImage) {
     ctx.fillRect(0, 0, W, H);
 
     if (bgImage) {
-        ctx.save();
-        ctx.globalAlpha = 0.28;
-        const scale = Math.max(W / bgImage.width, (H * 0.7) / bgImage.height);
-        const iw = bgImage.width * scale;
-        const ih = bgImage.height * scale;
-        ctx.drawImage(bgImage, (W - iw) / 2, 0, iw, ih);
-        ctx.restore();
+        ctx.drawImage(bgImage, 0, 0); // pre-rendered to canvas size — no per-frame rescale
     }
 
     // Gradient overlay
@@ -4370,9 +4364,20 @@ async function generateCountdownGif() {
     const nextStream = getNextStreamUTC();
     const alignedNow = Math.ceil(Date.now() / 1000) * 1000;
 
-    // Load background image once; fail gracefully if Me.png not present
+    // Pre-render Me.png to a W×H canvas at 28% opacity once, then reuse per frame.
+    // Me.png is 2752×1536 (~17 MB decoded); letting Skia rescale it on every frame causes OOM.
     let bgImage = null;
-    try { bgImage = await loadImage(path.join(__dirname, 'Me.png')); } catch (_) {}
+    try {
+        const rawImg   = await loadImage(path.join(__dirname, 'Me.png'));
+        const bgCanvas = createCanvas(W, H);
+        const bgCtx    = bgCanvas.getContext('2d');
+        bgCtx.globalAlpha = 0.28;
+        const scale = Math.max(W / rawImg.width, (H * 0.7) / rawImg.height);
+        const iw    = rawImg.width * scale;
+        const ih    = rawImg.height * scale;
+        bgCtx.drawImage(rawImg, (W - iw) / 2, 0, iw, ih);
+        bgImage = bgCanvas; // 420×490×4 ≈ 822 KB from here on
+    } catch (_) {}
 
     const canvas = createCanvas(W, H);
     const ctx    = canvas.getContext('2d');
