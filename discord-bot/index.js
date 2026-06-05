@@ -69,6 +69,15 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
     process.exit(1);
 }
 
+// ── Latest update notes (shown via /bot-updates) ─────────────────────────────
+const UPDATE_NOTES = [
+    { name: '✨ /reminder command', value: 'Workout reminders are now set with `/reminder` instead of `/fitness notify`. Same options — just easier to find.' },
+    { name: '🗑️ /reminder-clear command', value: 'Use `/reminder-clear` to remove your workout reminder (was `/fitness notify-clear`).' },
+    { name: '⚙️ /set-schedule (owner)', value: 'Kiernen can now change the stream schedule days and time with `/set-schedule`. The countdown GIF updates automatically.' },
+    { name: '📅 /view-schedule', value: 'Anyone can use `/view-schedule` to see the current stream days, time, and when the next stream is.' },
+    { name: '🐛 Countdown GIF schedule fix', value: 'Fixed a bug that would corrupt the stream schedule after a bot restart if `/set-schedule` had been used.' },
+];
+
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
 let botFeatures = {
     aiResponses:         true,
@@ -809,6 +818,7 @@ const challenges   = new Map(); // challengeId → { id, title, description, sta
 const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
 let   scheduleGifChannelId      = null; // set via /post-countdown; null = don't auto-post
 let   scheduleGifMessageId      = null;
+let   streamSchedule            = { days: [0, 2, 4], hour: 19, minute: 0 }; // Sun/Tue/Thu 19:00 Dublin
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
     '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
@@ -4217,7 +4227,9 @@ async function updateChallengeCheckInEmbed(challenge, dateStr) {
 // ── Schedule GIF countdown ────────────────────────────────────────────────────
 
 function getNextStreamUTC() {
-    const SCHED_DAYS = new Set([0, 2, 4]); // Sun, Tue, Thu
+    const SCHED_DAYS = new Set(streamSchedule.days);
+    const SCHED_HOUR = streamSchedule.hour;
+    const SCHED_MIN  = streamSchedule.minute;
     const TZ = 'Europe/Dublin';
     const now = new Date();
     for (let d = 0; d <= 7; d++) {
@@ -4229,11 +4241,11 @@ function getNextStreamUTC() {
             timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
         }).format(probe);
         const [y, mo, dy] = dateStr.split('-').map(Number);
-        const nominalUTC = new Date(Date.UTC(y, mo - 1, dy, 19, 0, 0));
+        const nominalUTC = new Date(Date.UTC(y, mo - 1, dy, SCHED_HOUR, SCHED_MIN, 0));
         const dublinHour = parseInt(
             new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }).format(nominalUTC), 10,
         );
-        const streamUTC = new Date(nominalUTC.getTime() - (dublinHour - 19) * 3_600_000);
+        const streamUTC = new Date(nominalUTC.getTime() - (dublinHour - SCHED_HOUR) * 3_600_000);
         if (streamUTC > now) return streamUTC;
     }
     return new Date(now.getTime() + 7 * 86_400_000);
@@ -4322,11 +4334,19 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
     const TZ = 'Europe/Dublin';
     const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
     const nextDayNum   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(nextDayShort);
-    const schedule     = [{ short: 'SUN', dayNum: 0 }, { short: 'TUE', dayNum: 2 }, { short: 'THU', dayNum: 4 }];
-    const bxs          = [W * 0.25, W * 0.5, W * 0.75];
+    const DAY_SHORTS   = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const schedule     = streamSchedule.days.map(d => ({ short: DAY_SHORTS[d], dayNum: d }));
+    const n            = schedule.length;
+    const bxs          = schedule.map((_, i) => W * (i + 1) / (n + 1));
     const dotY         = 186;
 
-    for (let i = 0; i < 3; i++) {
+    const sh12      = streamSchedule.hour % 12 || 12;
+    const sampm     = streamSchedule.hour < 12 ? 'AM' : 'PM';
+    const timeLabel = streamSchedule.minute === 0
+        ? `${sh12} ${sampm}`
+        : `${sh12}:${String(streamSchedule.minute).padStart(2, '0')} ${sampm}`;
+
+    for (let i = 0; i < n; i++) {
         const { short, dayNum } = schedule[i];
         const isNext = dayNum === nextDayNum;
         const x      = bxs[i];
@@ -4343,7 +4363,7 @@ function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
 
         ctx.font = '12px sans-serif';
         ctx.fillStyle = isNext ? '#00FF00' : 'rgba(160,160,165,0.75)';
-        ctx.fillText('7 PM', x, dotY + 38);
+        ctx.fillText(timeLabel, x, dotY + 38);
     }
 
     // Footer
@@ -4688,6 +4708,18 @@ client.once('clientReady', async () => {
         }
     } catch (e) { console.error('[ScheduleGif] Failed to restore state:', e.message); }
 
+    // Restore stream schedule from Firestore
+    try {
+        const sched = await firestoreGet('botState', 'streamSchedule');
+        if (sched?.days) {
+            const days = String(sched.days).split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 6);
+            if (days.length) {
+                streamSchedule = { days, hour: Number(sched.hour) || 19, minute: Number(sched.minute) || 0 };
+                console.log(`[ScheduleGif] Stream schedule restored: days=[${days}] time=${streamSchedule.hour}:${String(streamSchedule.minute).padStart(2, '0')}`);
+            }
+        }
+    } catch (e) { console.error('[ScheduleGif] Failed to restore stream schedule:', e.message); }
+
     // Start animated countdown GIF updater
     startScheduleGifUpdater();
 
@@ -4927,38 +4959,39 @@ client.once('clientReady', async () => {
                 .setDescription('Fitness tracking commands')
                 .addSubcommand(sub => sub.setName('progress').setDescription('View your fitness progress (private to you)'))
                 .addSubcommand(sub => sub.setName('manage').setDescription('Edit or delete your past workout entries'))
-                .addSubcommand(sub => sub
-                    .setName('notify')
-                    .setDescription('Set a daily workout DM reminder (and voice channel bleep)')
-                    .addIntegerOption(opt => opt.setName('hour').setDescription('Hour (1–12)').setRequired(true).addChoices(
-                        { name: '12', value: 12 }, { name: '1', value: 1 }, { name: '2', value: 2 }, { name: '3', value: 3 },
-                        { name: '4', value: 4 }, { name: '5', value: 5 }, { name: '6', value: 6 }, { name: '7', value: 7 },
-                        { name: '8', value: 8 }, { name: '9', value: 9 }, { name: '10', value: 10 }, { name: '11', value: 11 }
-                    ))
-                    .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes (0–59)').setRequired(true).setMinValue(0).setMaxValue(59))
-                    .addStringOption(opt => opt.setName('period').setDescription('AM or PM').setRequired(true).addChoices(
-                        { name: 'AM', value: 'AM' }, { name: 'PM', value: 'PM' }
-                    ))
-                    .addStringOption(opt => opt.setName('timezone').setDescription('Your timezone').setRequired(true).addChoices(
-                        { name: 'UTC-12 (Baker Island)', value: '-12' }, { name: 'UTC-11 (Samoa)', value: '-11' }, { name: 'UTC-10 (Hawaii)', value: '-10' },
-                        { name: 'UTC-9 (Alaska)', value: '-9' }, { name: 'UTC-8 (Pacific — Los Angeles)', value: '-8' }, { name: 'UTC-7 (Mountain — Denver)', value: '-7' },
-                        { name: 'UTC-6 (Central — Chicago)', value: '-6' }, { name: 'UTC-5 (Eastern — New York)', value: '-5' }, { name: 'UTC-4 (Atlantic / Eastern DST)', value: '-4' },
-                        { name: 'UTC-3 (Brazil / Buenos Aires)', value: '-3' }, { name: 'UTC-2', value: '-2' }, { name: 'UTC-1 (Azores)', value: '-1' },
-                        { name: 'UTC+0 (London GMT / Lisbon / Reykjavik — winter only)', value: '0' }, { name: 'UTC+1 (London BST / Paris / Berlin — UK summer)', value: '1' }, { name: 'UTC+2 (Athens / Cairo / EET)', value: '2' },
-                        { name: 'UTC+3 (Moscow / Istanbul)', value: '3' }, { name: 'UTC+4 (Dubai)', value: '4' }, { name: 'UTC+5 (Pakistan)', value: '5' },
-                        { name: 'UTC+5:30 (India / IST)', value: '5.5' }, { name: 'UTC+6 (Bangladesh)', value: '6' }, { name: 'UTC+7 (Bangkok / Jakarta)', value: '7' },
-                        { name: 'UTC+8 (Beijing / Singapore / Perth)', value: '8' }, { name: 'UTC+9 (Tokyo / Seoul / JST)', value: '9' },
-                        { name: 'UTC+10 (Sydney / AEST)', value: '10' }, { name: 'UTC+12 (Auckland / NZT)', value: '12' }
-                    ))
-                    .addStringOption(opt => opt.setName('days').setDescription('Which days').setRequired(true).addChoices(
-                        { name: 'Every day', value: 'daily' }, { name: 'Weekdays (Mon–Fri)', value: 'weekdays' }, { name: 'Weekends (Sat & Sun)', value: 'weekends' },
-                        { name: 'Mon, Wed & Fri', value: 'mwf' }, { name: 'Tue & Thu', value: 'tt' },
-                        { name: 'Monday', value: 'mon' }, { name: 'Tuesday', value: 'tue' }, { name: 'Wednesday', value: 'wed' },
-                        { name: 'Thursday', value: 'thu' }, { name: 'Friday', value: 'fri' }, { name: 'Saturday', value: 'sat' }, { name: 'Sunday', value: 'sun' }
-                    ))
-                )
-                .addSubcommand(sub => sub.setName('notify-clear').setDescription('Remove your workout reminder'))
                 .addSubcommand(sub => sub.setName('alarm-test').setDescription('Test the voice alarm — bot will join your VC and play the beep')),
+            new SlashCommandBuilder()
+                .setName('reminder')
+                .setDescription('Set a daily workout DM reminder (and voice channel bleep)')
+                .addIntegerOption(opt => opt.setName('hour').setDescription('Hour (1–12)').setRequired(true).addChoices(
+                    { name: '12', value: 12 }, { name: '1', value: 1 }, { name: '2', value: 2 }, { name: '3', value: 3 },
+                    { name: '4', value: 4 }, { name: '5', value: 5 }, { name: '6', value: 6 }, { name: '7', value: 7 },
+                    { name: '8', value: 8 }, { name: '9', value: 9 }, { name: '10', value: 10 }, { name: '11', value: 11 }
+                ))
+                .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes (0–59)').setRequired(true).setMinValue(0).setMaxValue(59))
+                .addStringOption(opt => opt.setName('period').setDescription('AM or PM').setRequired(true).addChoices(
+                    { name: 'AM', value: 'AM' }, { name: 'PM', value: 'PM' }
+                ))
+                .addStringOption(opt => opt.setName('timezone').setDescription('Your timezone').setRequired(true).addChoices(
+                    { name: 'UTC-12 (Baker Island)', value: '-12' }, { name: 'UTC-11 (Samoa)', value: '-11' }, { name: 'UTC-10 (Hawaii)', value: '-10' },
+                    { name: 'UTC-9 (Alaska)', value: '-9' }, { name: 'UTC-8 (Pacific — Los Angeles)', value: '-8' }, { name: 'UTC-7 (Mountain — Denver)', value: '-7' },
+                    { name: 'UTC-6 (Central — Chicago)', value: '-6' }, { name: 'UTC-5 (Eastern — New York)', value: '-5' }, { name: 'UTC-4 (Atlantic / Eastern DST)', value: '-4' },
+                    { name: 'UTC-3 (Brazil / Buenos Aires)', value: '-3' }, { name: 'UTC-2', value: '-2' }, { name: 'UTC-1 (Azores)', value: '-1' },
+                    { name: 'UTC+0 (London GMT / Lisbon / Reykjavik — winter only)', value: '0' }, { name: 'UTC+1 (London BST / Paris / Berlin — UK summer)', value: '1' }, { name: 'UTC+2 (Athens / Cairo / EET)', value: '2' },
+                    { name: 'UTC+3 (Moscow / Istanbul)', value: '3' }, { name: 'UTC+4 (Dubai)', value: '4' }, { name: 'UTC+5 (Pakistan)', value: '5' },
+                    { name: 'UTC+5:30 (India / IST)', value: '5.5' }, { name: 'UTC+6 (Bangladesh)', value: '6' }, { name: 'UTC+7 (Bangkok / Jakarta)', value: '7' },
+                    { name: 'UTC+8 (Beijing / Singapore / Perth)', value: '8' }, { name: 'UTC+9 (Tokyo / Seoul / JST)', value: '9' },
+                    { name: 'UTC+10 (Sydney / AEST)', value: '10' }, { name: 'UTC+12 (Auckland / NZT)', value: '12' }
+                ))
+                .addStringOption(opt => opt.setName('days').setDescription('Which days').setRequired(true).addChoices(
+                    { name: 'Every day', value: 'daily' }, { name: 'Weekdays (Mon–Fri)', value: 'weekdays' }, { name: 'Weekends (Sat & Sun)', value: 'weekends' },
+                    { name: 'Mon, Wed & Fri', value: 'mwf' }, { name: 'Tue & Thu', value: 'tt' },
+                    { name: 'Monday', value: 'mon' }, { name: 'Tuesday', value: 'tue' }, { name: 'Wednesday', value: 'wed' },
+                    { name: 'Thursday', value: 'thu' }, { name: 'Friday', value: 'fri' }, { name: 'Saturday', value: 'sat' }, { name: 'Sunday', value: 'sun' }
+                )),
+            new SlashCommandBuilder()
+                .setName('reminder-clear')
+                .setDescription('Remove your workout reminder'),
             new SlashCommandBuilder()
                 .setName('fitness-setup')
                 .setDescription('(Owner only) Post the Log Your Workout button in #tracking'),
@@ -5020,6 +5053,14 @@ client.once('clientReady', async () => {
                 .setName('post-countdown')
                 .setDescription('(Owner only) Post the live countdown GIF to a channel')
                 .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post the countdown in').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('set-schedule')
+                .setDescription('(Owner only) Set the stream schedule days and time')
+                .addStringOption(opt => opt.setName('days').setDescription('Comma-separated stream days, e.g. sun,tue,thu').setRequired(true))
+                .addStringOption(opt => opt.setName('time').setDescription('Stream time in Dublin time, 24h format, e.g. 19:00').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('view-schedule')
+                .setDescription('View the current stream schedule and next stream time'),
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -7798,60 +7839,6 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 }
 
-                if (sub === 'notify') {
-                    const hour    = interaction.options.getInteger('hour');
-                    const period  = interaction.options.getString('period');
-                    const minute  = interaction.options.getInteger('minute');
-                    const tzStr   = interaction.options.getString('timezone');
-                    const daysStr = interaction.options.getString('days');
-
-                    let h24 = hour;
-                    if (period === 'AM' && hour === 12) h24 = 0;
-                    else if (period === 'PM' && hour !== 12) h24 = hour + 12;
-
-                    const off = parseFloat(tzStr) || 0;
-                    const totalMinsLocal = h24 * 60 + minute;
-                    const rawUtcMins = totalMinsLocal - off * 60;
-                    const totalMinsUtc = ((rawUtcMins) % 1440 + 1440) % 1440;
-                    const utcH = Math.floor(totalMinsUtc / 60);
-                    const utcM = totalMinsUtc % 60;
-                    const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
-                    const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
-                    // If the UTC conversion crosses midnight, the day of week shifts
-                    const dayShift = rawUtcMins >= 1440 ? 1 : rawUtcMins < 0 ? -1 : 0;
-
-                    const dayPatterns = {
-                        daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
-                        weekdays: { set: [1,2,3,4,5],     display: 'Weekdays (Mon–Fri)' },
-                        weekends: { set: [0,6],            display: 'Weekends (Sat & Sun)' },
-                        mwf:      { set: [1,3,5],          display: 'Mon, Wed & Fri' },
-                        tt:       { set: [2,4],            display: 'Tue & Thu' },
-                        mon:      { set: [1],              display: 'Monday' },
-                        tue:      { set: [2],              display: 'Tuesday' },
-                        wed:      { set: [3],              display: 'Wednesday' },
-                        thu:      { set: [4],              display: 'Thursday' },
-                        fri:      { set: [5],              display: 'Friday' },
-                        sat:      { set: [6],              display: 'Saturday' },
-                        sun:      { set: [0],              display: 'Sunday' },
-                    };
-                    const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
-                    // Shift days to UTC equivalents so the tick (which uses UTC day) matches correctly
-                    const utcDaySet = dayShift === 0
-                        ? dayInfo.set
-                        : dayInfo.set.map(d => (d + dayShift + 7) % 7);
-                    const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
-
-                    const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                    userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: utcDaySet, lastSentDate: null };
-                    fitnessData.set(uid, userData);
-                    // Save immediately so a bot restart/deploy won't lose the schedule
-                    saveDiscordBackup().catch(() => {});
-                    console.log(`[BeastBot] ⏰ Notify saved for ${uid}: timeUtc=${timeUtc} daySet=${JSON.stringify(utcDaySet)}`);
-
-                    await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
-                    return;
-                }
-
                 if (sub === 'manage') {
                     const userData = fitnessData.get(uid);
                     const entries  = userData?.entries || [];
@@ -7893,15 +7880,92 @@ client.on('interactionCreate', async (interaction) => {
                     return;
                 }
 
-                if (sub === 'notify-clear') {
-                    const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                    userData.notify = null;
-                    fitnessData.set(uid, userData);
-                    await interaction.editReply({ content: '✅ Workout reminder removed.' });
-                    return;
-                }
             } catch (e) {
                 console.error('[BeastBot] /fitness error:', e.message, e.stack);
+                await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
+            }
+        }
+
+        // ── /reminder ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'reminder') {
+            try {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            } catch (e) {
+                console.error('[BeastBot] /reminder deferReply failed:', e.message);
+                return;
+            }
+            try {
+                const uid     = interaction.user.id;
+                const hour    = interaction.options.getInteger('hour');
+                const period  = interaction.options.getString('period');
+                const minute  = interaction.options.getInteger('minute');
+                const tzStr   = interaction.options.getString('timezone');
+                const daysStr = interaction.options.getString('days');
+
+                let h24 = hour;
+                if (period === 'AM' && hour === 12) h24 = 0;
+                else if (period === 'PM' && hour !== 12) h24 = hour + 12;
+
+                const off = parseFloat(tzStr) || 0;
+                const totalMinsLocal = h24 * 60 + minute;
+                const rawUtcMins = totalMinsLocal - off * 60;
+                const totalMinsUtc = ((rawUtcMins) % 1440 + 1440) % 1440;
+                const utcH = Math.floor(totalMinsUtc / 60);
+                const utcM = totalMinsUtc % 60;
+                const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
+                const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
+                const dayShift = rawUtcMins >= 1440 ? 1 : rawUtcMins < 0 ? -1 : 0;
+
+                const dayPatterns = {
+                    daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
+                    weekdays: { set: [1,2,3,4,5],     display: 'Weekdays (Mon–Fri)' },
+                    weekends: { set: [0,6],            display: 'Weekends (Sat & Sun)' },
+                    mwf:      { set: [1,3,5],          display: 'Mon, Wed & Fri' },
+                    tt:       { set: [2,4],            display: 'Tue & Thu' },
+                    mon:      { set: [1],              display: 'Monday' },
+                    tue:      { set: [2],              display: 'Tuesday' },
+                    wed:      { set: [3],              display: 'Wednesday' },
+                    thu:      { set: [4],              display: 'Thursday' },
+                    fri:      { set: [5],              display: 'Friday' },
+                    sat:      { set: [6],              display: 'Saturday' },
+                    sun:      { set: [0],              display: 'Sunday' },
+                };
+                const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
+                const utcDaySet = dayShift === 0
+                    ? dayInfo.set
+                    : dayInfo.set.map(d => (d + dayShift + 7) % 7);
+                const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
+
+                const userData = fitnessData.get(uid) || { entries: [], notify: null };
+                userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: utcDaySet, lastSentDate: null };
+                fitnessData.set(uid, userData);
+                saveDiscordBackup().catch(() => {});
+                console.log(`[BeastBot] ⏰ Reminder saved for ${uid}: timeUtc=${timeUtc} daySet=${JSON.stringify(utcDaySet)}`);
+
+                await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
+            } catch (e) {
+                console.error('[BeastBot] /reminder error:', e.message, e.stack);
+                await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
+            }
+        }
+
+        // ── /reminder-clear ──────────────────────────────────────────────────
+        if (interaction.commandName === 'reminder-clear') {
+            try {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            } catch (e) {
+                console.error('[BeastBot] /reminder-clear deferReply failed:', e.message);
+                return;
+            }
+            try {
+                const uid = interaction.user.id;
+                const userData = fitnessData.get(uid) || { entries: [], notify: null };
+                userData.notify = null;
+                fitnessData.set(uid, userData);
+                saveDiscordBackup().catch(() => {});
+                await interaction.editReply({ content: '✅ Workout reminder removed.' });
+            } catch (e) {
+                console.error('[BeastBot] /reminder-clear error:', e.message, e.stack);
                 await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
             }
         }
@@ -8418,6 +8482,72 @@ client.on('interactionCreate', async (interaction) => {
             firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: '' });
             await interaction.reply({ content: `Posting the countdown GIF to <#${target.id}>...`, ephemeral: true });
             postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] post-countdown failed:', e.message));
+            return;
+        }
+
+        if (interaction.commandName === 'set-schedule') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: 'Only the server owner can use this command.', ephemeral: true });
+                return;
+            }
+            const DAY_MAP   = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
+            const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const daysInput = interaction.options.getString('days').toLowerCase();
+            const timeInput = interaction.options.getString('time');
+
+            const days = [...new Set(
+                daysInput.split(',').map(d => DAY_MAP[d.trim()]).filter(d => d !== undefined)
+            )].sort((a, b) => a - b);
+
+            if (days.length === 0) {
+                await interaction.reply({ content: '❌ Invalid days. Use names like `sun,tue,thu`.', ephemeral: true });
+                return;
+            }
+
+            const timeParts = timeInput.match(/^(\d{1,2}):(\d{2})$/);
+            if (!timeParts) {
+                await interaction.reply({ content: '❌ Invalid time format. Use 24h format like `19:00`.', ephemeral: true });
+                return;
+            }
+            const hour   = parseInt(timeParts[1], 10);
+            const minute = parseInt(timeParts[2], 10);
+            if (hour > 23 || minute > 59) {
+                await interaction.reply({ content: '❌ Invalid time. Hour must be 0–23, minute 0–59.', ephemeral: true });
+                return;
+            }
+
+            streamSchedule = { days, hour, minute };
+            firestoreSet('botState', 'streamSchedule', { days: days.join(','), hour, minute });
+
+            const dayLabel  = days.map(d => DAY_NAMES[d]).join(', ');
+            const h12       = hour % 12 || 12;
+            const ampm      = hour < 12 ? 'AM' : 'PM';
+            const timeLabel = minute === 0 ? `${h12} ${ampm}` : `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
+            await interaction.reply({ content: `✅ Schedule updated to **${dayLabel}** at **${timeLabel} Dublin time**. The GIF will update on the next minute tick.`, ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'view-schedule') {
+            const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const dayLabel  = streamSchedule.days.map(d => DAY_NAMES[d]).join(', ');
+            const h12       = streamSchedule.hour % 12 || 12;
+            const ampm      = streamSchedule.hour < 12 ? 'AM' : 'PM';
+            const timeLabel = streamSchedule.minute === 0
+                ? `${h12} ${ampm}`
+                : `${h12}:${String(streamSchedule.minute).padStart(2, '0')} ${ampm}`;
+            const nextStream = getNextStreamUTC();
+            await interaction.reply({
+                embeds: [{
+                    color: 0x00ff00,
+                    title: '📅 Stream Schedule',
+                    fields: [
+                        { name: 'Days', value: dayLabel, inline: true },
+                        { name: 'Time (Dublin)', value: timeLabel, inline: true },
+                        { name: 'Next Stream', value: `<t:${Math.floor(nextStream.getTime() / 1000)}:F>`, inline: false },
+                    ],
+                }],
+                ephemeral: true,
+            });
             return;
         }
 

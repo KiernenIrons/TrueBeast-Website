@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-06-05] — Rename /fitness notify to /reminder; add configurable stream schedule
+
+- `/fitness notify` removed as a subcommand; replaced by top-level `/reminder` command with identical options (hour, minute, period, timezone, days)
+- `/fitness notify-clear` removed; replaced by top-level `/reminder-clear`
+- Added `/set-schedule` (owner-only) — sets stream schedule days and time; persists to Firestore `botState/streamSchedule`
+- Added `/view-schedule` — shows current schedule and next stream time as a Discord timestamp
+- Countdown GIF and `getNextStreamUTC()` now read from `streamSchedule` instead of hardcoded Sun/Tue/Thu 19:00
+- Fixed bug: `firestoreSet` can't serialise arrays, so `days` is now stored as a comma-separated string and parsed back on restore — prevents `days.map is not a function` crash after restart
+- Added `UPDATE_NOTES` constant for future `/bot-updates` command
+- `/reminder-clear` logic wrapped in try/catch for consistent error handling
+
 ## [2026-05-18] — Simplify countdown GIF design and generation
 
 - Canvas resized to 520×264 (landscape) — smaller memory footprint
