@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-06-07] — Add Instagram embed fix
+
+- Detect Instagram post/reel URLs (`/p/`, `/reel/`, `/reels/`, `/tv/`) in any guild message
+- Replace `instagram.com` with `ddinstagram.com` and reply with the fixed URL — Discord embeds it with full preview/video player
+- `allowedMentions: { repliedUser: false }` so the reply doesn't ping the original author
+
 ## [2026-06-07] — Make reminder DM generic
 
 - Removed all workout-specific wording from the reminder DM — title changed from "Time to Work Out!" to "Reminder!", body no longer references workouts or #tracking
