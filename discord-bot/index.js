@@ -71,11 +71,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '✨ /reminder command', value: 'Workout reminders are now set with `/reminder` instead of `/fitness notify`. Same options — just easier to find.' },
-    { name: '🗑️ /reminder-clear command', value: 'Use `/reminder-clear` to remove your workout reminder (was `/fitness notify-clear`).' },
-    { name: '⚙️ /set-schedule (owner)', value: 'Kiernen can now change the stream schedule days and time with `/set-schedule`. The countdown GIF updates automatically.' },
-    { name: '📅 /view-schedule', value: 'Anyone can use `/view-schedule` to see the current stream days, time, and when the next stream is.' },
-    { name: '🐛 Countdown GIF schedule fix', value: 'Fixed a bug that would corrupt the stream schedule after a bot restart if `/set-schedule` had been used.' },
+    { name: '🔔 Generic reminder DM', value: 'The reminder DM and embed are no longer workout-specific — just says "Your reminder is going off" so it works for anything.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -4629,25 +4625,25 @@ client.once('clientReady', async () => {
                     console.log(`[BeastBot] ⏰ skip ${notifyUid}: already sent today (${todayNotify})`);
                     continue;
                 }
-                console.log(`[BeastBot] ⏰ Firing workout notification for ${notifyUid} (${n.timeRaw})`);
+                console.log(`[BeastBot] ⏰ Firing reminder for ${notifyUid} (${n.timeRaw})`);
                 try {
                     const notifyUser = await client.users.fetch(notifyUid);
                     const notifyGuild = client.guilds.cache.first();
                     let voicePinged = false;
                     if (notifyGuild) voicePinged = await playWorkoutAlarm(notifyGuild, notifyUid).catch(() => false);
                     const dmDesc = voicePinged
-                        ? "Your workout reminder is going off — I beeped in your voice channel! Go crush it 💪\n\nLog your session in #tracking when you're done!"
-                        : "Your workout reminder is going off — go crush it 💪\n\nLog your session in #tracking when you're done!";
+                        ? "Your reminder is going off — I beeped in your voice channel! Go get it done 💪"
+                        : "Your reminder is going off — go get it done 💪";
                     await notifyUser.send({ embeds: [{
                         color: 0xf59e0b,
-                        title: '⏰ Time to Work Out!',
+                        title: '⏰ Reminder!',
                         description: dmDesc,
                         footer: { text: `⏰ ${fData.notify.timeRaw} · 📅 ${fData.notify.days}` },
                     }] });
                     fData.notify.lastSentDate = todayNotify;
                     fitnessData.set(notifyUid, fData);
                 } catch (e) {
-                    console.error(`[BeastBot] Workout notification failed for ${notifyUid}:`, e.message);
+                    console.error(`[BeastBot] Reminder failed for ${notifyUid}:`, e.message);
                 }
             }
 
@@ -7817,7 +7813,7 @@ client.on('interactionCreate', async (interaction) => {
                         { name: '⏱️ Avg Duration', value: avg !== null ? `**${avg} min**` : '*N/A*', inline: true },
                     ];
                     if (userData?.notify) {
-                        fields.push({ name: '⏰ Workout Reminder', value: `**${userData.notify.timeRaw}** on **${userData.notify.days}** *(fires at ${userData.notify.timeUtc} UTC)*`, inline: false });
+                        fields.push({ name: '⏰ Reminder', value: `**${userData.notify.timeRaw}** on **${userData.notify.days}** *(fires at ${userData.notify.timeUtc} UTC)*`, inline: false });
                     }
                     fields.push({
                         name: '📋 Last 5 Workouts',

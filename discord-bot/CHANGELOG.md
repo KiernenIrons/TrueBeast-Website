@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-06-07] — Make reminder DM generic
+
+- Removed all workout-specific wording from the reminder DM — title changed from "Time to Work Out!" to "Reminder!", body no longer references workouts or #tracking
+- "⏰ Workout Reminder" field label in `/fitness progress` renamed to "⏰ Reminder"
+- Log lines and error messages updated to match
+
 ## [2026-06-05] — Rename /fitness notify to /reminder; add configurable stream schedule
 
 - `/fitness notify` removed as a subcommand; replaced by top-level `/reminder` command with identical options (hour, minute, period, timezone, days)
