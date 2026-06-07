@@ -71,7 +71,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📸 Instagram link previews', value: 'Instagram posts and reels now show a full embed preview when shared in the server — no more plain links with nothing to look at.' },
+    { name: '🔧 Maintenance', value: 'Internal improvements and stability fixes.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -10209,18 +10209,6 @@ client.on('messageCreate', async (message) => {
                 user: message.author,
                 description: `📨 <@${message.author.id}> **posted an invite link** in <#${message.channelId}>\n\`${inviteMatches[0]}\``,
             }));
-        }
-    }
-
-    // ── Instagram embed fix ───────────────────────────────────────────────────
-    // Instagram blocks Discord's scraper so links show no preview. ddinstagram.com
-    // mirrors the content with proper Open Graph tags that Discord can embed.
-    if (message.guild && !message.author.bot) {
-        const igRegex = /https?:\/\/(?:www\.)?instagram\.com\/(?:p|reel|reels|tv)\/([\w-]+)\/?[^\s]*/gi;
-        const igMatches = [...message.content.matchAll(igRegex)];
-        if (igMatches.length > 0) {
-            const fixedUrls = igMatches.map(m => m[0].replace('instagram.com', 'ddinstagram.com'));
-            await message.reply({ content: fixedUrls.join('\n'), allowedMentions: { repliedUser: false } });
         }
     }
 

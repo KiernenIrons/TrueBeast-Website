@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-06-07] — Revert Instagram embed fix
+
+- Removed Instagram URL → ddinstagram.com proxy reply; proxy services proved unreliable and Discord did not render previews
+
 ## [2026-06-07] — Add Instagram embed fix
 
 - Detect Instagram post/reel URLs (`/p/`, `/reel/`, `/reels/`, `/tv/`) in any guild message
