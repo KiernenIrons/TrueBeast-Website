@@ -1,5 +1,21 @@
 # Beast Bot Changelog
 
+## [2026-06-07] — Expand verbose logging coverage
+
+- Added `GuildWebhooks`, `GuildInvites`, `GuildIntegrations` intents
+- `guildMemberUpdate`: log server boost start (💎) and boost end (💔)
+- `voiceStateUpdate`: log server mute/unmute and server deafen/undeafen by mods
+- `roleUpdate`: now diffs permissions bitfield (added/removed), hoist, and mentionable changes
+- `channelUpdate`: now diffs NSFW toggle, slowmode, bitrate, user limit, and permission overwrite adds/changes/removes
+- `guildUpdate`: now diffs verificationLevel, explicitContentFilter, defaultMessageNotifications, afkChannel, systemChannel, afkTimeout
+- `messageDeleteBulk`: log bulk purges with count and executor
+- `threadCreate/Update/Delete`: log thread lifecycle (archive, lock, name, delete)
+- `webhooksUpdate`: log when a channel's webhooks are modified (fixed event name — was `webhookUpdate` which never fired)
+- `inviteCreate/Delete`: log invite creation (code, channel, max uses, expiry) and deletion
+- `stickerCreate/Update/Delete`: log sticker lifecycle
+- `guildScheduledEventCreate/Update/Delete`: log scheduled event lifecycle
+- `integrationCreate/Delete`: log bots/apps being added or removed from the server
+
 ## [2026-06-07] — Revert Instagram embed fix
 
 - Removed Instagram URL → ddinstagram.com proxy reply; proxy services proved unreliable and Discord did not render previews

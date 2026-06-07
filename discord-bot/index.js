@@ -71,7 +71,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔧 Maintenance', value: 'Internal improvements and stability fixes.' },
+    { name: '📋 Verbose logging', value: 'The logs channel now captures a lot more: server boosts, bulk deletes, threads, webhooks, invites, stickers, scheduled events, bot additions, role permission changes, channel permission overrides, server setting changes, and more.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -776,6 +776,9 @@ const client = new Client({
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.GuildModeration,
         GatewayIntentBits.GuildEmojisAndStickers,
+        GatewayIntentBits.GuildWebhooks,
+        GatewayIntentBits.GuildInvites,
+        GatewayIntentBits.GuildIntegrations,
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
@@ -2730,6 +2733,21 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             fields,
         }));
     }
+
+    // Boost started / ended
+    const wasBoosting = !!oldMember.premiumSinceTimestamp;
+    const isBoosting  = !!newMember.premiumSinceTimestamp;
+    if (!wasBoosting && isBoosting) {
+        await sendLog(newMember.guild, buildLogEmbed({
+            color: 0xf47fff, user,
+            description: `💎 <@${user.id}> **started boosting the server!**`,
+        }));
+    } else if (wasBoosting && !isBoosting) {
+        await sendLog(newMember.guild, buildLogEmbed({
+            color: LOG_COLORS.leave, user,
+            description: `💔 <@${user.id}> **stopped boosting the server**`,
+        }));
+    }
 });
 
 client.on('voiceStateUpdate', async (oldState, newState) => {
@@ -2746,6 +2764,28 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         if (m && !m.user.bot && newCh) {
             const chType = (newState.channel || oldState.channel)?.type;
             voiceEnhancements.set(m.id, { camera: newState.selfVideo || false, stream: newState.selfStream || false, inStage: chType === ChannelType.GuildStageVoice });
+            if (oldState.serverMute !== newState.serverMute) {
+                const entry = await getAuditEntry(newState.guild, AuditLogEvent.MemberUpdate, m.id, 5000);
+                await sendLog(newState.guild, buildLogEmbed({
+                    color: newState.serverMute ? LOG_COLORS.mute : LOG_COLORS.join,
+                    user: m.user,
+                    description: newState.serverMute
+                        ? `🔇 <@${m.id}> was **server muted** in \`${newState.channel.name}\``
+                        : `🔊 <@${m.id}> was **server unmuted** in \`${newState.channel.name}\``,
+                    footerExtra: entry ? `By: ${entry.executor?.username || 'Unknown'}` : '',
+                }));
+            }
+            if (oldState.serverDeaf !== newState.serverDeaf) {
+                const entry = await getAuditEntry(newState.guild, AuditLogEvent.MemberUpdate, m.id, 5000);
+                await sendLog(newState.guild, buildLogEmbed({
+                    color: newState.serverDeaf ? LOG_COLORS.mute : LOG_COLORS.join,
+                    user: m.user,
+                    description: newState.serverDeaf
+                        ? `🙉 <@${m.id}> was **server deafened** in \`${newState.channel.name}\``
+                        : `🔈 <@${m.id}> was **server undeafened** in \`${newState.channel.name}\``,
+                    footerExtra: entry ? `By: ${entry.executor?.username || 'Unknown'}` : '',
+                }));
+            }
         }
         return;
     }
@@ -10537,6 +10577,20 @@ client.on('messageReactionRemove', async (reaction, user) => {
 
 // ── Message delete / edit ─────────────────────────────────────────────────────
 
+// ── Bulk message delete (purge) ───────────────────────────────────────────────
+client.on('messageDeleteBulk', async (messages, channel) => {
+    if (!channel.guild) return;
+    await new Promise(r => setTimeout(r, 500));
+    const entry = await getAuditEntry(channel.guild, AuditLogEvent.MessageBulkDelete, channel.id, 6000);
+    await sendLog(channel.guild, {
+        color: LOG_COLORS.delete,
+        description: `🗑️ **${messages.size} messages were bulk deleted** in <#${channel.id}>`,
+        fields: entry ? [{ name: 'Deleted by', value: entry.executor?.username || 'Unknown', inline: true }] : [],
+        timestamp: new Date().toISOString(),
+        footer: { text: `Channel: #${channel.name}` },
+    });
+});
+
 client.on('messageDelete', async (message) => {
     // Counting channel: if current count deleted, step back
     if (message.channelId === COUNTING_CHANNEL_ID && !message.partial) {
@@ -10700,6 +10754,16 @@ client.on('roleUpdate', async (oldRole, newRole) => {
     const changes = [];
     if (oldRole.name !== newRole.name) changes.push({ name: 'Name', value: `${oldRole.name} → ${newRole.name}` });
     if (oldRole.color !== newRole.color) changes.push({ name: 'Color', value: `#${oldRole.color.toString(16).padStart(6,'0')} → #${newRole.color.toString(16).padStart(6,'0')}` });
+    if (oldRole.hoist !== newRole.hoist) changes.push({ name: 'Hoisted', value: `${oldRole.hoist} → ${newRole.hoist}` });
+    if (oldRole.mentionable !== newRole.mentionable) changes.push({ name: 'Mentionable', value: `${oldRole.mentionable} → ${newRole.mentionable}` });
+    if (oldRole.permissions.bitfield !== newRole.permissions.bitfield) {
+        const added   = newRole.permissions.remove(oldRole.permissions).toArray();
+        const removed = oldRole.permissions.remove(newRole.permissions).toArray();
+        const parts = [];
+        if (added.length)   parts.push(`Added: ${added.join(', ')}`);
+        if (removed.length) parts.push(`Removed: ${removed.join(', ')}`);
+        if (parts.length) changes.push({ name: 'Permissions', value: parts.join('\n').slice(0, 1024) });
+    }
     if (!changes.length) return;
     const entry = await getAuditEntry(newRole.guild, AuditLogEvent.RoleUpdate, newRole.id, 8000);
     await sendLog(newRole.guild, {
@@ -10742,7 +10806,24 @@ client.on('channelUpdate', async (oldChannel, newChannel) => {
     if (!newChannel.guild) return;
     const changes = [];
     if (oldChannel.name !== newChannel.name) changes.push({ name: 'Name', value: `${oldChannel.name} → ${newChannel.name}` });
-    if (oldChannel.topic !== newChannel.topic) changes.push({ name: 'Topic', value: `${oldChannel.topic || 'none'} → ${newChannel.topic || 'none'}` });
+    if (oldChannel.topic !== newChannel.topic) changes.push({ name: 'Topic', value: `${(oldChannel.topic || 'none').slice(0,200)} → ${(newChannel.topic || 'none').slice(0,200)}` });
+    if (oldChannel.nsfw !== newChannel.nsfw) changes.push({ name: 'NSFW', value: `${oldChannel.nsfw} → ${newChannel.nsfw}` });
+    if (oldChannel.rateLimitPerUser !== newChannel.rateLimitPerUser) changes.push({ name: 'Slowmode', value: `${oldChannel.rateLimitPerUser ?? 0}s → ${newChannel.rateLimitPerUser ?? 0}s` });
+    if (oldChannel.bitrate !== newChannel.bitrate) changes.push({ name: 'Bitrate', value: `${oldChannel.bitrate} → ${newChannel.bitrate}` });
+    if (oldChannel.userLimit !== newChannel.userLimit) changes.push({ name: 'User Limit', value: `${oldChannel.userLimit ?? 0} → ${newChannel.userLimit ?? 0}` });
+    const oldPerms = oldChannel.permissionOverwrites?.cache;
+    const newPerms = newChannel.permissionOverwrites?.cache;
+    if (oldPerms && newPerms) {
+        const allIds = new Set([...oldPerms.keys(), ...newPerms.keys()]);
+        for (const id of allIds) {
+            const oldO = oldPerms.get(id);
+            const newO = newPerms.get(id);
+            const label = newChannel.guild?.roles.cache.get(id)?.name || newChannel.guild?.members.cache.get(id)?.displayName || id;
+            if (!oldO && newO) changes.push({ name: 'Perms Added', value: `Overwrite added for **${label}**` });
+            else if (oldO && !newO) changes.push({ name: 'Perms Removed', value: `Overwrite removed for **${label}**` });
+            else if (oldO && newO && (oldO.allow.bitfield !== newO.allow.bitfield || oldO.deny.bitfield !== newO.deny.bitfield)) changes.push({ name: 'Perms Changed', value: `Overwrite updated for **${label}**` });
+        }
+    }
     if (!changes.length) return;
     const entry = await getAuditEntry(newChannel.guild, AuditLogEvent.ChannelUpdate, newChannel.id, 8000);
     await sendLog(newChannel.guild, {
@@ -10763,6 +10844,50 @@ client.on('channelDelete', async (channel) => {
         fields: [{ name: 'Category', value: channel.parent?.name || 'None', inline: true }],
         timestamp: new Date().toISOString(),
         footer: entry ? { text: `Deleted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+// ── Thread events ─────────────────────────────────────────────────────────────
+
+client.on('threadCreate', async (thread) => {
+    if (!thread.guild) return;
+    await sendLog(thread.guild, {
+        color: LOG_COLORS.info,
+        description: `🧵 Thread **${thread.name}** was **created** in <#${thread.parentId}>`,
+        fields: [
+            { name: 'Type', value: thread.type.toString(), inline: true },
+            { name: 'Auto-Archive', value: `${thread.autoArchiveDuration}m`, inline: true },
+        ],
+        timestamp: new Date().toISOString(),
+        footer: { text: `Thread ID: ${thread.id}` },
+    });
+});
+
+client.on('threadDelete', async (thread) => {
+    if (!thread.guild) return;
+    await sendLog(thread.guild, {
+        color: LOG_COLORS.delete,
+        description: `🧵 Thread **${thread.name}** was **deleted** (was in <#${thread.parentId}>)`,
+        timestamp: new Date().toISOString(),
+        footer: { text: `Thread ID: ${thread.id}` },
+    });
+});
+
+client.on('threadUpdate', async (oldThread, newThread) => {
+    if (!newThread.guild) return;
+    const changes = [];
+    if (oldThread.name !== newThread.name) changes.push({ name: 'Name', value: `${oldThread.name} → ${newThread.name}`, inline: true });
+    if (!oldThread.archived && newThread.archived) changes.push({ name: 'Archived', value: 'Thread was archived', inline: true });
+    if (oldThread.archived && !newThread.archived) changes.push({ name: 'Unarchived', value: 'Thread was unarchived', inline: true });
+    if (!oldThread.locked && newThread.locked) changes.push({ name: 'Locked', value: 'Thread was locked', inline: true });
+    if (oldThread.locked && !newThread.locked) changes.push({ name: 'Unlocked', value: 'Thread was unlocked', inline: true });
+    if (!changes.length) return;
+    await sendLog(newThread.guild, {
+        color: LOG_COLORS.info,
+        description: `🧵 Thread **${newThread.name}** was **updated**`,
+        fields: changes,
+        timestamp: new Date().toISOString(),
+        footer: { text: `Thread ID: ${newThread.id}` },
     });
 });
 
@@ -10801,6 +10926,44 @@ client.on('emojiDelete', async (emoji) => {
     });
 });
 
+// ── Sticker events ────────────────────────────────────────────────────────────
+
+client.on('stickerCreate', async (sticker) => {
+    const entry = await getAuditEntry(sticker.guild, AuditLogEvent.StickerCreate, sticker.id, 8000);
+    await sendLog(sticker.guild, {
+        color: LOG_COLORS.server,
+        description: `🎫 Sticker **${sticker.name}** was **added**`,
+        thumbnail: sticker.url ? { url: sticker.url } : undefined,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Added by: ${entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('stickerUpdate', async (oldSticker, newSticker) => {
+    if (oldSticker.name === newSticker.name && oldSticker.description === newSticker.description) return;
+    const entry = await getAuditEntry(newSticker.guild, AuditLogEvent.StickerUpdate, newSticker.id, 8000);
+    const changes = [];
+    if (oldSticker.name !== newSticker.name) changes.push({ name: 'Name', value: `${oldSticker.name} → ${newSticker.name}`, inline: true });
+    if (oldSticker.description !== newSticker.description) changes.push({ name: 'Description', value: `${oldSticker.description || 'none'} → ${newSticker.description || 'none'}`, inline: true });
+    await sendLog(newSticker.guild, {
+        color: LOG_COLORS.server,
+        description: `🎫 Sticker **${newSticker.name}** was **updated**`,
+        fields: changes,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Updated by: ${entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+client.on('stickerDelete', async (sticker) => {
+    const entry = await getAuditEntry(sticker.guild, AuditLogEvent.StickerDelete, sticker.id, 8000);
+    await sendLog(sticker.guild, {
+        color: LOG_COLORS.server,
+        description: `🎫 Sticker **${sticker.name}** was **removed**`,
+        timestamp: new Date().toISOString(),
+        footer: entry ? { text: `Removed by: ${entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
 // ── Server update ─────────────────────────────────────────────────────────────
 
 client.on('guildUpdate', async (oldGuild, newGuild) => {
@@ -10808,6 +10971,12 @@ client.on('guildUpdate', async (oldGuild, newGuild) => {
     if (oldGuild.name !== newGuild.name) changes.push({ name: 'Name', value: `${oldGuild.name} → ${newGuild.name}` });
     if (oldGuild.icon !== newGuild.icon) changes.push({ name: 'Icon', value: 'Icon was updated' });
     if (oldGuild.description !== newGuild.description) changes.push({ name: 'Description', value: `${oldGuild.description || 'none'} → ${newGuild.description || 'none'}` });
+    if (oldGuild.verificationLevel !== newGuild.verificationLevel) changes.push({ name: 'Verification Level', value: `${oldGuild.verificationLevel} → ${newGuild.verificationLevel}` });
+    if (oldGuild.explicitContentFilter !== newGuild.explicitContentFilter) changes.push({ name: 'Content Filter', value: `${oldGuild.explicitContentFilter} → ${newGuild.explicitContentFilter}` });
+    if (oldGuild.defaultMessageNotifications !== newGuild.defaultMessageNotifications) changes.push({ name: 'Default Notifications', value: `${oldGuild.defaultMessageNotifications} → ${newGuild.defaultMessageNotifications}` });
+    if (oldGuild.afkChannelId !== newGuild.afkChannelId) changes.push({ name: 'AFK Channel', value: `${oldGuild.afkChannelId || 'none'} → ${newGuild.afkChannelId || 'none'}` });
+    if (oldGuild.systemChannelId !== newGuild.systemChannelId) changes.push({ name: 'System Channel', value: `${oldGuild.systemChannelId || 'none'} → ${newGuild.systemChannelId || 'none'}` });
+    if (oldGuild.afkTimeout !== newGuild.afkTimeout) changes.push({ name: 'AFK Timeout', value: `${oldGuild.afkTimeout}s → ${newGuild.afkTimeout}s` });
     if (!changes.length) return;
     const entry = await getAuditEntry(newGuild, AuditLogEvent.GuildUpdate, null, 8000);
     await sendLog(newGuild, {
@@ -10816,6 +10985,102 @@ client.on('guildUpdate', async (oldGuild, newGuild) => {
         fields: changes,
         timestamp: new Date().toISOString(),
         footer: entry ? { text: `Updated by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+    });
+});
+
+// ── Webhook updates ───────────────────────────────────────────────────────────
+
+client.on('webhooksUpdate', async (channel) => {
+    if (!channel.guild) return;
+    await sendLog(channel.guild, {
+        color: LOG_COLORS.warn,
+        description: `🔗 **Webhooks were updated** in <#${channel.id}>`,
+        timestamp: new Date().toISOString(),
+        footer: { text: `Channel: #${channel.name}` },
+    });
+});
+
+// ── Invite events ─────────────────────────────────────────────────────────────
+
+client.on('inviteCreate', async (invite) => {
+    if (!invite.guild) return;
+    const fields = [
+        { name: 'Code', value: invite.code, inline: true },
+        { name: 'Channel', value: `<#${invite.channelId}>`, inline: true },
+        { name: 'Max Uses', value: invite.maxUses ? invite.maxUses.toString() : '∞', inline: true },
+    ];
+    if (invite.maxAge) fields.push({ name: 'Expires', value: `${invite.maxAge / 3600}h`, inline: true });
+    await sendLog(invite.guild, buildLogEmbed({
+        color: LOG_COLORS.info,
+        user: invite.inviter,
+        description: `✉️ <@${invite.inviter?.id}> **created an invite** \`${invite.code}\``,
+        fields,
+    }));
+});
+
+client.on('inviteDelete', async (invite) => {
+    if (!invite.guild) return;
+    await sendLog(invite.guild, {
+        color: LOG_COLORS.leave,
+        description: `✉️ Invite \`${invite.code}\` was **deleted** (pointed to <#${invite.channelId}>)`,
+        timestamp: new Date().toISOString(),
+    });
+});
+
+// ── Scheduled event events ────────────────────────────────────────────────────
+
+client.on('guildScheduledEventCreate', async (event) => {
+    await sendLog(event.guild, {
+        color: LOG_COLORS.server,
+        description: `📅 Scheduled event **${event.name}** was **created**`,
+        fields: [
+            { name: 'Starts', value: event.scheduledStartAt ? `<t:${Math.floor(event.scheduledStartAt.getTime()/1000)}:F>` : 'Unknown', inline: true },
+            { name: 'Location', value: event.entityMetadata?.location || event.channel?.name || 'Unknown', inline: true },
+        ],
+        timestamp: new Date().toISOString(),
+        footer: event.creator ? { text: `Created by: ${event.creator.username}` } : undefined,
+    });
+});
+
+client.on('guildScheduledEventUpdate', async (oldEvent, newEvent) => {
+    if (!newEvent) return;
+    const changes = [];
+    if (oldEvent?.name !== newEvent.name) changes.push({ name: 'Name', value: `${oldEvent?.name} → ${newEvent.name}`, inline: true });
+    if (oldEvent?.status !== newEvent.status) changes.push({ name: 'Status', value: `${oldEvent?.status} → ${newEvent.status}`, inline: true });
+    if (!changes.length) return;
+    await sendLog(newEvent.guild, {
+        color: LOG_COLORS.server,
+        description: `📅 Scheduled event **${newEvent.name}** was **updated**`,
+        fields: changes,
+        timestamp: new Date().toISOString(),
+    });
+});
+
+client.on('guildScheduledEventDelete', async (event) => {
+    await sendLog(event.guild, {
+        color: LOG_COLORS.delete,
+        description: `📅 Scheduled event **${event.name}** was **deleted**`,
+        timestamp: new Date().toISOString(),
+    });
+});
+
+// ── Integration events (bots added/removed) ───────────────────────────────────
+
+client.on('integrationCreate', async (integration) => {
+    await sendLog(integration.guild, {
+        color: LOG_COLORS.warn,
+        description: `🤖 Integration **${integration.name}** was **added** (${integration.type})`,
+        timestamp: new Date().toISOString(),
+        footer: integration.user ? { text: `Added by: ${integration.user.username}` } : undefined,
+    });
+});
+
+client.on('integrationDelete', async (integration) => {
+    await sendLog(integration.guild, {
+        color: LOG_COLORS.delete,
+        description: `🤖 Integration **${integration.name}** was **removed** (${integration.type})`,
+        timestamp: new Date().toISOString(),
+        footer: integration.user ? { text: `Removed by: ${integration.user.username}` } : undefined,
     });
 });
 
