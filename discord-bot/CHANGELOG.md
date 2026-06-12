@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-06-12] — Overhaul Beast Bot personality and role awareness
+
+- Replaced friendly/casual system prompt with a rude-by-default personality — opens most responses with a dismissive or insulting comment
+- Added hard refusal for cringe/manipulation attempts (animal sounds, DAN prompts, roleplay, jailbreak framing) — no explanation given, just ignored
+- Added non-negotiable views on gender (two genders only) — bot dismisses and drops the topic when challenged
+- Roast-style humour now targets the person asking rather than generic jokes
+- Owner (Kiernen Irons) retains fully friendly exception treatment
+- Added `serverRoles` to `buildUserContext` — bot now sees a member's Discord roles sorted by position
+- System prompt updated to use role info for contextual awareness (Mod/Admin vs regular member)
+- Removed unprompted stat injection — bot no longer weaves in message counts, voice time, join date unless directly relevant
+
 ## [2026-06-07] — Expand verbose logging coverage
 
 - Added `GuildWebhooks`, `GuildInvites`, `GuildIntegrations` intents
