@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-06-15] — Fix /purge-app to support webhook-sent spam messages
+
+- `/purge-app` now accepts an optional `name` param (display name match, case-insensitive) in addition to `app_id` — fixes the case where a spam app posted via webhook (webhook author IDs differ from the app's actual user ID)
+- `app_id` and `name` are mutually exclusive; the command errors if neither is provided
+
 ## [2026-06-15] — Add /purge-app and /kick-app commands for external app incidents
 
 - Added `/purge-app <app_id>` — owner-only command that scans all accessible text channels and bulk-deletes messages from a given bot/app User ID (up to 500 messages per channel, skips messages older than 14 days per Discord's bulk-delete limit)

@@ -71,8 +71,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🧹 /purge-app', value: 'New owner-only command. Give it a bot/app\'s User ID and it wipes all their messages from every channel in the server (up to 500 per channel).' },
-    { name: '🚫 /kick-app', value: 'New owner-only command. Kicks any bot or external application out of the server by their User ID. Both actions are logged.' },
+    { name: '🧹 /purge-app (fix)', value: 'Now supports purging by display name (`name` option) in addition to User ID. Fixes cases where a spam app sent messages through a webhook instead of directly.' },
+    { name: '🚫 /kick-app', value: 'Owner-only. Kicks any bot or external application from the server by User ID. Logged to mod log.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -4934,7 +4934,8 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('purge-app')
                 .setDescription('(Owner only) Delete all recent messages from a bot/app across every channel')
-                .addStringOption(opt => opt.setName('app_id').setDescription('User/App ID of the bot to purge').setRequired(true)),
+                .addStringOption(opt => opt.setName('app_id').setDescription('User/App ID of the bot to purge (use this OR name, not both)').setRequired(false))
+                .addStringOption(opt => opt.setName('name').setDescription('Display name of the app/webhook author to purge (case-insensitive)').setRequired(false)),
             new SlashCommandBuilder()
                 .setName('kick-app')
                 .setDescription('(Owner only) Kick a bot/app from the server')
@@ -8353,8 +8354,14 @@ client.on('interactionCreate', async (interaction) => {
         // ── /purge-app ────────────────────────────────────────────────────────
         if (interaction.commandName === 'purge-app') {
             if (interaction.user.id !== OWNER_DISCORD_ID) { await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return; }
-            const appId = interaction.options.getString('app_id').trim();
+            const appId = interaction.options.getString('app_id')?.trim() || null;
+            const appName = interaction.options.getString('name')?.trim().toLowerCase() || null;
+            if (!appId && !appName) { await interaction.reply({ content: '❌ Provide either `app_id` or `name`.', flags: 64 }); return; }
             await interaction.deferReply({ flags: 64 });
+            const matchMsg = appId
+                ? (m) => m.author.id === appId
+                : (m) => m.author.username.toLowerCase() === appName;
+            const label = appId ? `\`${appId}\`` : `"${appName}"`;
             const textChannels = interaction.guild.channels.cache.filter(c => c.isTextBased() && c.viewable && c.permissionsFor(interaction.guild.members.me).has('ManageMessages'));
             let totalDeleted = 0;
             let channelCount = 0;
@@ -8369,7 +8376,7 @@ client.on('interactionCreate', async (interaction) => {
                         const msgs = await ch.messages.fetch(opts);
                         if (!msgs.size) break;
                         lastId = msgs.last().id;
-                        const toDelete = msgs.filter(m => m.author.id === appId);
+                        const toDelete = msgs.filter(matchMsg);
                         if (toDelete.size === 0) { if (msgs.size < 100) break; continue; }
                         if (toDelete.size === 1) {
                             await toDelete.first().delete().catch(() => {});
@@ -8385,11 +8392,11 @@ client.on('interactionCreate', async (interaction) => {
             }
             await sendLog(interaction.guild, {
                 color: LOG_COLORS.delete,
-                description: `🧹 **Purge App** — deleted **${totalDeleted}** messages from app \`${appId}\` across **${channelCount}** channel(s)`,
+                description: `🧹 **Purge App** — deleted **${totalDeleted}** messages from ${label} across **${channelCount}** channel(s)`,
                 timestamp: new Date().toISOString(),
                 footer: { text: `By: ${interaction.user.tag || interaction.user.username}` },
             });
-            await interaction.editReply(`✅ Deleted **${totalDeleted}** message(s) from app \`${appId}\` across **${channelCount}** channel(s). Logged in <#${LOG_CHANNEL_ID}>.`);
+            await interaction.editReply(`✅ Deleted **${totalDeleted}** message(s) from ${label} across **${channelCount}** channel(s). Logged in <#${LOG_CHANNEL_ID}>.`);
             return;
         }
 
