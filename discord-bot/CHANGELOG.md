@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-06-15] — Add /purge-app and /kick-app commands for external app incidents
+
+- Added `/purge-app <app_id>` — owner-only command that scans all accessible text channels and bulk-deletes messages from a given bot/app User ID (up to 500 messages per channel, skips messages older than 14 days per Discord's bulk-delete limit)
+- Added `/kick-app <app_id>` — owner-only command that fetches and kicks any bot or external application from the server by User ID
+- Both commands are gated behind `OWNER_DISCORD_ID` and log their actions to the mod log channel
+
 ## [2026-06-12] — Overhaul Beast Bot personality and role awareness
 
 - Replaced friendly/casual system prompt with a rude-by-default personality — opens most responses with a dismissive or insulting comment

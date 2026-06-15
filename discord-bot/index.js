@@ -71,9 +71,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '😤 New personality', value: 'Beast Bot has been completely repersonality-ed. Rude by default, dismissive of nonsense, won\'t be manipulated into cringe, and knows when to shut something down.' },
-    { name: '🏷️ Role awareness', value: 'The bot can now see your server roles (Mod, Admin, VIP, etc.) and factors that in when responding.' },
-    { name: '📊 Less stat-spamming', value: 'The bot will no longer randomly bring up your message count, voice time, or how long you\'ve been in the server unprompted.' },
+    { name: '🧹 /purge-app', value: 'New owner-only command. Give it a bot/app\'s User ID and it wipes all their messages from every channel in the server (up to 500 per channel).' },
+    { name: '🚫 /kick-app', value: 'New owner-only command. Kicks any bot or external application out of the server by their User ID. Both actions are logged.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -4933,6 +4932,14 @@ client.once('clientReady', async () => {
                 .addIntegerOption(opt => opt.setName('amount').setDescription('Number of messages to delete (1-100)').setRequired(true).setMinValue(1).setMaxValue(100))
                 .addChannelOption(opt => opt.setName('channel').setDescription('Channel to clear (defaults to current)')),
             new SlashCommandBuilder()
+                .setName('purge-app')
+                .setDescription('(Owner only) Delete all recent messages from a bot/app across every channel')
+                .addStringOption(opt => opt.setName('app_id').setDescription('User/App ID of the bot to purge').setRequired(true)),
+            new SlashCommandBuilder()
+                .setName('kick-app')
+                .setDescription('(Owner only) Kick a bot/app from the server')
+                .addStringOption(opt => opt.setName('app_id').setDescription('User/App ID of the bot to kick').setRequired(true)),
+            new SlashCommandBuilder()
                 .setName('slowmode')
                 .setDescription('Set slowmode in a channel (0 = disable)')
                 .addIntegerOption(opt => opt.setName('seconds').setDescription('Seconds between messages (0-21600)').setRequired(true).setMinValue(0).setMaxValue(21600))
@@ -8340,6 +8347,70 @@ client.on('interactionCreate', async (interaction) => {
                 });
                 await interaction.editReply(`✅ Deleted **${deleted.size}** messages. Action logged in <#${LOG_CHANNEL_ID}>.`);
             } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+            return;
+        }
+
+        // ── /purge-app ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'purge-app') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) { await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return; }
+            const appId = interaction.options.getString('app_id').trim();
+            await interaction.deferReply({ flags: 64 });
+            const textChannels = interaction.guild.channels.cache.filter(c => c.isTextBased() && c.viewable && c.permissionsFor(interaction.guild.members.me).has('ManageMessages'));
+            let totalDeleted = 0;
+            let channelCount = 0;
+            for (const [, ch] of textChannels) {
+                try {
+                    let lastId;
+                    let channelDeleted = 0;
+                    // Fetch up to 500 messages per channel (Discord bulk delete limit: messages < 14 days old)
+                    for (let i = 0; i < 5; i++) {
+                        const opts = { limit: 100 };
+                        if (lastId) opts.before = lastId;
+                        const msgs = await ch.messages.fetch(opts);
+                        if (!msgs.size) break;
+                        lastId = msgs.last().id;
+                        const toDelete = msgs.filter(m => m.author.id === appId);
+                        if (toDelete.size === 0) { if (msgs.size < 100) break; continue; }
+                        if (toDelete.size === 1) {
+                            await toDelete.first().delete().catch(() => {});
+                            channelDeleted++;
+                        } else {
+                            const bulk = await ch.bulkDelete(toDelete, true).catch(() => null);
+                            channelDeleted += bulk ? bulk.size : 0;
+                        }
+                        if (msgs.size < 100) break;
+                    }
+                    if (channelDeleted > 0) { totalDeleted += channelDeleted; channelCount++; }
+                } catch (_) {}
+            }
+            await sendLog(interaction.guild, {
+                color: LOG_COLORS.delete,
+                description: `🧹 **Purge App** — deleted **${totalDeleted}** messages from app \`${appId}\` across **${channelCount}** channel(s)`,
+                timestamp: new Date().toISOString(),
+                footer: { text: `By: ${interaction.user.tag || interaction.user.username}` },
+            });
+            await interaction.editReply(`✅ Deleted **${totalDeleted}** message(s) from app \`${appId}\` across **${channelCount}** channel(s). Logged in <#${LOG_CHANNEL_ID}>.`);
+            return;
+        }
+
+        // ── /kick-app ─────────────────────────────────────────────────────────
+        if (interaction.commandName === 'kick-app') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) { await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return; }
+            const appId = interaction.options.getString('app_id').trim();
+            await interaction.deferReply({ flags: 64 });
+            try {
+                const member = await interaction.guild.members.fetch(appId).catch(() => null);
+                if (!member) { await interaction.editReply(`❌ No member/bot found with ID \`${appId}\`. Make sure you're using their User ID.`); return; }
+                const appName = member.user.username;
+                await member.kick('Removed by server owner via /kick-app');
+                await sendLog(interaction.guild, {
+                    color: LOG_COLORS.kick,
+                    description: `🚫 **App kicked** — **${appName}** (\`${appId}\`) removed from the server`,
+                    timestamp: new Date().toISOString(),
+                    footer: { text: `By: ${interaction.user.tag || interaction.user.username}` },
+                });
+                await interaction.editReply(`✅ **${appName}** (\`${appId}\`) has been kicked from the server. Logged in <#${LOG_CHANNEL_ID}>.`);
+            } catch (e) { await interaction.editReply(`❌ Failed to kick app: ${e.message}`); }
             return;
         }
 
