@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-06-17] — Fix raw JSON leaking to Discord on long responses
+
+- Bumped `max_tokens` from 700 → 1024 to reduce truncation frequency
+- Added two-stage regex salvage in `askClaude` catch block: first tries to extract a complete `response` field, then falls back to a partial (truncated) string rather than sending raw JSON or nothing
+- Final fallback now returns a clean error string instead of the raw Claude output
+
 ## [2026-06-17] — Revert to friendly personality, suppress unprompted stat readouts
 
 - Removed rude/dismissive personality from system prompt — restored friendly, casual, cheeky tone

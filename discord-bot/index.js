@@ -71,8 +71,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '😊 Personality reset', value: 'Beast Bot is friendly and welcoming again. The rude personality has been removed.' },
-    { name: '🔇 No more stat spam', value: 'The bot will no longer randomly bring up your message count, voice time, XP, rank, or join date. It still knows them — it just won\'t volunteer them.' },
+    { name: '🐛 Raw JSON bug fix', value: 'Fixed a rare bug where Beast Bot would send a raw JSON object instead of a normal message when its response was very long.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -679,7 +678,7 @@ async function askClaude(question, knowledge, discordContext, steamContext, hist
         },
         body: JSON.stringify({
             model: 'claude-haiku-4-5-20251001',
-            max_tokens: 700,
+            max_tokens: 1024,
             system: SYSTEM_PROMPT,
             messages,
         }),
@@ -703,8 +702,23 @@ async function askClaude(question, knowledge, discordContext, steamContext, hist
             response:      parsed.response || 'Sorry, I couldn\'t generate a response.',
         };
     } catch (e) {
-        console.warn('[BeastBot] Claude returned non-JSON, falling back. Raw:', text.slice(0, 200));
-        return { known: true, inappropriate: false, response: text || 'Sorry, I couldn\'t generate a response.' };
+        // JSON parse failed — usually because max_tokens truncated the output mid-string.
+        // Try to salvage the response field via regex before giving up.
+        const fullMatch = text.match(/"response"\s*:\s*"((?:[^"\\]|\\.)*)"/s);
+        if (fullMatch) {
+            const salvaged = fullMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+            console.warn('[BeastBot] Malformed JSON — salvaged complete response field');
+            return { known: true, inappropriate: false, response: salvaged };
+        }
+        // JSON was truncated mid-string — take whatever text made it through
+        const partialMatch = text.match(/"response"\s*:\s*"([\s\S]+)/);
+        if (partialMatch) {
+            const partial = partialMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trimEnd();
+            console.warn('[BeastBot] Truncated JSON — using partial response');
+            return { known: true, inappropriate: false, response: partial };
+        }
+        console.warn('[BeastBot] Claude returned unparseable response. Raw:', text.slice(0, 200));
+        return { known: true, inappropriate: false, response: 'Sorry, I couldn\'t generate a response right now.' };
     }
 }
 
