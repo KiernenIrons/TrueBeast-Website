@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-06-17] — Revert to friendly personality, suppress unprompted stat readouts
+
+- Removed rude/dismissive personality from system prompt — restored friendly, casual, cheeky tone
+- Re-added full Personality and JOKES sections that were removed in previous update
+- Restored warm "unknown question" response wording and non-aggressive inappropriate message handling
+- Added explicit instruction to never volunteer member stats (message count, voice hours, XP, rank, join date) unprompted — bot still receives the data but must not surface it unless directly asked
+- Role awareness from previous update retained — bot still sees server roles (Mod, Admin, VIP, etc.)
+
 ## [2026-06-15] — Fix /purge-app to support webhook-sent spam messages
 
 - `/purge-app` now accepts an optional `name` param (display name match, case-insensitive) in addition to `app_id` — fixes the case where a spam app posted via webhook (webhook author IDs differ from the app's actual user ID)
