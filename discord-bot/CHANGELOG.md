@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-06-17] — Ping last bumper in Disboard bump reminder
+
+- Bot now tracks who last ran `/bump` via `message.interaction?.user` on Disboard's confirmation message
+- `lastBumperID` is persisted to Firestore (`botTimers/disboard`) alongside the timer's `fireAt`, so it survives restarts
+- Bump reminder message now includes a mention of the last bumper (e.g. `⏰ Time to bump! @User Run /bump...`)
+- Restored `lastBumperID` from Firestore on startup so the ping works even after a bot redeploy
+
 ## [2026-06-17] — Fix raw JSON leaking to Discord on long responses
 
 - Bumped `max_tokens` from 700 → 1024 to reduce truncation frequency

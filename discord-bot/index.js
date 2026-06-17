@@ -71,7 +71,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🐛 Raw JSON bug fix', value: 'Fixed a rare bug where Beast Bot would send a raw JSON object instead of a normal message when its response was very long.' },
+    { name: '✨ Bump reminder pings you', value: 'When the 2-hour Disboard bump reminder fires, the bot now pings whoever last bumped the server so the right person gets the nudge.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -821,6 +821,7 @@ const DISBOARD_BOT_ID    = '302050872383242240';
 const DISCADIA_BOT_ID    = '1222548162741538938';
 let bumpTimer     = null;
 let discadiaTimer = null;
+let lastBumperID  = null;
 
 // ── Temp Voice Channels ───────────────────────────────────────────────────────
 const TEMP_VC_TRIGGER_ID = '1484970124292128992';
@@ -991,16 +992,17 @@ const MSGS_TO_MIN = 1;
 //     console.log(`[BeastBot] Discadia bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
 // }
 
-function scheduleBumpReminder() {
+function scheduleBumpReminder(bumperId) {
+    if (bumperId) lastBumperID = bumperId;
     if (bumpTimer) clearTimeout(bumpTimer);
     const fireAt = Date.now() + BUMP_INTERVAL;
-    // Persist so it survives restarts
-    firestoreSet('botTimers', 'disboard', { fireAt, updatedAt: new Date().toISOString() });
+    firestoreSet('botTimers', 'disboard', { fireAt, bumperId: lastBumperID ?? null, updatedAt: new Date().toISOString() });
     bumpTimer = setTimeout(async () => {
         if (botFeatures.bumpReminders === false) { console.log('[BeastBot] Bump Reminders disabled — skipping'); return; }
         try {
             const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
-            await channel.send('⏰ Time to bump! Run `/bump` to keep the server visible on Disboard.');
+            const ping = lastBumperID ? ` <@${lastBumperID}>` : '';
+            await channel.send(`⏰ Time to bump!${ping} Run \`/bump\` to keep the server visible on Disboard.`);
             console.log('[BeastBot] 🔔 Sent Disboard bump reminder');
         } catch (e) {
             console.error('[BeastBot] Failed to send bump reminder:', e.message);
@@ -5148,12 +5150,14 @@ client.once('clientReady', async () => {
 
         if (disboardData && disboardData.fireAt > now) {
             const delay = disboardData.fireAt - now;
-            console.log(`[BeastBot] Restoring Disboard timer — fires in ${Math.round(delay / 60000)}m`);
+            if (disboardData.bumperId) lastBumperID = disboardData.bumperId;
+            console.log(`[BeastBot] Restoring Disboard timer — fires in ${Math.round(delay / 60000)}m (last bumper: ${lastBumperID ?? 'unknown'})`);
             if (bumpTimer) clearTimeout(bumpTimer);
             bumpTimer = setTimeout(async () => {
                 try {
                     const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
-                    await channel.send('⏰ Time to bump! Run `/bump` to keep the server visible on Disboard.');
+                    const ping = lastBumperID ? ` <@${lastBumperID}>` : '';
+                    await channel.send(`⏰ Time to bump!${ping} Run \`/bump\` to keep the server visible on Disboard.`);
                     console.log('[BeastBot] 🔔 Sent Disboard bump reminder');
                 } catch (e) { console.error('[BeastBot] Failed to send bump reminder:', e.message); }
             }, delay);
@@ -10323,8 +10327,9 @@ client.on('messageCreate', async (message) => {
             (e.description || '').toLowerCase().includes('bump done')
         );
         if (hasBumpDone) {
-            console.log('[BeastBot] Disboard bump detected — resetting 2h timer');
-            scheduleBumpReminder();
+            const bumper = message.interaction?.user;
+            console.log(`[BeastBot] Disboard bump detected by ${bumper?.tag ?? 'unknown'} — resetting 2h timer`);
+            scheduleBumpReminder(bumper?.id);
         }
         return;
     }
