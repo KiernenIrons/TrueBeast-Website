@@ -84,6 +84,7 @@ let botFeatures = {
     welcomeMessages:     true,
     imposterGame:        true,
     traitorsGame:        true,
+    escapeRoomGame:      true,
 };
 
 // ── Imposter Game ─────────────────────────────────────────────────────────────
@@ -247,6 +248,53 @@ const TRT_TEXT = {
     TRAITOR_WIN:     '🗡️ **THE TRAITORS WIN!** They now control the castle.',
     RESTART_NOTICE:  '⚠️ The Traitors game was interrupted by a bot restart. Any in-progress game has been lost. Run `/traitors start` to play again.',
 };
+
+// ── Escape Room Game ───────────────────────────────────────────────────────────
+const ESCAPE_CHANNEL_ID    = '1517318620395470969';
+const ESC_MAX_PLAYERS      = 10;
+const ESC_LOBBY_TIMEOUT_MS = 15 * 60 * 1000;
+const ESC_TIME_LIMIT_MS    = 25 * 60 * 1000;
+const ESC_ROOM_COUNT       = 4;
+
+const escapeGames      = new Map(); // channelId → GameState
+const escapePlayerMap  = new Map(); // userId → channelId
+const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: string|null } — routes ward-puzzle reactions
+
+const ESC_THEMES = [
+    { name: 'The Forgotten Library',     emoji: '📚', color: 0x6b4423, intro: 'Dust hangs thick in the air. The door behind you has sealed shut — the only way out is through.',  loot: ['a brass bookmark', 'a torn page', 'a wax-sealed letter', 'an old library card'] },
+    { name: "The Mad Alchemist's Lab",   emoji: '🧪', color: 0x22c55e, intro: 'Bubbling vials line the shelves. Something hisses behind a locked cabinet.',                        loot: ['a vial of green liquid', 'a singed lab notebook', 'a copper gear', 'a cracked beaker'] },
+    { name: 'The Sunken Pirate Ship',    emoji: '🏴‍☠️', color: 0x0ea5e9, intro: 'Water laps at your ankles. The ship groans — it will not hold forever.',                          loot: ['a tarnished doubloon', 'a torn sea chart', 'a rusted cutlass', 'a barnacled compass'] },
+    { name: 'The Haunted Manor',         emoji: '🕯️', color: 0x7c0a02, intro: 'The candles flicker, though there is no wind. Something is watching from the portraits.',            loot: ['a silver locket', 'a moth-eaten diary', 'a cracked mirror shard', 'a black feather quill'] },
+    { name: 'The Derelict Space Station', emoji: '🛰️', color: 0x7c3aed, intro: 'Emergency lights pulse red. Life support is failing — every second counts.',                       loot: ['a coolant cell', 'a cracked data chip', 'an oxygen canister', 'a torn crew manifest'] },
+];
+
+const ESC_RIDDLES = [
+    { q: 'I speak without a mouth and hear without ears. I have no body, but I come alive with wind. What am I?',                              options: ['An echo', 'A ghost', 'A shadow', 'A whisper'],         correct: 0 },
+    { q: 'The more you take, the more you leave behind. What am I?',                                                                            options: ['Time', 'Footsteps', 'Memories', 'Sand'],               correct: 1 },
+    { q: 'I have keys but no locks, space but no room. You can enter but never go inside. What am I?',                                          options: ['A piano', 'A map', 'A keyboard', 'A house'],           correct: 2 },
+    { q: 'What has a heart that doesn\'t beat?',                                                                                                 options: ['A clock', 'An artichoke', 'A robot', 'A statue'],      correct: 1 },
+    { q: 'The person who makes it sells it. The person who buys it never uses it. The person who uses it never sees it. What is it?',           options: ['A coffin', 'A candle', 'A key', 'A map'],               correct: 0 },
+    { q: 'What can travel around the world while staying in a corner?',                                                                         options: ['A spider', 'A stamp', 'The wind', 'A clock'],          correct: 1 },
+    { q: 'I am taken from a mine and shut up in a wooden case, from which I am never released, yet almost everyone uses me. What am I?',        options: ['Coal', 'A pencil lead', 'Gold', 'Iron'],               correct: 1 },
+    { q: 'What gets wetter the more it dries?',                                                                                                  options: ['A sponge', 'A towel', 'Rain', 'A cloud'],              correct: 1 },
+    { q: 'I am not alive, but I grow. I don\'t have lungs, but I need air. What am I?',                                                          options: ['Fire', 'A plant', 'A crystal', 'A virus'],             correct: 0 },
+    { q: 'What has many teeth but cannot bite?',                                                                                                 options: ['A saw', 'A comb', 'A zipper', 'A gear'],               correct: 1 },
+];
+
+const ESC_CIPHER_WORDS = ['SHADOW', 'COMPASS', 'LANTERN', 'WHISPER', 'ANCHOR', 'PHANTOM', 'CRYPT', 'BEACON', 'RELIC', 'ECHO', 'VOYAGE', 'ORACLE'];
+
+const ESC_SEQUENCE_SYMBOLS = ['🔺', '🔵', '🟩', '🟡', '🟣'];
+
+const ESC_WARD_SETS = [
+    { clue: 'Only the creature that hunts by night may pass.',         options: ['🦉', '🐍', '🦇', '🐺'], correct: 0 },
+    { clue: 'Only the symbol of eternal light may pass.',              options: ['🕯️', '🔥', '⭐', '☀️'], correct: 3 },
+    { clue: 'Only the guardian of the deep may pass.',                 options: ['🐙', '🦈', '🐳', '🐬'], correct: 2 },
+    { clue: 'Only the bringer of the first season may pass.',          options: ['🌸', '☀️', '🍂', '❄️'], correct: 0 },
+    { clue: 'Only the keeper of secrets may pass.',                    options: ['🔑', '🗝️', '🔒', '📜'], correct: 1 },
+    { clue: 'Only the one who never forgets may pass.',                options: ['🐘', '🦅', '🐢', '🦊'], correct: 0 },
+];
+
+const ESC_PUZZLE_TYPES = ['vault', 'cipher', 'riddle', 'sequence', 'ward'];
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 // Queue of unanswered questions waiting for a button click:
@@ -5024,6 +5072,15 @@ client.once('clientReady', async () => {
                 .addSubcommand(sub => sub.setName('help').setDescription('How to play The Traitors'))
                 .addSubcommand(sub => sub.setName('clear').setDescription('Delete all messages in the traitors channel (host or mod)')),
             new SlashCommandBuilder()
+                .setName('escaperoom')
+                .setDescription('Play a procedurally generated escape room in #escape-room')
+                .addSubcommand(sub => sub.setName('start').setDescription('Start a new escape room lobby')
+                    .addStringOption(opt => opt.setName('mode').setDescription('Co-op (shared room) or Race (everyone gets their own)')
+                        .addChoices({ name: 'Co-op — solve together', value: 'coop' }, { name: 'Race — everyone for themselves', value: 'race' })))
+                .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)'))
+                .addSubcommand(sub => sub.setName('status').setDescription('Show the current game status'))
+                .addSubcommand(sub => sub.setName('help').setDescription('How to play the Escape Room')),
+            new SlashCommandBuilder()
                 .setName('fitness')
                 .setDescription('Fitness tracking commands')
                 .addSubcommand(sub => sub.setName('progress').setDescription('View your fitness progress (private to you)'))
@@ -6368,6 +6425,689 @@ async function handleTrtRecruitDecline(interaction, game, channel) {
     if (!win) await trtStartMorning(game, channel, 'murder', userId);
 }
 
+// ── Escape Room Game Logic ───────────────────────────────────────────────────
+
+// ─ A. Procedural generators ──────────────────────────────────────────────────
+
+function escCaesarShift(word, shift) {
+    return word.split('').map(ch => String.fromCharCode(((ch.charCodeAt(0) - 65 + shift) % 26 + 26) % 26 + 65)).join('');
+}
+
+function escShuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function escGenerateVaultPuzzle() {
+    const combo = [1 + Math.floor(Math.random() * 9), 1 + Math.floor(Math.random() * 9), 1 + Math.floor(Math.random() * 9)];
+    const clueNouns = escShuffle(['candles burn on the altar', 'skulls grin from the shelf', 'grains of sand remain in the hourglass']);
+    return {
+        type: 'vault',
+        prompt: `🔢 A **vault door** blocks your path, sealed by a 3-digit combination.\n\n*${combo[0]} ${clueNouns[0]}.*\n*${combo[1]} ${clueNouns[1]}.*\n*${combo[2]} ${clueNouns[2]}.*\n\nSet each dial below, then press **Open Vault**.`,
+        hint: `The combination is **${combo[0]}-${combo[1]}-${combo[2]}**.`,
+        data: { combo, guess: [null, null, null] },
+    };
+}
+
+function escGenerateCipherPuzzle() {
+    const word      = ESC_CIPHER_WORDS[Math.floor(Math.random() * ESC_CIPHER_WORDS.length)];
+    const shift     = 1 + Math.floor(Math.random() * 25);
+    const ciphered  = escCaesarShift(word, shift);
+    return {
+        type: 'cipher',
+        prompt: `🔡 A message is carved into the wall, every letter shifted forward by a forgotten cipher:\n\n\`\`\`${ciphered}\`\`\`\n\nEach letter has been shifted forward by **${shift}**. Shift it back and type the decoded word.`,
+        hint: `Shift each letter back by ${shift}. The answer is **${word}**.`,
+        data: { answer: word },
+    };
+}
+
+function escGenerateRiddlePuzzle() {
+    const riddle       = ESC_RIDDLES[Math.floor(Math.random() * ESC_RIDDLES.length)];
+    const order        = escShuffle([0, 1, 2, 3]);
+    const options      = order.map(i => riddle.options[i]);
+    const correctIndex = order.indexOf(riddle.correct);
+    return {
+        type: 'riddle',
+        prompt: `🧩 A voice echoes through the room:\n\n*"${riddle.q}"*`,
+        hint: `The answer is **${riddle.options[riddle.correct]}**.`,
+        data: { options, correctIndex },
+    };
+}
+
+function escGenerateSequencePuzzle() {
+    const length   = 3 + Math.floor(Math.random() * 2); // 3-4
+    const sequence = Array.from({ length }, () => ESC_SEQUENCE_SYMBOLS[Math.floor(Math.random() * ESC_SEQUENCE_SYMBOLS.length)]);
+    return {
+        type: 'sequence',
+        prompt: `✨ Glowing symbols pulse on the wall in sequence:\n\n## ${sequence.join('  ')}\n\nPress the symbols below in the **exact order shown**.`,
+        hint: `The order is ${sequence.join(' → ')}.`,
+        data: { sequence, pressed: [] },
+    };
+}
+
+function escGenerateWardPuzzle() {
+    const ward = ESC_WARD_SETS[Math.floor(Math.random() * ESC_WARD_SETS.length)];
+    return {
+        type: 'ward',
+        prompt: `🛡️ A warded gate bars the way. ${ward.clue}\n\n**React to this message with the correct symbol.**`,
+        hint: `The correct symbol is ${ward.options[ward.correct]}.`,
+        data: { options: ward.options, correctIndex: ward.correct },
+    };
+}
+
+const ESC_GENERATORS = {
+    vault:    escGenerateVaultPuzzle,
+    cipher:   escGenerateCipherPuzzle,
+    riddle:   escGenerateRiddlePuzzle,
+    sequence: escGenerateSequencePuzzle,
+    ward:     escGenerateWardPuzzle,
+};
+
+function escGenerateRun(theme) {
+    const types = escShuffle(ESC_PUZZLE_TYPES).slice(0, ESC_ROOM_COUNT);
+    return types.map((type, i) => ({
+        roomNumber: i + 1,
+        item: theme.loot[i % theme.loot.length],
+        puzzle: ESC_GENERATORS[type](),
+        solved: false,
+    }));
+}
+
+function escNewProgress(theme) {
+    return {
+        theme,
+        rooms: escGenerateRun(theme),
+        currentRoomIndex: 0,
+        inventory: [],
+        hintsUsed: 0,
+        finished: false,
+        finishedAt: null,
+        startedAt: null,
+        msgId: null,
+        dmChannelId: null, // race mode only
+    };
+}
+
+function escCurrentRoom(progress) {
+    return progress.rooms[progress.currentRoomIndex] || null;
+}
+
+// ─ B. Rendering ───────────────────────────────────────────────────────────────
+
+function escProgressEmbed(progress, opts = {}) {
+    const room  = escCurrentRoom(progress);
+    const theme = progress.theme;
+    const inv   = progress.inventory.length ? progress.inventory.map(i => `▸ ${i}`).join('\n') : '*Empty*';
+    return {
+        color: theme.color,
+        title: `${theme.emoji}  ${theme.name}  —  Room ${room ? room.roomNumber : ESC_ROOM_COUNT} / ${ESC_ROOM_COUNT}`,
+        description: room ? room.puzzle.prompt : '*The room is clear.*',
+        fields: [
+            { name: '​', value: '─────────────────────────────' },
+            { name: '🎒  Inventory', value: inv },
+        ],
+        footer: { text: opts.footer || '💡 Use the Hint button if you\'re stuck' },
+    };
+}
+
+function escFinishedEmbed(progress) {
+    const theme   = progress.theme;
+    const elapsed = progress.finishedAt - progress.startedAt;
+    const mins    = Math.floor(elapsed / 60000);
+    const secs    = Math.floor((elapsed % 60000) / 1000);
+    return {
+        color: 0x22c55e,
+        title: `${theme.emoji}  YOU ESCAPED!`,
+        description: `You broke free from **${theme.name}** in **${mins}m ${secs}s** (${progress.hintsUsed} hint${progress.hintsUsed === 1 ? '' : 's'} used), collecting:\n\n${progress.inventory.map(i => `▸ ${i}`).join('\n') || '*nothing*'}`,
+    };
+}
+
+function escPuzzleComponents(progress) {
+    const room = escCurrentRoom(progress);
+    if (!room) return [];
+    const puzzle = room.puzzle;
+    const rows = [];
+    const hintBtn = new ButtonBuilder().setCustomId('esc:hint').setLabel('Hint').setStyle(ButtonStyle.Secondary).setEmoji('💡');
+
+    if (puzzle.type === 'vault') {
+        for (let i = 0; i < 3; i++) {
+            const menu = new StringSelectMenuBuilder()
+                .setCustomId(`esc:vault:dial:${i}`)
+                .setPlaceholder(`Dial ${i + 1}: ${puzzle.data.guess[i] ?? '?'}`)
+                .addOptions(Array.from({ length: 9 }, (_, n) => ({ label: String(n + 1), value: String(n + 1) })));
+            rows.push(new ActionRowBuilder().addComponents(menu));
+        }
+        rows.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('esc:vault:submit').setLabel('Open Vault').setStyle(ButtonStyle.Success).setEmoji('🔓'),
+            hintBtn,
+        ));
+    } else if (puzzle.type === 'cipher') {
+        rows.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('esc:cipher:open').setLabel('Decode').setStyle(ButtonStyle.Primary).setEmoji('🔡'),
+            hintBtn,
+        ));
+    } else if (puzzle.type === 'riddle') {
+        const optBtns = puzzle.data.options.map((opt, idx) =>
+            new ButtonBuilder().setCustomId(`esc:riddle:${idx}`).setLabel(`${String.fromCharCode(65 + idx)}. ${opt}`.slice(0, 80)).setStyle(ButtonStyle.Secondary));
+        rows.push(new ActionRowBuilder().addComponents(optBtns));
+        rows.push(new ActionRowBuilder().addComponents(hintBtn));
+    } else if (puzzle.type === 'sequence') {
+        const btns = ESC_SEQUENCE_SYMBOLS.map(sym => new ButtonBuilder().setCustomId(`esc:sequence:${sym}`).setLabel(sym).setStyle(ButtonStyle.Secondary));
+        rows.push(new ActionRowBuilder().addComponents(btns));
+        rows.push(new ActionRowBuilder().addComponents(hintBtn));
+    } else if (puzzle.type === 'ward') {
+        rows.push(new ActionRowBuilder().addComponents(hintBtn));
+    }
+    return rows;
+}
+
+function escLobbyEmbed(game) {
+    const playerList = [...game.players.values()].map(p => `▸ ${p.name}`).join('\n') || '*No players yet — be the first!*';
+    const modeText = game.mode === 'race'
+        ? '🏁 **Race** — everyone gets their own room and races to escape first'
+        : '🤝 **Co-op** — everyone shares one room and escapes together';
+    return {
+        color: 0x16213e,
+        title: '🔒  ESCAPE ROOM  —  LOBBY',
+        description: [
+            'A procedurally generated escape room — every game is different.',
+            'Crack vaults, decode ciphers, answer riddles, repeat symbol sequences, and find the right ward to pass.',
+            '',
+            modeText,
+        ].join('\n'),
+        fields: [
+            { name: '​', value: '─────────────────────────────' },
+            { name: `👥  Players  (${game.players.size} / ${ESC_MAX_PLAYERS})`, value: playerList },
+            { name: '​', value: `Host can toggle mode below • Time limit once started: ${ESC_TIME_LIMIT_MS / 60000} min` },
+        ],
+        footer: { text: '⏱  Lobby closes in 15 minutes' },
+    };
+}
+
+function escLobbyComponents() {
+    const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('esc:join').setLabel('Join').setStyle(ButtonStyle.Primary).setEmoji('🙋'),
+        new ButtonBuilder().setCustomId('esc:leave').setLabel('Leave').setStyle(ButtonStyle.Secondary).setEmoji('🚪'),
+        new ButtonBuilder().setCustomId('esc:opt:mode').setLabel('Toggle Mode').setStyle(ButtonStyle.Secondary).setEmoji('🔁'),
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('esc:start').setLabel('Start Game').setStyle(ButtonStyle.Success).setEmoji('▶️'),
+        new ButtonBuilder().setCustomId('esc:end').setLabel('Cancel').setStyle(ButtonStyle.Danger).setEmoji('✖️'),
+    );
+    return [row1, row2];
+}
+
+function escHostComponents(game) {
+    const btns = [];
+    if (game.mode === 'coop') btns.push(new ButtonBuilder().setCustomId('esc:hostskip').setLabel('Skip Room').setStyle(ButtonStyle.Secondary).setEmoji('⏭️'));
+    btns.push(new ButtonBuilder().setCustomId('esc:end').setLabel('End Game').setStyle(ButtonStyle.Danger).setEmoji('✖️'));
+    return [new ActionRowBuilder().addComponents(btns)];
+}
+
+function escLeaderboardEmbed(game) {
+    const remaining = Math.max(0, game.deadlineTs - Date.now());
+    const mins = Math.floor(remaining / 60000);
+    const rows = [...game.players.values()]
+        .map(p => ({ name: p.name, progress: p.progress }))
+        .sort((a, b) => {
+            if (a.progress.finished && b.progress.finished) return a.progress.finishedAt - b.progress.finishedAt;
+            if (a.progress.finished) return -1;
+            if (b.progress.finished) return 1;
+            return b.progress.currentRoomIndex - a.progress.currentRoomIndex;
+        })
+        .map((r, i) => {
+            if (r.progress.finished) {
+                const elapsed = r.progress.finishedAt - r.progress.startedAt;
+                return `🏆 **${i + 1}.** ${r.name} — escaped in ${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
+            }
+            return `▸ ${r.name} — Room ${r.progress.currentRoomIndex + 1} / ${ESC_ROOM_COUNT}`;
+        })
+        .join('\n');
+    return {
+        color: 0x16213e,
+        title: '🏁  ESCAPE ROOM — RACE',
+        description: `Check your **DMs** for your own room! First to escape wins.\n\n⏳ Time remaining: **${mins} min**`,
+        fields: [
+            { name: '​', value: '─────────────────────────────' },
+            { name: '📊  Standings', value: rows || '*No players*' },
+        ],
+    };
+}
+
+// ─ C. Helpers ────────────────────────────────────────────────────────────────
+
+function escIsHost(interaction, game) {
+    return interaction.user.id === game.hostId ||
+           interaction.user.id === OWNER_DISCORD_ID ||
+           interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
+}
+
+function escCleanup(game) {
+    if (!game) return;
+    if (game.lobbyTimer) clearTimeout(game.lobbyTimer);
+    if (game.deadlineTimer) clearTimeout(game.deadlineTimer);
+    for (const t of game.warningTimers || []) clearTimeout(t);
+    for (const uid of game.players.keys()) escapePlayerMap.delete(uid);
+    for (const [msgId, lock] of escReactionLocks) {
+        if (lock.channelId === game.channelId) escReactionLocks.delete(msgId);
+    }
+    escapeGames.delete(game.channelId);
+}
+
+function escGetContext(interaction) {
+    const channelId = escapePlayerMap.get(interaction.user.id);
+    const game = channelId ? escapeGames.get(channelId) : null;
+    if (!game || game.phase !== 'playing') return null;
+    const player = game.players.get(interaction.user.id);
+    if (!player) return null;
+    const progress = game.mode === 'race' ? player.progress : game.progress;
+    if (!progress || progress.finished) return null;
+    return { game, player, progress, userIdForDm: game.mode === 'race' ? interaction.user.id : null };
+}
+
+// ─ D. Flow control ───────────────────────────────────────────────────────────
+
+async function escStartGame(game, channel) {
+    game.phase      = 'playing';
+    game.startedAt  = Date.now();
+    game.deadlineTs = game.startedAt + ESC_TIME_LIMIT_MS;
+    const theme = ESC_THEMES[Math.floor(Math.random() * ESC_THEMES.length)];
+
+    if (game.mode === 'coop') {
+        game.progress = escNewProgress(theme);
+        game.progress.startedAt = game.startedAt;
+        await channel.send({ embeds: [{ color: theme.color, title: `${theme.emoji}  ${theme.name}`, description: theme.intro }] }).catch(() => {});
+        const msg = await channel.send({ embeds: [escProgressEmbed(game.progress)], components: escPuzzleComponents(game.progress) });
+        game.progress.msgId = msg.id;
+        const firstRoom = escCurrentRoom(game.progress);
+        if (firstRoom.puzzle.type === 'ward') {
+            for (const e of firstRoom.puzzle.data.options) await msg.react(e).catch(() => {});
+            escReactionLocks.set(msg.id, { channelId: game.channelId, userIdForDm: null });
+        }
+        const hostMsg = await channel.send({ content: '**Host controls:**', components: escHostComponents(game) }).catch(() => null);
+        if (hostMsg) game.hostMsgId = hostMsg.id;
+    } else {
+        const dmFailed = [];
+        for (const [uid, p] of game.players) {
+            p.progress = escNewProgress(theme);
+            p.progress.startedAt = game.startedAt;
+            try {
+                const user = await client.users.fetch(uid);
+                await user.send({ embeds: [{ color: theme.color, title: `${theme.emoji}  ${theme.name}`, description: theme.intro }] });
+                const msg = await user.send({ embeds: [escProgressEmbed(p.progress)], components: escPuzzleComponents(p.progress) });
+                p.progress.msgId = msg.id;
+                p.progress.dmChannelId = msg.channel.id;
+                const firstRoom = escCurrentRoom(p.progress);
+                if (firstRoom.puzzle.type === 'ward') {
+                    for (const e of firstRoom.puzzle.data.options) await msg.react(e).catch(() => {});
+                    escReactionLocks.set(msg.id, { channelId: game.channelId, userIdForDm: uid });
+                }
+            } catch (_) {
+                dmFailed.push(uid);
+            }
+        }
+        for (const uid of dmFailed) {
+            game.players.delete(uid);
+            escapePlayerMap.delete(uid);
+        }
+        if (dmFailed.length > 0) await channel.send({ content: `⚠️ Could not DM ${dmFailed.length} player(s) — they were removed from the race.` }).catch(() => {});
+        if (game.players.size === 0) { await escEndGame(game, channel, null); return; }
+
+        const lbMsg = await channel.send({ embeds: [escLeaderboardEmbed(game)], components: escHostComponents(game) });
+        game.leaderboardMsgId = lbMsg.id;
+        game.hostMsgId        = lbMsg.id;
+    }
+
+    game.warningTimers = [];
+    [10, 5, 2].forEach(mins => {
+        const delay = ESC_TIME_LIMIT_MS - mins * 60 * 1000;
+        if (delay > 0) {
+            game.warningTimers.push(setTimeout(async () => {
+                if (escapeGames.get(game.channelId) === game && game.phase === 'playing') {
+                    await channel.send({ content: `⏳ **${mins} minute${mins === 1 ? '' : 's'} remaining!**` }).catch(() => {});
+                }
+            }, delay));
+        }
+    });
+    game.deadlineTimer = setTimeout(async () => {
+        if (escapeGames.get(game.channelId) === game && game.phase === 'playing') {
+            await escEndGame(game, channel, null, 'timeout');
+        }
+    }, ESC_TIME_LIMIT_MS);
+}
+
+async function escPushUpdate(game, userIdForDm, progress) {
+    let dest;
+    if (userIdForDm) {
+        const user = await client.users.fetch(userIdForDm).catch(() => null);
+        if (!user) return null;
+        dest = await user.createDM().catch(() => null);
+    } else {
+        dest = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+    }
+    if (!dest) return null;
+
+    const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress);
+    const components  = progress.finished ? [] : escPuzzleComponents(progress);
+
+    let msg = progress.msgId ? await dest.messages.fetch(progress.msgId).catch(() => null) : null;
+    if (msg) await msg.edit({ embeds: [embed], components });
+    else msg = await dest.send({ embeds: [embed], components });
+    progress.msgId = msg.id;
+
+    const room = escCurrentRoom(progress);
+    if (!progress.finished && room && room.puzzle.type === 'ward') {
+        try {
+            for (const e of room.puzzle.data.options) await msg.react(e);
+            escReactionLocks.set(msg.id, { channelId: game.channelId, userIdForDm: userIdForDm || null });
+        } catch (_) {}
+    }
+    return msg;
+}
+
+async function escFinishCoop(game, channel) {
+    const progress = game.progress;
+    const elapsed  = progress.finishedAt - progress.startedAt;
+    const embed = {
+        color: 0x22c55e,
+        title: '🎉  THE TEAM ESCAPED!',
+        description: `Everyone broke free from **${progress.theme.name}** in **${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s** (${progress.hintsUsed} hint${progress.hintsUsed === 1 ? '' : 's'} used)!\n\n**Collected:**\n${progress.inventory.map(i => `▸ ${i}`).join('\n') || '*nothing*'}`,
+        footer: { text: 'Run /escaperoom start to play again!' },
+    };
+    await channel.send({ embeds: [embed] }).catch(() => {});
+    escCleanup(game);
+}
+
+async function escFinishRacePlayer(game, player, progress) {
+    const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+    if (channel && game.leaderboardMsgId) {
+        const msg = await channel.messages.fetch(game.leaderboardMsgId).catch(() => null);
+        if (msg) await msg.edit({ embeds: [escLeaderboardEmbed(game)], components: escHostComponents(game) }).catch(() => {});
+    }
+    const allFinished = [...game.players.values()].every(p => p.progress?.finished);
+    if (allFinished && channel) await escEndGame(game, channel, null, 'allfinished');
+}
+
+async function escEndGame(game, channel, byName, reason) {
+    game.phase = 'ended';
+    let embed;
+    if (reason === 'timeout') {
+        embed = { color: 0xdc2626, title: '⏰  TIME\'S UP — TRAPPED!', description: game.mode === 'coop' ? 'The team ran out of time and remains trapped.' : 'Time ran out — final standings below.', footer: { text: 'Run /escaperoom start to play again!' } };
+    } else if (reason === 'allfinished') {
+        embed = { color: 0x22c55e, title: '🏁  RACE COMPLETE!', description: 'Everyone has escaped! Final standings below.', footer: { text: 'Run /escaperoom start to play again!' } };
+    } else {
+        embed = { color: 0x6b7280, title: '🚫  GAME ENDED', description: byName ? `Game ended by **${byName}**.` : 'Game cancelled — lobby timed out.', footer: { text: 'Run /escaperoom start to play again!' } };
+    }
+
+    if (game.mode === 'race' && (reason === 'timeout' || reason === 'allfinished') && game.players.size > 0) {
+        await channel.send({ embeds: [embed, escLeaderboardEmbed(game)] }).catch(() => {});
+    } else {
+        await channel.send({ embeds: [embed] }).catch(() => {});
+    }
+    if (game.hostMsgId) {
+        try { const m = await channel.messages.fetch(game.hostMsgId).catch(() => null); if (m) await m.edit({ components: [] }); } catch (_) {}
+    }
+    if (game.lobbyMsgId && game.phase === 'ended' && game.lobbyMsgId !== game.hostMsgId) {
+        try { const m = await channel.messages.fetch(game.lobbyMsgId).catch(() => null); if (m) await m.edit({ components: [] }); } catch (_) {}
+    }
+    escCleanup(game);
+}
+
+async function escSolveAndAdvance(interaction, ctx) {
+    const { game, player, progress, userIdForDm } = ctx;
+    const room = escCurrentRoom(progress);
+    progress.inventory.push(room.item);
+    progress.currentRoomIndex++;
+    let justFinished = false;
+    if (progress.currentRoomIndex >= progress.rooms.length) {
+        progress.finished  = true;
+        progress.finishedAt = Date.now();
+        justFinished = true;
+    }
+
+    const nextRoom   = escCurrentRoom(progress);
+    const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: `✅ Found: ${room.item}!` });
+    const components = progress.finished ? [] : escPuzzleComponents(progress);
+    await interaction.update({ embeds: [embed], components });
+
+    if (!progress.finished && nextRoom.puzzle.type === 'ward') {
+        try {
+            for (const e of nextRoom.puzzle.data.options) await interaction.message.react(e);
+            escReactionLocks.set(interaction.message.id, { channelId: game.channelId, userIdForDm: userIdForDm || null });
+        } catch (_) {}
+    }
+
+    if (justFinished) {
+        if (game.mode === 'coop') {
+            const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+            if (channel) await escFinishCoop(game, channel);
+        } else {
+            await escFinishRacePlayer(game, player, progress);
+        }
+    }
+}
+
+async function escAdvanceFromReaction(game, player, progress, userIdForDm) {
+    const room = escCurrentRoom(progress);
+    progress.inventory.push(room.item);
+    progress.currentRoomIndex++;
+    let justFinished = false;
+    if (progress.currentRoomIndex >= progress.rooms.length) {
+        progress.finished   = true;
+        progress.finishedAt = Date.now();
+        justFinished = true;
+    }
+    await escPushUpdate(game, userIdForDm, progress);
+    if (justFinished) {
+        if (game.mode === 'coop') {
+            const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+            if (channel) await escFinishCoop(game, channel);
+        } else {
+            await escFinishRacePlayer(game, player, progress);
+        }
+    }
+}
+
+// ─ E. Reaction handler (ward puzzles) ────────────────────────────────────────
+
+async function handleEscWardReaction(reaction, user, lock) {
+    const game = escapeGames.get(lock.channelId);
+    if (!game || game.phase !== 'playing') { escReactionLocks.delete(reaction.message.id); return; }
+
+    let player = null, progress = null;
+    if (game.mode === 'race') {
+        if (lock.userIdForDm !== user.id) return; // not this player's own puzzle
+        player = game.players.get(user.id);
+        if (!player) return;
+        progress = player.progress;
+    } else {
+        if (!game.players.has(user.id)) return; // not a participant
+        progress = game.progress;
+    }
+    if (!progress || progress.finished) return;
+    const room = escCurrentRoom(progress);
+    if (!room || room.puzzle.type !== 'ward') return;
+
+    const { options, correctIndex } = room.puzzle.data;
+    if (reaction.emoji.name !== options[correctIndex]) {
+        try { await reaction.users.remove(user.id); } catch (_) {}
+        return;
+    }
+
+    escReactionLocks.delete(reaction.message.id);
+    await escAdvanceFromReaction(game, player, progress, lock.userIdForDm);
+}
+
+// ─ F. Button / select / modal sub-handlers ───────────────────────────────────
+
+async function handleEscButton(interaction) {
+    const id = interaction.customId;
+
+    if (id === 'esc:join') {
+        const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await interaction.reply({ content: '❌ No open lobby.', ephemeral: true }); return; }
+        if (game.players.has(interaction.user.id)) { await interaction.reply({ content: '✅ You are already in!', ephemeral: true }); return; }
+        if (game.players.size >= ESC_MAX_PLAYERS) { await interaction.reply({ content: '❌ Lobby is full.', ephemeral: true }); return; }
+        game.players.set(interaction.user.id, { name: interaction.member?.displayName || interaction.user.username, progress: null });
+        escapePlayerMap.set(interaction.user.id, ESCAPE_CHANNEL_ID);
+        await interaction.update({ embeds: [escLobbyEmbed(game)], components: escLobbyComponents() });
+        return;
+    }
+
+    if (id === 'esc:leave') {
+        const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await interaction.reply({ content: '❌ No open lobby.', ephemeral: true }); return; }
+        if (!game.players.has(interaction.user.id)) { await interaction.reply({ content: '❌ You are not in the lobby.', ephemeral: true }); return; }
+        if (interaction.user.id === game.hostId) { await interaction.reply({ content: '❌ The host cannot leave — use Cancel instead.', ephemeral: true }); return; }
+        game.players.delete(interaction.user.id);
+        escapePlayerMap.delete(interaction.user.id);
+        await interaction.update({ embeds: [escLobbyEmbed(game)], components: escLobbyComponents() });
+        return;
+    }
+
+    if (id === 'esc:opt:mode') {
+        const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await interaction.reply({ content: '❌ No open lobby.', ephemeral: true }); return; }
+        if (!escIsHost(interaction, game)) { await interaction.reply({ content: '❌ Only the host can change the mode.', ephemeral: true }); return; }
+        game.mode = game.mode === 'coop' ? 'race' : 'coop';
+        await interaction.update({ embeds: [escLobbyEmbed(game)], components: escLobbyComponents() });
+        return;
+    }
+
+    if (id === 'esc:start') {
+        const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+        if (!game || game.phase !== 'lobby') { await interaction.reply({ content: '❌ No open lobby.', ephemeral: true }); return; }
+        if (!escIsHost(interaction, game)) { await interaction.reply({ content: '❌ Only the host can start the game.', ephemeral: true }); return; }
+        const minNeeded = game.mode === 'coop' ? 2 : 1;
+        if (game.players.size < minNeeded) { await interaction.reply({ content: `❌ Need at least ${minNeeded} player${minNeeded === 1 ? '' : 's'} for ${game.mode === 'coop' ? 'Co-op' : 'Race'} mode.`, ephemeral: true }); return; }
+        await interaction.update({ embeds: interaction.message.embeds, components: [] });
+        const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+        if (channel) await escStartGame(game, channel);
+        return;
+    }
+
+    if (id === 'esc:end') {
+        const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+        if (!game || game.phase === 'ended') { await interaction.reply({ content: '❌ No active game.', ephemeral: true }); return; }
+        if (!escIsHost(interaction, game)) { await interaction.reply({ content: '❌ Only the host or a moderator can end the game.', ephemeral: true }); return; }
+        await interaction.deferUpdate();
+        const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+        if (channel) await escEndGame(game, channel, interaction.member?.displayName || interaction.user.username);
+        return;
+    }
+
+    if (id === 'esc:hostskip') {
+        const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+        if (!game || game.phase !== 'playing' || game.mode !== 'coop') { await interaction.reply({ content: '❌ Not available right now.', ephemeral: true }); return; }
+        if (!escIsHost(interaction, game)) { await interaction.reply({ content: '❌ Only the host can skip a room.', ephemeral: true }); return; }
+        const progress = game.progress;
+        if (progress.finished) { await interaction.reply({ content: '❌ The team has already escaped.', ephemeral: true }); return; }
+        progress.currentRoomIndex++;
+        let justFinished = false;
+        if (progress.currentRoomIndex >= progress.rooms.length) { progress.finished = true; progress.finishedAt = Date.now(); justFinished = true; }
+        const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: '⏭️ Host skipped this room.' });
+        const components = progress.finished ? [] : escPuzzleComponents(progress);
+        await interaction.update({ embeds: [embed], components });
+        const nextRoom = escCurrentRoom(progress);
+        if (!progress.finished && nextRoom.puzzle.type === 'ward') {
+            try {
+                for (const e of nextRoom.puzzle.data.options) await interaction.message.react(e);
+                escReactionLocks.set(interaction.message.id, { channelId: game.channelId, userIdForDm: null });
+            } catch (_) {}
+        }
+        if (justFinished) { const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null); if (channel) await escFinishCoop(game, channel); }
+        return;
+    }
+
+    // ── In-game puzzle actions ────────────────────────────────────────────
+    const ctx = escGetContext(interaction);
+    if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
+    const { progress } = ctx;
+    const room = escCurrentRoom(progress);
+
+    if (id === 'esc:hint') {
+        progress.hintsUsed++;
+        await interaction.reply({ content: `💡 ${room.puzzle.hint}`, ephemeral: true });
+        return;
+    }
+
+    if (id === 'esc:vault:submit') {
+        const { combo, guess } = room.puzzle.data;
+        if (guess.some(g => g === null)) { await interaction.reply({ content: '❌ Set all 3 dials first.', ephemeral: true }); return; }
+        if (guess[0] === combo[0] && guess[1] === combo[1] && guess[2] === combo[2]) {
+            await escSolveAndAdvance(interaction, ctx);
+        } else {
+            await interaction.reply({ content: '❌ The vault refuses to open. Wrong combination.', ephemeral: true });
+        }
+        return;
+    }
+
+    if (id === 'esc:cipher:open') {
+        const modal = new ModalBuilder().setCustomId('esc:cipher_modal').setTitle('🔡 Decode the Message');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('esc_cipher_answer').setLabel('Decoded word').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(30),
+        ));
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if (id.startsWith('esc:riddle:')) {
+        const idx = parseInt(id.split(':')[2], 10);
+        if (idx === room.puzzle.data.correctIndex) {
+            await escSolveAndAdvance(interaction, ctx);
+        } else {
+            await interaction.reply({ content: '❌ Not quite. Try again.', ephemeral: true });
+        }
+        return;
+    }
+
+    if (id.startsWith('esc:sequence:')) {
+        const symbol = id.split(':')[2];
+        const { sequence, pressed } = room.puzzle.data;
+        pressed.push(symbol);
+        const idx = pressed.length - 1;
+        if (sequence[idx] !== symbol) {
+            room.puzzle.data.pressed = [];
+            await interaction.reply({ content: '❌ Wrong symbol — sequence reset. Try again.', ephemeral: true });
+            return;
+        }
+        if (pressed.length === sequence.length) {
+            await escSolveAndAdvance(interaction, ctx);
+        } else {
+            await interaction.reply({ content: `✅ ${pressed.length}/${sequence.length} correct so far...`, ephemeral: true });
+        }
+        return;
+    }
+}
+
+async function handleEscVaultDial(interaction) {
+    const ctx = escGetContext(interaction);
+    if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
+    const { progress } = ctx;
+    const room = escCurrentRoom(progress);
+    if (!room || room.puzzle.type !== 'vault') { await interaction.reply({ content: '❌ Not a vault puzzle.', ephemeral: true }); return; }
+    const dialIndex = parseInt(interaction.customId.split(':')[3], 10);
+    room.puzzle.data.guess[dialIndex] = parseInt(interaction.values[0], 10);
+    await interaction.update({ embeds: [escProgressEmbed(progress)], components: escPuzzleComponents(progress) });
+}
+
+async function handleEscCipherModal(interaction) {
+    const ctx = escGetContext(interaction);
+    if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
+    const room = escCurrentRoom(ctx.progress);
+    if (!room || room.puzzle.type !== 'cipher') { await interaction.reply({ content: '❌ Not a cipher puzzle.', ephemeral: true }); return; }
+    const guess = interaction.fields.getTextInputValue('esc_cipher_answer').trim().toUpperCase();
+    if (guess === room.puzzle.data.answer) {
+        await escSolveAndAdvance(interaction, ctx);
+    } else {
+        await interaction.reply({ content: '❌ Incorrect. The cipher remains unsolved.', ephemeral: true });
+    }
+}
+
 // ── Reaction role helpers ─────────────────────────────────────────────────────
 
 function buildRolePanelComponents(panelId, buttons) {
@@ -6704,6 +7444,115 @@ client.on('interactionCreate', async (interaction) => {
 
                 await interaction.editReply({ content: `✅ Cleared **${deleted}** message${deleted === 1 ? '' : 's'} from the traitors channel.` });
                 setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+                return;
+            }
+        }
+
+        // ── /escaperoom ──────────────────────────────────────────────────────
+        if (interaction.commandName === 'escaperoom') {
+            const sub = interaction.options.getSubcommand();
+
+            if (sub === 'start') {
+                if (botFeatures.escapeRoomGame === false) {
+                    await interaction.reply({ content: 'The Escape Room game is currently disabled.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
+                const existing = escapeGames.get(ESCAPE_CHANNEL_ID);
+                if (existing && existing.phase !== 'ended') {
+                    await interaction.reply({ content: `A game is already running in <#${ESCAPE_CHANNEL_ID}>! Use \`/escaperoom stop\` to end it first.`, ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
+                const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+                if (!channel) {
+                    await interaction.reply({ content: 'Could not find the escape room channel.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
+                const modeOpt = interaction.options.getString('mode') || 'coop';
+
+                const game = {
+                    channelId:        ESCAPE_CHANNEL_ID,
+                    hostId:           interaction.user.id,
+                    phase:            'lobby',
+                    mode:             modeOpt,
+                    players:          new Map(),
+                    progress:         null,
+                    lobbyMsgId:       null,
+                    hostMsgId:        null,
+                    leaderboardMsgId: null,
+                    lobbyTimer:       null,
+                    deadlineTimer:    null,
+                    warningTimers:    [],
+                    startedAt:        null,
+                    deadlineTs:       null,
+                };
+                escapeGames.set(ESCAPE_CHANNEL_ID, game);
+                game.players.set(interaction.user.id, { name: interaction.member?.displayName || interaction.user.username, progress: null });
+                escapePlayerMap.set(interaction.user.id, ESCAPE_CHANNEL_ID);
+
+                const msg = await channel.send({ embeds: [escLobbyEmbed(game)], components: escLobbyComponents() });
+                game.lobbyMsgId = msg.id;
+
+                game.lobbyTimer = setTimeout(async () => {
+                    if (escapeGames.get(ESCAPE_CHANNEL_ID) === game && game.phase === 'lobby') {
+                        await escEndGame(game, channel, null);
+                    }
+                }, ESC_LOBBY_TIMEOUT_MS);
+
+                await interaction.reply({ content: `Lobby created in <#${ESCAPE_CHANNEL_ID}>!`, ephemeral: true });
+                setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                return;
+            }
+
+            if (sub === 'stop') {
+                const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+                if (!game || game.phase === 'ended') {
+                    await interaction.reply({ content: 'No active game to stop.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
+                if (!escIsHost(interaction, game)) {
+                    await interaction.reply({ content: 'Only the host or a moderator can stop the game.', ephemeral: true });
+                    setTimeout(() => interaction.deleteReply().catch(() => {}), 6000);
+                    return;
+                }
+                await interaction.deferReply({ ephemeral: true });
+                const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+                const byName  = interaction.member?.displayName || interaction.user.username;
+                if (channel) await escEndGame(game, channel, byName);
+                await interaction.editReply({ content: 'Game ended.' });
+                return;
+            }
+
+            if (sub === 'status') {
+                const game = escapeGames.get(ESCAPE_CHANNEL_ID);
+                if (!game || game.phase === 'ended') {
+                    await interaction.reply({ content: 'No active game right now. Run `/escaperoom start` to begin one!', ephemeral: true });
+                    return;
+                }
+                const embed = game.phase === 'lobby'
+                    ? escLobbyEmbed(game)
+                    : (game.mode === 'race' ? escLeaderboardEmbed(game) : escProgressEmbed(game.progress));
+                await interaction.reply({ embeds: [embed], ephemeral: true });
+                return;
+            }
+
+            if (sub === 'help') {
+                await interaction.reply({
+                    ephemeral: true,
+                    embeds: [{
+                        color: 0x16213e,
+                        title: '🔒 Escape Room — Help & Info',
+                        fields: [
+                            { name: '📖 How to play', value: '1. `/escaperoom start mode:<coop|race>` → players join the lobby\n2. Host presses **Start Game**\n3. **Co-op** — everyone solves puzzles together in this channel, sharing one inventory\n4. **Race** — check your **DMs** for your own randomly generated room; first to escape wins\n5. Clear vault combos, ciphers, riddles, symbol sequences, and emoji wards to escape each room' },
+                            { name: '🧩 Puzzle types', value: '🔢 **Vault** — set 3 dials using the clues\n🔡 **Cipher** — decode a shifted message\n🧩 **Riddle** — pick the right answer\n✨ **Sequence** — repeat the symbol order\n🛡️ **Ward** — react with the correct emoji' },
+                            { name: '⏱️ Time limit', value: `Each run has a ${ESC_TIME_LIMIT_MS / 60000}-minute time limit. Use the **Hint** button on any puzzle if you're stuck.` },
+                            { name: '⚡ Commands', value: '`/escaperoom start` — start a lobby\n`/escaperoom stop` — end the game\n`/escaperoom status` — current status\n`/escaperoom help` — this message' },
+                        ],
+                    }],
+                });
                 return;
             }
         }
@@ -8906,8 +9755,18 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── Escape Room — cipher answer modal ─────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'esc:cipher_modal') {
+        await handleEscCipherModal(interaction);
+        return;
+    }
+
     // ── Traitors — select menu interactions (DM night vote + channel ban vote) ──
     if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith('esc:vault:dial:')) {
+            await handleEscVaultDial(interaction);
+            return;
+        }
         if (interaction.customId === 'trt:nightvote') {
             const channelId = traitorPlayerMap.get(interaction.user.id);
             const game      = channelId ? traitorGames.get(channelId) : null;
@@ -9599,6 +10458,12 @@ client.on('interactionCreate', async (interaction) => {
         if (!game) { await interaction.reply({ content: '❌ No active game found.', ephemeral: true }); return; }
         const channel = await client.channels.fetch(TRT_CHANNEL_ID).catch(() => null);
         if (channel) await handleTrtRecruitDecline(interaction, game, channel);
+        return;
+    }
+
+    // ── Escape Room Game ───────────────────────────────────────────────────────
+    if (interaction.customId.startsWith('esc:')) {
+        await handleEscButton(interaction);
         return;
     }
 
@@ -10591,6 +11456,15 @@ client.on('messageCreate', async (message) => {
 
 client.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
+
+    // ── Escape Room — ward puzzle reactions (works in both guild channel & DMs) ──
+    const escLock = escReactionLocks.get(reaction.message.id);
+    if (escLock) {
+        if (reaction.partial) { try { await reaction.fetch(); } catch { return; } }
+        await handleEscWardReaction(reaction, user, escLock);
+        return;
+    }
+
     if (!reaction.message.guild) return;
     if (reaction.partial) {
         try { await reaction.fetch(); } catch { return; }

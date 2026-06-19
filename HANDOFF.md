@@ -42,3 +42,4 @@ You are continuing work on the TrueBeast website for Kiernen Irons (YouTube/gami
 **Nav glass style:** `background: rgba(15, 15, 22, 0.38)` with `backdropFilter: blur(24px) saturate(180%)` — Kiernen approved this exact value, do not change it.
 
 **Bot commands:** `!!help`, `!!ping`, `!!ask` (AI), `!!afk`, `!!afkcheck`, `!!unafk` — owner-only: `!!say`, `!!dm`, `!!servers`, `!!restart`
+**Bot games:** `/imposter`, `/traitors`, `/escaperoom` (procedurally generated, co-op or race — see `discord-bot/GAME_ESCAPEROOM.md`)

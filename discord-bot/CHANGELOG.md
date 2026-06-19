@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-06-19] — Add Escape Room game (procedurally generated, co-op + race modes)
+
+- New `/escaperoom` command (`start`, `stop`, `status`, `help`) running in `#escape-room` (`1517318620395470969`)
+- Each game randomly picks a theme (Library, Alchemist's Lab, Pirate Ship, Haunted Manor, Space Station) and generates a fresh 4-room run from 5 puzzle types: vault combo (select menus), cipher (modal text input), riddle (multiple-choice buttons), symbol sequence (buttons), and ward (emoji reactions)
+- **Co-op mode** — the whole lobby shares one room/inventory, solved together in the channel
+- **Race mode** — every player gets their own independently generated run via DM; channel shows a live leaderboard; first to escape wins
+- Host controls: start/end game, toggle mode in lobby, skip a stuck room in co-op
+- Per-puzzle Hint button on every puzzle type
+- Added `botFeatures.escapeRoomGame` toggle (Admin Panel → Bot Controls)
+- See `GAME_ESCAPEROOM.md` for full architecture
+
 ## [2026-06-17] — Ping last bumper in Disboard bump reminder
 
 - Bot now tracks who last ran `/bump` via `message.interaction?.user` on Disboard's confirmation message
