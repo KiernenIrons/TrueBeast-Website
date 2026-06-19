@@ -1,5 +1,18 @@
 # Beast Bot Changelog
 
+## [2026-06-19] — Fair race puzzle types; give inventory an actual purpose
+
+- **Race mode fairness fix**: all racers used to get fully independently randomized puzzle types per
+  room, meaning one player could get an easy riddle in round 2 while another got a hard logic-grid
+  witness puzzle in the same round. `escGenerateRun` now accepts a `presetTypes` array; race mode
+  generates the 4 puzzle types **once** and gives every racer that same type sequence, with
+  independently randomized content (different vault digits, cipher word, etc. per player) so it's
+  still each player's own puzzle, just a fair contest.
+- **Inventory now matters**: previously the loot items (e.g. "a tarnished doubloon") were pure flavor
+  text with zero mechanical effect. The Final Door's modal now has a second required field — "what
+  did you find in the `{type}` room?" — checked leniently (substring match, so "doubloon" matches "a
+  tarnished doubloon"). Both the fragment code and the memory answer must be correct to escape.
+
 ## [2026-06-19] — Escape Room v2: Master Puzzle chaining, 3 new puzzle types, Cipher Evolution
 
 Researched real puzzle-hunt design (MIT Mystery Hunt metapuzzle structure, Puzzled Pint difficulty

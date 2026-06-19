@@ -6495,6 +6495,13 @@ function escFragFromAnswer(text) {
     return text.replace(/^(a|an|the)\s+/i, '').trim().charAt(0).toUpperCase();
 }
 
+// Lenient match for the Final Door's memory-check answer — strips a leading
+// article and accepts either string containing the other ("doubloon" matches
+// "a tarnished doubloon"), so players aren't penalized for not quoting verbatim.
+function escNormItemAnswer(text) {
+    return text.toLowerCase().replace(/^(a|an|the)\s+/i, '').trim();
+}
+
 function escGenerateVaultPuzzle() {
     // 3 distinct digits 1-9, deduced from logic clues rather than handed over directly.
     const combo = escShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, 3);
@@ -6725,9 +6732,9 @@ const ESC_GENERATORS = {
     split:    escGenerateSplitPuzzle,
 };
 
-function escGenerateRun(theme, mode, game) {
+function escGenerateRun(theme, mode, game, presetTypes) {
     const pool  = mode === 'coop' ? ESC_PUZZLE_TYPES_COOP : ESC_PUZZLE_TYPES;
-    const types = escShuffle(pool).slice(0, ESC_ROOM_COUNT);
+    const types = presetTypes || escShuffle(pool).slice(0, ESC_ROOM_COUNT);
     return types.map((type, i) => ({
         roomNumber: i + 1,
         item: theme.loot[i % theme.loot.length],
@@ -6736,10 +6743,10 @@ function escGenerateRun(theme, mode, game) {
     }));
 }
 
-function escNewProgress(theme, mode, game) {
+function escNewProgress(theme, mode, game, presetTypes) {
     return {
         theme,
-        rooms: escGenerateRun(theme, mode, game),
+        rooms: escGenerateRun(theme, mode, game, presetTypes),
         currentRoomIndex: 0,
         inventory: [],
         fragments: [],
@@ -6774,7 +6781,13 @@ function escMakeFinalPuzzle(progress) {
         : orderKind === 'reverse'
             ? 'in REVERSE order of discovery'
             : 'sorted alphabetically';
-    return { orderKind, orderText, answer: ordered.join(''), solved: false };
+
+    // The inventory isn't just flavor — recalling one item is part of getting out.
+    const memoryRoomIdx = Math.floor(Math.random() * progress.rooms.length);
+    const memoryItem    = progress.rooms[memoryRoomIdx].item;
+    const memoryType    = progress.rooms[memoryRoomIdx].puzzle.type;
+
+    return { orderKind, orderText, answer: ordered.join(''), memoryRoomIdx, memoryItem, memoryType, solved: false };
 }
 
 // ─ B. Rendering ───────────────────────────────────────────────────────────────
@@ -6814,12 +6827,12 @@ function escFinalPuzzleEmbed(progress) {
     return {
         color: theme.color,
         title: `${theme.emoji}  ${theme.name}  —  THE FINAL DOOR`,
-        description: `All four rooms are cleared. A final door blocks the way out, fitted with a 4-character lock.\n\nYou collected these fragments, in order: **${progress.fragments.join(' · ')}**\n\nThe door wants them **${progress.finalPuzzle.orderText}**. Press the button below and enter the code.`,
+        description: `All four rooms are cleared. A final door blocks the way out, fitted with a 4-character lock — and a second mechanism that only opens for someone who was paying attention.\n\nYou collected these fragments, in order: **${progress.fragments.join(' · ')}**\n\nThe door wants them **${progress.finalPuzzle.orderText}**. It also demands: **what did you find in the ${progress.finalPuzzle.memoryType} room?**\n\nPress the button below and answer both.`,
         fields: [
             { name: '​', value: '─────────────────────────────' },
             { name: '🎒  Inventory', value: progress.inventory.map(i => `▸ ${i}`).join('\n') || '*Empty*' },
         ],
-        footer: { text: '💡 Use the Hint button if you forget the rule' },
+        footer: { text: '💡 Use the Hint button if you forget either answer' },
     };
 }
 
@@ -7046,9 +7059,14 @@ async function escStartGame(game, channel) {
         const hostMsg = await channel.send({ content: '**Host controls:**', components: escHostComponents(game) }).catch(() => null);
         if (hostMsg) game.hostMsgId = hostMsg.id;
     } else {
+        // Same 4 puzzle TYPES for every racer, each with independently randomized
+        // content (different vault digits, cipher word, etc.) — keeps the race fair
+        // (no one gets handed an easier genre than someone else in the same round)
+        // while each player's specific instance is still their own.
+        const raceTypes = escShuffle(ESC_PUZZLE_TYPES).slice(0, ESC_ROOM_COUNT);
         const dmFailed = [];
         for (const [uid, p] of game.players) {
-            p.progress = escNewProgress(theme, 'race', game);
+            p.progress = escNewProgress(theme, 'race', game, raceTypes);
             p.progress.startedAt = game.startedAt;
             try {
                 const user = await client.users.fetch(uid);
@@ -7376,9 +7394,14 @@ async function handleEscButton(interaction) {
     if (id === 'esc:final:open') {
         if (!escAtFinalPuzzle(progress)) { await interaction.reply({ content: '❌ No active final puzzle.', ephemeral: true }); return; }
         const modal = new ModalBuilder().setCustomId('esc:final_modal').setTitle('🚪 The Final Door');
-        modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('esc_final_answer').setLabel('Enter the code').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10),
-        ));
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('esc_final_answer').setLabel('Enter the code').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10),
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder().setCustomId('esc_final_item').setLabel(`What did you find in the ${progress.finalPuzzle.memoryType} room?`).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(60),
+            ),
+        );
         await interaction.showModal(modal);
         return;
     }
@@ -7386,7 +7409,7 @@ async function handleEscButton(interaction) {
     if (id === 'esc:final:hint') {
         if (!escAtFinalPuzzle(progress)) { await interaction.reply({ content: '❌ No active final puzzle.', ephemeral: true }); return; }
         progress.hintsUsed++;
-        await interaction.reply({ content: `💡 You collected: **${progress.fragments.join(' · ')}**. The door wants them **${progress.finalPuzzle.orderText}**.`, ephemeral: true });
+        await interaction.reply({ content: `💡 You collected: **${progress.fragments.join(' · ')}**. The door wants them **${progress.finalPuzzle.orderText}**.\nIn the **${progress.finalPuzzle.memoryType}** room, you found: **${progress.finalPuzzle.memoryItem}**.`, ephemeral: true });
         return;
     }
 
@@ -7553,13 +7576,25 @@ async function handleEscFinalModal(interaction) {
     if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
     const { progress } = ctx;
     if (!escAtFinalPuzzle(progress)) { await interaction.reply({ content: '❌ No active final puzzle.', ephemeral: true }); return; }
-    const guess = interaction.fields.getTextInputValue('esc_final_answer').trim().toUpperCase().replace(/\s+/g, '');
-    if (guess === progress.finalPuzzle.answer) {
+
+    const codeGuess = interaction.fields.getTextInputValue('esc_final_answer').trim().toUpperCase().replace(/\s+/g, '');
+    const codeOk    = codeGuess === progress.finalPuzzle.answer;
+
+    const itemGuessRaw = interaction.fields.getTextInputValue('esc_final_item');
+    const itemGuess    = escNormItemAnswer(itemGuessRaw);
+    const itemCorrect  = escNormItemAnswer(progress.finalPuzzle.memoryItem);
+    const itemOk       = itemGuess.length >= 3 && (itemCorrect.includes(itemGuess) || itemGuess.includes(itemCorrect));
+
+    if (codeOk && itemOk) {
         progress.finalPuzzle.solved = true;
         await interaction.update({ embeds: [escFinishedEmbed(progress)], components: [] });
         await escFinishFinalPuzzle(ctx);
+    } else if (!codeOk && !itemOk) {
+        await interaction.reply({ content: '❌ Wrong code, and that\'s not what you found in that room. The final door stays shut.', ephemeral: true });
+    } else if (!codeOk) {
+        await interaction.reply({ content: '❌ The item is right, but the code is wrong. The final door stays shut.', ephemeral: true });
     } else {
-        await interaction.reply({ content: '❌ Incorrect code. The final door stays shut.', ephemeral: true });
+        await interaction.reply({ content: '❌ The code is right, but that\'s not what you found in that room. The final door stays shut.', ephemeral: true });
     }
 }
 

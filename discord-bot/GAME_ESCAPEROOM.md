@@ -18,7 +18,7 @@ reactions anywhere in the game (every puzzle is solved with buttons, select menu
 | Mode | Description |
 |---|---|
 | `coop` (default) | One shared room. Everyone in the lobby sees the same puzzle message in `#escape-room` and shares one inventory/fragment set. Anyone can attempt the current puzzle. Pool includes the co-op-exclusive `split` puzzle. |
-| `race` | Each player gets their **own** independently generated 4-room run, delivered via DM, each with their own Master Puzzle at the end. The channel shows a live leaderboard. First to escape wins; game ends when everyone finishes or time runs out. |
+| `race` | Each player gets their **own** independently generated 4-room run, delivered via DM, each with their own Master Puzzle at the end. **All racers face the same 4 puzzle types in the same order** (picked once per race) so it's a fair contest — only the content (vault digits, cipher word, riddle, etc.) is randomized per player, not the genre/difficulty. The channel shows a live leaderboard. First to escape wins; game ends when everyone finishes or time runs out. |
 
 Mode is chosen with `/escaperoom start mode:<coop|race>` (defaults to `coop`), or toggled by the host in the lobby with the **Toggle Mode** button.
 
@@ -105,11 +105,20 @@ const escapePlayerMap = new Map(); // userId → channelId
 ```js
 {
   orderKind: 'forward'|'reverse'|'alpha',
-  orderText: string,    // human-readable rule shown in the prompt and in hints
-  answer: string,       // fragments combined per orderKind — e.g. 'BTEJ'
+  orderText: string,      // human-readable rule shown in the prompt and in hints
+  answer: string,         // fragments combined per orderKind — e.g. 'BTEJ'
+  memoryRoomIdx: number,  // which of the 4 rooms the memory-check question is about
+  memoryItem: string,     // the loot item from that room — this is what gives inventory an actual purpose
+  memoryType: string,     // that room's puzzle type, shown in the question ("...in the cipher room?")
   solved: boolean,
 }
 ```
+
+The Final Door modal has **two fields**: the fragment code, and a free-text answer to "what did you
+find in the `{memoryType}` room?" — checked leniently (`escNormItemAnswer`, substring match either
+direction, so "doubloon" matches "a tarnished doubloon"). Both must be correct to escape. This is the
+entire reason `inventory` exists as a tracked field — without it, the loot items were pure flavor text
+with zero mechanical effect.
 
 `escAtFinalPuzzle(progress)` is true once `currentRoomIndex >= rooms.length` and `finalPuzzle` exists
 but isn't solved yet — this is the state between "room 4 cleared" and "actually escaped."
@@ -190,7 +199,7 @@ interaction), no reaction listener, no emoji-string-comparison gotchas.
 | `esc:split_modal` | Modal | Split-clue code submission |
 | `esc:final:open` | Button | Opens the Master Puzzle modal |
 | `esc:final:hint` | Button | Restates fragments + order rule |
-| `esc:final_modal` | Modal | Master Puzzle code submission — this is the actual "escaped" trigger |
+| `esc:final_modal` | Modal | Master Puzzle submission — fragment code + memory-check item, both required. This is the actual "escaped" trigger |
 
 ---
 
