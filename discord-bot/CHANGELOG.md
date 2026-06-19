@@ -1,5 +1,27 @@
 # Beast Bot Changelog
 
+## [2026-06-19] — Escape Room v2: Master Puzzle chaining, 3 new puzzle types, Cipher Evolution
+
+Researched real puzzle-hunt design (MIT Mystery Hunt metapuzzle structure, Puzzled Pint difficulty
+tuning, knights-and-knaves fairness conventions) to make the escape room feel like one connected
+puzzle instead of four independent riddles, without pushing total playtime past ~15-25 min.
+
+- **Master Puzzle / fragment chaining** — every puzzle now yields a fragment (1 letter) in addition
+  to its loot item. Once all 4 rooms are cleared, a 5th "Final Door" stage combines the 4 collected
+  fragments per a stated order rule (forward / reverse / alphabetical, picked once per run) into one
+  modal submission — this is now the actual "escaped" trigger, not room 4.
+- **Cipher Evolution** — cipher puzzles now rotate between 3 real ciphers (Polybius square, Atbash,
+  Morse code) instead of always being the same one. The coded text is shown with no table and no
+  name; recognizing which cipher it is is half the puzzle. First Hint reveals the method as a safety net.
+- **3 new puzzle types**: `blackbox` (infer a hidden formula from input/output pairs, predict the
+  4th output), `witness` (knights-and-knaves logic puzzle — all 4 templates brute-force verified to
+  have exactly one consistent solution before shipping), `split` (co-op only — a 4-digit code is
+  split between two random players via two separate DMs; structurally unsolvable without the group
+  talking to each other).
+- 2 lateral-thinking riddles added to the riddle pool.
+- Puzzle pool grew from 5 to 8 types (7 in race mode, since `split` needs a team); each game still
+  picks 4 with no repeats.
+
 ## [2026-06-19] — Rip reactions out of Ward puzzle entirely, switch to buttons
 
 The Ward puzzle (react with the correct emoji) kept failing in live testing even after two fixes

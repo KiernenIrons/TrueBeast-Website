@@ -278,6 +278,8 @@ const ESC_RIDDLES = [
     { q: 'What gets wetter the more it dries?',                                                                                                  options: ['A sponge', 'A towel', 'Rain', 'A cloud'],              correct: 1 },
     { q: 'I am not alive, but I grow. I don\'t have lungs, but I need air. What am I?',                                                          options: ['Fire', 'A plant', 'A crystal', 'A virus'],             correct: 0 },
     { q: 'What has many teeth but cannot bite?',                                                                                                 options: ['A saw', 'A comb', 'A zipper', 'A gear'],               correct: 1 },
+    { q: 'What is black and white, and read all over?',                                                                                          options: ['A penguin', 'A zebra', 'A skunk', 'A newspaper'],      correct: 3 },
+    { q: 'Forward I am heavy, but backward I am not. What am I?',                                                                                options: ['TON', 'LOG', 'TAP', 'BAR'],                            correct: 0 },
 ];
 
 const ESC_CIPHER_WORDS = ['SHADOW', 'COMPASS', 'LANTERN', 'WHISPER', 'ANCHOR', 'PHANTOM', 'CRYPT', 'BEACON', 'RELIC', 'ECHO', 'VOYAGE', 'ORACLE'];
@@ -285,15 +287,64 @@ const ESC_CIPHER_WORDS = ['SHADOW', 'COMPASS', 'LANTERN', 'WHISPER', 'ANCHOR', '
 const ESC_SEQUENCE_SYMBOLS = ['🔺', '🔵', '🟩', '🟡', '🟣'];
 
 const ESC_WARD_SETS = [
-    { clue: 'Only the bird that hunts in total darkness, guided by sound alone, may pass.', options: ['🦉', '🦅', '🐦', '🦆', '🦢'], correct: 0 },
-    { clue: 'Only the season that comes right after the one when leaves fall may pass.',    options: ['🌸', '☀️', '🍂', '❄️', '🌧️'], correct: 3 },
-    { clue: 'Only the sea creature with three hearts and eight arms may pass.',             options: ['🐙', '🦈', '🐳', '🐬', '🦀'], correct: 0 },
-    { clue: 'Only the object that locks a secret away — not the one that opens it — may pass.', options: ['🔑', '🗝️', '🔒', '📜', '⚙️'], correct: 2 },
-    { clue: 'Only the largest land animal — the one famous for never forgetting — may pass.', options: ['🐘', '🦅', '🐢', '🦊', '🐬'], correct: 0 },
-    { clue: 'Only the storm that is too cold to fall as rain may pass.',                    options: ['🌧️', '⛈️', '❄️', '🌫️', '🌪️'], correct: 2 },
+    { clue: 'Only the bird that hunts in total darkness, guided by sound alone, may pass.', options: ['🦉', '🦅', '🐦', '🦆', '🦢'], correct: 0, name: 'OWL' },
+    { clue: 'Only the season that comes right after the one when leaves fall may pass.',    options: ['🌸', '☀️', '🍂', '❄️', '🌧️'], correct: 3, name: 'WINTER' },
+    { clue: 'Only the sea creature with three hearts and eight arms may pass.',             options: ['🐙', '🦈', '🐳', '🐬', '🦀'], correct: 0, name: 'OCTOPUS' },
+    { clue: 'Only the object that locks a secret away — not the one that opens it — may pass.', options: ['🔑', '🗝️', '🔒', '📜', '⚙️'], correct: 2, name: 'LOCK' },
+    { clue: 'Only the largest land animal — the one famous for never forgetting — may pass.', options: ['🐘', '🦅', '🐢', '🦊', '🐬'], correct: 0, name: 'ELEPHANT' },
+    { clue: 'Only the storm that is too cold to fall as rain may pass.',                    options: ['🌧️', '⛈️', '❄️', '🌫️', '🌪️'], correct: 2, name: 'BLIZZARD' },
 ];
 
-const ESC_PUZZLE_TYPES = ['vault', 'cipher', 'riddle', 'sequence', 'ward'];
+// Knights-and-knaves witness puzzles. Each template's truth-assignment was brute-forced
+// across all 8 true/false combinations to confirm exactly ONE consistent solution exists —
+// no puzzle here can be "unfair" because the answer was verified, not hand-waved.
+const ESC_WITNESS_NAMES = ['Mira', 'Tobias', 'Greta', 'Felix', 'Sana', 'Dorian', 'Wren', 'Callum', 'Isla', 'Magnus'];
+
+const ESC_WITNESS_TEMPLATES = [
+    {
+        rule: 'Exactly one of the three is lying — the other two always tell the truth.',
+        build: (n) => [
+            `**${n[0]}** says: "${n[1]} is lying."`,
+            `**${n[1]}** says: "I am telling the truth."`,
+            `**${n[2]}** says: "${n[0]} is lying."`,
+        ],
+        question: 'Who is lying?',
+        answerIndex: 0,
+    },
+    {
+        rule: 'Exactly one of the three tells the truth — the other two are lying.',
+        build: (n) => [
+            `**${n[0]}** says: "${n[2]} tells the truth."`,
+            `**${n[1]}** says: "${n[0]} is lying."`,
+            `**${n[2]}** says: "${n[1]} is lying."`,
+        ],
+        question: 'Who is telling the truth?',
+        answerIndex: 1,
+    },
+    {
+        rule: 'Exactly two of the three tell the truth — one is lying.',
+        build: (n) => [
+            `**${n[0]}** says: "I am telling the truth."`,
+            `**${n[1]}** says: "${n[2]} is lying."`,
+            `**${n[2]}** says: "${n[0]} is lying."`,
+        ],
+        question: 'Who is lying?',
+        answerIndex: 2,
+    },
+    {
+        rule: 'Exactly two of the three tell the truth — one is lying.',
+        build: (n) => [
+            `**${n[0]}** says: "I am telling the truth."`,
+            `**${n[1]}** says: "${n[0]} is lying."`,
+            `**${n[2]}** says: "${n[1]} is telling the truth."`,
+        ],
+        question: 'Who is lying?',
+        answerIndex: 0,
+    },
+];
+
+const ESC_PUZZLE_TYPES      = ['vault', 'cipher', 'riddle', 'sequence', 'ward', 'blackbox', 'witness'];
+const ESC_PUZZLE_TYPES_COOP = [...ESC_PUZZLE_TYPES, 'split']; // 'split' needs 2+ players to DM half a clue each — co-op only
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 // Queue of unanswered questions waiting for a button click:
@@ -6437,6 +6488,13 @@ function escShuffle(arr) {
     return a;
 }
 
+// Every puzzle yields a single uppercase letter "fragment" toward the final
+// Master Puzzle. Derived from the correct answer text, stripping a leading
+// article so "An echo" yields E, not A.
+function escFragFromAnswer(text) {
+    return text.replace(/^(a|an|the)\s+/i, '').trim().charAt(0).toUpperCase();
+}
+
 function escGenerateVaultPuzzle() {
     // 3 distinct digits 1-9, deduced from logic clues rather than handed over directly.
     const combo = escShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, 3);
@@ -6461,13 +6519,17 @@ function escGenerateVaultPuzzle() {
         type: 'vault',
         prompt: `🔢 A **vault door** blocks your path, sealed by a 3-digit combination (each dial 1-9, no digit repeats).\n\n*${clues[0]}*\n*${clues[1]}*\n*${clues[2]}*\n*${clues[3]}*\n\nWork it out, set each dial, and press **Open Vault**. A wrong guess will tell you how close you got.`,
         data: { combo, guess: [null, null, null], hintedPositions: [] },
+        fragment: String.fromCharCode(65 + (sum % 26)),
     };
 }
 
-// Polybius square — classic escape-room cipher. 5x5 grid (J merged into I), the
-// message is given as row/column digit pairs that must be looked up by hand,
-// rather than a Caesar shift where the offset is just stated outright.
-const ESC_POLYBIUS_ALPHABET = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'; // 25 letters, no J
+// Cipher Evolution — instead of always being the same method, each cipher puzzle
+// rotates between 3 real cipher families. The coded text is shown with NO table
+// and no name — figuring out *which* cipher it even is is the first half of the
+// puzzle. The first Hint click reveals the method + lookup table (a safety net,
+// never a requirement) so the puzzle stays fair for players who don't recognize
+// Morse/Atbash on sight.
+const ESC_POLYBIUS_ALPHABET = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'; // 25 letters, J merged into I
 
 function escPolybiusGridText() {
     const lines = ['    1 2 3 4 5'];
@@ -6484,13 +6546,45 @@ function escPolybiusEncode(word) {
     }).join(' ');
 }
 
+function escAtbashEncode(word) {
+    return word.toUpperCase().split('').map(ch => String.fromCharCode(90 - (ch.charCodeAt(0) - 65))).join('');
+}
+
+const ESC_MORSE_MAP = {
+    A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.', H: '....', I: '..', J: '.---',
+    K: '-.-', L: '.-..', M: '--', N: '-.', O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-',
+    U: '..-', V: '...-', W: '.--', X: '-..-', Y: '-.--', Z: '--..',
+};
+
+function escMorseEncode(word) {
+    return word.toUpperCase().split('').map(ch => ESC_MORSE_MAP[ch]).join(' / ');
+}
+
 function escGenerateCipherPuzzle() {
     const word   = ESC_CIPHER_WORDS[Math.floor(Math.random() * ESC_CIPHER_WORDS.length)];
-    const coded  = escPolybiusEncode(word);
+    const method = ['polybius', 'atbash', 'morse'][Math.floor(Math.random() * 3)];
+
+    let coded, methodName, tableText;
+    if (method === 'polybius') {
+        coded      = escPolybiusEncode(word);
+        methodName = 'Polybius square';
+        tableText  = escPolybiusGridText();
+    } else if (method === 'atbash') {
+        coded      = escAtbashEncode(word);
+        methodName = 'Atbash cipher — the alphabet reversed';
+        tableText  = 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z\nZ Y X W V U T S R Q P O N M L K J I H G F E D C B A';
+    } else {
+        coded      = escMorseEncode(word);
+        methodName = 'Morse code';
+        const used = [...new Set(word.toUpperCase().split(''))].sort();
+        tableText  = used.map(l => `${l} = ${ESC_MORSE_MAP[l]}`).join('   ');
+    }
+
     return {
         type: 'cipher',
-        prompt: `🔡 A coded message is etched beside a strange grid:\n\n\`\`\`\n${escPolybiusGridText()}\n\`\`\`\nEach number pair is **row, column** — look it up in the grid above to find the letter.\n\nCoded message: \`${coded}\`\n\nDecode it and type the word.`,
-        data: { answer: word, revealedLetters: 0 },
+        prompt: `🔡 A coded message is etched into the wall:\n\n\`\`\`\n${coded}\n\`\`\`\n\nIdentify how it's encoded, decode it, and type the word. (Stuck? **Hint** will reveal the method.)`,
+        data: { answer: word, revealedLetters: 0, methodName, tableText, methodRevealed: false },
+        fragment: word.charAt(0),
     };
 }
 
@@ -6527,6 +6621,7 @@ function escGenerateRiddlePuzzle() {
         type: 'riddle',
         prompt: promptText,
         data: { options: shuffled, correctIndex, ruledOut: [] },
+        fragment: escFragFromAnswer(options[correct]),
     };
 }
 
@@ -6548,6 +6643,7 @@ function escGenerateSequencePuzzle() {
         type: 'sequence',
         prompt: `✨ Five symbols glow on the wall, each humming with a hidden value:\n\n${legend}\n\n${ruleText}`,
         data: { sequence, pressed: [] },
+        fragment: String.fromCharCode(65 + (chosen[0].val - 1)),
     };
 }
 
@@ -6557,6 +6653,64 @@ function escGenerateWardPuzzle() {
         type: 'ward',
         prompt: `🛡️ A warded gate bars the way. ${ward.clue}\n\n**Press the correct symbol below.**`,
         data: { options: ward.options, correctIndex: ward.correct, ruledOut: [] },
+        fragment: ward.name.charAt(0),
+    };
+}
+
+// Black-box function puzzle — 3 input/output pairs from a hidden formula; player
+// must infer the rule and predict a 4th output. Infinitely replayable (random
+// coefficients), and the modal-only submission fits Discord cleanly.
+function escGenerateBlackboxPuzzle() {
+    const isQuadratic = Math.random() < 0.5;
+    const a = 2 + Math.floor(Math.random() * 4); // 2-5
+    const b = 1 + Math.floor(Math.random() * 10); // 1-10
+    const f = isQuadratic ? (x => a * x * x + b) : (x => a * x + b);
+    const formulaText = isQuadratic ? `${a}x² + ${b}` : `${a}x + ${b}`;
+    const kind = isQuadratic ? 'a squared relationship' : 'a straight-line relationship';
+
+    const inputs  = escShuffle([2, 3, 4, 5, 6, 7, 8]).slice(0, 4);
+    const samples = inputs.slice(0, 3);
+    const target  = inputs[3];
+    const answer  = f(target);
+    const pairs   = samples.map(x => `INPUT: ${x}   →   OUTPUT: ${f(x)}`).join('\n');
+
+    return {
+        type: 'blackbox',
+        prompt: `⚙️ A strange machine hums in the corner. Feed it a number, and it returns another:\n\n\`\`\`\n${pairs}\n\`\`\`\n\nWork out the rule, then submit the output for **INPUT: ${target}**.`,
+        data: { answer: String(answer), kind, formulaText, hintStage: 0 },
+        fragment: String.fromCharCode(65 + (answer % 26)),
+    };
+}
+
+function escGenerateWitnessPuzzle() {
+    const names    = escShuffle(ESC_WITNESS_NAMES).slice(0, 3);
+    const template = ESC_WITNESS_TEMPLATES[Math.floor(Math.random() * ESC_WITNESS_TEMPLATES.length)];
+    const statements = template.build(names);
+
+    const order        = escShuffle([0, 1, 2]);
+    const options      = order.map(i => names[i]);
+    const correctIndex = order.indexOf(template.answerIndex);
+
+    return {
+        type: 'witness',
+        prompt: `🕵️ Three witnesses are questioned. ${template.rule}\n\n${statements.join('\n')}\n\n**${template.question}**`,
+        data: { options, correctIndex, ruledOut: [] },
+        fragment: names[template.answerIndex].charAt(0).toUpperCase(),
+    };
+}
+
+// Asymmetric split-clue puzzle (co-op only) — the code is split between two random
+// players via two separate DMs. Neither half alone is enough; the puzzle is only
+// solvable if the group actually talks to each other and combines what they know.
+function escGenerateSplitPuzzle(game) {
+    const playerIds   = [...game.players.keys()];
+    const [aId, bId]  = escShuffle(playerIds).slice(0, 2);
+    const code        = String(1000 + Math.floor(Math.random() * 9000));
+    return {
+        type: 'split',
+        prompt: `🔐 A reinforced gate demands a 4-digit code. Its mechanism has split the code between two minds in your group — check your DMs, and pool what you know.`,
+        data: { code, half1: code.slice(0, 2), half2: code.slice(2, 4), playerAId: aId, playerBId: bId, dmsSent: false },
+        fragment: String.fromCharCode(65 + parseInt(code[0], 10)),
     };
 }
 
@@ -6566,24 +6720,30 @@ const ESC_GENERATORS = {
     riddle:   escGenerateRiddlePuzzle,
     sequence: escGenerateSequencePuzzle,
     ward:     escGenerateWardPuzzle,
+    blackbox: escGenerateBlackboxPuzzle,
+    witness:  escGenerateWitnessPuzzle,
+    split:    escGenerateSplitPuzzle,
 };
 
-function escGenerateRun(theme) {
-    const types = escShuffle(ESC_PUZZLE_TYPES).slice(0, ESC_ROOM_COUNT);
+function escGenerateRun(theme, mode, game) {
+    const pool  = mode === 'coop' ? ESC_PUZZLE_TYPES_COOP : ESC_PUZZLE_TYPES;
+    const types = escShuffle(pool).slice(0, ESC_ROOM_COUNT);
     return types.map((type, i) => ({
         roomNumber: i + 1,
         item: theme.loot[i % theme.loot.length],
-        puzzle: ESC_GENERATORS[type](),
+        puzzle: ESC_GENERATORS[type](game),
         solved: false,
     }));
 }
 
-function escNewProgress(theme) {
+function escNewProgress(theme, mode, game) {
     return {
         theme,
-        rooms: escGenerateRun(theme),
+        rooms: escGenerateRun(theme, mode, game),
         currentRoomIndex: 0,
         inventory: [],
+        fragments: [],
+        finalPuzzle: null,
         hintsUsed: 0,
         finished: false,
         finishedAt: null,
@@ -6596,12 +6756,34 @@ function escCurrentRoom(progress) {
     return progress.rooms[progress.currentRoomIndex] || null;
 }
 
+function escAtFinalPuzzle(progress) {
+    return progress.currentRoomIndex >= progress.rooms.length && !!progress.finalPuzzle && !progress.finalPuzzle.solved;
+}
+
+// The 4 fragments combine into the Master Puzzle's answer. The order rule is
+// picked once per run and stated explicitly — no guessing required, just
+// correctly recalling what you collected and applying the stated rule.
+function escMakeFinalPuzzle(progress) {
+    const orderKind = ['forward', 'reverse', 'alpha'][Math.floor(Math.random() * 3)];
+    let ordered;
+    if (orderKind === 'forward') ordered = [...progress.fragments];
+    else if (orderKind === 'reverse') ordered = [...progress.fragments].reverse();
+    else ordered = [...progress.fragments].sort();
+    const orderText = orderKind === 'forward'
+        ? 'in the order you found them'
+        : orderKind === 'reverse'
+            ? 'in REVERSE order of discovery'
+            : 'sorted alphabetically';
+    return { orderKind, orderText, answer: ordered.join(''), solved: false };
+}
+
 // ─ B. Rendering ───────────────────────────────────────────────────────────────
 
 function escProgressEmbed(progress, opts = {}) {
     const room  = escCurrentRoom(progress);
     const theme = progress.theme;
     const inv   = progress.inventory.length ? progress.inventory.map(i => `▸ ${i}`).join('\n') : '*Empty*';
+    const frags = progress.fragments.length ? progress.fragments.join(' · ') : '*None yet*';
     return {
         color: theme.color,
         title: `${theme.emoji}  ${theme.name}  —  Room ${room ? room.roomNumber : ESC_ROOM_COUNT} / ${ESC_ROOM_COUNT}`,
@@ -6609,6 +6791,7 @@ function escProgressEmbed(progress, opts = {}) {
         fields: [
             { name: '​', value: '─────────────────────────────' },
             { name: '🎒  Inventory', value: inv },
+            { name: '🔤  Fragments (for the final door)', value: frags },
         ],
         footer: { text: opts.footer || '💡 Use the Hint button if you\'re stuck' },
     };
@@ -6622,8 +6805,29 @@ function escFinishedEmbed(progress) {
     return {
         color: 0x22c55e,
         title: `${theme.emoji}  YOU ESCAPED!`,
-        description: `You broke free from **${theme.name}** in **${mins}m ${secs}s** (${progress.hintsUsed} hint${progress.hintsUsed === 1 ? '' : 's'} used), collecting:\n\n${progress.inventory.map(i => `▸ ${i}`).join('\n') || '*nothing*'}`,
+        description: `You broke free from **${theme.name}** in **${mins}m ${secs}s** (${progress.hintsUsed} hint${progress.hintsUsed === 1 ? '' : 's'} used) by cracking the final code **${progress.finalPuzzle.answer}**, collecting:\n\n${progress.inventory.map(i => `▸ ${i}`).join('\n') || '*nothing*'}`,
     };
+}
+
+function escFinalPuzzleEmbed(progress) {
+    const theme = progress.theme;
+    return {
+        color: theme.color,
+        title: `${theme.emoji}  ${theme.name}  —  THE FINAL DOOR`,
+        description: `All four rooms are cleared. A final door blocks the way out, fitted with a 4-character lock.\n\nYou collected these fragments, in order: **${progress.fragments.join(' · ')}**\n\nThe door wants them **${progress.finalPuzzle.orderText}**. Press the button below and enter the code.`,
+        fields: [
+            { name: '​', value: '─────────────────────────────' },
+            { name: '🎒  Inventory', value: progress.inventory.map(i => `▸ ${i}`).join('\n') || '*Empty*' },
+        ],
+        footer: { text: '💡 Use the Hint button if you forget the rule' },
+    };
+}
+
+function escFinalPuzzleComponents() {
+    return [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('esc:final:open').setLabel('Open the Final Door').setStyle(ButtonStyle.Success).setEmoji('🚪'),
+        new ButtonBuilder().setCustomId('esc:final:hint').setLabel('Hint').setStyle(ButtonStyle.Secondary).setEmoji('💡'),
+    )];
 }
 
 function escPuzzleComponents(progress) {
@@ -6678,6 +6882,28 @@ function escPuzzleComponents(progress) {
         });
         rows.push(new ActionRowBuilder().addComponents(optBtns));
         rows.push(new ActionRowBuilder().addComponents(hintBtn));
+    } else if (puzzle.type === 'blackbox') {
+        rows.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('esc:blackbox:open').setLabel('Submit Output').setStyle(ButtonStyle.Primary).setEmoji('⚙️'),
+            hintBtn,
+        ));
+    } else if (puzzle.type === 'witness') {
+        const ruledOut = puzzle.data.ruledOut || [];
+        const optBtns = puzzle.data.options.map((name, idx) => {
+            const isOut = ruledOut.includes(idx);
+            return new ButtonBuilder()
+                .setCustomId(`esc:witness:${idx}`)
+                .setLabel(`${isOut ? '❌ ' : ''}${name}`)
+                .setStyle(isOut ? ButtonStyle.Danger : ButtonStyle.Secondary)
+                .setDisabled(isOut);
+        });
+        rows.push(new ActionRowBuilder().addComponents(optBtns));
+        rows.push(new ActionRowBuilder().addComponents(hintBtn));
+    } else if (puzzle.type === 'split') {
+        rows.push(new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('esc:split:open').setLabel('Submit Code').setStyle(ButtonStyle.Primary).setEmoji('🔐'),
+            hintBtn,
+        ));
     }
     return rows;
 }
@@ -6741,6 +6967,7 @@ function escLeaderboardEmbed(game) {
                 const elapsed = r.progress.finishedAt - r.progress.startedAt;
                 return `🏆 **${i + 1}.** ${r.name} — escaped in ${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s`;
             }
+            if (escAtFinalPuzzle(r.progress)) return `▸ ${r.name} — at the **Final Door**`;
             return `▸ ${r.name} — Room ${r.progress.currentRoomIndex + 1} / ${ESC_ROOM_COUNT}`;
         })
         .join('\n');
@@ -6785,6 +7012,24 @@ function escGetContext(interaction) {
 
 // ─ D. Flow control ───────────────────────────────────────────────────────────
 
+// DMs the two halves of a 'split' room's code to its assigned players, the moment
+// that room becomes the current one (not at generation time) — keeps room order
+// from being spoiled and matches how every other puzzle is only shown when reached.
+async function escAnnounceSplitIfNeeded(progress) {
+    const room = escCurrentRoom(progress);
+    if (!room || room.puzzle.type !== 'split' || room.puzzle.data.dmsSent) return;
+    const { half1, half2, playerAId, playerBId } = room.puzzle.data;
+    room.puzzle.data.dmsSent = true; // set first — a slow/failed DM must not cause a duplicate send on re-render
+    try {
+        const userA = await client.users.fetch(playerAId);
+        await userA.send({ content: `🔐 **Gate code — Half A:** the first two digits are **${half1}**. Find out who has the other half!` });
+    } catch (_) {}
+    try {
+        const userB = await client.users.fetch(playerBId);
+        await userB.send({ content: `🔐 **Gate code — Half B:** the last two digits are **${half2}**. Find out who has the other half!` });
+    } catch (_) {}
+}
+
 async function escStartGame(game, channel) {
     game.phase      = 'playing';
     game.startedAt  = Date.now();
@@ -6792,17 +7037,18 @@ async function escStartGame(game, channel) {
     const theme = ESC_THEMES[Math.floor(Math.random() * ESC_THEMES.length)];
 
     if (game.mode === 'coop') {
-        game.progress = escNewProgress(theme);
+        game.progress = escNewProgress(theme, 'coop', game);
         game.progress.startedAt = game.startedAt;
         await channel.send({ embeds: [{ color: theme.color, title: `${theme.emoji}  ${theme.name}`, description: theme.intro }] }).catch(() => {});
         const msg = await channel.send({ embeds: [escProgressEmbed(game.progress)], components: escPuzzleComponents(game.progress) });
         game.progress.msgId = msg.id;
+        await escAnnounceSplitIfNeeded(game.progress);
         const hostMsg = await channel.send({ content: '**Host controls:**', components: escHostComponents(game) }).catch(() => null);
         if (hostMsg) game.hostMsgId = hostMsg.id;
     } else {
         const dmFailed = [];
         for (const [uid, p] of game.players) {
-            p.progress = escNewProgress(theme);
+            p.progress = escNewProgress(theme, 'race', game);
             p.progress.startedAt = game.startedAt;
             try {
                 const user = await client.users.fetch(uid);
@@ -6849,7 +7095,7 @@ async function escFinishCoop(game, channel) {
     const embed = {
         color: 0x22c55e,
         title: '🎉  THE TEAM ESCAPED!',
-        description: `Everyone broke free from **${progress.theme.name}** in **${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s** (${progress.hintsUsed} hint${progress.hintsUsed === 1 ? '' : 's'} used)!\n\n**Collected:**\n${progress.inventory.map(i => `▸ ${i}`).join('\n') || '*nothing*'}`,
+        description: `Everyone broke free from **${progress.theme.name}** in **${Math.floor(elapsed / 60000)}m ${Math.floor((elapsed % 60000) / 1000)}s** (${progress.hintsUsed} hint${progress.hintsUsed === 1 ? '' : 's'} used) by cracking the final code **${progress.finalPuzzle.answer}**!\n\n**Collected:**\n${progress.inventory.map(i => `▸ ${i}`).join('\n') || '*nothing*'}`,
         footer: { text: 'Run /escaperoom start to play again!' },
     };
     await channel.send({ embeds: [embed] }).catch(() => {});
@@ -6892,28 +7138,34 @@ async function escEndGame(game, channel, byName, reason) {
 }
 
 async function escSolveAndAdvance(interaction, ctx) {
-    const { game, player, progress } = ctx;
+    const { progress } = ctx;
     const room = escCurrentRoom(progress);
     progress.inventory.push(room.item);
+    progress.fragments.push(room.puzzle.fragment);
     progress.currentRoomIndex++;
-    let justFinished = false;
-    if (progress.currentRoomIndex >= progress.rooms.length) {
-        progress.finished  = true;
-        progress.finishedAt = Date.now();
-        justFinished = true;
+
+    if (progress.currentRoomIndex >= progress.rooms.length && !progress.finalPuzzle) {
+        progress.finalPuzzle = escMakeFinalPuzzle(progress);
     }
 
-    const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: `✅ Found: ${room.item}!` });
-    const components = progress.finished ? [] : escPuzzleComponents(progress);
+    const atFinal     = escAtFinalPuzzle(progress);
+    const embed       = atFinal ? escFinalPuzzleEmbed(progress) : escProgressEmbed(progress, { footer: `✅ Found: ${room.item}! Fragment collected: ${room.puzzle.fragment}` });
+    const components  = atFinal ? escFinalPuzzleComponents() : escPuzzleComponents(progress);
     await interaction.update({ embeds: [embed], components });
 
-    if (justFinished) {
-        if (game.mode === 'coop') {
-            const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
-            if (channel) await escFinishCoop(game, channel);
-        } else {
-            await escFinishRacePlayer(game, player, progress);
-        }
+    if (!atFinal) await escAnnounceSplitIfNeeded(progress);
+}
+
+// Called once the Master Puzzle's modal is solved — this is the actual "escaped" moment.
+async function escFinishFinalPuzzle(ctx) {
+    const { game, player, progress } = ctx;
+    progress.finished   = true;
+    progress.finishedAt = Date.now();
+    if (game.mode === 'coop') {
+        const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
+        if (channel) await escFinishCoop(game, channel);
+    } else {
+        await escFinishRacePlayer(game, player, progress);
     }
 }
 
@@ -6940,6 +7192,12 @@ async function escGiveHint(interaction, room, progress) {
 
     if (puzzle.type === 'cipher') {
         const { answer } = puzzle.data;
+        if (!puzzle.data.methodRevealed) {
+            puzzle.data.methodRevealed = true;
+            progress.hintsUsed++;
+            await interaction.reply({ content: `💡 This is a **${puzzle.data.methodName}**.\n\`\`\`\n${puzzle.data.tableText}\n\`\`\``, ephemeral: true });
+            return;
+        }
         if (puzzle.data.revealedLetters >= answer.length) {
             await interaction.reply({ content: '💡 The whole word is already revealed — type it in!', ephemeral: true });
             return;
@@ -6989,6 +7247,44 @@ async function escGiveHint(interaction, room, progress) {
         progress.hintsUsed++;
         await interaction.update({ embeds: [escProgressEmbed(progress)], components: escPuzzleComponents(progress) });
         await interaction.followUp({ content: `💡 It's **not** ${options[idx]}.`, ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'blackbox') {
+        if (puzzle.data.hintStage === 0) {
+            puzzle.data.hintStage = 1;
+            progress.hintsUsed++;
+            await interaction.reply({ content: `💡 The machine follows **${puzzle.data.kind}** — plot how the output changes as the input grows.`, ephemeral: true });
+            return;
+        }
+        if (puzzle.data.hintStage === 1) {
+            puzzle.data.hintStage = 2;
+            progress.hintsUsed++;
+            await interaction.reply({ content: `💡 The formula is **f(x) = ${puzzle.data.formulaText}**. Now compute it for the target input yourself.`, ephemeral: true });
+            return;
+        }
+        await interaction.reply({ content: '💡 You already have the formula — plug in the target number!', ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'witness') {
+        const { options, correctIndex, ruledOut } = puzzle.data;
+        const candidates = options.map((_, i) => i).filter(i => i !== correctIndex && !ruledOut.includes(i));
+        if (candidates.length === 0) {
+            await interaction.reply({ content: '💡 No more witnesses left to rule out — you\'ve narrowed it down as far as hints can take you!', ephemeral: true });
+            return;
+        }
+        const idx = candidates[Math.floor(Math.random() * candidates.length)];
+        ruledOut.push(idx);
+        progress.hintsUsed++;
+        await interaction.update({ embeds: [escProgressEmbed(progress)], components: escPuzzleComponents(progress) });
+        await interaction.followUp({ content: `💡 It's **not** ${options[idx]}. Re-check who that implicates given the rule.`, ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'split') {
+        progress.hintsUsed++;
+        await interaction.reply({ content: '💡 This gate\'s code was split between two players in your group via DM. Find out who has each half and combine them — no single person can solve this alone.', ephemeral: true });
         return;
     }
 }
@@ -7057,13 +7353,17 @@ async function handleEscButton(interaction) {
         if (!escIsHost(interaction, game)) { await interaction.reply({ content: '❌ Only the host can skip a room.', ephemeral: true }); return; }
         const progress = game.progress;
         if (progress.finished) { await interaction.reply({ content: '❌ The team has already escaped.', ephemeral: true }); return; }
+        const skippedRoom = escCurrentRoom(progress);
+        progress.fragments.push(skippedRoom.puzzle.fragment);
         progress.currentRoomIndex++;
-        let justFinished = false;
-        if (progress.currentRoomIndex >= progress.rooms.length) { progress.finished = true; progress.finishedAt = Date.now(); justFinished = true; }
-        const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: '⏭️ Host skipped this room.' });
-        const components = progress.finished ? [] : escPuzzleComponents(progress);
+        if (progress.currentRoomIndex >= progress.rooms.length && !progress.finalPuzzle) {
+            progress.finalPuzzle = escMakeFinalPuzzle(progress);
+        }
+        const atFinal     = escAtFinalPuzzle(progress);
+        const embed       = atFinal ? escFinalPuzzleEmbed(progress) : escProgressEmbed(progress, { footer: '⏭️ Host skipped this room.' });
+        const components  = atFinal ? escFinalPuzzleComponents() : escPuzzleComponents(progress);
         await interaction.update({ embeds: [embed], components });
-        if (justFinished) { const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null); if (channel) await escFinishCoop(game, channel); }
+        if (!atFinal) await escAnnounceSplitIfNeeded(progress);
         return;
     }
 
@@ -7071,7 +7371,27 @@ async function handleEscButton(interaction) {
     const ctx = escGetContext(interaction);
     if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
     const { progress } = ctx;
+
+    // ── Final Master Puzzle (no `room` — all 4 rooms are already cleared) ──
+    if (id === 'esc:final:open') {
+        if (!escAtFinalPuzzle(progress)) { await interaction.reply({ content: '❌ No active final puzzle.', ephemeral: true }); return; }
+        const modal = new ModalBuilder().setCustomId('esc:final_modal').setTitle('🚪 The Final Door');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('esc_final_answer').setLabel('Enter the code').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10),
+        ));
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if (id === 'esc:final:hint') {
+        if (!escAtFinalPuzzle(progress)) { await interaction.reply({ content: '❌ No active final puzzle.', ephemeral: true }); return; }
+        progress.hintsUsed++;
+        await interaction.reply({ content: `💡 You collected: **${progress.fragments.join(' · ')}**. The door wants them **${progress.finalPuzzle.orderText}**.`, ephemeral: true });
+        return;
+    }
+
     const room = escCurrentRoom(progress);
+    if (!room) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
 
     if (id === 'esc:hint') {
         await escGiveHint(interaction, room, progress);
@@ -7148,6 +7468,34 @@ async function handleEscButton(interaction) {
         }
         return;
     }
+
+    if (id === 'esc:blackbox:open') {
+        const modal = new ModalBuilder().setCustomId('esc:blackbox_modal').setTitle('⚙️ Submit the Output');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('esc_blackbox_answer').setLabel('Output number').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10),
+        ));
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if (id.startsWith('esc:witness:')) {
+        const idx = parseInt(id.split(':')[2], 10);
+        if (idx === room.puzzle.data.correctIndex) {
+            await escSolveAndAdvance(interaction, ctx);
+        } else {
+            await interaction.reply({ content: '❌ Not quite — re-check the statements against the rule.', ephemeral: true });
+        }
+        return;
+    }
+
+    if (id === 'esc:split:open') {
+        const modal = new ModalBuilder().setCustomId('esc:split_modal').setTitle('🔐 Enter the Gate Code');
+        modal.addComponents(new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('esc_split_answer').setLabel('4-digit code').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(8),
+        ));
+        await interaction.showModal(modal);
+        return;
+    }
 }
 
 async function handleEscVaultDial(interaction) {
@@ -7171,6 +7519,47 @@ async function handleEscCipherModal(interaction) {
         await escSolveAndAdvance(interaction, ctx);
     } else {
         await interaction.reply({ content: '❌ Incorrect. The cipher remains unsolved.', ephemeral: true });
+    }
+}
+
+async function handleEscBlackboxModal(interaction) {
+    const ctx = escGetContext(interaction);
+    if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
+    const room = escCurrentRoom(ctx.progress);
+    if (!room || room.puzzle.type !== 'blackbox') { await interaction.reply({ content: '❌ Not a black-box puzzle.', ephemeral: true }); return; }
+    const guess = interaction.fields.getTextInputValue('esc_blackbox_answer').replace(/[^0-9-]/g, '');
+    if (guess === room.puzzle.data.answer) {
+        await escSolveAndAdvance(interaction, ctx);
+    } else {
+        await interaction.reply({ content: '❌ Incorrect. The machine stays silent.', ephemeral: true });
+    }
+}
+
+async function handleEscSplitModal(interaction) {
+    const ctx = escGetContext(interaction);
+    if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
+    const room = escCurrentRoom(ctx.progress);
+    if (!room || room.puzzle.type !== 'split') { await interaction.reply({ content: '❌ Not a gate-code puzzle.', ephemeral: true }); return; }
+    const guess = interaction.fields.getTextInputValue('esc_split_answer').replace(/\D/g, '');
+    if (guess === room.puzzle.data.code) {
+        await escSolveAndAdvance(interaction, ctx);
+    } else {
+        await interaction.reply({ content: '❌ Incorrect code. The gate stays shut.', ephemeral: true });
+    }
+}
+
+async function handleEscFinalModal(interaction) {
+    const ctx = escGetContext(interaction);
+    if (!ctx) { await interaction.reply({ content: '❌ No active puzzle found for you.', ephemeral: true }); return; }
+    const { progress } = ctx;
+    if (!escAtFinalPuzzle(progress)) { await interaction.reply({ content: '❌ No active final puzzle.', ephemeral: true }); return; }
+    const guess = interaction.fields.getTextInputValue('esc_final_answer').trim().toUpperCase().replace(/\s+/g, '');
+    if (guess === progress.finalPuzzle.answer) {
+        progress.finalPuzzle.solved = true;
+        await interaction.update({ embeds: [escFinishedEmbed(progress)], components: [] });
+        await escFinishFinalPuzzle(ctx);
+    } else {
+        await interaction.reply({ content: '❌ Incorrect code. The final door stays shut.', ephemeral: true });
     }
 }
 
@@ -7600,7 +7989,9 @@ client.on('interactionCreate', async (interaction) => {
                 }
                 const embed = game.phase === 'lobby'
                     ? escLobbyEmbed(game)
-                    : (game.mode === 'race' ? escLeaderboardEmbed(game) : escProgressEmbed(game.progress));
+                    : game.mode === 'race'
+                        ? escLeaderboardEmbed(game)
+                        : (escAtFinalPuzzle(game.progress) ? escFinalPuzzleEmbed(game.progress) : escProgressEmbed(game.progress));
                 await interaction.reply({ embeds: [embed], ephemeral: true });
                 return;
             }
@@ -9821,9 +10212,21 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // ── Escape Room — cipher answer modal ─────────────────────────────────────
+    // ── Escape Room — puzzle answer modals ────────────────────────────────────
     if (interaction.isModalSubmit() && interaction.customId === 'esc:cipher_modal') {
         await handleEscCipherModal(interaction);
+        return;
+    }
+    if (interaction.isModalSubmit() && interaction.customId === 'esc:blackbox_modal') {
+        await handleEscBlackboxModal(interaction);
+        return;
+    }
+    if (interaction.isModalSubmit() && interaction.customId === 'esc:split_modal') {
+        await handleEscSplitModal(interaction);
+        return;
+    }
+    if (interaction.isModalSubmit() && interaction.customId === 'esc:final_modal') {
+        await handleEscFinalModal(interaction);
         return;
     }
 
