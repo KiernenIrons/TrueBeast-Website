@@ -6732,6 +6732,19 @@ function escGetContext(interaction) {
     return { game, player, progress, userIdForDm: game.mode === 'race' ? interaction.user.id : null };
 }
 
+// Registers the reaction lock UNCONDITIONALLY before attempting the bot's own
+// reactions, and catches each react() individually. Previously the lock-set lived
+// inside the same try as the react loop, so a single failed react (rate limit, a
+// hiccup right after interaction.update()) would skip registering the lock entirely
+// — the puzzle would render, but no reaction could ever solve it. Order matters here.
+async function escArmWard(message, room, game, userIdForDm) {
+    if (!room || room.puzzle.type !== 'ward') return;
+    escReactionLocks.set(message.id, { channelId: game.channelId, userIdForDm: userIdForDm || null });
+    for (const e of room.puzzle.data.options) {
+        try { await message.react(e); } catch (_) {}
+    }
+}
+
 // ─ D. Flow control ───────────────────────────────────────────────────────────
 
 async function escStartGame(game, channel) {
@@ -6746,11 +6759,7 @@ async function escStartGame(game, channel) {
         await channel.send({ embeds: [{ color: theme.color, title: `${theme.emoji}  ${theme.name}`, description: theme.intro }] }).catch(() => {});
         const msg = await channel.send({ embeds: [escProgressEmbed(game.progress)], components: escPuzzleComponents(game.progress) });
         game.progress.msgId = msg.id;
-        const firstRoom = escCurrentRoom(game.progress);
-        if (firstRoom.puzzle.type === 'ward') {
-            for (const e of firstRoom.puzzle.data.options) await msg.react(e).catch(() => {});
-            escReactionLocks.set(msg.id, { channelId: game.channelId, userIdForDm: null });
-        }
+        await escArmWard(msg, escCurrentRoom(game.progress), game, null);
         const hostMsg = await channel.send({ content: '**Host controls:**', components: escHostComponents(game) }).catch(() => null);
         if (hostMsg) game.hostMsgId = hostMsg.id;
     } else {
@@ -6764,11 +6773,7 @@ async function escStartGame(game, channel) {
                 const msg = await user.send({ embeds: [escProgressEmbed(p.progress)], components: escPuzzleComponents(p.progress) });
                 p.progress.msgId = msg.id;
                 p.progress.dmChannelId = msg.channel.id;
-                const firstRoom = escCurrentRoom(p.progress);
-                if (firstRoom.puzzle.type === 'ward') {
-                    for (const e of firstRoom.puzzle.data.options) await msg.react(e).catch(() => {});
-                    escReactionLocks.set(msg.id, { channelId: game.channelId, userIdForDm: uid });
-                }
+                await escArmWard(msg, escCurrentRoom(p.progress), game, uid);
             } catch (_) {
                 dmFailed.push(uid);
             }
@@ -6822,13 +6827,7 @@ async function escPushUpdate(game, userIdForDm, progress) {
     else msg = await dest.send({ embeds: [embed], components });
     progress.msgId = msg.id;
 
-    const room = escCurrentRoom(progress);
-    if (!progress.finished && room && room.puzzle.type === 'ward') {
-        try {
-            for (const e of room.puzzle.data.options) await msg.react(e);
-            escReactionLocks.set(msg.id, { channelId: game.channelId, userIdForDm: userIdForDm || null });
-        } catch (_) {}
-    }
+    if (!progress.finished) await escArmWard(msg, escCurrentRoom(progress), game, userIdForDm);
     return msg;
 }
 
@@ -6897,12 +6896,7 @@ async function escSolveAndAdvance(interaction, ctx) {
     const components = progress.finished ? [] : escPuzzleComponents(progress);
     await interaction.update({ embeds: [embed], components });
 
-    if (!progress.finished && nextRoom.puzzle.type === 'ward') {
-        try {
-            for (const e of nextRoom.puzzle.data.options) await interaction.message.react(e);
-            escReactionLocks.set(interaction.message.id, { channelId: game.channelId, userIdForDm: userIdForDm || null });
-        } catch (_) {}
-    }
+    if (!progress.finished) await escArmWard(interaction.message, nextRoom, game, userIdForDm);
 
     if (justFinished) {
         if (game.mode === 'coop') {
@@ -7112,13 +7106,7 @@ async function handleEscButton(interaction) {
         const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: '⏭️ Host skipped this room.' });
         const components = progress.finished ? [] : escPuzzleComponents(progress);
         await interaction.update({ embeds: [embed], components });
-        const nextRoom = escCurrentRoom(progress);
-        if (!progress.finished && nextRoom.puzzle.type === 'ward') {
-            try {
-                for (const e of nextRoom.puzzle.data.options) await interaction.message.react(e);
-                escReactionLocks.set(interaction.message.id, { channelId: game.channelId, userIdForDm: null });
-            } catch (_) {}
-        }
+        if (!progress.finished) await escArmWard(interaction.message, escCurrentRoom(progress), game, null);
         if (justFinished) { const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null); if (channel) await escFinishCoop(game, channel); }
         return;
     }
