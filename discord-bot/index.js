@@ -258,7 +258,6 @@ const ESC_ROOM_COUNT       = 4;
 
 const escapeGames      = new Map(); // channelId → GameState
 const escapePlayerMap  = new Map(); // userId → channelId
-const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: string|null } — routes ward-puzzle reactions
 
 const ESC_THEMES = [
     { name: 'The Forgotten Library',     emoji: '📚', color: 0x6b4423, intro: 'Dust hangs thick in the air. The door behind you has sealed shut — the only way out is through.',  loot: ['a brass bookmark', 'a torn page', 'a wax-sealed letter', 'an old library card'] },
@@ -6438,12 +6437,6 @@ function escShuffle(arr) {
     return a;
 }
 
-// Strips variation selectors / ZWJ so reaction-emoji comparisons aren't broken by
-// Discord normalizing how an emoji is echoed back over the gateway (e.g. ☀️ vs ☀).
-function escNormEmoji(s) {
-    return (s || '').replace(/[️‍]/g, '');
-}
-
 function escGenerateVaultPuzzle() {
     // 3 distinct digits 1-9, deduced from logic clues rather than handed over directly.
     const combo = escShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, 3);
@@ -6562,7 +6555,7 @@ function escGenerateWardPuzzle() {
     const ward = ESC_WARD_SETS[Math.floor(Math.random() * ESC_WARD_SETS.length)];
     return {
         type: 'ward',
-        prompt: `🛡️ A warded gate bars the way. ${ward.clue}\n\n**React to this message with the correct symbol.**`,
+        prompt: `🛡️ A warded gate bars the way. ${ward.clue}\n\n**Press the correct symbol below.**`,
         data: { options: ward.options, correctIndex: ward.correct, ruledOut: [] },
     };
 }
@@ -6596,7 +6589,6 @@ function escNewProgress(theme) {
         finishedAt: null,
         startedAt: null,
         msgId: null,
-        dmChannelId: null, // race mode only
     };
 }
 
@@ -6675,6 +6667,16 @@ function escPuzzleComponents(progress) {
         rows.push(new ActionRowBuilder().addComponents(btns));
         rows.push(new ActionRowBuilder().addComponents(hintBtn));
     } else if (puzzle.type === 'ward') {
+        const ruledOut = puzzle.data.ruledOut || [];
+        const optBtns = puzzle.data.options.map((opt, idx) => {
+            const isOut = ruledOut.includes(idx);
+            return new ButtonBuilder()
+                .setCustomId(`esc:ward:${idx}`)
+                .setEmoji(opt)
+                .setStyle(isOut ? ButtonStyle.Danger : ButtonStyle.Secondary)
+                .setDisabled(isOut);
+        });
+        rows.push(new ActionRowBuilder().addComponents(optBtns));
         rows.push(new ActionRowBuilder().addComponents(hintBtn));
     }
     return rows;
@@ -6767,9 +6769,6 @@ function escCleanup(game) {
     if (game.deadlineTimer) clearTimeout(game.deadlineTimer);
     for (const t of game.warningTimers || []) clearTimeout(t);
     for (const uid of game.players.keys()) escapePlayerMap.delete(uid);
-    for (const [msgId, lock] of escReactionLocks) {
-        if (lock.channelId === game.channelId) escReactionLocks.delete(msgId);
-    }
     escapeGames.delete(game.channelId);
 }
 
@@ -6782,19 +6781,6 @@ function escGetContext(interaction) {
     const progress = game.mode === 'race' ? player.progress : game.progress;
     if (!progress || progress.finished) return null;
     return { game, player, progress, userIdForDm: game.mode === 'race' ? interaction.user.id : null };
-}
-
-// Registers the reaction lock UNCONDITIONALLY before attempting the bot's own
-// reactions, and catches each react() individually. Previously the lock-set lived
-// inside the same try as the react loop, so a single failed react (rate limit, a
-// hiccup right after interaction.update()) would skip registering the lock entirely
-// — the puzzle would render, but no reaction could ever solve it. Order matters here.
-async function escArmWard(message, room, game, userIdForDm) {
-    if (!room || room.puzzle.type !== 'ward') return;
-    escReactionLocks.set(message.id, { channelId: game.channelId, userIdForDm: userIdForDm || null });
-    for (const e of room.puzzle.data.options) {
-        try { await message.react(e); } catch (_) {}
-    }
 }
 
 // ─ D. Flow control ───────────────────────────────────────────────────────────
@@ -6811,7 +6797,6 @@ async function escStartGame(game, channel) {
         await channel.send({ embeds: [{ color: theme.color, title: `${theme.emoji}  ${theme.name}`, description: theme.intro }] }).catch(() => {});
         const msg = await channel.send({ embeds: [escProgressEmbed(game.progress)], components: escPuzzleComponents(game.progress) });
         game.progress.msgId = msg.id;
-        await escArmWard(msg, escCurrentRoom(game.progress), game, null);
         const hostMsg = await channel.send({ content: '**Host controls:**', components: escHostComponents(game) }).catch(() => null);
         if (hostMsg) game.hostMsgId = hostMsg.id;
     } else {
@@ -6824,8 +6809,6 @@ async function escStartGame(game, channel) {
                 await user.send({ embeds: [{ color: theme.color, title: `${theme.emoji}  ${theme.name}`, description: theme.intro }] });
                 const msg = await user.send({ embeds: [escProgressEmbed(p.progress)], components: escPuzzleComponents(p.progress) });
                 p.progress.msgId = msg.id;
-                p.progress.dmChannelId = msg.channel.id;
-                await escArmWard(msg, escCurrentRoom(p.progress), game, uid);
             } catch (_) {
                 dmFailed.push(uid);
             }
@@ -6858,29 +6841,6 @@ async function escStartGame(game, channel) {
             await escEndGame(game, channel, null, 'timeout');
         }
     }, ESC_TIME_LIMIT_MS);
-}
-
-async function escPushUpdate(game, userIdForDm, progress) {
-    let dest;
-    if (userIdForDm) {
-        const user = await client.users.fetch(userIdForDm).catch(() => null);
-        if (!user) return null;
-        dest = await user.createDM().catch(() => null);
-    } else {
-        dest = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
-    }
-    if (!dest) return null;
-
-    const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress);
-    const components  = progress.finished ? [] : escPuzzleComponents(progress);
-
-    let msg = progress.msgId ? await dest.messages.fetch(progress.msgId).catch(() => null) : null;
-    if (msg) await msg.edit({ embeds: [embed], components });
-    else msg = await dest.send({ embeds: [embed], components });
-    progress.msgId = msg.id;
-
-    if (!progress.finished) await escArmWard(msg, escCurrentRoom(progress), game, userIdForDm);
-    return msg;
 }
 
 async function escFinishCoop(game, channel) {
@@ -6932,7 +6892,7 @@ async function escEndGame(game, channel, byName, reason) {
 }
 
 async function escSolveAndAdvance(interaction, ctx) {
-    const { game, player, progress, userIdForDm } = ctx;
+    const { game, player, progress } = ctx;
     const room = escCurrentRoom(progress);
     progress.inventory.push(room.item);
     progress.currentRoomIndex++;
@@ -6943,13 +6903,10 @@ async function escSolveAndAdvance(interaction, ctx) {
         justFinished = true;
     }
 
-    const nextRoom   = escCurrentRoom(progress);
     const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: `✅ Found: ${room.item}!` });
     const components = progress.finished ? [] : escPuzzleComponents(progress);
     await interaction.update({ embeds: [embed], components });
 
-    if (!progress.finished) await escArmWard(interaction.message, nextRoom, game, userIdForDm);
-
     if (justFinished) {
         if (game.mode === 'coop') {
             const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
@@ -6960,28 +6917,7 @@ async function escSolveAndAdvance(interaction, ctx) {
     }
 }
 
-async function escAdvanceFromReaction(game, player, progress, userIdForDm) {
-    const room = escCurrentRoom(progress);
-    progress.inventory.push(room.item);
-    progress.currentRoomIndex++;
-    let justFinished = false;
-    if (progress.currentRoomIndex >= progress.rooms.length) {
-        progress.finished   = true;
-        progress.finishedAt = Date.now();
-        justFinished = true;
-    }
-    await escPushUpdate(game, userIdForDm, progress);
-    if (justFinished) {
-        if (game.mode === 'coop') {
-            const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null);
-            if (channel) await escFinishCoop(game, channel);
-        } else {
-            await escFinishRacePlayer(game, player, progress);
-        }
-    }
-}
-
-// ─ E. Reaction handler (ward puzzles) ────────────────────────────────────────
+// ─ E. Hints ───────────────────────────────────────────────────────────────
 
 // Hints never hand over the solution outright — they cost a click and only
 // narrow things down (reveal one digit/letter/symbol, or rule out one wrong option).
@@ -7045,47 +6981,16 @@ async function escGiveHint(interaction, room, progress) {
         const { options, correctIndex, ruledOut } = puzzle.data;
         const candidates = options.map((_, i) => i).filter(i => i !== correctIndex && !ruledOut.includes(i));
         if (candidates.length === 0) {
-            await interaction.reply({ content: '💡 No more symbols left to rule out!', ephemeral: true });
+            await interaction.reply({ content: '💡 No more symbols left to rule out — you\'ve narrowed it down as far as hints can take you!', ephemeral: true });
             return;
         }
         const idx = candidates[Math.floor(Math.random() * candidates.length)];
         ruledOut.push(idx);
         progress.hintsUsed++;
-        try {
-            const match = [...interaction.message.reactions.cache.values()].find(r => escNormEmoji(r.emoji.name) === escNormEmoji(options[idx]));
-            if (match) await match.remove();
-        } catch (_) {}
-        await interaction.reply({ content: `💡 It's **not** ${options[idx]} — that symbol has been removed from the gate.`, ephemeral: true });
+        await interaction.update({ embeds: [escProgressEmbed(progress)], components: escPuzzleComponents(progress) });
+        await interaction.followUp({ content: `💡 It's **not** ${options[idx]}.`, ephemeral: true });
         return;
     }
-}
-
-async function handleEscWardReaction(reaction, user, lock) {
-    const game = escapeGames.get(lock.channelId);
-    if (!game || game.phase !== 'playing') { escReactionLocks.delete(reaction.message.id); return; }
-
-    let player = null, progress = null;
-    if (game.mode === 'race') {
-        if (lock.userIdForDm !== user.id) return; // not this player's own puzzle
-        player = game.players.get(user.id);
-        if (!player) return;
-        progress = player.progress;
-    } else {
-        if (!game.players.has(user.id)) return; // not a participant
-        progress = game.progress;
-    }
-    if (!progress || progress.finished) return;
-    const room = escCurrentRoom(progress);
-    if (!room || room.puzzle.type !== 'ward') return;
-
-    const { options, correctIndex } = room.puzzle.data;
-    if (escNormEmoji(reaction.emoji.name) !== escNormEmoji(options[correctIndex])) {
-        try { await reaction.users.remove(user.id); } catch (_) {}
-        return;
-    }
-
-    escReactionLocks.delete(reaction.message.id);
-    await escAdvanceFromReaction(game, player, progress, lock.userIdForDm);
 }
 
 // ─ F. Button / select / modal sub-handlers ───────────────────────────────────
@@ -7158,7 +7063,6 @@ async function handleEscButton(interaction) {
         const embed      = progress.finished ? escFinishedEmbed(progress) : escProgressEmbed(progress, { footer: '⏭️ Host skipped this room.' });
         const components = progress.finished ? [] : escPuzzleComponents(progress);
         await interaction.update({ embeds: [embed], components });
-        if (!progress.finished) await escArmWard(interaction.message, escCurrentRoom(progress), game, null);
         if (justFinished) { const channel = await client.channels.fetch(ESCAPE_CHANNEL_ID).catch(() => null); if (channel) await escFinishCoop(game, channel); }
         return;
     }
@@ -7213,6 +7117,16 @@ async function handleEscButton(interaction) {
             await escSolveAndAdvance(interaction, ctx);
         } else {
             await interaction.reply({ content: '❌ Not quite. Try again.', ephemeral: true });
+        }
+        return;
+    }
+
+    if (id.startsWith('esc:ward:')) {
+        const idx = parseInt(id.split(':')[2], 10);
+        if (idx === room.puzzle.data.correctIndex) {
+            await escSolveAndAdvance(interaction, ctx);
+        } else {
+            await interaction.reply({ content: '❌ Wrong symbol — the gate stays shut.', ephemeral: true });
         }
         return;
     }
@@ -11608,15 +11522,6 @@ client.on('messageCreate', async (message) => {
 
 client.on('messageReactionAdd', async (reaction, user) => {
     if (user.bot) return;
-
-    // ── Escape Room — ward puzzle reactions (works in both guild channel & DMs) ──
-    const escLock = escReactionLocks.get(reaction.message.id);
-    if (escLock) {
-        if (reaction.partial) { try { await reaction.fetch(); } catch { return; } }
-        await handleEscWardReaction(reaction, user, escLock);
-        return;
-    }
-
     if (!reaction.message.guild) return;
     if (reaction.partial) {
         try { await reaction.fetch(); } catch { return; }

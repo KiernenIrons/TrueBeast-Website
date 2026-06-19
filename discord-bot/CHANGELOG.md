@@ -1,5 +1,17 @@
 # Beast Bot Changelog
 
+## [2026-06-19] — Rip reactions out of Ward puzzle entirely, switch to buttons
+
+The Ward puzzle (react with the correct emoji) kept failing in live testing even after two fixes
+to the reaction-handling logic. Reactions as a mechanic depend on Discord's reaction-echo behavior,
+which isn't fully controllable from the bot side, and failures are silent (nothing happens, no
+error). Rewrote Ward to use the same button + elimination-hint pattern as Riddle: 5 emoji buttons,
+`esc:ward:{idx}` customIds, wrong guesses get an ephemeral reply, hints rule out one wrong option
+at a time (greys out with ❌). Removed `escReactionLocks`, `escArmWard`, `handleEscWardReaction`,
+`escNormEmoji`, `escPushUpdate`, `escAdvanceFromReaction`, and the escape-room branch of the
+`messageReactionAdd` listener — none of it is needed anymore since every puzzle in the game is now
+solved via buttons, select menus, or a modal.
+
 ## [2026-06-19] — Fix Ward's actual root cause; redesign Cipher, Riddle, Sequence, Vault to require real reasoning
 
 - **Real root cause of the Ward bug found and fixed:** all 5 places that armed a ward puzzle wrapped the bot's own `react()` calls and the `escReactionLocks.set()` in a single `try`/`catch`. If even one react call hiccuped (rate limit, a transient blip right after `interaction.update()`), the catch swallowed it silently and the lock was never registered — meaning no reaction, including the correct one, could ever solve that puzzle, with zero visible error. Replaced with one `escArmWard()` helper that registers the lock unconditionally first, then attempts each reaction independently.

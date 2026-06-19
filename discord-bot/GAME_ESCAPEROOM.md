@@ -3,8 +3,9 @@
 ## Overview
 
 A procedurally generated escape room party game. Every run picks a random **theme** and assembles
-**4 rooms** from 5 puzzle-type generators, so no two games play the same. Fully text/button/emoji
-based — no images.
+**4 rooms** from 5 puzzle-type generators, so no two games play the same. Fully text/embed/component
+based — no images, and (as of the Ward rewrite below) every puzzle is solved with buttons, select
+menus, or a modal — no message reactions anywhere in the game.
 
 **Channel:** `1517318620395470969` (`#escape-room`)
 **Commands:** `/escaperoom start [mode]` · `/escaperoom stop` · `/escaperoom status` · `/escaperoom help`
@@ -36,7 +37,7 @@ Theme is picked at random; a 4-room run is generated (5 puzzle types, pick 4, sh
     ├── Co-op  → one puzzle message posted to #escape-room, host control message with Skip Room / End Game
     └── Race   → each player DMed their own intro + first puzzle; leaderboard posted to #escape-room
     │
-    ▼  players solve puzzles (buttons / select menus / modal / emoji reactions)
+    ▼  players solve puzzles (buttons / select menus / modal)
 Each solved puzzle: item added to inventory → advance to next room → re-render
     │
     ▼  all rooms cleared (or time runs out — 25 min hard limit, warnings at 10/5/2 min)
@@ -52,9 +53,8 @@ All state is in-memory — no persistence. If the bot restarts mid-game, the gam
 ### Maps (near other game state, after `TRT_TEXT`)
 
 ```js
-const escapeGames      = new Map(); // channelId → GameState
-const escapePlayerMap  = new Map(); // userId → channelId
-const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: string|null } — routes ward-puzzle reactions
+const escapeGames     = new Map(); // channelId → GameState
+const escapePlayerMap = new Map(); // userId → channelId
 ```
 
 ### GameState
@@ -90,7 +90,6 @@ const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: s
   finishedAt: number|null,
   startedAt: number,
   msgId: string|null,        // the live puzzle message (channel msg for coop, DM msg for race)
-  dmChannelId: string|null,  // race only
 }
 ```
 
@@ -110,7 +109,7 @@ const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: s
 | `cipher` | Button → Modal text input | A **Polybius square** (classic 5x5 letter grid, shown as a text table, J merged into I) is rendered in the prompt; the message is given as row/column digit pairs the player must look up and transcribe — real lookup work, not just an arithmetic shift |
 | `riddle` | 4 buttons (A-D) | 50/50 split between a classic riddle (pool of 10) and an **anagram/wordplay clue** (pool of 7) — letters to unscramble plus a definition, where multiple options are genuine anagrams of the same letters and only the definition picks the correct one (the real cryptic-crossword trick) |
 | `sequence` | 5 emoji buttons | Each of 5 symbols is shown with a hidden numeric value (e.g. `🐍 = 7`); the player must compute and press the **3 lowest-** or **3 highest-value** symbols in the stated order — derived from the legend, not copied off the screen |
-| `ward` | Emoji **reactions** (no buttons) | Bot reacts to its own message with 5 emoji; the clue requires combining two facts (e.g. "the sea creature with three hearts and eight arms") rather than naming the answer directly. Wrong reactions are auto-removed so the player can retry. |
+| `ward` | 5 emoji buttons | The clue requires combining two facts (e.g. "the sea creature with three hearts and eight arms") rather than naming the answer directly. Press the matching emoji button. |
 
 ### Hints never hand over the solution
 
@@ -120,25 +119,29 @@ Every puzzle has a **Hint** button, but it only narrows things down — it never
 - **Cipher** — reveals one more decoded letter each click (`_ _ _` → `S _ _` → `S H _` → ...)
 - **Riddle** — rules out one wrong option per click (button greys out with ❌), leaving the correct answer plus one decoy at minimum
 - **Sequence** — reveals only the *next* symbol you need to press, not the whole sequence
-- **Ward** — rules out one wrong emoji per click and removes that reaction from the message
+- **Ward** — rules out one wrong emoji button per click (greys out with ❌), same elimination pattern as Riddle
 
 Each game generates 4 of the 5 types (shuffled, no repeats) — `ESC_PUZZLE_TYPES` in `index.js`.
 
-### Emoji comparison gotcha (fixed)
+### Why Ward moved off reactions
 
-Ward puzzles compare `reaction.emoji.name` against the puzzle's stored answer. Some emoji (☀️, ❄️, 🗝️, 🕯️) are written in source with a variation selector (U+FE0F), but Discord's gateway can echo reactions back *without* it — a strict string comparison silently failed even when the player reacted with the visually-correct symbol. Fixed by `escNormEmoji()`, which strips variation selectors/ZWJ before comparing on both sides (used for the correctness check, the wrong-reaction removal, and the hint's reaction-removal lookup).
+Ward originally worked via message reactions (player reacts with the matching emoji, bot listens on
+`messageReactionAdd`). Two real problems showed up in practice and killed that approach for good:
 
----
+1. **Silent unsolvability bug.** Every place that armed a ward puzzle wrapped the bot's own `react()`
+   calls and the lock registration in a single `try`/`catch`. If any single react call hiccuped
+   (rate limit, a timing blip right after `interaction.update()`), the catch swallowed it and the
+   lock never got set — meaning *no* reaction, including the correct one, could ever solve that
+   puzzle, with zero visible error.
+2. **Emoji normalization gotcha.** Some emoji (☀️, ❄️, 🗝️, 🕯️) are written with a variation selector
+   (U+FE0F) that Discord's gateway can omit when echoing a reaction back, so a strict string
+   comparison could fail even when the player reacted with the visually-correct symbol.
 
-## Why two different "render and advance" paths
-
-Button/select/modal-driven solves use `interaction.update(...)` directly — fast, no extra fetch,
-and works identically whether the message lives in `#escape-room` (co-op) or in a player's DM (race),
-since the interaction is always bound to the message it came from.
-
-**Ward puzzles are the exception**: solving them happens via a *reaction*, not an interaction, so there's
-no `interaction` object to call `.update()` on. `escPushUpdate()` re-fetches the message by ID and edits
-it directly — this is the only code path that needs the stored `progress.msgId`.
+Both were fixed once, but reactions as a mechanic kept proving fragile in live testing — the failure
+mode is silent (no error, just "nothing happens") and depends on Discord's reaction-echo behavior,
+which isn't fully in the bot's control. Ward was rewritten to use the same button + elimination-hint
+pattern as Riddle: same reliability guarantees as every other puzzle in the game (an `interaction.update()`
+on a real component interaction), no reaction listener, no emoji-string-comparison gotchas.
 
 ---
 
@@ -158,8 +161,7 @@ it directly — this is the only code path that needs the stored `progress.msgId
 | `esc:cipher_modal` | Modal | Cipher answer submission |
 | `esc:riddle:{optionIndex}` | Button | Pick a riddle answer |
 | `esc:sequence:{emoji}` | Button | Press a sequence symbol |
-
-Ward puzzles use **message reactions**, not customIds — routed via `escReactionLocks` keyed by message ID.
+| `esc:ward:{optionIndex}` | Button | Pick a ward symbol |
 
 ---
 
@@ -190,7 +192,6 @@ Any player with the host ID, `MOD_ROLE_ID`, or `OWNER_DISCORD_ID` can use host b
 | Bot restarts mid-game | State is in-memory — game ends. Acceptable for a party game. |
 | Player DMs blocked (race mode) | Removed from the race at start; channel notified. If 0 players remain, game cancelled. |
 | Non-participant interacts | `escGetContext` returns `null` → ephemeral "no active puzzle" reply |
-| Reacts with wrong ward emoji | Reaction is removed (`reaction.users.remove`) so the player can retry |
 | Host presses Skip Room outside co-op/playing | Guarded — ephemeral "not available" reply |
 | Lobby abandoned | `lobbyTimer` (15 min) auto-cancels |
 
@@ -213,7 +214,4 @@ interaction.isStringSelectMenu() && customId.startsWith('esc:vault:dial:') → h
 
 // Buttons — single dispatcher, all esc: logic lives in handleEscButton()
 interaction.customId.startsWith('esc:') → handleEscButton(interaction)
-
-// Reactions (messageReactionAdd, checked before the guild-only gate so DMs work too)
-escReactionLocks.get(reaction.message.id) → handleEscWardReaction(reaction, user, lock)
 ```
