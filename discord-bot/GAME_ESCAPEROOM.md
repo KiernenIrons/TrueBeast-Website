@@ -106,10 +106,10 @@ const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: s
 
 | Type | Input style | Mechanic |
 |---|---|---|
-| `vault` | 3 select menus (Dial 1-3) + Submit button | Combination (3 distinct digits 1-9) must be **deduced** from 3 logic clues (digit sum, an exact difference between two named dials, which dial holds the highest digit). Wrong submissions get Mastermind-style feedback — how many digits are correct & in place, how many are correct but in the wrong dial — so trial and error converges instead of just failing. |
-| `cipher` | Button → Modal text input | A theme word is Caesar-shifted by a random amount; player types the decoded word |
-| `riddle` | 4 buttons (A-D) | Riddle from a pool of 10, options shuffled each time |
-| `sequence` | 5 emoji buttons | A random 3-4 symbol sequence is shown; player must press the same symbols in order (wrong press resets progress) |
+| `vault` | 3 select menus (Dial 1-3) + Submit button | Combination (3 distinct digits 1-9) must be **deduced** from 4 logic clues (digit sum, an exact difference between two named dials, which dial holds the highest digit, how many digits are even). Wrong submissions get Mastermind-style feedback — how many digits are correct & in place, how many are correct but in the wrong dial — so trial and error converges instead of just failing. |
+| `cipher` | Button → Modal text input | A **Polybius square** (classic 5x5 letter grid, shown as a text table, J merged into I) is rendered in the prompt; the message is given as row/column digit pairs the player must look up and transcribe — real lookup work, not just an arithmetic shift |
+| `riddle` | 4 buttons (A-D) | 50/50 split between a classic riddle (pool of 10) and an **anagram/wordplay clue** (pool of 7) — letters to unscramble plus a definition, where multiple options are genuine anagrams of the same letters and only the definition picks the correct one (the real cryptic-crossword trick) |
+| `sequence` | 5 emoji buttons | Each of 5 symbols is shown with a hidden numeric value (e.g. `🐍 = 7`); the player must compute and press the **3 lowest-** or **3 highest-value** symbols in the stated order — derived from the legend, not copied off the screen |
 | `ward` | Emoji **reactions** (no buttons) | Bot reacts to its own message with 5 emoji; the clue requires combining two facts (e.g. "the sea creature with three hearts and eight arms") rather than naming the answer directly. Wrong reactions are auto-removed so the player can retry. |
 
 ### Hints never hand over the solution

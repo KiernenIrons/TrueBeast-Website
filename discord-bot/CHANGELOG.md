@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-06-19] — Fix Ward's actual root cause; redesign Cipher, Riddle, Sequence, Vault to require real reasoning
+
+- **Real root cause of the Ward bug found and fixed:** all 5 places that armed a ward puzzle wrapped the bot's own `react()` calls and the `escReactionLocks.set()` in a single `try`/`catch`. If even one react call hiccuped (rate limit, a transient blip right after `interaction.update()`), the catch swallowed it silently and the lock was never registered — meaning no reaction, including the correct one, could ever solve that puzzle, with zero visible error. Replaced with one `escArmWard()` helper that registers the lock unconditionally first, then attempts each reaction independently.
+- **Sequence redesigned** — was pure echo (shown once, press it back, no thinking required). Now each of 5 symbols carries a hidden numeric value shown as a legend; the player must compute and press the 3 lowest- or 3 highest-value symbols in order — a derived answer, not a copied one.
+- **Cipher redesigned** — was a Caesar shift with the shift amount stated outright in the prompt (pure arithmetic). Now a Polybius square: a real 5x5 letter grid rendered as a text table, with the message given as row/column coordinate pairs that must be looked up by hand.
+- **Riddle pool expanded** with 7 anagram/wordplay clues, mixed 50/50 with the existing riddle pool. Multiple options are genuine anagrams of the same letters; only the given definition identifies the correct one — the actual mechanic real cryptic crosswords use.
+- **Vault** gained a 4th logic clue (digit parity) on top of sum/difference/highest-digit, requiring genuine elimination across more constraints instead of two quick facts.
+- Removed the now-unused `escCaesarShift()` helper.
+
 ## [2026-06-19] — Fix Ward puzzle reaction bug, make Vault/Ward puzzles harder, hints never give the answer
 
 - **Bug fix:** Ward puzzles (react with the correct emoji) compared `reaction.emoji.name` against the stored answer with strict string equality. Some emoji (☀️ ❄️ 🗝️ 🕯️) are written with a variation selector that Discord's gateway can omit when echoing the reaction back, so reacting with the visually-correct symbol could silently fail. Added `escNormEmoji()` to strip variation selectors/ZWJ before every comparison.

@@ -290,7 +290,7 @@ const ESC_WARD_SETS = [
     { clue: 'Only the season that comes right after the one when leaves fall may pass.',    options: ['🌸', '☀️', '🍂', '❄️', '🌧️'], correct: 3 },
     { clue: 'Only the sea creature with three hearts and eight arms may pass.',             options: ['🐙', '🦈', '🐳', '🐬', '🦀'], correct: 0 },
     { clue: 'Only the object that locks a secret away — not the one that opens it — may pass.', options: ['🔑', '🗝️', '🔒', '📜', '⚙️'], correct: 2 },
-    { clue: 'Only the animal famous for never forgetting may pass.',                        options: ['🐘', '🦅', '🐢', '🦊', '🐬'], correct: 0 },
+    { clue: 'Only the largest land animal — the one famous for never forgetting — may pass.', options: ['🐘', '🦅', '🐢', '🦊', '🐬'], correct: 0 },
     { clue: 'Only the storm that is too cold to fall as rain may pass.',                    options: ['🌧️', '⛈️', '❄️', '🌫️', '🌪️'], correct: 2 },
 ];
 
@@ -6429,10 +6429,6 @@ async function handleTrtRecruitDecline(interaction, game, channel) {
 
 // ─ A. Procedural generators ──────────────────────────────────────────────────
 
-function escCaesarShift(word, shift) {
-    return word.split('').map(ch => String.fromCharCode(((ch.charCodeAt(0) - 65 + shift) % 26 + 26) % 26 + 65)).join('');
-}
-
 function escShuffle(arr) {
     const a = [...arr];
     for (let i = a.length - 1; i > 0; i--) {
@@ -6460,48 +6456,104 @@ function escGenerateVaultPuzzle() {
         : `Dial ${b + 1} is exactly **${combo[b] - combo[a]}** more than Dial ${a + 1}.`;
 
     const maxIdx = combo.indexOf(Math.max(...combo));
+    const evenCount = combo.filter(d => d % 2 === 0).length;
     const clues  = escShuffle([
         `The three dials sum to **${sum}**.`,
         diffClue,
         `Dial ${maxIdx + 1} holds the **highest** of the three digits.`,
+        `Exactly **${evenCount}** of the three digits ${evenCount === 1 ? 'is' : 'are'} even.`,
     ]);
 
     return {
         type: 'vault',
-        prompt: `🔢 A **vault door** blocks your path, sealed by a 3-digit combination (each dial 1-9, no digit repeats).\n\n*${clues[0]}*\n*${clues[1]}*\n*${clues[2]}*\n\nWork it out, set each dial, and press **Open Vault**. A wrong guess will tell you how close you got.`,
+        prompt: `🔢 A **vault door** blocks your path, sealed by a 3-digit combination (each dial 1-9, no digit repeats).\n\n*${clues[0]}*\n*${clues[1]}*\n*${clues[2]}*\n*${clues[3]}*\n\nWork it out, set each dial, and press **Open Vault**. A wrong guess will tell you how close you got.`,
         data: { combo, guess: [null, null, null], hintedPositions: [] },
     };
 }
 
+// Polybius square — classic escape-room cipher. 5x5 grid (J merged into I), the
+// message is given as row/column digit pairs that must be looked up by hand,
+// rather than a Caesar shift where the offset is just stated outright.
+const ESC_POLYBIUS_ALPHABET = 'ABCDEFGHIKLMNOPQRSTUVWXYZ'; // 25 letters, no J
+
+function escPolybiusGridText() {
+    const lines = ['    1 2 3 4 5'];
+    for (let r = 0; r < 5; r++) {
+        lines.push(`${r + 1} │ ${ESC_POLYBIUS_ALPHABET.slice(r * 5, r * 5 + 5).split('').join(' ')}`);
+    }
+    return lines.join('\n');
+}
+
+function escPolybiusEncode(word) {
+    return word.toUpperCase().replace(/J/g, 'I').split('').map(ch => {
+        const idx = ESC_POLYBIUS_ALPHABET.indexOf(ch);
+        return `${Math.floor(idx / 5) + 1}${(idx % 5) + 1}`;
+    }).join(' ');
+}
+
 function escGenerateCipherPuzzle() {
-    const word      = ESC_CIPHER_WORDS[Math.floor(Math.random() * ESC_CIPHER_WORDS.length)];
-    const shift     = 1 + Math.floor(Math.random() * 25);
-    const ciphered  = escCaesarShift(word, shift);
+    const word   = ESC_CIPHER_WORDS[Math.floor(Math.random() * ESC_CIPHER_WORDS.length)];
+    const coded  = escPolybiusEncode(word);
     return {
         type: 'cipher',
-        prompt: `🔡 A message is carved into the wall, every letter shifted forward by a forgotten cipher:\n\n\`\`\`${ciphered}\`\`\`\n\nEach letter has been shifted forward by **${shift}**. Shift it back and type the decoded word.`,
+        prompt: `🔡 A coded message is etched beside a strange grid:\n\n\`\`\`\n${escPolybiusGridText()}\n\`\`\`\nEach number pair is **row, column** — look it up in the grid above to find the letter.\n\nCoded message: \`${coded}\`\n\nDecode it and type the word.`,
         data: { answer: word, revealedLetters: 0 },
     };
 }
 
+// Anagram/wordplay clues — multiple options are genuine anagrams of the same
+// letters; the definition is what picks the one correct answer (the real
+// cryptic-crossword trick: wordplay narrows it down, definition confirms it).
+const ESC_ANAGRAM_CLUES = [
+    { letters: 'E L S T I N', def: 'quiet',                                    options: ['SILENT', 'LISTEN', 'ENLIST', 'TINSEL'], correct: 0 },
+    { letters: 'A E R S T',   def: 'a weapon that delivers an electric shock', options: ['STARE', 'TEARS', 'RATES', 'TASER'],     correct: 3 },
+    { letters: 'E N O S T',   def: 'the beginning of something',               options: ['ONSET', 'STONE', 'TONES', 'NOTES'],     correct: 0 },
+    { letters: 'A E M T',     def: 'to make less wild',                        options: ['MEAT', 'TAME', 'TEAM', 'MATE'],         correct: 1 },
+    { letters: 'O P S T',     def: 'to come to a halt',                        options: ['STOP', 'POTS', 'SPOT', 'TOPS'],         correct: 0 },
+    { letters: 'A E P S T',   def: 'a sudden flood or outpouring',             options: ['PASTE', 'PATES', 'SPATE', 'TAPES'],     correct: 2 },
+    { letters: 'A E L P S',   def: 'the sounds made by bells',                 options: ['PLEAS', 'LEAPS', 'PALES', 'PEALS'],     correct: 3 },
+];
+
 function escGenerateRiddlePuzzle() {
-    const riddle       = ESC_RIDDLES[Math.floor(Math.random() * ESC_RIDDLES.length)];
+    let promptText, options, correct;
+    if (Math.random() < 0.5) {
+        const ana = ESC_ANAGRAM_CLUES[Math.floor(Math.random() * ESC_ANAGRAM_CLUES.length)];
+        promptText = `🔤 Unscramble **${ana.letters}** to spell a word meaning *"${ana.def}"*.`;
+        options = ana.options;
+        correct = ana.correct;
+    } else {
+        const riddle = ESC_RIDDLES[Math.floor(Math.random() * ESC_RIDDLES.length)];
+        promptText = `🧩 A voice echoes through the room:\n\n*"${riddle.q}"*`;
+        options = riddle.options;
+        correct = riddle.correct;
+    }
     const order        = escShuffle([0, 1, 2, 3]);
-    const options      = order.map(i => riddle.options[i]);
-    const correctIndex = order.indexOf(riddle.correct);
+    const shuffled      = order.map(i => options[i]);
+    const correctIndex = order.indexOf(correct);
     return {
         type: 'riddle',
-        prompt: `🧩 A voice echoes through the room:\n\n*"${riddle.q}"*`,
-        data: { options, correctIndex, ruledOut: [] },
+        prompt: promptText,
+        data: { options: shuffled, correctIndex, ruledOut: [] },
     };
 }
 
 function escGenerateSequencePuzzle() {
-    const length   = 3 + Math.floor(Math.random() * 2); // 3-4
-    const sequence = Array.from({ length }, () => ESC_SEQUENCE_SYMBOLS[Math.floor(Math.random() * ESC_SEQUENCE_SYMBOLS.length)]);
+    const symbols = escShuffle(ESC_SEQUENCE_SYMBOLS);
+    const values  = escShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, symbols.length);
+    const legend  = symbols.map((s, i) => `${s} = **${values[i]}**`).join('    ');
+
+    const lowestFirst = Math.random() < 0.5;
+    const sorted = symbols.map((s, i) => ({ sym: s, val: values[i] })).sort((a, b) => a.val - b.val);
+    const chosen = lowestFirst ? sorted.slice(0, 3) : sorted.slice(-3).reverse();
+    const sequence = chosen.map(p => p.sym);
+
+    const ruleText = lowestFirst
+        ? 'Press the **3 lowest-value** symbols, smallest value first.'
+        : 'Press the **3 highest-value** symbols, largest value first.';
+
     return {
         type: 'sequence',
-        prompt: `✨ Glowing symbols pulse on the wall in sequence:\n\n## ${sequence.join('  ')}\n\nPress the symbols below in the **exact order shown**.`,
+        prompt: `✨ Five symbols glow on the wall, each humming with a hidden value:\n\n${legend}\n\n${ruleText}`,
         data: { sequence, pressed: [] },
     };
 }
