@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-06-19] — Fix Ward puzzle reaction bug, make Vault/Ward puzzles harder, hints never give the answer
+
+- **Bug fix:** Ward puzzles (react with the correct emoji) compared `reaction.emoji.name` against the stored answer with strict string equality. Some emoji (☀️ ❄️ 🗝️ 🕯️) are written with a variation selector that Discord's gateway can omit when echoing the reaction back, so reacting with the visually-correct symbol could silently fail. Added `escNormEmoji()` to strip variation selectors/ZWJ before every comparison.
+- **Vault puzzle redesigned:** combination is no longer handed over by a direct "X candles = digit" clue. It's now deduced from 3 logic clues (digit sum, an exact difference between two named dials, which dial holds the highest digit), and wrong submissions now get Mastermind-style feedback (digits correct & in place / correct but wrong dial) so players converge on the answer instead of guessing blind.
+- **Ward puzzle redesigned:** 4 → 5 options per gate, and clues now require combining two facts (e.g. "the sea creature with three hearts and eight arms") instead of naming the answer outright.
+- **Hints reworked across all puzzle types** to never reveal the full solution: Vault reveals one dial at a time, Cipher reveals one more letter per click, Riddle/Ward rule out one wrong option per click (and visibly mark/remove it), Sequence reveals only the next symbol needed.
+
 ## [2026-06-19] — Add Escape Room game (procedurally generated, co-op + race modes)
 
 - New `/escaperoom` command (`start`, `stop`, `status`, `help`) running in `#escape-room` (`1517318620395470969`)

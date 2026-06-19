@@ -286,12 +286,12 @@ const ESC_CIPHER_WORDS = ['SHADOW', 'COMPASS', 'LANTERN', 'WHISPER', 'ANCHOR', '
 const ESC_SEQUENCE_SYMBOLS = ['🔺', '🔵', '🟩', '🟡', '🟣'];
 
 const ESC_WARD_SETS = [
-    { clue: 'Only the creature that hunts by night may pass.',         options: ['🦉', '🐍', '🦇', '🐺'], correct: 0 },
-    { clue: 'Only the symbol of eternal light may pass.',              options: ['🕯️', '🔥', '⭐', '☀️'], correct: 3 },
-    { clue: 'Only the guardian of the deep may pass.',                 options: ['🐙', '🦈', '🐳', '🐬'], correct: 2 },
-    { clue: 'Only the bringer of the first season may pass.',          options: ['🌸', '☀️', '🍂', '❄️'], correct: 0 },
-    { clue: 'Only the keeper of secrets may pass.',                    options: ['🔑', '🗝️', '🔒', '📜'], correct: 1 },
-    { clue: 'Only the one who never forgets may pass.',                options: ['🐘', '🦅', '🐢', '🦊'], correct: 0 },
+    { clue: 'Only the bird that hunts in total darkness, guided by sound alone, may pass.', options: ['🦉', '🦅', '🐦', '🦆', '🦢'], correct: 0 },
+    { clue: 'Only the season that comes right after the one when leaves fall may pass.',    options: ['🌸', '☀️', '🍂', '❄️', '🌧️'], correct: 3 },
+    { clue: 'Only the sea creature with three hearts and eight arms may pass.',             options: ['🐙', '🦈', '🐳', '🐬', '🦀'], correct: 0 },
+    { clue: 'Only the object that locks a secret away — not the one that opens it — may pass.', options: ['🔑', '🗝️', '🔒', '📜', '⚙️'], correct: 2 },
+    { clue: 'Only the animal famous for never forgetting may pass.',                        options: ['🐘', '🦅', '🐢', '🦊', '🐬'], correct: 0 },
+    { clue: 'Only the storm that is too cold to fall as rain may pass.',                    options: ['🌧️', '⛈️', '❄️', '🌫️', '🌪️'], correct: 2 },
 ];
 
 const ESC_PUZZLE_TYPES = ['vault', 'cipher', 'riddle', 'sequence', 'ward'];
@@ -6442,14 +6442,34 @@ function escShuffle(arr) {
     return a;
 }
 
+// Strips variation selectors / ZWJ so reaction-emoji comparisons aren't broken by
+// Discord normalizing how an emoji is echoed back over the gateway (e.g. ☀️ vs ☀).
+function escNormEmoji(s) {
+    return (s || '').replace(/[️‍]/g, '');
+}
+
 function escGenerateVaultPuzzle() {
-    const combo = [1 + Math.floor(Math.random() * 9), 1 + Math.floor(Math.random() * 9), 1 + Math.floor(Math.random() * 9)];
-    const clueNouns = escShuffle(['candles burn on the altar', 'skulls grin from the shelf', 'grains of sand remain in the hourglass']);
+    // 3 distinct digits 1-9, deduced from logic clues rather than handed over directly.
+    const combo = escShuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]).slice(0, 3);
+    const sum   = combo[0] + combo[1] + combo[2];
+
+    const pairs = [[0, 1], [0, 2], [1, 2]];
+    const [a, b] = pairs[Math.floor(Math.random() * pairs.length)];
+    const diffClue = combo[a] > combo[b]
+        ? `Dial ${a + 1} is exactly **${combo[a] - combo[b]}** more than Dial ${b + 1}.`
+        : `Dial ${b + 1} is exactly **${combo[b] - combo[a]}** more than Dial ${a + 1}.`;
+
+    const maxIdx = combo.indexOf(Math.max(...combo));
+    const clues  = escShuffle([
+        `The three dials sum to **${sum}**.`,
+        diffClue,
+        `Dial ${maxIdx + 1} holds the **highest** of the three digits.`,
+    ]);
+
     return {
         type: 'vault',
-        prompt: `🔢 A **vault door** blocks your path, sealed by a 3-digit combination.\n\n*${combo[0]} ${clueNouns[0]}.*\n*${combo[1]} ${clueNouns[1]}.*\n*${combo[2]} ${clueNouns[2]}.*\n\nSet each dial below, then press **Open Vault**.`,
-        hint: `The combination is **${combo[0]}-${combo[1]}-${combo[2]}**.`,
-        data: { combo, guess: [null, null, null] },
+        prompt: `🔢 A **vault door** blocks your path, sealed by a 3-digit combination (each dial 1-9, no digit repeats).\n\n*${clues[0]}*\n*${clues[1]}*\n*${clues[2]}*\n\nWork it out, set each dial, and press **Open Vault**. A wrong guess will tell you how close you got.`,
+        data: { combo, guess: [null, null, null], hintedPositions: [] },
     };
 }
 
@@ -6460,8 +6480,7 @@ function escGenerateCipherPuzzle() {
     return {
         type: 'cipher',
         prompt: `🔡 A message is carved into the wall, every letter shifted forward by a forgotten cipher:\n\n\`\`\`${ciphered}\`\`\`\n\nEach letter has been shifted forward by **${shift}**. Shift it back and type the decoded word.`,
-        hint: `Shift each letter back by ${shift}. The answer is **${word}**.`,
-        data: { answer: word },
+        data: { answer: word, revealedLetters: 0 },
     };
 }
 
@@ -6473,8 +6492,7 @@ function escGenerateRiddlePuzzle() {
     return {
         type: 'riddle',
         prompt: `🧩 A voice echoes through the room:\n\n*"${riddle.q}"*`,
-        hint: `The answer is **${riddle.options[riddle.correct]}**.`,
-        data: { options, correctIndex },
+        data: { options, correctIndex, ruledOut: [] },
     };
 }
 
@@ -6484,7 +6502,6 @@ function escGenerateSequencePuzzle() {
     return {
         type: 'sequence',
         prompt: `✨ Glowing symbols pulse on the wall in sequence:\n\n## ${sequence.join('  ')}\n\nPress the symbols below in the **exact order shown**.`,
-        hint: `The order is ${sequence.join(' → ')}.`,
         data: { sequence, pressed: [] },
     };
 }
@@ -6494,8 +6511,7 @@ function escGenerateWardPuzzle() {
     return {
         type: 'ward',
         prompt: `🛡️ A warded gate bars the way. ${ward.clue}\n\n**React to this message with the correct symbol.**`,
-        hint: `The correct symbol is ${ward.options[ward.correct]}.`,
-        data: { options: ward.options, correctIndex: ward.correct },
+        data: { options: ward.options, correctIndex: ward.correct, ruledOut: [] },
     };
 }
 
@@ -6591,8 +6607,15 @@ function escPuzzleComponents(progress) {
             hintBtn,
         ));
     } else if (puzzle.type === 'riddle') {
-        const optBtns = puzzle.data.options.map((opt, idx) =>
-            new ButtonBuilder().setCustomId(`esc:riddle:${idx}`).setLabel(`${String.fromCharCode(65 + idx)}. ${opt}`.slice(0, 80)).setStyle(ButtonStyle.Secondary));
+        const ruledOut = puzzle.data.ruledOut || [];
+        const optBtns = puzzle.data.options.map((opt, idx) => {
+            const isOut = ruledOut.includes(idx);
+            return new ButtonBuilder()
+                .setCustomId(`esc:riddle:${idx}`)
+                .setLabel(`${isOut ? '❌ ' : ''}${String.fromCharCode(65 + idx)}. ${opt}`.slice(0, 80))
+                .setStyle(isOut ? ButtonStyle.Danger : ButtonStyle.Secondary)
+                .setDisabled(isOut);
+        });
         rows.push(new ActionRowBuilder().addComponents(optBtns));
         rows.push(new ActionRowBuilder().addComponents(hintBtn));
     } else if (puzzle.type === 'sequence') {
@@ -6914,6 +6937,83 @@ async function escAdvanceFromReaction(game, player, progress, userIdForDm) {
 
 // ─ E. Reaction handler (ward puzzles) ────────────────────────────────────────
 
+// Hints never hand over the solution outright — they cost a click and only
+// narrow things down (reveal one digit/letter/symbol, or rule out one wrong option).
+async function escGiveHint(interaction, room, progress) {
+    const puzzle = room.puzzle;
+
+    if (puzzle.type === 'vault') {
+        const { combo, hintedPositions } = puzzle.data;
+        const remaining = [0, 1, 2].filter(i => !hintedPositions.includes(i));
+        if (remaining.length === 0) {
+            await interaction.reply({ content: '💡 Every dial has already been revealed via hints — combine them and submit!', ephemeral: true });
+            return;
+        }
+        const pos = remaining[Math.floor(Math.random() * remaining.length)];
+        hintedPositions.push(pos);
+        progress.hintsUsed++;
+        await interaction.reply({ content: `💡 Dial ${pos + 1} is **${combo[pos]}**. (${remaining.length - 1} dial${remaining.length - 1 === 1 ? '' : 's'} still unrevealed.)`, ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'cipher') {
+        const { answer } = puzzle.data;
+        if (puzzle.data.revealedLetters >= answer.length) {
+            await interaction.reply({ content: '💡 The whole word is already revealed — type it in!', ephemeral: true });
+            return;
+        }
+        puzzle.data.revealedLetters++;
+        progress.hintsUsed++;
+        const shown = answer.split('').map((ch, i) => i < puzzle.data.revealedLetters ? ch : '_').join(' ');
+        await interaction.reply({ content: `💡 ${shown}`, ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'riddle') {
+        const { options, correctIndex, ruledOut } = puzzle.data;
+        const candidates = options.map((_, i) => i).filter(i => i !== correctIndex && !ruledOut.includes(i));
+        if (candidates.length === 0) {
+            await interaction.reply({ content: '💡 No more options left to rule out — you\'ve narrowed it down as far as hints can take you!', ephemeral: true });
+            return;
+        }
+        const idx = candidates[Math.floor(Math.random() * candidates.length)];
+        ruledOut.push(idx);
+        progress.hintsUsed++;
+        await interaction.update({ embeds: [escProgressEmbed(progress)], components: escPuzzleComponents(progress) });
+        await interaction.followUp({ content: `💡 It's **not** "${options[idx]}".`, ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'sequence') {
+        const { sequence, pressed } = puzzle.data;
+        if (pressed.length >= sequence.length) {
+            await interaction.reply({ content: '💡 You\'re already on the last symbol!', ephemeral: true });
+            return;
+        }
+        progress.hintsUsed++;
+        await interaction.reply({ content: `💡 The next symbol to press is ${sequence[pressed.length]}.`, ephemeral: true });
+        return;
+    }
+
+    if (puzzle.type === 'ward') {
+        const { options, correctIndex, ruledOut } = puzzle.data;
+        const candidates = options.map((_, i) => i).filter(i => i !== correctIndex && !ruledOut.includes(i));
+        if (candidates.length === 0) {
+            await interaction.reply({ content: '💡 No more symbols left to rule out!', ephemeral: true });
+            return;
+        }
+        const idx = candidates[Math.floor(Math.random() * candidates.length)];
+        ruledOut.push(idx);
+        progress.hintsUsed++;
+        try {
+            const match = [...interaction.message.reactions.cache.values()].find(r => escNormEmoji(r.emoji.name) === escNormEmoji(options[idx]));
+            if (match) await match.remove();
+        } catch (_) {}
+        await interaction.reply({ content: `💡 It's **not** ${options[idx]} — that symbol has been removed from the gate.`, ephemeral: true });
+        return;
+    }
+}
+
 async function handleEscWardReaction(reaction, user, lock) {
     const game = escapeGames.get(lock.channelId);
     if (!game || game.phase !== 'playing') { escReactionLocks.delete(reaction.message.id); return; }
@@ -6933,7 +7033,7 @@ async function handleEscWardReaction(reaction, user, lock) {
     if (!room || room.puzzle.type !== 'ward') return;
 
     const { options, correctIndex } = room.puzzle.data;
-    if (reaction.emoji.name !== options[correctIndex]) {
+    if (escNormEmoji(reaction.emoji.name) !== escNormEmoji(options[correctIndex])) {
         try { await reaction.users.remove(user.id); } catch (_) {}
         return;
     }
@@ -7030,8 +7130,7 @@ async function handleEscButton(interaction) {
     const room = escCurrentRoom(progress);
 
     if (id === 'esc:hint') {
-        progress.hintsUsed++;
-        await interaction.reply({ content: `💡 ${room.puzzle.hint}`, ephemeral: true });
+        await escGiveHint(interaction, room, progress);
         return;
     }
 
@@ -7041,7 +7140,20 @@ async function handleEscButton(interaction) {
         if (guess[0] === combo[0] && guess[1] === combo[1] && guess[2] === combo[2]) {
             await escSolveAndAdvance(interaction, ctx);
         } else {
-            await interaction.reply({ content: '❌ The vault refuses to open. Wrong combination.', ephemeral: true });
+            // Mastermind-style feedback: how many digits are right, and right-but-wrong-position
+            let exact = 0;
+            const comboLeft = [...combo];
+            const guessLeft = [...guess];
+            for (let i = 0; i < 3; i++) {
+                if (guessLeft[i] === comboLeft[i]) { exact++; comboLeft[i] = null; guessLeft[i] = null; }
+            }
+            let present = 0;
+            for (let i = 0; i < 3; i++) {
+                if (guessLeft[i] === null) continue;
+                const idx = comboLeft.indexOf(guessLeft[i]);
+                if (idx !== -1) { present++; comboLeft[idx] = null; }
+            }
+            await interaction.reply({ content: `❌ The vault stays shut.\n**${exact}** dial${exact === 1 ? '' : 's'} correct digit & position, **${present}** correct digit but wrong dial.`, ephemeral: true });
         }
         return;
     }

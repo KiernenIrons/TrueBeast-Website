@@ -97,7 +97,7 @@ const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: s
 ### Puzzle object (`room.puzzle`)
 
 ```js
-{ type: 'vault'|'cipher'|'riddle'|'sequence'|'ward', prompt: string, hint: string, data: {...type-specific} }
+{ type: 'vault'|'cipher'|'riddle'|'sequence'|'ward', prompt: string, data: {...type-specific} }
 ```
 
 ---
@@ -106,15 +106,27 @@ const escReactionLocks = new Map(); // messageId → { channelId, userIdForDm: s
 
 | Type | Input style | Mechanic |
 |---|---|---|
-| `vault` | 3 select menus (Dial 1-3) + Submit button | Combination revealed by 3 shuffled flavor-text clues; player sets each dial 1-9, presses Open Vault |
+| `vault` | 3 select menus (Dial 1-3) + Submit button | Combination (3 distinct digits 1-9) must be **deduced** from 3 logic clues (digit sum, an exact difference between two named dials, which dial holds the highest digit). Wrong submissions get Mastermind-style feedback — how many digits are correct & in place, how many are correct but in the wrong dial — so trial and error converges instead of just failing. |
 | `cipher` | Button → Modal text input | A theme word is Caesar-shifted by a random amount; player types the decoded word |
 | `riddle` | 4 buttons (A-D) | Riddle from a pool of 10, options shuffled each time |
 | `sequence` | 5 emoji buttons | A random 3-4 symbol sequence is shown; player must press the same symbols in order (wrong press resets progress) |
-| `ward` | Emoji **reactions** (no buttons) | Bot reacts to its own message with 4 emoji; player must react with the one matching the clue. Wrong reactions are auto-removed so they can retry. |
+| `ward` | Emoji **reactions** (no buttons) | Bot reacts to its own message with 5 emoji; the clue requires combining two facts (e.g. "the sea creature with three hearts and eight arms") rather than naming the answer directly. Wrong reactions are auto-removed so the player can retry. |
 
-Every puzzle has a **Hint** button (ephemeral, no penalty — just reveals the answer for players who are stuck).
+### Hints never hand over the solution
+
+Every puzzle has a **Hint** button, but it only narrows things down — it never reveals the full answer in one click:
+
+- **Vault** — reveals one dial's value at a time (3 hints = fully solved, but that costs 3 clicks)
+- **Cipher** — reveals one more decoded letter each click (`_ _ _` → `S _ _` → `S H _` → ...)
+- **Riddle** — rules out one wrong option per click (button greys out with ❌), leaving the correct answer plus one decoy at minimum
+- **Sequence** — reveals only the *next* symbol you need to press, not the whole sequence
+- **Ward** — rules out one wrong emoji per click and removes that reaction from the message
 
 Each game generates 4 of the 5 types (shuffled, no repeats) — `ESC_PUZZLE_TYPES` in `index.js`.
+
+### Emoji comparison gotcha (fixed)
+
+Ward puzzles compare `reaction.emoji.name` against the puzzle's stored answer. Some emoji (☀️, ❄️, 🗝️, 🕯️) are written in source with a variation selector (U+FE0F), but Discord's gateway can echo reactions back *without* it — a strict string comparison silently failed even when the player reacted with the visually-correct symbol. Fixed by `escNormEmoji()`, which strips variation selectors/ZWJ before comparing on both sides (used for the correctness check, the wrong-reaction removal, and the hint's reaction-removal lookup).
 
 ---
 
