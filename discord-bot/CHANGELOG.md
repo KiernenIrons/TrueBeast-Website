@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-06-22] — The Pond: add `/pond rules`
+
+- Added `/pond rules` — a single-message rundown of how to play The Pond (adoption/color
+  perks, feeding/playing, sickness/depression, the economy, and community commands), with
+  a "coming later" footer listing the still-unbuilt Phase 2/3 systems (exploration, rock
+  fights, hawk minigame, careers, mayors, partnerships, baby breeding) so players don't
+  expect mechanics that don't exist yet.
+
 ## [2026-06-22] — The Pond Phase 1: fireflies economy, sickness/depression, real sprite art
 
 Major rewrite of The Pond's rules and visuals, the first of a planned multi-phase build-out:

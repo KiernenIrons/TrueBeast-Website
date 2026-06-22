@@ -469,6 +469,7 @@ const pondCommands = [
         .setDescription('The Pond — where everyone\'s frogs hang out')
         .addSubcommand(sub => sub.setName('view').setDescription('See everyone\'s frogs together in the pond'))
         .addSubcommand(sub => sub.setName('memorial').setDescription('Remember frogs that have passed on'))
+        .addSubcommand(sub => sub.setName('rules').setDescription('How to play The Pond'))
         .addSubcommandGroup(group => group
             .setName('shop')
             .setDescription('Buy supplies for your frog')
@@ -722,6 +723,40 @@ async function handlePondMemorial(interaction) {
     await interaction.reply({ content: `These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}` });
 }
 
+const RULES_TEXT = [
+    '🐸 **The Pond — How to Play**',
+    '',
+    '**Getting started**',
+    '`/frog adopt name:<name> color:<choice>` — adopt your one frog. Color is permanent and is also a perk:',
+    '🟢 Green: hunger decays 10% slower · 🟣 Purple: happiness decays 10% slower · 🟡 Golden: 10% off shop/upgrades/cure/soothe',
+    '🔵 Blue, 🩷 Pink, 🟤 Brown: perks reserved for exploration/rock fights/hawks/breeding, coming in a later update',
+    '',
+    '**Daily care**',
+    'Hunger and happiness both drain ~2/hr on their own — one or two check-ins a day keeps a frog comfortably ahead of it.',
+    '`/frog feed [use_item]` — +8 hunger (4h cooldown). `use_item:true` consumes a worm for +16 instead.',
+    '`/frog play [use_item]` — +8 happiness (4h cooldown). `use_item:true` consumes a toy for +16 instead.',
+    '`/frog status` — portrait, stats, fireflies, lilypad level, and any sickness/depression.',
+    '',
+    '**If you neglect it**',
+    'Hunger hits 0 → **sick**: 72h to `/frog cure` (35 fireflies, hunger → 50) or the frog dies.',
+    'Happiness hits 0 → **depressed**: 72h to `/frog soothe` (35 fireflies, happiness → 50) or it runs away for good.',
+    'Sickness and depression are independent — a frog can be both at once. Every frog also passes peacefully of old age at **75 days**, however well cared for.',
+    '',
+    '**Economy**',
+    '`/pond shop buy item:<worms|toys|nest> quantity:<n>` — worms/toys are 2 fireflies each; a nest is a one-time 100 fireflies, reserved for future baby breeding.',
+    '`/frog lilypad info` / `/frog lilypad upgrade` — spend fireflies (10-200 across 10 levels) on bigger feed/play bonuses, daily passive income, and slower decay.',
+    'Once a week, everyone pays a 5% pond-maintenance tax on their current fireflies balance — automatic, no command needed.',
+    '',
+    '**Community**',
+    '`/pond view` — every living frog together · `/pond memorial` — frogs that have passed · `/frog leaderboard` — longest-living frogs',
+    '',
+    '*Coming later: exploration, rock fights, a hawk minigame, careers, frog mayors, partnerships, and baby breeding.*',
+].join('\n');
+
+async function handlePondRules(interaction) {
+    await interaction.reply({ content: RULES_TEXT });
+}
+
 async function announceDeath(client, frog) {
     if (!POND_CHANNEL_ID) return;
     try {
@@ -754,6 +789,7 @@ async function handlePondInteraction(interaction) {
             if (group === 'shop' && sub === 'buy') return handlePondShopBuy(interaction);
             if (sub === 'view') return handlePondView(interaction);
             if (sub === 'memorial') return handlePondMemorial(interaction);
+            if (sub === 'rules') return handlePondRules(interaction);
         }
     } catch (e) {
         console.error('[Pond] handlePondInteraction failed:', e.stack || e.message);
