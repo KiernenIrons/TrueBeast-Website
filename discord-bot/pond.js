@@ -583,9 +583,9 @@ async function drawPondScene(frogs) {
             loadLilypadSprite(frog.lilypadLevel),
         ]);
         const x = col * CELL_SIZE, y = headerH + row * CELL_SIZE;
-        drawWaterBackground(ctx, CELL_SIZE, 0);
         ctx.save();
         ctx.translate(x, y);
+        drawWaterBackground(ctx, CELL_SIZE, 0);
         drawSpriteImage(ctx, lilypadImg, CELL_SIZE * 0.5, CELL_SIZE * 0.64, CELL_SIZE * 0.6);
         const cx = CELL_SIZE * 0.5, cy = CELL_SIZE * 0.4;
         drawSpriteImage(ctx, frogImg, cx, cy, CELL_SIZE * 0.55);

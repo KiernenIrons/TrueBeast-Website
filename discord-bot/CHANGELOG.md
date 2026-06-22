@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-06-22] — The Pond: fix `/pond view` water-square artifact
+
+- `drawPondScene()` drew each cell's water background at canvas-origin `(0,0)` instead of
+  the cell's translated `(x, y)` position — so every frog's background repaint just
+  overwrote the top-left corner of the canvas (overlapping the header and first cell),
+  leaving whichever frog was drawn last as a stray water-colored square there. Moved the
+  `drawWaterBackground()` call inside the existing `ctx.save()`/`ctx.translate(x, y)`
+  block so each cell paints its own background in the right place.
+
 ## [2026-06-22] — The Pond Phase 2: exploration, rock fights, hawk minigame, careers
 
 Activates the blue/pink perks Phase 1 only stored, and gives players a real firefly income
