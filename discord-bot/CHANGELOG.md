@@ -1,5 +1,19 @@
 # Beast Bot Changelog
 
+## [2026-06-22] — The Pond: less tiled-looking water in `/pond view`
+
+- `drawWaterBackground()` generalized to take `width`/`height` instead of a single square
+  `size`, and `/pond view`'s `drawPondScene()` now paints **one continuous water surface**
+  across the whole scene before drawing frog cells on top, instead of every cell repainting
+  an identical mini water-background — that per-cell repetition is what made the grid look
+  visibly tiled.
+- Ripple placement switched from an evenly-spaced formula (same relative spot in every
+  cell) to a deterministic pseudo-random scatter (`rippleSeed()`), and ripple count now
+  scales with canvas area instead of being a fixed 4 — same visual density on single
+  portraits, more natural coverage across the larger combined scene.
+- Single-frog portraits (`/frog adopt|feed|play|cure|soothe|status`) are visually unchanged
+  — `drawPortraitFrame()` just passes its existing square size as both width and height.
+
 ## [2026-06-22] — The Pond: fix `/pond view` water-square artifact
 
 - `drawPondScene()` drew each cell's water background at canvas-origin `(0,0)` instead of

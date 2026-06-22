@@ -473,21 +473,35 @@ async function loadLilypadSprite(level) {
     return loadCachedImage(path.join(ASSETS_DIR, 'lilypads', `Lilypad_level_${clamped}.png`));
 }
 
-function drawWaterBackground(ctx, size, ripplePhase = 0) {
-    const grad = ctx.createLinearGradient(0, 0, 0, size);
+// width/height instead of a single `size` so this can paint one continuous water surface
+// across a whole multi-cell scene (drawPondScene) rather than each cell repainting an
+// identical mini-background — that repetition was what made /pond view look "tiled".
+// Ripple placement is randomized (not an evenly-spaced grid) for the same reason.
+function drawWaterBackground(ctx, width, height, ripplePhase = 0) {
+    const grad = ctx.createLinearGradient(0, 0, 0, height);
     grad.addColorStop(0, '#2d6f8e');
     grad.addColorStop(1, '#173f54');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    const shift = Math.sin(ripplePhase * Math.PI * 2) * size * 0.06;
-    for (let i = 0; i < 4; i++) {
-        const x = ((i * size * 0.31 + shift) % size + size) % size;
-        const y = size * 0.18 + i * size * 0.22;
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    const shift = Math.sin(ripplePhase * Math.PI * 2) * width * 0.03;
+    const rippleCount = Math.max(4, Math.round((width * height) / 16000));
+    for (let i = 0; i < rippleCount; i++) {
+        const x = ((rippleSeed(i, 1) * width + shift) % width + width) % width;
+        const y = rippleSeed(i, 2) * height;
+        const rw = width * (0.05 + rippleSeed(i, 3) * 0.08);
         ctx.beginPath();
-        ctx.ellipse(x, y, size * 0.16, size * 0.018, 0, 0, Math.PI * 2);
+        ctx.ellipse(x, y, rw, height * 0.012, 0, 0, Math.PI * 2);
         ctx.fill();
     }
+}
+
+// Deterministic pseudo-random in [0, 1) — same (i, salt) always gives the same value, so a
+// frame-by-frame animated background doesn't jitter, but the sequence itself isn't a
+// regular grid like a plain modulo placement would be.
+function rippleSeed(i, salt) {
+    const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
+    return x - Math.floor(x);
 }
 
 function drawFlowerCrown(ctx, cx, cy, s) {
@@ -516,7 +530,7 @@ const ANIM_FRAMES = 8;
 const ANIM_DELAY_MS = 150;
 
 async function drawPortraitFrame(ctx, size, frog, frogImg, lilypadImg, { bob, ripplePhase }) {
-    drawWaterBackground(ctx, size, ripplePhase);
+    drawWaterBackground(ctx, size, size, ripplePhase);
     drawSpriteImage(ctx, lilypadImg, size * 0.5, size * 0.72, size * 0.62);
     const spriteScale = frog.stage === 'froglet' ? 0.5 : 0.62;
     const cx = size * 0.5, cy = size * 0.46 + bob;
@@ -564,11 +578,9 @@ async function drawPondScene(frogs) {
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
-    const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-    bgGrad.addColorStop(0, '#2d6f8e');
-    bgGrad.addColorStop(1, '#173f54');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, W, H);
+    // One continuous water surface across the whole scene, painted once — drawing an
+    // identical mini water-background per cell made the grid look visibly tiled.
+    drawWaterBackground(ctx, W, H, 0);
 
     ctx.font = '700 26px sans-serif';
     ctx.fillStyle = '#ffffff';
@@ -585,7 +597,6 @@ async function drawPondScene(frogs) {
         const x = col * CELL_SIZE, y = headerH + row * CELL_SIZE;
         ctx.save();
         ctx.translate(x, y);
-        drawWaterBackground(ctx, CELL_SIZE, 0);
         drawSpriteImage(ctx, lilypadImg, CELL_SIZE * 0.5, CELL_SIZE * 0.64, CELL_SIZE * 0.6);
         const cx = CELL_SIZE * 0.5, cy = CELL_SIZE * 0.4;
         drawSpriteImage(ctx, frogImg, cx, cy, CELL_SIZE * 0.55);
