@@ -1,5 +1,44 @@
 # Beast Bot Changelog
 
+## [2026-06-22] — The Pond Phase 2: exploration, rock fights, hawk minigame, careers
+
+Activates the blue/pink perks Phase 1 only stored, and gives players a real firefly income
+source. First buttons in `pond.js` (previously slash-command-only).
+
+- **Exploration** — `/frog explore`, once/day, weighted reward tiers (common 55% /
+  uncommon 30% / rare 15%, weights not specified by the design doc, picked to make this the
+  primary early-game income source). Firefly gains boosted by blue color perk + explorer
+  career (additive) and the existing lilypad exploration bonus.
+- **Hawk minigame** — `/frog hawk`, once/day, 3x3 tic-tac-toe via buttons vs a minimax AI
+  with a tunable mistake chance (base 20%, +10pp hunter career, +5pp pink luck, capped 50%)
+  — that's how the perks matter against what's otherwise an unbeatable opponent. Win +20
+  fireflies; lose -10% of fireflies (-5% at lilypad lvl 6+). State in-memory
+  (`pondHawkGames`, keyed by message ID), 10-min expiry.
+- **Rock fights** — `/frog rockfight challenge user:<@user> wager:<5-20>` (targeted,
+  Accept/Decline restricted to the target) or `/frog rockfight any wager:<5-20>` (open
+  queue, anyone but the challenger can accept). Zero-sum win chance from each frog's age
+  (capped +15pp at the 75-day max-age mark) and pink luck (+5pp). Funds checked at
+  challenge and again at resolution, not held in between. State in-memory
+  (`pondRockfights`, keyed by message ID), 10-min expiry, synchronous resolved-flag
+  check-and-set closes the double-accept race window.
+- **Careers** — `/frog career info|choose|respec`, unlock at day 14+. First pick free,
+  respec costs 35 fireflies (10% off for Golden). Fisher (+3 fireflies/12h), hunter (+10pp
+  hawk mistake chance), caretaker (-10% decay, stacks multiplicatively with color
+  perk/lilypad lvl9), explorer (+10% exploration fireflies), nursery (stored for Phase 3).
+- **Fixed a Firestore data-loss bug found during this pass**: `pondFirestoreSet` issued a
+  PATCH with no `updateMask`, which Firestore's REST API treats as a full-document
+  overwrite — a partial write like the weekly tax's `{ fireflies }` would have silently
+  deleted every other field off the frog doc. Now always sends `updateMask.fieldPaths` for
+  exactly the fields being written.
+- **Fixed an unhandled-rejection risk found during this pass**: both `handlePondInteraction`
+  and the new `handlePondButtonInteraction` used `return handler(interaction)` inside a
+  `try` block — in JS, a bare `return` of a promise does not let the matching `catch` see
+  a later rejection (`return await handler(...)` is required). With no global
+  `unhandledRejection` handler in this bot, an uncaught rejection here could have crashed
+  the process. Fixed on every dispatch line in both functions.
+- Updated `GAME_POND.md` with the four new systems and trimmed "Not Yet Implemented" down
+  to Phase 3 only (mayor elections, partnerships, baby breeding).
+
 ## [2026-06-22] — The Pond: add `/pond rules`
 
 - Added `/pond rules` — a single-message rundown of how to play The Pond (adoption/color

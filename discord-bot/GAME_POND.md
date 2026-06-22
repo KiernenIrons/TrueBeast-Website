@@ -10,17 +10,22 @@ in time, they pass on. Frogs also have a hard lifespan — they pass peacefully 
 75 days regardless of how well cared for they are.
 
 **Channel:** `1517699652982407168` (`#the-pond`)
-**Commands:** `/frog adopt|feed|play|cure|soothe|status|leaderboard` ·
-`/frog lilypad info|upgrade` · `/pond view|memorial` · `/pond shop buy`
+**Commands:** `/frog adopt|feed|play|cure|soothe|status|leaderboard|explore|hawk` ·
+`/frog lilypad info|upgrade` · `/frog rockfight challenge|any` ·
+`/frog career info|choose|respec` · `/pond view|memorial|rules` · `/pond shop buy`
 
 Unlike the other mini-games (Imposter, Traitors, Escape Room), The Pond lives in its own
-module — `pond.js` — rather than directly inside `index.js`, since its state is
-persistent (Firestore) rather than an in-memory party-game session.
+module — `pond.js` — rather than directly inside `index.js`, since most of its state is
+persistent (Firestore) rather than an in-memory party-game session. Phase 2 added the
+game's first **Discord buttons** (the hawk minigame board, rock-fight accept/decline) —
+that short-lived state lives in-memory, keyed by message ID, following the same pattern as
+Imposter/Traitors/Escape Room's session Maps in `index.js`.
 
-This is **Phase 1** of a larger planned design (mayor elections, partnerships, baby
-breeding, rock fights, daily exploration, a hawk minigame, and careers are not yet built —
-see "Not Yet Implemented" below). Phase 1 covers the economy/decay/visual foundation those
-later phases build on.
+This is **Phase 1 + 2** of a larger planned design. Phase 1 built the economy/decay/visual
+foundation; Phase 2 (this update) added exploration, rock fights, the hawk minigame, and
+careers — the systems that actually consume the blue/pink/explorer/hunter perks that Phase 1
+only stored. **Phase 3** (mayor elections, partnerships, baby breeding) remains unbuilt —
+see "Not Yet Implemented" below.
 
 ---
 
@@ -39,6 +44,10 @@ later phases build on.
   - /frog feed          → +8 hunger (+5 more at lilypad lvl 2+, or +16 total using a worm), 4h cooldown
   - /frog play          → +8 happiness (+5 more at lilypad lvl 3+, or +16 total using a toy), 4h cooldown
   - /frog status         → generated portrait + current stats/economy
+  - /frog explore         → once/day, random fireflies/hunger/happiness reward (the main early income source)
+  - /frog hawk            → once/day, tic-tac-toe vs a minimax AI for fireflies
+  - /frog rockfight challenge|any → wager fireflies on a PvP rock fight, vs a specific player or an open queue
+  - /frog career info/choose/respec → pick a career at day 14+ (free first pick, fee to change)
   - /frog lilypad info/upgrade → check/spend fireflies on lilypad levels
   - /pond shop buy        → spend fireflies on worms/toys/a nest
     │
@@ -92,6 +101,9 @@ kept out of the `pondFrog` query results on purpose.
   sick, sickSince,                  // true once hunger hits 0; sickSince drives the 72h cure window
   depressed, depressedSince,        // true once happiness hits 0; depressedSince drives the 72h soothe window
   lastPassiveAt,                    // ms timestamp, tracks lilypad passive-income accrual (lvl 5+)
+  career,                           // key into CAREERS, or null until day 14+ and chosen
+  lastExploreAt, lastHawkAt,        // ms timestamps, drive the daily explore/hawk cooldowns
+  lastFisherAt,                     // ms timestamp, tracks fisher-career passive income accrual
   bornAt,                           // ms timestamp, adoption time
   lastFedAt, lastPlayedAt,          // ms timestamps, drive the 4h care cooldowns
   lastTickAt,                       // ms timestamp of the last decay tick applied
@@ -99,6 +111,12 @@ kept out of the `pondFrog` query results on purpose.
   lifespanDays,                     // set once a frog passes on; document is kept (not deleted) for the memorial/leaderboard
 }
 ```
+
+**Firestore PATCH gotcha:** `documents.patch` replaces the *entire* document with only the
+fields given unless an `updateMask` is supplied — `pondFirestoreSet()` always sends
+`updateMask.fieldPaths` for exactly the fields in its `data` argument, so a partial write
+like `{ fireflies }` (used by the rock-fight/tax/hawk-loss paths) merges instead of wiping
+every other field off the doc. Don't drop that mask when touching this helper.
 
 `normalizeFrog()` fills sane defaults for any of the above missing on older docs, so frogs
 adopted before a feature shipped upgrade gracefully instead of crashing on `undefined`.
@@ -117,9 +135,9 @@ perk. The `gold` color is displayed to players as **"Golden"**; the internal key
 | Color | Display name | Perk |
 |---|---|---|
 | green | Lily Green | Hunger decays 10% slower |
-| blue | Pond Blue | +10% rewards from exploration *(stored now, used once exploration ships)* |
-| pink | Axolotl Pink | +10% luck *(stored now, used once rock fights/hawks ship)* |
-| gold | Golden | 10% discount on the shop, lilypad upgrades, cure, and soothe |
+| blue | Pond Blue | +10% fireflies from exploration |
+| pink | Axolotl Pink | +10% luck — better rock-fight odds, +5pp hawk mistake chance |
+| gold | Golden | 10% discount on the shop, lilypad upgrades, career respec, cure, and soothe |
 | purple | Poison Dart | Happiness decays 10% slower |
 | brown | Marsh Brown | Babies are worth +5 fireflies *(stored now, used once breeding ships)* |
 
@@ -135,11 +153,11 @@ perk. The `gold` color is displayed to players as **"Golden"**; the internal key
 | 1 | free | Tiny lilypad |
 | 2 | 10 | +5 hunger from feeding |
 | 3 | 15 | +5 happiness from playing |
-| 4 | 25 | +2 fireflies from exploration *(stored now)* |
+| 4 | 25 | +2 fireflies from exploration |
 | 5 | 40 | Daily passive income unlocked (+5 fireflies/day) |
-| 6 | 75 | Hawk battle loss reduced to 5% *(stored now)* |
+| 6 | 75 | Hawk battle loss reduced to 5% of fireflies (instead of 10%) |
 | 7 | 100 | +5 additional daily passive income (total +10/day) |
-| 8 | 120 | +3 fireflies from exploration *(stored now)* |
+| 8 | 120 | +3 fireflies from exploration |
 | 9 | 150 | Hunger and happiness decay 5% slower (stacks with color perk) |
 | 10 | 200 | Cosmetic flower lilypad sprite |
 
@@ -154,6 +172,57 @@ perk. The `gold` color is displayed to players as **"Golden"**; the internal key
 | Worms | 2 fireflies each | Next `/frog feed use_item:true` gives +16 hunger instead of +8 (consumes 1) |
 | Toys | 2 fireflies each | Next `/frog play use_item:true` gives +16 happiness instead of +8 (consumes 1) |
 | Nest | 100 fireflies (max 1) | Reserved for the future baby-breeding phase |
+
+---
+
+## Exploration
+
+`/frog explore` — once a day. Rolls a tier (common 55% / uncommon 30% / rare 15%, weights
+not specified by the original design and picked here to make exploration the primary
+early-game firefly source without being too swingy), then a uniform outcome within that
+tier: nothing/5/10 fireflies (common), 20 fireflies/+10 happiness ("meets a turtle")/+10
+hunger ("finds worms") (uncommon), or a goose stealing 10 fireflies/a 50-firefly swarm
+(rare). Positive firefly gains get +10% each from the blue color perk and the explorer
+career (additive, so both = +20%), plus the lilypad exploration bonus (+2 at level 4, +3
+more at level 8). `rollExploration()` in `pond.js`.
+
+## Hawk Minigame
+
+`/frog hawk` — once a day, posts a 3x3 tic-tac-toe board as buttons. The hawk AI
+(`tttBestMove()`/`tttMinimax()`) always picks the objectively best move — it would never
+lose to a perfect opponent — but has a **mistake chance** (base 20%, +10pp for the hunter
+career, +5pp for the pink luck perk, capped at 50%) of playing a random legal move instead.
+That mistake chance is how "hunter: 10% better odds" and "pink: +10% luck" become
+meaningful against what would otherwise be unbeatable, rather than bolting a fake dice roll
+onto a deterministic game. Win → +20 fireflies; lose → -10% of current fireflies (-5% at
+lilypad level 6+); draw → no-op. Game state lives in-memory (`pondHawkGames`, keyed by
+message ID) with a 10-minute inactivity expiry.
+
+## Rock Fights
+
+`/frog rockfight challenge user:<@user> wager:<5-20>` (targeted) or
+`/frog rockfight any wager:<5-20>` (open queue, anyone but the challenger can Accept) posts
+a challenge with Accept/Decline buttons. State lives in-memory (`pondRockfights`, keyed by
+message ID), 10-minute expiry. Funds are validated at challenge time and again at
+resolution (not held in between), so a stale balance cancels the fight with a message
+rather than erroring. Win chance is zero-sum between the two frogs — not an independent
+roll per side — based on each frog's `luckBonus()`: age (capped at +15 percentage points
+right at the 75-day max-age mark) plus +5pp for the pink color perk. The winner takes both
+wagers. `rockfightWinChance()` in `pond.js`.
+
+## Careers
+
+Unlock once a frog reaches the `frog` stage (day 14+). `/frog career choose` is free the
+first time; `/frog career respec` (35 fireflies, 10% off for Golden frogs) changes it
+afterward.
+
+| Career | Effect |
+|---|---|
+| Fisher Frog | +3 fireflies every 12 hours, same elapsed-interval accrual pattern as lilypad passive income |
+| Hunter Frog | +10 percentage points to the hawk AI's mistake chance |
+| Caretaker Frog | Hunger and happiness decay 10% slower — stacks multiplicatively with the color perk and lilypad level 9+ reductions |
+| Explorer Frog | +10% fireflies from exploration, stacks additively with the blue color perk |
+| Nursery Frog | Babies mature 10% faster *(stored now, used once breeding ships)* |
 
 ---
 
@@ -174,8 +243,10 @@ proportional to elapsed time since `lastTickAt` (not a flat per-tick amount, so 
 late tick doesn't unfairly punish a frog):
 
 1. Age cap check first — 75+ days old dies of old age regardless of stats.
-2. Hunger/happiness decay (2/hr each), reduced by color perk and lilypad level 9+.
-3. Lilypad passive income credited per full day elapsed (level 5+).
+2. Hunger/happiness decay (2/hr each), reduced by color perk, lilypad level 9+, and the
+   caretaker career — all three stack multiplicatively.
+3. Lilypad passive income credited per full day elapsed (level 5+); fisher-career income
+   credited per full 12h interval elapsed, same pattern.
 4. Sickness timer (hunger at 0) and depression timer (happiness at 0), independently —
    each has its own 72h grace window before death.
 5. Once per 7 days, the pond tax sweep runs (see above).
@@ -211,14 +282,14 @@ games. If `false`, any `/frog` or `/pond` command replies with a disabled messag
 
 ## Not Yet Implemented (planned, phased)
 
-These are part of the full design but intentionally out of scope for Phase 1:
+Phase 1 and 2 are both shipped. **Phase 3** is the only part of the original design still
+unbuilt:
 
-- **Phase 2:** daily exploration, rock-fight wagers (challenge a specific player or open a
-  queue for anyone), the hawk tic-tac-toe minigame, and unlockable careers (day 14+,
-  respec-able for a fee).
-- **Phase 3:** frog mayor elections (5+ residents, weekly re-election, +10% stats/aging),
-  partnerships (+2 happiness/day, mutual feeding), and baby breeding (day 14+ frogs,
-  sellable at 7 days, eaten if the parent's hunger drops below 50).
+- Frog mayor elections (5+ residents, weekly re-election, +10% stats/income, +10% aging).
+- Partnerships (+2 happiness/day, mutual feeding between two frogs).
+- Baby breeding (day 14+ frogs, sellable at 7 days, eaten if the parent's hunger drops
+  below 50; the `nest` shop item and `brown`/`nursery` perks are already stored, waiting
+  for this to consume them).
 
 ---
 
@@ -233,6 +304,10 @@ These are part of the full design but intentionally out of scope for Phase 1:
 | Older frog docs missing newer fields | `normalizeFrog()` fills defaults on read so they don't crash on `undefined` |
 | Large pond | `/pond view` caps the rendered scene at 30 frogs |
 | Firestore write/read failure | All Firestore helpers catch and log; missing docs/fields default safely (e.g. `pondFirestoreGet` returns `null`) |
+| Partial Firestore writes wiping other fields | `pondFirestoreSet()` always sends `updateMask.fieldPaths` so a write merges instead of replacing the whole document |
+| Two players accepting the same open rock-fight challenge | `state.resolved` is checked-and-set synchronously before any `await`, closing the race window (Node's single-threaded event loop) |
+| Stale rock-fight/hawk state outlasting a process restart | In-memory only by design (matches Imposter/Traitors/Escape Room) — a restart simply drops in-flight games/challenges rather than leaving them stuck; the persistent frog doc is unaffected |
+| Hawk/rock-fight button handler throwing | `handlePondButtonInteraction`'s `try`/`catch` uses `return await handler(...)` (not bare `return handler(...)`) — a bare `return` of a rejecting promise from inside `try` does **not** get caught by the matching `catch` in JS, which would otherwise risk an unhandled rejection crashing the process (no global `unhandledRejection` handler exists in this bot) |
 
 ---
 
@@ -246,8 +321,16 @@ if (interaction.isChatInputCommand() && isPondCommand(interaction.commandName)) 
     if (botFeatures.pondFrogs === false) return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
     return handlePondInteraction(interaction);
 }
+if (interaction.isButton() && isPondButton(interaction.customId)) {
+    if (botFeatures.pondFrogs === false) return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
+    return handlePondButtonInteraction(interaction);
+}
 ```
 
-All actual subcommand routing (`adopt`/`feed`/`play`/`cure`/`soothe`/`status`/`leaderboard`/
-`lilypad info`/`lilypad upgrade`/`view`/`memorial`/`shop buy`) happens inside
-`handlePondInteraction()` in `pond.js`.
+Slash-command subcommand routing (`adopt`/`feed`/`play`/`cure`/`soothe`/`status`/
+`leaderboard`/`explore`/`hawk`/`lilypad info|upgrade`/`rockfight challenge|any`/
+`career info|choose|respec`/`view`/`memorial`/`rules`/`shop buy`) happens inside
+`handlePondInteraction()`; button routing (`pond:hawk:<cell>`, `pond:rf:accept`,
+`pond:rf:decline`) happens inside `handlePondButtonInteraction()`, both in `pond.js`. Pond
+buttons are intercepted before the giant `imp:`/`trt:`/`esc:` button chain elsewhere in
+`index.js`, same as pond slash commands already were.

@@ -35,7 +35,7 @@ const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
 const GifEncoder = require('gif-encoder-2');
-const { pondCommands, isPondCommand, handlePondInteraction, startPondTicker } = require('./pond');
+const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, startPondTicker } = require('./pond');
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
@@ -72,12 +72,11 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🐸 The Pond is here!', value: 'Adopt a frog with `/frog adopt`, name it, and pick a color (each color is a permanent perk). Keep it fed and happy in `#the-pond`.' },
-    { name: '🪲 Fireflies economy', value: 'Earn fireflies from your lilypad and spend them on upgrades, worms/toys, and curing a sick or depressed frog.' },
-    { name: '🍃 Lilypad upgrades', value: '`/frog lilypad info` and `/frog lilypad upgrade` — 10 levels of perks, from feeding bonuses to daily passive income.' },
-    { name: '🛒 Pond shop', value: '`/pond shop buy` for worms (bigger feed boost), toys (bigger play boost), and a nest for the future.' },
-    { name: '🤒 Sickness & depression', value: 'Let hunger or happiness hit 0 for too long and your frog gets sick or depressed — `/frog cure` and `/frog soothe` fix it before it\'s too late.' },
-    { name: '🌼 Real art + old age', value: 'Frogs and lilypads now use hand-picked artwork instead of generated shapes. Every frog also lives a max of 75 days, however well cared for.' },
+    { name: '🧭 Frog exploration', value: '`/frog explore` — once a day, send your frog out for a random reward: fireflies, a happiness/hunger boost, or rarely a goose stealing some.' },
+    { name: '🦅 Hawk minigame', value: '`/frog hawk` — once a day, battle a hawk in tic-tac-toe for 20 fireflies. Lose and you forfeit some fireflies instead.' },
+    { name: '🥊 Rock fights', value: '`/frog rockfight challenge @user` or `/frog rockfight any` — wager fireflies on a rock fight against a friend or an open challenge anyone can accept.' },
+    { name: '💼 Frog careers', value: '`/frog career choose` (free at day 14+) picks a career — fisher, hunter, caretaker, explorer, or nursery — each with its own perk. Respec later for a fee.' },
+    { name: '🐸 Pink & blue perks activated', value: 'Pink frogs now get real luck in rock fights/hawks, and blue frogs get bigger exploration rewards.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -7641,6 +7640,12 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
         }
         return handlePondInteraction(interaction);
+    }
+    if (interaction.isButton() && isPondButton(interaction.customId)) {
+        if (botFeatures.pondFrogs === false) {
+            return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
+        }
+        return handlePondButtonInteraction(interaction);
     }
 
     // ── Slash commands ───────────────────────────────────────────────────────
