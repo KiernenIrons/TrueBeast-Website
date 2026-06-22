@@ -35,6 +35,7 @@ const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
 const GifEncoder = require('gif-encoder-2');
+const { pondCommands, isPondCommand, handlePondInteraction, startPondTicker } = require('./pond');
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
@@ -71,7 +72,12 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '✨ Bump reminder pings you', value: 'When the 2-hour Disboard bump reminder fires, the bot now pings whoever last bumped the server so the right person gets the nudge.' },
+    { name: '🐸 The Pond is here!', value: 'Adopt a frog with `/frog adopt`, name it, and pick a color (each color is a permanent perk). Keep it fed and happy in `#the-pond`.' },
+    { name: '🪲 Fireflies economy', value: 'Earn fireflies from your lilypad and spend them on upgrades, worms/toys, and curing a sick or depressed frog.' },
+    { name: '🍃 Lilypad upgrades', value: '`/frog lilypad info` and `/frog lilypad upgrade` — 10 levels of perks, from feeding bonuses to daily passive income.' },
+    { name: '🛒 Pond shop', value: '`/pond shop buy` for worms (bigger feed boost), toys (bigger play boost), and a nest for the future.' },
+    { name: '🤒 Sickness & depression', value: 'Let hunger or happiness hit 0 for too long and your frog gets sick or depressed — `/frog cure` and `/frog soothe` fix it before it\'s too late.' },
+    { name: '🌼 Real art + old age', value: 'Frogs and lilypads now use hand-picked artwork instead of generated shapes. Every frog also lives a max of 75 days, however well cared for.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -85,6 +91,7 @@ let botFeatures = {
     imposterGame:        true,
     traitorsGame:        true,
     escapeRoomGame:      true,
+    pondFrogs:           true,
 };
 
 // ── Imposter Game ─────────────────────────────────────────────────────────────
@@ -5237,6 +5244,7 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('view-schedule')
                 .setDescription('View the current stream schedule and next stream time'),
+            ...pondCommands,
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -5311,6 +5319,9 @@ client.once('clientReady', async () => {
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
     setInterval(() => getBotFeatures().catch(() => {}), 30 * 60 * 1000); // refresh every 30 min
+
+    // Start The Pond's hourly hunger/happiness decay tick
+    startPondTicker(client);
 
     // Poll Firestore for queued Discord cards every 60s (filtered query = 0 reads when empty)
     setInterval(() => pollDiscordCards().catch(() => {}), 60 * 1000);
@@ -7624,6 +7635,14 @@ function buildRolePanelComponents(panelId, buttons) {
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
+    // ── The Pond ─────────────────────────────────────────────────────────────
+    if (interaction.isChatInputCommand() && isPondCommand(interaction.commandName)) {
+        if (botFeatures.pondFrogs === false) {
+            return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
+        }
+        return handlePondInteraction(interaction);
+    }
+
     // ── Slash commands ───────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
 

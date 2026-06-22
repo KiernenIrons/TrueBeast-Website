@@ -1,5 +1,67 @@
 # Beast Bot Changelog
 
+## [2026-06-22] — The Pond Phase 1: fireflies economy, sickness/depression, real sprite art
+
+Major rewrite of The Pond's rules and visuals, the first of a planned multi-phase build-out:
+
+- **Fireflies currency** added to the frog doc (`fireflies` field), with a weekly 5%-of-
+  balance pond-maintenance tax swept by the existing hourly ticker (bootstraps its own
+  clock on first run so it doesn't tax everyone immediately on rollout day).
+- **Color perks**: every color is now a permanent perk picked at adoption — green/purple
+  slow hunger/happiness decay 10%, gold ("Golden") gives a 10% shop/upgrade/cure discount,
+  blue/pink/brown perks are stored now and activate once exploration, rock fights/hawks,
+  and baby breeding ship in later phases. Added a 6th color, brown, matching the supplied
+  art assets.
+- **Lilypad levels (1-10)** — `/frog lilypad info` and `/frog lilypad upgrade`, costing
+  10-200 fireflies per level, unlocking bigger feed/play bonuses, daily passive firefly
+  income (level 5+), and slower decay (level 9+).
+- **Shop** — `/pond shop buy item:<worms|toys|nest>`; worms/toys are consumables that
+  double the next feed/play action's effect via a new `use_item` option on
+  `/frog feed`/`/frog play`; nest is a one-time purchase reserved for future baby breeding.
+- **Decay/death model rewrite** — replaced the old dual-stat 72h neglect-grace death with
+  independent sickness (`/frog cure`, hunger-triggered) and depression (`/frog soothe`,
+  happiness-triggered) states, each with its own 72h grace window, plus a hard 75-day
+  old-age death cap regardless of stats. `deathReason` now drives differentiated
+  memorial/announcement copy. Decay rate changed from 2/1.5 per hour to 2/2 (8 per 4h, per
+  the new design spec), with feed/play base restore dropped from +35 to +8 (+5 lilypad
+  bonus, or +16 via a consumable item).
+- **Real sprite art** — procedural pixel-art shapes replaced with the supplied artwork
+  (`Pond Assets/`, moved into `discord-bot/assets/pond/` so it actually ships inside the
+  Docker build context — it previously lived at the repo root, outside `COPY . .`).
+  Animated portraits now composite the sprite over a procedural water/ripple background
+  with a gentle bob (no synthetic blink frame, since there's no closed-eye art yet).
+- `normalizeFrog()` backfills new fields on older live frog docs so existing players don't
+  break on `undefined`.
+- Rewrote `GAME_POND.md` to document the new model and explicitly list what's deferred to
+  Phase 2 (exploration, rock fights, hawk minigame, careers) and Phase 3 (mayor elections,
+  partnerships, baby breeding).
+
+## [2026-06-20] — The Pond: fix persistence, animated pixel-art frogs
+
+Two follow-ups after shipping The Pond: (1) `/frog adopt` looked like it worked but never
+actually saved — Firestore security rules only allowlist specific collection names, and
+the new `pondFrogs` collection wasn't one of them, so every write came back `403` (silently,
+since the existing `firestoreSet`-style helpers only log and swallow errors). Frog docs now
+live under the already-allowed `botConfig` collection instead (`botConfig/pond_<userId>`,
+tagged with a `kind: 'pondFrog'` marker field for collection-wide queries), so no Firestore
+rules change is needed. (2) Replaced the flat vector frog art with animated pixel-art GIFs —
+shapes are drawn at low resolution then upscaled with image smoothing disabled (turns soft
+anti-aliased edges into chunky retro pixel blocks), with a looping idle bob, occasional
+blink, and drifting water shimmer (`gif-encoder-2`). `/pond view`'s multi-frog grid stays a
+static pixel-art PNG to keep that command cheap.
+
+## [2026-06-20] — The Pond: a cozy tamagotchi frog game
+
+Added a new low-pressure pet game living in `#the-pond`. `/frog adopt` lets a member name
+and color their own frog; `/frog feed` and `/frog play` keep it happy (gentle decay, 4h
+cooldowns, a single check-in a day is enough). Frogs grow through visual stages over time
+(egg → tadpole → froglet → frog → elder) and, if fully neglected for 72h, pass on
+peacefully into `/pond memorial` rather than just vanishing. `/pond view` renders every
+living frog together on lily pads. All portraits/scenes are generated procedurally with
+`@napi-rs/canvas` — no external art assets. Lives in its own module (`pond.js`) since its
+state is persistent (Firestore) rather than an in-memory party-game session like Imposter/
+Traitors/Escape Room. See `GAME_POND.md` for full design notes.
+
 ## [2026-06-19] — Fair race puzzle types; give inventory an actual purpose
 
 - **Race mode fairness fix**: all racers used to get fully independently randomized puzzle types per
