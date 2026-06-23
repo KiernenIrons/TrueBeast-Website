@@ -41,8 +41,8 @@ see "Not Yet Implemented" below.
     ▼
 [ALIVE] hourly tick decays hunger and happiness by 2/hr each (8 per 4h), modified by color
         perk and lilypad level
-  - /frog feed          → +8 hunger (+5 more at lilypad lvl 2+, or +16 total using a worm), 4h cooldown
-  - /frog play          → +8 happiness (+5 more at lilypad lvl 3+, or +16 total using a toy), 4h cooldown
+  - /frog feed          → +20 hunger (+5 more at lilypad lvl 2+, or +35 total using a worm), 4h cooldown
+  - /frog play          → +20 happiness (+5 more at lilypad lvl 3+, or +35 total using a toy), 4h cooldown
   - /frog status         → generated portrait + current stats/economy
   - /frog explore         → once/day, random fireflies/hunger/happiness reward (the main early income source)
   - /frog hawk            → once/day, tic-tac-toe vs a minimax AI for fireflies
@@ -169,8 +169,8 @@ perk. The `gold` color is displayed to players as **"Golden"**; the internal key
 
 | Item | Cost | Effect |
 |---|---|---|
-| Worms | 2 fireflies each | Next `/frog feed use_item:true` gives +16 hunger instead of +8 (consumes 1) |
-| Toys | 2 fireflies each | Next `/frog play use_item:true` gives +16 happiness instead of +8 (consumes 1) |
+| Worms | 2 fireflies each | Next `/frog feed use_item:true` gives +35 hunger instead of +20 (consumes 1) |
+| Toys | 2 fireflies each | Next `/frog play use_item:true` gives +35 happiness instead of +20 (consumes 1) |
 | Nest | 100 fireflies (max 1) | Reserved for the future baby-breeding phase |
 
 ---

@@ -26,9 +26,9 @@ const HUNGER_DECAY_PER_HOUR    = 2; // 8 per 4h
 const HAPPINESS_DECAY_PER_HOUR = 2; // 8 per 4h
 const FEED_COOLDOWN_MS  = 4 * 60 * 60 * 1000;
 const PLAY_COOLDOWN_MS  = 4 * 60 * 60 * 1000;
-const FEED_RESTORE_BASE = 8;
-const PLAY_RESTORE_BASE = 8;
-const ITEM_RESTORE      = 16; // worms/toys give this instead of the base amount
+const FEED_RESTORE_BASE = 20;
+const PLAY_RESTORE_BASE = 20;
+const ITEM_RESTORE      = 35; // worms/toys give this instead of the base amount
 const CURE_COST   = 35;
 const SOOTHE_COST = 35;
 const SICKNESS_GRACE_MS   = 3 * DAY_MS;
@@ -106,8 +106,8 @@ const LILYPAD_LEVELS = {
 const MAX_LILYPAD_LEVEL = 10;
 
 const SHOP_ITEMS = {
-    worms: { cost: 2,   label: 'Worms', desc: '+16 hunger when fed (instead of +8)' },
-    toys:  { cost: 2,   label: 'Toys',  desc: '+16 happiness when played with (instead of +8)' },
+    worms: { cost: 2,   label: 'Worms', desc: '+35 hunger when fed (instead of +20)' },
+    toys:  { cost: 2,   label: 'Toys',  desc: '+35 happiness when played with (instead of +20)' },
     nest:  { cost: 100, label: 'Nest',  desc: 'Allows 1 extra baby (max 1 per frog)' },
 };
 
@@ -1259,8 +1259,8 @@ const RULES_TEXT_1 = [
     '',
     '**Daily care**',
     'Hunger and happiness both drain ~2/hr on their own — one or two check-ins a day keeps a frog comfortably ahead of it.',
-    '`/frog feed [use_item]` — +8 hunger (4h cooldown). `use_item:true` consumes a worm for +16 instead.',
-    '`/frog play [use_item]` — +8 happiness (4h cooldown). `use_item:true` consumes a toy for +16 instead.',
+    '`/frog feed [use_item]` — +20 hunger (4h cooldown). `use_item:true` consumes a worm for +35 instead.',
+    '`/frog play [use_item]` — +20 happiness (4h cooldown). `use_item:true` consumes a toy for +35 instead.',
     '`/frog status` — portrait, stats, fireflies, lilypad level, career, and any sickness/depression.',
     '',
     '**If you neglect it**',

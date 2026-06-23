@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-06-23] — The Pond: bigger feed/play/item amounts
+
+Decay rate is unchanged (still -2/hr, -8 per 4h) — only the care-action amounts went up:
+
+- `FEED_RESTORE_BASE`/`PLAY_RESTORE_BASE`: 8 → 20
+- `ITEM_RESTORE` (worm/toy-boosted feed/play): 16 → 35
+- Updated the matching copy in `SHOP_ITEMS` descriptions, `/pond rules` (`RULES_TEXT_1`),
+  and `GAME_POND.md` so the numbers shown to players stay accurate
+
 ## [2026-06-22] — The Pond: less tiled-looking water in `/pond view`
 
 - `drawWaterBackground()` generalized to take `width`/`height` instead of a single square
