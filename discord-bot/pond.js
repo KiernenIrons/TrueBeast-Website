@@ -10,7 +10,12 @@
 
 const path = require('path');
 const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+// GlobalFonts is a process-wide registry, so this only needs to run once — but pond.js is
+// self-contained (per the header above), so it shouldn't depend on index.js having loaded
+// these first. "Noto Sans" (installed via the Dockerfile's font-noto package) has full
+// Latin Extended-A coverage (Š, ž, etc.), unlike the bare 'sans-serif' fallback.
+try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 const GifEncoder = require('gif-encoder-2');
 
 const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID;
@@ -557,7 +562,7 @@ async function drawFrogPortrait(frog) {
         const canvas = createCanvas(PORTRAIT_SIZE, PORTRAIT_SIZE);
         const ctx = canvas.getContext('2d');
         await drawPortraitFrame(ctx, PORTRAIT_SIZE, frog, frogImg, lilypadImg, { bob, ripplePhase });
-        ctx.font = '700 22px sans-serif';
+        ctx.font = '700 22px "Noto Sans", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
         ctx.fillText(frog.name, PORTRAIT_SIZE / 2, 30);
@@ -583,7 +588,7 @@ async function drawPondScene(frogs) {
     // identical mini water-background per cell made the grid look visibly tiled.
     drawWaterBackground(ctx, W, H, 0);
 
-    ctx.font = '700 26px sans-serif';
+    ctx.font = '700 26px "Noto Sans", sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.fillText('The Pond', W / 2, 36);
@@ -603,7 +608,7 @@ async function drawPondScene(frogs) {
         drawSpriteImage(ctx, frogImg, cx, cy, CELL_SIZE * 0.55);
         if (frog.stage === 'elder') drawFlowerCrown(ctx, cx, cy, CELL_SIZE * 0.55);
         ctx.restore();
-        ctx.font = '600 14px sans-serif';
+        ctx.font = '600 14px "Noto Sans", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
         ctx.fillText(frog.name, x + CELL_SIZE / 2, y + CELL_SIZE - 12);

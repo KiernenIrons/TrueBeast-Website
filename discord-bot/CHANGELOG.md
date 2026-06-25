@@ -1,5 +1,23 @@
 # Beast Bot Changelog
 
+## [2026-06-25] — The Pond: fix missing-glyph boxes in frog names (e.g. "Š")
+
+- `pond.js` drew all canvas text with a bare `sans-serif` font family, which
+  `@napi-rs/canvas` doesn't resolve via generic CSS-style fallback the way a browser
+  would — it was silently falling through to a "missing glyph" placeholder font for any
+  character outside basic ASCII (e.g. "Š", "Ž"), rendering a `⊠` box. Switched to
+  `'"Noto Sans", sans-serif'`, matching the pattern `index.js` already uses successfully
+  elsewhere — Noto Sans has full Latin Extended-A coverage.
+- `pond.js` is intentionally self-contained (no circular require with `index.js`), so it
+  shouldn't depend on `index.js` having loaded `/usr/share/fonts` into the process-wide
+  `GlobalFonts` registry first. Added its own
+  `GlobalFonts.loadFontsFromDir('/usr/share/fonts')` call — idempotent, harmless if
+  `index.js` already did it.
+- Verified for real against the live production container via `flyctl ssh console`
+  (rendered "Špongey Žarko" to a PNG and inspected it) rather than relying on local-machine
+  font availability, since this Mac doesn't have the same Alpine/Noto fonts installed and a
+  local-only test would have been misleading either way.
+
 ## [2026-06-25] — The Pond: `/pond rules` rewritten as a structured embed
 
 - Replaced the two plain-text messages (`RULES_TEXT_1`/`RULES_TEXT_2`, sent as a reply +
