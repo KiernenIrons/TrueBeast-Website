@@ -1,5 +1,19 @@
 # Beast Bot Changelog
 
+## [2026-06-25] — The Pond: real froglet sprites
+
+- Added `discord-bot/assets/pond/froglets/Froglet<Color>.png` (6 colors, supplied by
+  Kiernen, already named to match the existing `Egg<Color>.png`/`Tadpole<Color>.png`
+  convention — no renaming needed) and wired it into `loadFrogSprite()`.
+- Removed the froglet-renders-smaller stopgap in `drawPortraitFrame()` (`spriteScale` was
+  0.5 for froglets vs 0.62 for every other stage) now that froglets have real dedicated
+  art instead of borrowing the adult `frogs/` sprite at a shrunk scale.
+- Verified all 6 froglet sprites load and render correctly in both the single-frog
+  portrait and the multi-frog `/pond view` scene before shipping.
+- Updated `GAME_POND.md`'s Visuals section to describe the per-stage sprite-folder pattern
+  generically (`assets/pond/<stage>/<Stage><Color>.png` + one `loadFrogSprite()` line) so
+  it's accurate as more stage art (e.g. a dedicated elder sprite) gets added later.
+
 ## [2026-06-23] — The Pond: bigger feed/play/item amounts
 
 Decay rate is unchanged (still -2/hr, -8 per 4h) — only the care-action amounts went up:

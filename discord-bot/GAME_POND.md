@@ -257,12 +257,12 @@ late tick doesn't unfairly punish a frog):
 
 Frog portraits (`/frog adopt|feed|play|cure|soothe|status`) are **animated GIFs**
 (`gif-encoder-2`) compositing the real sprite artwork in `discord-bot/assets/pond/`
-(eggs/tadpoles/frogs per color, lilypads per level 1-10) over a procedural water-gradient
-background with a gentle idle bob and slow ripple shimmer. Elder frogs get a small
-procedural flower-crown overlay on top of the frog sprite (no dedicated elder art exists
-yet). Froglets render slightly smaller than adult frogs/elders to give a subtle stage cue,
-since there's no separate froglet sprite yet — more granular art can slot in later by
-adding new per-stage folders and updating `loadFrogSprite()`.
+(eggs/tadpoles/froglets/frogs per color, lilypads per level 1-10) over a procedural
+water-gradient background with a gentle idle bob and slow ripple shimmer. Elder frogs get a
+small procedural flower-crown overlay on top of the frog sprite (no dedicated elder art
+exists yet — they reuse the `frogs/` sprite). Adding art for a new stage is just a new
+`assets/pond/<stage>/` folder named `<Stage><Color>.png` plus one line in
+`loadFrogSprite()`.
 
 `/pond view` composites every living frog (capped at 30, to stay light on the 256mb Fly VM)
 into a single static PNG grid scene on lily pads.

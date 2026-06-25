@@ -465,6 +465,7 @@ async function loadFrogSprite(stage, color) {
     const suffix = colorFileSuffix(color);
     if (stage === 'egg') return loadCachedImage(path.join(ASSETS_DIR, 'eggs', `Egg${suffix}.png`));
     if (stage === 'tadpole') return loadCachedImage(path.join(ASSETS_DIR, 'tadpoles', `Tadpole${suffix}.png`));
+    if (stage === 'froglet') return loadCachedImage(path.join(ASSETS_DIR, 'froglets', `Froglet${suffix}.png`));
     return loadCachedImage(path.join(ASSETS_DIR, 'frogs', `Frog${suffix}.png`));
 }
 
@@ -532,7 +533,7 @@ const ANIM_DELAY_MS = 150;
 async function drawPortraitFrame(ctx, size, frog, frogImg, lilypadImg, { bob, ripplePhase }) {
     drawWaterBackground(ctx, size, size, ripplePhase);
     drawSpriteImage(ctx, lilypadImg, size * 0.5, size * 0.72, size * 0.62);
-    const spriteScale = frog.stage === 'froglet' ? 0.5 : 0.62;
+    const spriteScale = 0.62;
     const cx = size * 0.5, cy = size * 0.46 + bob;
     drawSpriteImage(ctx, frogImg, cx, cy, size * spriteScale);
     if (frog.stage === 'elder') drawFlowerCrown(ctx, cx, cy, size * spriteScale);
