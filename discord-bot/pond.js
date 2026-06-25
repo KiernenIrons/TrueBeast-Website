@@ -933,9 +933,16 @@ async function handleFrogLeaderboard(interaction) {
         return interaction.reply({ content: '🐸 No frogs have been adopted yet — be the first with `/frog adopt`!' });
     }
     const now = Date.now();
+    // Sort by exact age in ms, not the day-rounded display value — otherwise frogs adopted
+    // on the same calendar day tie on `ageDays` and fall back to Firestore's arbitrary
+    // query order instead of who was actually adopted first.
     const ranked = frogs
-        .map(f => ({ ...f, ageDays: f.alive ? Math.floor((now - f.bornAt) / DAY_MS) : f.lifespanDays }))
-        .sort((a, b) => b.ageDays - a.ageDays)
+        .map(f => ({
+            ...f,
+            ageDays: f.alive ? Math.floor((now - f.bornAt) / DAY_MS) : f.lifespanDays,
+            ageMs: f.alive ? now - f.bornAt : (f.diedAt || now) - f.bornAt,
+        }))
+        .sort((a, b) => b.ageMs - a.ageMs)
         .slice(0, 10);
     const lines = ranked.map((f, i) =>
         `${i + 1}. **${f.name}** — ${f.ageDays} day(s) ${f.alive ? '🐸' : '🪦'}`);
@@ -1269,7 +1276,11 @@ async function handlePondView(interaction) {
 
 async function handlePondMemorial(interaction) {
     const frogs = await pondFirestoreQuery();
-    const departed = frogs.filter(f => !f.alive).sort((a, b) => (b.lifespanDays || 0) - (a.lifespanDays || 0)).slice(0, 15);
+    // Sort by exact lifespan in ms, not the day-rounded lifespanDays — same tie-breaking
+    // fix as the leaderboard, for frogs that passed after the same number of whole days.
+    const departed = frogs.filter(f => !f.alive)
+        .sort((a, b) => ((b.diedAt || 0) - (b.bornAt || 0)) - ((a.diedAt || 0) - (a.bornAt || 0)))
+        .slice(0, 15);
     if (departed.length === 0) {
         return interaction.reply({ content: '🌿 No frogs have passed on yet. The pond remembers them when they do.' });
     }

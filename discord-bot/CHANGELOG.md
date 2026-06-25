@@ -1,5 +1,19 @@
 # Beast Bot Changelog
 
+## [2026-06-25] — The Pond: fix leaderboard/memorial sort ties
+
+- `/frog leaderboard` sorted by `ageDays`, a day-rounded value — frogs adopted on the same
+  calendar day tied on that number and the tiebreak silently fell back to Firestore's
+  arbitrary `runQuery` result order instead of who was actually adopted first. Reported by
+  a user whose frog ("Lil Beast"), adopted before everyone else's, showed up 5th. Fixed by
+  sorting on exact age in milliseconds (`ageMs`) while keeping the day-rounded value for
+  display only.
+- Applied the same fix to `/pond memorial`'s sort (was tie-breaking on day-rounded
+  `lifespanDays`; now sorts on exact `diedAt - bornAt`).
+- Verified with a reproduction matching the reported scenario (5 same-day frogs returned in
+  non-`bornAt` order) — confirmed the old sort misranked the earliest-adopted frog and the
+  new one ranks it first.
+
 ## [2026-06-25] — The Pond: animate `/pond view`
 
 - `drawPondScene()` now builds an 8-frame animated GIF (`gif-encoder-2`, same pipeline as
