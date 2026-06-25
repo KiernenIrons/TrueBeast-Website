@@ -1250,51 +1250,64 @@ async function handlePondMemorial(interaction) {
     await interaction.reply({ content: `These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}` });
 }
 
-const RULES_TEXT_1 = [
-    '🐸 **The Pond — How to Play (1/2)**',
-    '',
-    '**Getting started**',
-    '`/frog adopt name:<name> color:<choice>` — adopt your one frog. Color is permanent and is also a perk:',
-    '🟢 Green: hunger decays 10% slower · 🟣 Purple: happiness decays 10% slower · 🟡 Golden: 10% off shop/upgrades/cure/soothe',
-    '🔵 Blue: +10% exploration rewards · 🩷 Pink: +10% luck (rock fights/hawks) · 🟤 Brown: perk reserved for future baby breeding',
-    '',
-    '**Daily care**',
-    'Hunger and happiness both drain ~2/hr on their own — one or two check-ins a day keeps a frog comfortably ahead of it.',
-    '`/frog feed [use_item]` — +20 hunger (4h cooldown). `use_item:true` consumes a worm for +35 instead.',
-    '`/frog play [use_item]` — +20 happiness (4h cooldown). `use_item:true` consumes a toy for +35 instead.',
-    '`/frog status` — portrait, stats, fireflies, lilypad level, career, and any sickness/depression.',
-    '',
-    '**If you neglect it**',
-    'Hunger hits 0 → **sick**: 72h to `/frog cure` (35 fireflies, hunger → 50) or the frog dies.',
-    'Happiness hits 0 → **depressed**: 72h to `/frog soothe` (35 fireflies, happiness → 50) or it runs away for good.',
-    'Sickness and depression are independent. Every frog also passes peacefully of old age at **75 days**, however well cared for.',
-].join('\n');
-
-const RULES_TEXT_2 = [
-    '🐸 **The Pond — How to Play (2/2)**',
-    '',
-    '**Earning fireflies**',
-    '`/frog explore` — once a day, send your frog out for a random reward (mostly fireflies, sometimes a happiness/hunger boost, rarely a goose steals some).',
-    '`/frog hawk` — once a day, battle a hawk in tic-tac-toe for 20 fireflies. Lose and you forfeit 10% of your fireflies (5% at lilypad level 6+).',
-    '`/frog rockfight challenge user:<@user> wager:<5-20>` or `/frog rockfight any wager:<5-20>` — wager fireflies on a rock fight against a specific player or an open challenge anyone can accept. Older, luckier frogs have better odds.',
-    '',
-    '**Careers (unlock at day 14)**',
-    '`/frog career info|choose|respec` — pick a career for free the first time (fisher: passive income, hunter: better hawk odds, caretaker: slower decay, explorer: better exploration, nursery: reserved for future breeding); changing later costs a fee.',
-    '',
-    '**Spending fireflies**',
-    '`/pond shop buy item:<worms|toys|nest> quantity:<n>` — worms/toys 2 fireflies each; a nest is a one-time 100 fireflies, reserved for future baby breeding.',
-    '`/frog lilypad info` / `/frog lilypad upgrade` — spend fireflies (10-200 across 10 levels) on bigger feed/play bonuses, daily passive income, and slower decay.',
-    'Once a week, everyone pays a 5% pond-maintenance tax on their current fireflies balance — automatic, no command needed.',
-    '',
-    '**Community**',
-    '`/pond view` · `/pond memorial` · `/frog leaderboard`',
-    '',
-    '*Coming later: frog mayors, partnerships, and baby breeding.*',
-].join('\n');
+const RULES_EMBED = {
+    color: 0x2d6f8e,
+    title: '🐸 The Pond — How to Play',
+    description: "A cozy frog-keeping game with a small economy. Adopt a frog with `/frog adopt`, then check in once or twice a day to keep it thriving — here's everything else you can do.",
+    fields: [
+        {
+            name: '🥚 Life Stages',
+            value: 'Egg (day 0) → Tadpole (day 1+) → Froglet (day 3+) → Frog (day 14+) → Elder (day 60+, gets a flower crown). Stages are purely time-based, not affected by care. Every frog passes peacefully of old age at **day 75**, however well looked after.',
+        },
+        {
+            name: '🎨 Adopt & Colors',
+            value: '`/frog adopt name:<name> color:<choice>` — color is permanent and is also a one-time perk:\n'
+                + '🟢 Green: hunger decays 10% slower\n'
+                + '🟣 Purple: happiness decays 10% slower\n'
+                + '🟡 Golden: 10% off shop/upgrades/cure/soothe\n'
+                + '🔵 Blue: +10% exploration rewards\n'
+                + '🩷 Pink: +10% luck (rock fights/hawks)\n'
+                + '🟤 Brown: reserved for future baby breeding',
+        },
+        {
+            name: '🍃 Daily Care',
+            value: 'Hunger and happiness both drain ~2/hr on their own — one or two check-ins a day keeps a frog comfortably ahead of it.\n'
+                + '`/frog feed [use_item]` — +20 hunger (4h cooldown), or +35 using a worm.\n'
+                + '`/frog play [use_item]` — +20 happiness (4h cooldown), or +35 using a toy.\n'
+                + '`/frog status` — portrait, stats, fireflies, lilypad level, career, and any sickness/depression.',
+        },
+        {
+            name: '🤒 If You Neglect It',
+            value: 'Hunger hits 0 → **sick**: 72h to `/frog cure` (35 fireflies, hunger → 50) or the frog dies.\n'
+                + 'Happiness hits 0 → **depressed**: 72h to `/frog soothe` (35 fireflies, happiness → 50) or it runs away for good.\n'
+                + 'Sickness and depression are independent — a frog can be both at once.',
+        },
+        {
+            name: '🧭 Earning Fireflies',
+            value: '`/frog explore` — once a day, a random reward (mostly fireflies, sometimes a stat boost, rarely a goose steals some).\n'
+                + '`/frog hawk` — once a day, tic-tac-toe vs a hawk for 20 fireflies; lose and forfeit 10% of fireflies (5% at lilypad lvl 6+).\n'
+                + '`/frog rockfight challenge user:<@user> wager:<5-20>` or `/frog rockfight any wager:<5-20>` — PvP firefly wagers, targeted or an open challenge anyone can accept. Older, luckier frogs have better odds.',
+        },
+        {
+            name: '💼 Careers (unlock day 14+)',
+            value: '`/frog career info|choose|respec` — first pick is free: fisher (passive income), hunter (better hawk odds), caretaker (slower decay), explorer (better exploration), nursery (reserved for future breeding). Changing later costs a fee.',
+        },
+        {
+            name: '🛒 Spending Fireflies',
+            value: '`/pond shop buy item:<worms|toys|nest> quantity:<n>` — worms/toys 2 fireflies each; a nest is a one-time 100 fireflies (reserved for future breeding).\n'
+                + '`/frog lilypad info` / `/frog lilypad upgrade` — 10 levels, bigger feed/play bonuses, daily passive income, slower decay.\n'
+                + 'Once a week, everyone pays a 5% pond-maintenance tax on their fireflies balance — automatic.',
+        },
+        {
+            name: '🌐 Community',
+            value: '`/pond view` · `/pond memorial` · `/frog leaderboard`',
+        },
+    ],
+    footer: { text: 'Coming later: frog mayors, partnerships, and baby breeding.' },
+};
 
 async function handlePondRules(interaction) {
-    await interaction.reply({ content: RULES_TEXT_1 });
-    await interaction.followUp({ content: RULES_TEXT_2 });
+    await interaction.reply({ embeds: [RULES_EMBED] });
 }
 
 async function announceDeath(client, frog) {

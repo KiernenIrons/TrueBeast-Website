@@ -1,5 +1,17 @@
 # Beast Bot Changelog
 
+## [2026-06-25] — The Pond: `/pond rules` rewritten as a structured embed
+
+- Replaced the two plain-text messages (`RULES_TEXT_1`/`RULES_TEXT_2`, sent as a reply +
+  followUp) with a single embed (`RULES_EMBED`) using fields — same plain-object-embed
+  pattern already used elsewhere in this codebase (`embeds: [{...}]`, no `EmbedBuilder`).
+  One message instead of two, and field layout reads cleaner than a wall of bolded text
+  lines.
+- Added a **Life Stages** field — egg (day 0) → tadpole (1+) → froglet (3+) → frog (14+) →
+  elder (60+), plus the day-75 old-age cap. This was missing from the rules entirely.
+- Verified field/description/footer lengths against Discord's embed limits (1024 chars per
+  field value, 6000 total) before shipping — comfortably under at ~2700 total.
+
 ## [2026-06-25] — The Pond: real froglet sprites
 
 - Added `discord-bot/assets/pond/froglets/Froglet<Color>.png` (6 colors, supplied by
