@@ -265,7 +265,10 @@ exists yet — they reuse the `frogs/` sprite). Adding art for a new stage is ju
 `loadFrogSprite()`.
 
 `/pond view` composites every living frog (capped at 30, to stay light on the 256mb Fly VM)
-into a single static PNG grid scene on lily pads.
+into a single **animated GIF** grid scene on lily pads — same idle-bob/ripple treatment as
+single portraits, with each frog's bob phase offset slightly by index (`i * 0.13`) so the
+whole pond doesn't bob in perfect unison. At the 30-frog cap this takes under a second to
+render and produces a sub-1MB GIF, comfortably inside Discord's upload limit.
 
 **Deployment note:** sprite assets live at `discord-bot/assets/pond/` (inside the Docker
 build context used by `discord-bot/Dockerfile`'s `COPY . .`) — they must stay under

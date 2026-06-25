@@ -575,46 +575,68 @@ async function drawFrogPortrait(frog) {
 
 const CELL_SIZE = 150;
 
+const SCENE_ANIM_FRAMES = 8;
+const SCENE_ANIM_DELAY_MS = 150;
+
+// Animated GIF — same gentle idle bob + water shimmer as single portraits, just composited
+// for every frog in the scene at once. Frog bob phases are slightly offset by index so the
+// whole pond doesn't bob perfectly in sync, which reads as more alive.
 async function drawPondScene(frogs) {
     const cols = Math.min(5, Math.max(1, frogs.length));
     const rows = Math.max(1, Math.ceil(frogs.length / cols));
     const headerH = 50;
     const W = cols * CELL_SIZE;
     const H = rows * CELL_SIZE + headerH;
-    const canvas = createCanvas(W, H);
-    const ctx = canvas.getContext('2d');
 
-    // One continuous water surface across the whole scene, painted once — drawing an
-    // identical mini water-background per cell made the grid look visibly tiled.
-    drawWaterBackground(ctx, W, H, 0);
+    const sprites = await Promise.all(frogs.map(frog => Promise.all([
+        loadFrogSprite(frog.stage, frog.color),
+        loadLilypadSprite(frog.lilypadLevel),
+    ])));
 
-    ctx.font = '700 26px "Noto Sans", sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.fillText('The Pond', W / 2, 36);
+    const encoder = new GifEncoder(W, H, 'neuquant', true);
+    encoder.setDelay(SCENE_ANIM_DELAY_MS);
+    encoder.setRepeat(0);
+    encoder.start();
 
-    for (let i = 0; i < frogs.length; i++) {
-        const frog = frogs[i];
-        const col = i % cols, row = Math.floor(i / cols);
-        const [frogImg, lilypadImg] = await Promise.all([
-            loadFrogSprite(frog.stage, frog.color),
-            loadLilypadSprite(frog.lilypadLevel),
-        ]);
-        const x = col * CELL_SIZE, y = headerH + row * CELL_SIZE;
-        ctx.save();
-        ctx.translate(x, y);
-        drawSpriteImage(ctx, lilypadImg, CELL_SIZE * 0.5, CELL_SIZE * 0.64, CELL_SIZE * 0.6);
-        const cx = CELL_SIZE * 0.5, cy = CELL_SIZE * 0.4;
-        drawSpriteImage(ctx, frogImg, cx, cy, CELL_SIZE * 0.55);
-        if (frog.stage === 'elder') drawFlowerCrown(ctx, cx, cy, CELL_SIZE * 0.55);
-        ctx.restore();
-        ctx.font = '600 14px "Noto Sans", sans-serif';
+    for (let f = 0; f < SCENE_ANIM_FRAMES; f++) {
+        const ripplePhase = f / SCENE_ANIM_FRAMES;
+        const canvas = createCanvas(W, H);
+        const ctx = canvas.getContext('2d');
+
+        // One continuous water surface across the whole scene, painted once per frame —
+        // drawing an identical mini water-background per cell made the grid look tiled.
+        drawWaterBackground(ctx, W, H, ripplePhase);
+
+        ctx.font = '700 26px "Noto Sans", sans-serif';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
-        ctx.fillText(frog.name, x + CELL_SIZE / 2, y + CELL_SIZE - 12);
+        ctx.fillText('The Pond', W / 2, 36);
+
+        for (let i = 0; i < frogs.length; i++) {
+            const frog = frogs[i];
+            const [frogImg, lilypadImg] = sprites[i];
+            const col = i % cols, row = Math.floor(i / cols);
+            const x = col * CELL_SIZE, y = headerH + row * CELL_SIZE;
+            const phase = (f / SCENE_ANIM_FRAMES + i * 0.13) % 1;
+            const bob = Math.sin(phase * Math.PI * 2) * (CELL_SIZE * 0.025);
+            ctx.save();
+            ctx.translate(x, y);
+            drawSpriteImage(ctx, lilypadImg, CELL_SIZE * 0.5, CELL_SIZE * 0.64, CELL_SIZE * 0.6);
+            const cx = CELL_SIZE * 0.5, cy = CELL_SIZE * 0.4 + bob;
+            drawSpriteImage(ctx, frogImg, cx, cy, CELL_SIZE * 0.55);
+            if (frog.stage === 'elder') drawFlowerCrown(ctx, cx, cy, CELL_SIZE * 0.55);
+            ctx.restore();
+            ctx.font = '600 14px "Noto Sans", sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(frog.name, x + CELL_SIZE / 2, y + CELL_SIZE - 12);
+        }
+
+        encoder.addFrame(ctx.getImageData(0, 0, W, H).data);
     }
 
-    return canvas.toBuffer('image/png');
+    encoder.finish();
+    return Buffer.from(encoder.out.getData());
 }
 
 // ── Slash command definitions ───────────────────────────────────────────────
@@ -1242,7 +1264,7 @@ async function handlePondView(interaction) {
         return interaction.editReply({ content: '🌿 The pond is quiet right now — adopt a frog with `/frog adopt` to bring it to life!' });
     }
     const buffer = await drawPondScene(frogs.slice(0, 30));
-    await interaction.editReply({ files: [new AttachmentBuilder(buffer, { name: 'pond.png' })] });
+    await interaction.editReply({ files: [new AttachmentBuilder(buffer, { name: 'pond.gif' })] });
 }
 
 async function handlePondMemorial(interaction) {

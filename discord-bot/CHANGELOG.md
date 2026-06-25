@@ -1,5 +1,21 @@
 # Beast Bot Changelog
 
+## [2026-06-25] — The Pond: animate `/pond view`
+
+- `drawPondScene()` now builds an 8-frame animated GIF (`gif-encoder-2`, same pipeline as
+  single-frog portraits) instead of a single static PNG — every frog gets the same gentle
+  idle bob and water-ripple shimmer, with each frog's bob phase offset by `i * 0.13` so the
+  whole pond doesn't bob in perfect unison.
+- Sprite images are preloaded once via `Promise.all` before the frame loop (they were
+  already cached, but loading per-frame per-frog was needless repeated work).
+- Benchmarked locally at the existing 30-frog cap: ~970ms to render, ~717KB output —
+  comfortably under Discord's upload limit and fast enough not to need a longer defer.
+- While testing, solved an open mystery from an earlier bug report: the dark circles seen
+  for egg-stage frogs in `/pond view` were never a bug — `EggGreen.png` etc. are
+  intentionally a round speckled-orb design, not a traditional oval egg shape.
+- `/pond view`'s attachment filename changed from `pond.png` to `pond.gif`; `GAME_POND.md`
+  updated to describe the new animated behavior.
+
 ## [2026-06-25] — The Pond: fix missing-glyph boxes in frog names (e.g. "Š")
 
 - `pond.js` drew all canvas text with a bare `sans-serif` font family, which
