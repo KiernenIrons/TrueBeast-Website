@@ -198,11 +198,33 @@ async function pondFirestoreQuery({ aliveOnly = false } = {}) {
 
 async function pondFrogGet(userId) { return pondFirestoreGet(`${POND_DOC_PREFIX}${userId}`); }
 async function pondFrogSet(userId, data) {
-    // justDied and babyEaten are runtime-only flags set in applyDecay/die() for the current
-    // request cycle. Never persist them — if they land in Firestore the next read will
-    // incorrectly re-trigger the "just died" announcement path while the frog is alive.
+    // justDied and babyEaten are runtime-only flags — never persist them to Firestore.
     const { justDied: _jd, babyEaten: _be, ...clean } = data;
     return pondFirestoreSet(`${POND_DOC_PREFIX}${userId}`, clean, 'pondFrog');
+}
+
+// Full-document replacement (no updateMask) — used for death writes where we must be
+// certain alive:false is set and there is no per-field ambiguity.
+async function pondFrogKill(userId, frog) {
+    const { justDied: _jd, babyEaten: _be, ...clean } = frog;
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/${POND_DOC_PREFIX}${userId}?key=${FIREBASE_API_KEY}`;
+    const fields = { kind: { stringValue: 'pondFrog' } };
+    for (const [k, v] of Object.entries(clean)) fields[k] = toFirestoreValue(v);
+    try {
+        const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '(unreadable)');
+            console.error(`[Pond] pondFrogKill ${userId} HTTP ${res.status}:`, body);
+            return false;
+        }
+        // Read back immediately to confirm alive:false actually landed in Firestore.
+        const verify = await pondFrogGet(userId);
+        if (!verify || verify.alive !== false) {
+            console.error(`[Pond] pondFrogKill ${userId}: write returned 200 but alive is still ${verify?.alive}`);
+            return false;
+        }
+        return true;
+    } catch (e) { console.error('[Pond] pondFrogKill failed:', e.message); return false; }
 }
 
 // ── Game logic ────────────────────────────────────────────────────────────────
@@ -885,10 +907,10 @@ async function handleFrogGasButton(interaction) {
     // Write the full frog object (justDied/babyEaten are stripped by pondFrogSet).
     // Check the return value — if Firestore rejected the write, abort rather than
     // announcing a death that didn't actually stick.
-    const saved = await pondFrogSet(interaction.user.id, frog);
+    const saved = await pondFrogKill(interaction.user.id, frog);
     if (!saved) {
-        console.error(`[Pond] gas write failed for ${interaction.user.id}`);
-        return interaction.update({ content: `❌ Something went wrong saving **${frog.name}**'s death to the database. Try again in a moment.`, components: [] });
+        console.error(`[Pond] gas kill failed for ${interaction.user.id}`);
+        return interaction.update({ content: `❌ Something went wrong saving **${frog.name}**'s death. Please try again.`, components: [] });
     }
     await announceDeath(interaction.client, frog);
     await interaction.update({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
