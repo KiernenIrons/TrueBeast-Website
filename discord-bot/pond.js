@@ -191,7 +191,13 @@ async function pondFirestoreQuery({ aliveOnly = false } = {}) {
 }
 
 async function pondFrogGet(userId) { return pondFirestoreGet(`${POND_DOC_PREFIX}${userId}`); }
-async function pondFrogSet(userId, data) { return pondFirestoreSet(`${POND_DOC_PREFIX}${userId}`, data, 'pondFrog'); }
+async function pondFrogSet(userId, data) {
+    // justDied and babyEaten are runtime-only flags set in applyDecay/die() for the current
+    // request cycle. Never persist them — if they land in Firestore the next read will
+    // incorrectly re-trigger the "just died" announcement path while the frog is alive.
+    const { justDied: _jd, babyEaten: _be, ...clean } = data;
+    return pondFirestoreSet(`${POND_DOC_PREFIX}${userId}`, clean, 'pondFrog');
+}
 
 // ── Game logic ────────────────────────────────────────────────────────────────
 
@@ -870,7 +876,12 @@ async function handleFrogGasButton(interaction) {
         return interaction.update({ content: "🐸 You don't have a living frog anymore.", components: [] });
     }
     die(frog, Date.now(), 'gassed');
-    await pondFrogSet(interaction.user.id, frog);
+    // Write only the death fields — a targeted partial write is less likely to fail than
+    // a full-object write, and avoids accidentally leaving the frog alive if the write
+    // succeeds for some fields but not alive:false.
+    await pondFrogSet(interaction.user.id, {
+        alive: false, diedAt: frog.diedAt, deathReason: frog.deathReason, lifespanDays: frog.lifespanDays,
+    });
     await announceDeath(interaction.client, frog);
     await interaction.update({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
 }
