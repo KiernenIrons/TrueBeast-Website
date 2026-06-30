@@ -1,5 +1,19 @@
 # Beast Bot Changelog
 
+## [2026-06-30] — Pond: fix Firefly Count game, add /pond admin give/remove
+
+- **Firefly Count bug fix**: luck was applied at *check time* rather than when the count
+  was displayed — if luck fired during the modal submit, `adjusted` became `target-1`,
+  so a player who correctly counted 6 flies got compared to 5 and lost while the result
+  message still said "There were 6 fireflies, you guessed 6." Fixed by applying the luck
+  roll when generating `count` in `startHawkGame` (so the displayed count is already the
+  potentially lower value) and comparing `guess === target` directly at submit time with
+  no second random roll.
+- **`/pond admin give|remove user:<@user> amount:<n>`**: new admin-only subcommand group
+  on `/pond` that adds or subtracts fireflies from any frog doc. Gated by
+  `interaction.memberPermissions.has('Administrator')`. Replies ephemerally with before/
+  after balances. Handler: `handlePondAdminFireflies()` in `pond.js`.
+
 ## [2026-06-30] — The Pond: baby breeding, partnerships, pond events, /frog fight rename
 
 - **Baby breeding** (`/frog baby breed|status|sell`): frogs at day 14+ can have a baby.

@@ -614,6 +614,13 @@ const pondCommands = [
         .addSubcommand(s=>s.setName('view').setDescription("See everyone's frogs together in the pond"))
         .addSubcommand(s=>s.setName('memorial').setDescription('Remember frogs that have passed on'))
         .addSubcommand(s=>s.setName('rules').setDescription('How to play The Pond'))
+        .addSubcommandGroup(g=>g.setName('admin').setDescription('Admin: manage frog data')
+            .addSubcommand(s=>s.setName('give').setDescription('Give fireflies to a frog')
+                .addUserOption(o=>o.setName('user').setDescription('Frog owner').setRequired(true))
+                .addIntegerOption(o=>o.setName('amount').setDescription('Amount').setRequired(true).setMinValue(1)))
+            .addSubcommand(s=>s.setName('remove').setDescription('Remove fireflies from a frog')
+                .addUserOption(o=>o.setName('user').setDescription('Frog owner').setRequired(true))
+                .addIntegerOption(o=>o.setName('amount').setDescription('Amount').setRequired(true).setMinValue(1))))
         .addSubcommandGroup(g=>g.setName('shop').setDescription('Buy supplies for your frog')
             .addSubcommand(s=>s.setName('buy').setDescription('Buy an item')
                 .addStringOption(o=>o.setName('item').setDescription('What to buy').setRequired(true).addChoices(...shopItemChoices))
@@ -933,7 +940,10 @@ async function startHawkGame(interaction, state, msg, gameType) {
         )]});
     }
     if(gameType==='firefly'){
-        const count=Math.floor(Math.random()*6)+5;
+        // Apply luck NOW at display time — if luck fires, show one fewer fly (easier to win).
+        // Comparing at check-time would let lucky players count correctly but still fail.
+        const rawCount=Math.floor(Math.random()*6)+5; // 5-10
+        const count=Math.random()<state.mistakeChance?Math.max(5,rawCount-1):rawCount;
         state.state={target:count};
         const flies='🪲'.repeat(count);
         await interaction.update({content:`🦅 Count the fireflies!\n${flies}\nClick "Submit Count" to enter your answer!`,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('pond:hawk:firefly:submit').setLabel('Submit Count').setStyle(ButtonStyle.Primary))]});
@@ -1046,12 +1056,11 @@ async function handleHawkModal(interaction) {
     if(gameKey==='firefly_modal'){
         const raw=interaction.fields.getTextInputValue('count').trim();
         const guess=parseInt(raw,10);
-        const target=state.state.target;
-        const adjusted=Math.random()<state.mistakeChance?Math.max(5,target-1):target;
+        const target=state.state.target; // already luck-adjusted when the count was displayed
         if(isNaN(guess)||guess<1||guess>15)return interaction.reply({content:'Please enter a number between 1 and 15.',ephemeral:true});
         await interaction.deferUpdate().catch(()=>{});
         const real=await interaction.channel?.messages.fetch(msgId).catch(()=>null);
-        if(guess===adjusted){return finishHawkGame({update:d=>real?.edit(d)||Promise.resolve(),message:{id:msgId}},state,{id:msgId},`🎉 Correct! There were **${target}** fireflies!`,HAWK_WIN_REWARD);}
+        if(guess===target)return finishHawkGame({update:d=>real?.edit(d)||Promise.resolve(),message:{id:msgId}},state,{id:msgId},`🎉 Correct! There were **${target}** fireflies!`,HAWK_WIN_REWARD);
         return finishHawkGame({update:d=>real?.edit(d)||Promise.resolve(),message:{id:msgId}},state,{id:msgId},`❌ There were **${target}** fireflies, you guessed ${guess}.`,HAWK_LOSS_RATE*-1);
     }
 
@@ -1631,6 +1640,23 @@ const COMMANDS_EMBED = {
 
 async function handleFrogCommands(interaction) { await interaction.reply({embeds:[COMMANDS_EMBED]}); }
 
+async function handlePondAdminFireflies(interaction) {
+    if (!interaction.memberPermissions?.has('Administrator')) {
+        return interaction.reply({ content: '🔒 Admin only.', ephemeral: true });
+    }
+    const sub = interaction.options.getSubcommand();
+    const target = interaction.options.getUser('user');
+    const amount = interaction.options.getInteger('amount');
+    const frog = await pondFrogGet(target.id);
+    if (!frog) return interaction.reply({ content: `🐸 <@${target.id}> doesn't have a frog doc.`, ephemeral: true });
+    normalizeFrog(frog);
+    const before = frog.fireflies;
+    if (sub === 'give') frog.fireflies += amount;
+    else frog.fireflies = Math.max(0, frog.fireflies - amount);
+    await pondFrogSet(target.id, { fireflies: frog.fireflies });
+    await interaction.reply({ content: `🪲 **${frog.name}** (<@${target.id}>): ${before} → **${frog.fireflies}** fireflies.`, ephemeral: true });
+}
+
 async function announceDeath(client, frog) {
     if(!POND_CHANNEL_ID)return;
     try { const ch=await client.channels.fetch(POND_CHANNEL_ID); await ch.send({content:deathMessage(frog)}); }
@@ -1683,6 +1709,7 @@ async function handlePondInteraction(interaction) {
         if(interaction.commandName==='pond'){
             const group=interaction.options.getSubcommandGroup(false), sub=interaction.options.getSubcommand();
             if(group==='shop'&&sub==='buy')return await handlePondShopBuy(interaction);
+            if(group==='admin'&&(sub==='give'||sub==='remove'))return await handlePondAdminFireflies(interaction);
             if(sub==='view')return await handlePondView(interaction);
             if(sub==='memorial')return await handlePondMemorial(interaction);
             if(sub==='rules')return await handlePondRules(interaction);
