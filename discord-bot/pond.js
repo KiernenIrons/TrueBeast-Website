@@ -518,8 +518,8 @@ async function drawFrogPortrait(frog) {
         const canvas=createCanvas(PORTRAIT_SIZE,PORTRAIT_SIZE), ctx=canvas.getContext('2d');
         drawWaterBackground(ctx,PORTRAIT_SIZE,PORTRAIT_SIZE,rp);
         drawSpriteImage(ctx,lilypadImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.72,PORTRAIT_SIZE*0.62);
-        drawSpriteImage(ctx,frogImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.46+bob,PORTRAIT_SIZE*0.62);
-        if(frog.stage==='elder')drawFlowerCrown(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.46+bob,PORTRAIT_SIZE*0.62);
+        drawSpriteImage(ctx,frogImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        if(frog.stage==='elder')drawFlowerCrown(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
         ctx.font='700 22px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
         ctx.fillText(frog.name,PORTRAIT_SIZE/2,30);
         enc.addFrame(ctx.getImageData(0,0,PORTRAIT_SIZE,PORTRAIT_SIZE).data);
@@ -547,8 +547,8 @@ async function drawPondScene(frogs) {
             const bob=Math.sin(((f/SCENE_FRAMES+i*0.13)%1)*Math.PI*2)*(CELL_SIZE*0.025);
             ctx.save(); ctx.translate(x,y);
             drawSpriteImage(ctx,lilypadImg,CELL_SIZE*0.5,CELL_SIZE*0.64,CELL_SIZE*0.6);
-            drawSpriteImage(ctx,frogImg,CELL_SIZE*0.5,CELL_SIZE*0.4+bob,CELL_SIZE*0.55);
-            if(frog.stage==='elder')drawFlowerCrown(ctx,CELL_SIZE*0.5,CELL_SIZE*0.4+bob,CELL_SIZE*0.55);
+            drawSpriteImage(ctx,frogImg,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            if(frog.stage==='elder')drawFlowerCrown(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
             ctx.restore();
             ctx.font='600 14px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
             ctx.fillText(frog.name,x+CELL_SIZE/2,y+CELL_SIZE-12);

@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-06-30] — Pond: reduce frog sprite size by ~25%
+
+- `drawFrogPortrait`: frog scale `0.62 → 0.465`, cy offset `0.46 → 0.52` (moved down
+  slightly so the smaller frog still sits on the lilypad rather than floating above it).
+- `drawPondScene`: frog scale `0.55 → 0.41`, cy offset `0.40 → 0.45` (same reasoning).
+- Elder flower-crown position updated to match both new cy/scale values.
+- Rendered test images for portrait and 6-frog scene before shipping — frogs now sit
+  neatly centred on the lilypads without overlapping the edges.
+
 ## [2026-06-30] — Pond: fix Firefly Count game, add /pond admin give/remove
 
 - **Firefly Count bug fix**: luck was applied at *check time* rather than when the count
