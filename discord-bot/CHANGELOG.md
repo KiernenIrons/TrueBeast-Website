@@ -1,5 +1,34 @@
 # Beast Bot Changelog
 
+## [2026-06-30] — The Pond: baby breeding, partnerships, pond events, /frog fight rename
+
+- **Baby breeding** (`/frog baby breed|status|sell`): frogs at day 14+ can have a baby.
+  Baby matures after 7 days (6.3d with Nursery career) and can then be sold for 50 🪲
+  (55 if Brown perk). If parent hunger drops below 50 for 12+ hours, the baby is eaten —
+  checked in `applyDecay()` via `hungerDangerSince` timestamp, announced in
+  `runPondTick`. Nest item (already purchasable) will unlock a 2nd baby slot.
+- **Partnerships** (`/frog partner propose|info|break|feed`): two frogs can become
+  partners for +2 happiness/day each (applied in the `daysSincePassive` block of
+  `applyDecay`) and the ability to feed each other's frog via `/frog partner feed` (uses
+  caller's own feed cooldown). Proposal uses a 5-minute Accept/Decline button
+  (`pond:partner:accept/decline`), in-memory `pondPartnerRequests` Map, same pattern as
+  frog fights. Acceptance sets `partnerId` on both frog docs.
+- **Random pond events** (`runDailyEvent()` in `runPondTick`): fires once per UTC day via
+  `pond_meta.lastEventDay`. Six event types — three instant button-claim events
+  (Firefly Migration +20🪲, Worm Bloom hunger→100, Warm Sunshine happiness→100), two
+  timed buffs stored in `pond_meta` (Hawk Season 2× hawk rewards/penalties 24h, Mysterious
+  Frog 2× exploration rewards 12h), and the Golden Dragonfly (1% chance daily, first-claim
+  +100🪲, pings all frog owners). Timed buffs checked live in `handleFrogExplore` and
+  `finishHawkGame` via a quick meta fetch. Button state in `pondEventButtons` Map.
+- **`/frog fight`** (renamed from `/frog frogfight`): same implementation, just cleaner
+  command name. All references to `frogfight` in user-facing text updated to `fight`.
+- **`normalizeFrog`** additions: `hasBaby`, `babyBornAt`, `hungerDangerSince`, `partnerId`.
+- **`applyDecay`**: partner happiness passive (+2/day), baby hunger danger tracking.
+- **`runPondTick`** field persistence: new fields written on every tick, baby-eaten
+  channel announcement fired if `frog.babyEaten` set by `applyDecay`.
+- **`/pond rules`** and **`/frog commands`** updated to document baby, partner, and events.
+  Footer updated from "coming later" to "everything is now implemented".
+
 ## [2026-06-30] — The Pond: major spec update (mayor, frog fights, 5 hawk games, full rebalance)
 
 Complete rewrite of `pond.js` implementing the full new design spec:
