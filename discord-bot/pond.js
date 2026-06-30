@@ -1,112 +1,93 @@
 /**
  * The Pond — cozy tamagotchi-style frog game with a fireflies economy.
  * See GAME_POND.md for full design notes.
- *
- * Self-contained module: owns its own Firestore REST helpers (rather than
- * importing index.js's) to avoid a circular require. Exports everything
- * index.js needs to wire this feature into the existing slash-command
- * array and interactionCreate handler.
  */
 
 const path = require('path');
-const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-// GlobalFonts is a process-wide registry, so this only needs to run once — but pond.js is
-// self-contained (per the header above), so it shouldn't depend on index.js having loaded
-// these first. "Noto Sans" (installed via the Dockerfile's font-noto package) has full
-// Latin Extended-A coverage (Š, ž, etc.), unlike the bare 'sans-serif' fallback.
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
 const GifEncoder = require('gif-encoder-2');
 
 const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID;
 const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
-
 const POND_CHANNEL_ID = process.env.POND_CHANNEL_ID || '1517699652982407168';
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ASSETS_DIR = path.join(__dirname, 'assets', 'pond');
 
-// Gentle decay — a single daily check-in comfortably outpaces this.
 const HUNGER_DECAY_PER_HOUR    = 2; // 8 per 4h
 const HAPPINESS_DECAY_PER_HOUR = 2; // 8 per 4h
 const FEED_COOLDOWN_MS  = 4 * 60 * 60 * 1000;
 const PLAY_COOLDOWN_MS  = 4 * 60 * 60 * 1000;
 const FEED_RESTORE_BASE = 20;
 const PLAY_RESTORE_BASE = 20;
-const ITEM_RESTORE      = 35; // worms/toys give this instead of the base amount
+const ITEM_RESTORE      = 35;
 const CURE_COST   = 35;
 const SOOTHE_COST = 35;
 const SICKNESS_GRACE_MS   = 3 * DAY_MS;
 const DEPRESSION_GRACE_MS = 3 * DAY_MS;
 const MAX_AGE_DAYS = 75;
-const TICK_INTERVAL_MS  = 60 * 60 * 1000;
-const POND_TAX_INTERVAL_MS = 7 * DAY_MS;
-const POND_TAX_RATE = 0.05;
+const TICK_INTERVAL_MS = 60 * 60 * 1000;
+const POND_TAX_RATE = 0.10;
 
-const EXPLORE_COOLDOWN_MS = DAY_MS;
-const HAWK_COOLDOWN_MS = DAY_MS;
-const HAWK_WIN_REWARD = 20;
-const HAWK_LOSS_RATE = 0.10;
-const HAWK_LOSS_RATE_REDUCED = 0.05; // lilypad level 6+
+const EXPLORE_DAILY_BASE = 2;
+const HAWK_DAILY_BASE    = 2;
+const HAWK_WIN_REWARD    = 20;
+const HAWK_LOSS_RATE     = 0.10;
+const HAWK_LOSS_RATE_REDUCED = 0.05;
 const HAWK_BASE_MISTAKE_CHANCE = 0.20;
 const HAWK_GAME_TIMEOUT_MS = 10 * 60 * 1000;
 
-const ROCKFIGHT_MIN_WAGER = 5;
-const ROCKFIGHT_MAX_WAGER = 20;
-const ROCKFIGHT_EXPIRY_MS = 10 * 60 * 1000;
+const FROGFIGHT_MIN_WAGER = 5;
+const FROGFIGHT_MAX_WAGER = 20;
+const FROGFIGHT_EXPIRY_MS = 10 * 60 * 1000;
 
 const FISHER_INCOME = 3;
 const FISHER_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const CAREER_RESPEC_COST = 35;
-const CAREER_MIN_STAGE_DAYS = 14;
+const CAREER_MIN_STAGE_DAYS = 7;
 
-const CAREERS = {
-    fisher:    { label: 'Fisher Frog',    desc: 'Earns 3 fireflies every 12 hours' },
-    hunter:    { label: 'Hunter Frog',    desc: '10% better odds against hawks' },
-    caretaker: { label: 'Caretaker Frog', desc: 'Hunger and happiness decay 10% slower' },
-    explorer:  { label: 'Explorer Frog',  desc: '+10% rewards from exploration' },
-    nursery:   { label: 'Nursery Frog',   desc: 'Babies mature 10% faster (once breeding ships)' },
-};
+const MAYOR_FIREFLY_BONUS  = 0.10;
+const MAYOR_AGE_RATE       = 1.10;
+const MAYOR_PASSIVE_PER_DAY = 2;
 
 const STAGE_THRESHOLDS_DAYS = [
     { stage: 'egg',     minDays: 0 },
-    { stage: 'tadpole', minDays: 1 },
-    { stage: 'froglet', minDays: 3 },
-    { stage: 'frog',    minDays: 14 },
+    { stage: 'tadpole', minDays: 2 },
+    { stage: 'froglet', minDays: 4 },
+    { stage: 'frog',    minDays: 7 },
     { stage: 'elder',   minDays: 60 },
 ];
 
-// `gold` is displayed as "Golden" — the key stays `gold` to match the asset filenames
-// (FrogGold.png etc.) without a data migration.
 const FROG_COLORS = {
-    green:  { name: 'Lily Green',   hex: '#5fb95f', dark: '#3d7d3d', light: '#a8e0a0', perk: 'hungerSlower' },
-    blue:   { name: 'Pond Blue',    hex: '#4f8fd1', dark: '#2f5c8a', light: '#a9cdf2', perk: 'explorationBoost' },
-    pink:   { name: 'Axolotl Pink', hex: '#e892b5', dark: '#b85f86', light: '#f7c9dd', perk: 'luckBoost' },
-    gold:   { name: 'Golden',       hex: '#e0b94a', dark: '#a4862c', light: '#f3da9c', perk: 'shopDiscount' },
-    purple: { name: 'Poison Dart',  hex: '#9b6fd6', dark: '#6a4699', light: '#cdb1ec', perk: 'happinessSlower' },
-    brown:  { name: 'Marsh Brown',  hex: '#a9764f', dark: '#74502f', light: '#d4ac82', perk: 'babyBonus' },
+    green:  { name: 'Lily Green',   hex: '#5fb95f', perk: 'hungerSlower' },
+    blue:   { name: 'Pond Blue',    hex: '#4f8fd1', perk: 'explorationBoost' },
+    pink:   { name: 'Axolotl Pink', hex: '#e892b5', perk: 'luckBoost' },
+    gold:   { name: 'Golden',       hex: '#e0b94a', perk: 'shopDiscount' },
+    purple: { name: 'Poison Dart',  hex: '#9b6fd6', perk: 'happinessSlower' },
+    brown:  { name: 'Marsh Brown',  hex: '#a9764f', perk: 'babyBonus' },
 };
 
 const PERK_DESCRIPTIONS = {
-    hungerSlower:      'Hunger decays 10% slower',
-    explorationBoost:  '+10% rewards from exploration',
-    luckBoost:         '+10% luck',
-    shopDiscount:      '10% shop discount',
-    happinessSlower:   'Happiness decays 10% slower',
-    babyBonus:         'Babies are worth +5 fireflies',
+    hungerSlower:     'Hunger decays 12.5% slower',
+    explorationBoost: '+10% rewards from exploration',
+    luckBoost:        '+10% luck against hawks',
+    shopDiscount:     '10% shop discount',
+    happinessSlower:  'Happiness decays 12.5% slower',
+    babyBonus:        'Babies worth 10% more',
 };
 
 const LILYPAD_LEVELS = {
-    1:  { cost: 0,   label: 'Tiny lilypad' },
-    2:  { cost: 10,  label: '+5 hunger from feeding' },
-    3:  { cost: 15,  label: '+5 happiness from playing' },
-    4:  { cost: 25,  label: '+2 fireflies from exploration' },
-    5:  { cost: 40,  label: 'Daily passive income unlocked (+5 fireflies/day)' },
-    6:  { cost: 75,  label: 'Hawk battle loss reduced to 5% of fireflies' },
-    7:  { cost: 100, label: '+5 additional daily passive income' },
-    8:  { cost: 120, label: '+3 fireflies from exploration' },
-    9:  { cost: 150, label: 'Hunger and happiness decay 5% slower' },
-    10: { cost: 200, label: 'Super cute flower lilypad' },
+    1:  { cost: 0,   label: 'Starting lilypad' },
+    2:  { cost: 10,  label: '+2 fireflies from exploration' },
+    3:  { cost: 15,  label: 'Daily passive income (+5 fireflies/day)' },
+    4:  { cost: 25,  label: '+5 hunger from feeding' },
+    5:  { cost: 40,  label: '+5 happiness from playing' },
+    6:  { cost: 75,  label: 'Hawk loss reduced to 5% of fireflies' },
+    7:  { cost: 100, label: '+5 additional daily passive income (total +10/day)' },
+    8:  { cost: 120, label: 'Hunger and happiness decay 15% slower' },
+    9:  { cost: 150, label: '+1 extra exploration slot per day' },
+    10: { cost: 200, label: '100 fireflies reward + special cosmetic (coming soon)' },
 };
 const MAX_LILYPAD_LEVEL = 10;
 
@@ -116,13 +97,18 @@ const SHOP_ITEMS = {
     nest:  { cost: 100, label: 'Nest',  desc: 'Allows 1 extra baby (max 1 per frog)' },
 };
 
+const CAREERS = {
+    fisher:    { label: 'Fisher Frog',    desc: 'Earns 3 fireflies every 12 hours' },
+    hunter:    { label: 'Hunter Frog',    desc: '10% better odds against hawks' },
+    caretaker: { label: 'Caretaker Frog', desc: 'Hunger and happiness decay 12.5% slower' },
+    explorer:  { label: 'Explorer Frog',  desc: '+10% rewards from exploration' },
+    nursery:   { label: 'Nursery Frog',   desc: 'Babies mature 10% faster (once breeding ships)' },
+};
+
 const POND_COMMAND_NAMES = new Set(['frog', 'pond']);
+function isPondCommand(name) { return POND_COMMAND_NAMES.has(name); }
 
-function isPondCommand(name) {
-    return POND_COMMAND_NAMES.has(name);
-}
-
-// ── Firestore (REST, own copy — see index.js firestoreGet/Set for the pattern) ──
+// ── Firestore helpers ─────────────────────────────────────────────────────────
 
 function toFirestoreValue(v) {
     if (v === null || v === undefined) return { nullValue: null };
@@ -141,17 +127,9 @@ function fromFirestoreValue(v) {
     return null;
 }
 
-// Firestore security rules only allowlist specific collection names, and `pondFrogs`
-// isn't one of them (writes 403). Rather than requiring a rules change, frog docs live
-// under the already-allowed `botConfig` collection, namespaced `pond_<userId>` with a
-// `kind: 'pondFrog'` marker field so collection-wide queries can tell them apart from
-// the bot's other botConfig docs (features, tempBans, fullBackup, etc.).
 const POND_DOC_PREFIX = 'pond_';
 const POND_META_DOC_ID = 'pond_meta';
 
-// Firestore's PATCH replaces the *entire* document with only the fields given unless an
-// updateMask is supplied — without it, a partial write like `{ fireflies: x }` would wipe
-// every other field off the doc. updateMask.fieldPaths makes this a true partial merge.
 async function pondFirestoreSet(docId, data, kind = 'pondFrog') {
     const fieldNames = ['kind', ...Object.keys(data)];
     const maskQuery = fieldNames.map(f => `updateMask.fieldPaths=${encodeURIComponent(f)}`).join('&');
@@ -179,9 +157,7 @@ async function pondFirestoreGet(docId) {
 async function pondFirestoreQuery({ aliveOnly = false } = {}) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents:runQuery?key=${FIREBASE_API_KEY}`;
     const filters = [{ fieldFilter: { field: { fieldPath: 'kind' }, op: 'EQUAL', value: { stringValue: 'pondFrog' } } }];
-    if (aliveOnly) {
-        filters.push({ fieldFilter: { field: { fieldPath: 'alive' }, op: 'EQUAL', value: { booleanValue: true } } });
-    }
+    if (aliveOnly) filters.push({ fieldFilter: { field: { fieldPath: 'alive' }, op: 'EQUAL', value: { booleanValue: true } } });
     const structuredQuery = {
         from: [{ collectionId: 'botConfig' }],
         where: filters.length > 1 ? { compositeFilter: { op: 'AND', filters } } : filters[0],
@@ -195,21 +171,17 @@ async function pondFirestoreQuery({ aliveOnly = false } = {}) {
             for (const [k, v] of Object.entries(doc.fields || {})) result[k] = fromFirestoreValue(v);
             return result;
         });
-    } catch (e) {
-        console.error('[Pond] pondFirestoreQuery error:', e.message);
-        return [];
-    }
+    } catch (e) { console.error('[Pond] pondFirestoreQuery error:', e.message); return []; }
 }
 
 async function pondFrogGet(userId) { return pondFirestoreGet(`${POND_DOC_PREFIX}${userId}`); }
 async function pondFrogSet(userId, data) { return pondFirestoreSet(`${POND_DOC_PREFIX}${userId}`, data, 'pondFrog'); }
 
-// ── Game logic ───────────────────────────────────────────────────────────────
+// ── Game logic ────────────────────────────────────────────────────────────────
 
-// Fills defaults for fields that may be missing on frog docs written before a given
-// feature shipped, so older live frogs upgrade gracefully instead of crashing on `undefined`.
 function normalizeFrog(frog, now = Date.now()) {
     if (frog.fireflies == null) frog.fireflies = 0;
+    if (!frog.patchV2Granted) { frog.fireflies += 15; frog.patchV2Granted = true; }
     if (frog.lilypadLevel == null) frog.lilypadLevel = 1;
     if (frog.worms == null) frog.worms = 0;
     if (frog.toys == null) frog.toys = 0;
@@ -220,19 +192,25 @@ function normalizeFrog(frog, now = Date.now()) {
     if (frog.depressedSince === undefined) frog.depressedSince = null;
     if (frog.lastPassiveAt == null) frog.lastPassiveAt = now;
     if (frog.deathReason === undefined) frog.deathReason = null;
-    if (frog.lastExploreAt === undefined) frog.lastExploreAt = null;
-    if (frog.lastHawkAt === undefined) frog.lastHawkAt = null;
     if (frog.lastFisherAt == null) frog.lastFisherAt = now;
     if (frog.career === undefined) frog.career = null;
+    if (frog.exploresToday == null) frog.exploresToday = 0;
+    if (frog.exploresResetDay === undefined) frog.exploresResetDay = null;
+    if (frog.hawksDoneToday == null) frog.hawksDoneToday = 0;
+    if (frog.hawksResetDay === undefined) frog.hawksResetDay = null;
+    if (frog.isMayor == null) frog.isMayor = false;
+    if (frog.lastCareerRespecAt === undefined) frog.lastCareerRespecAt = null;
+    if (frog.lilypadL10Claimed == null) frog.lilypadL10Claimed = false;
     return frog;
 }
 
-function calcStage(frog, now = Date.now()) {
-    const ageDays = (now - frog.bornAt) / DAY_MS;
+function getTodayKey() { return new Date().toISOString().slice(0, 10); }
+function getExploreLimit(frog) { return frog.lilypadLevel >= 9 ? EXPLORE_DAILY_BASE + 1 : EXPLORE_DAILY_BASE; }
+
+function calcStage(frog, now = Date.now(), ageMult = 1) {
+    const ageDays = ((now - frog.bornAt) / DAY_MS) * ageMult;
     let stage = 'egg';
-    for (const t of STAGE_THRESHOLDS_DAYS) {
-        if (ageDays >= t.minDays) stage = t.stage;
-    }
+    for (const t of STAGE_THRESHOLDS_DAYS) { if (ageDays >= t.minDays) stage = t.stage; }
     return stage;
 }
 
@@ -243,67 +221,60 @@ function formatAge(ms) {
     return `${days} days`;
 }
 
-function colorPerk(frog) {
-    return (FROG_COLORS[frog.color] || FROG_COLORS.green).perk;
-}
-
-function shopPrice(frog, baseCost) {
-    return colorPerk(frog) === 'shopDiscount' ? Math.ceil(baseCost * 0.9) : baseCost;
-}
+function colorPerk(frog) { return (FROG_COLORS[frog.color] || FROG_COLORS.green).perk; }
+function shopPrice(frog, baseCost) { return colorPerk(frog) === 'shopDiscount' ? Math.ceil(baseCost * 0.9) : baseCost; }
+function mayorMult(frog) { return frog.isMayor ? (1 + MAYOR_FIREFLY_BONUS) : 1; }
 
 function die(frog, now, reason) {
-    frog.alive = false;
-    frog.diedAt = now;
-    frog.deathReason = reason;
+    frog.alive = false; frog.diedAt = now; frog.deathReason = reason;
     frog.lifespanDays = Math.max(1, Math.round((now - frog.bornAt) / DAY_MS));
     frog.justDied = true;
 }
 
 const DEATH_MESSAGES = {
-    old_age:  (f) => `🌼 **${f.name}** lived a long, full life and passed peacefully of old age after ${f.lifespanDays} day(s).`,
-    sickness: (f) => `💔 **${f.name}** fell ill and, without a cure in time, passed away after ${f.lifespanDays} day(s).`,
-    ran_away: (f) => `🐸 **${f.name}** grew too lonely and hopped away for good after ${f.lifespanDays} day(s) in the pond.`,
+    old_age:  f => `🌼 **${f.name}** lived a long, full life and passed peacefully of old age after ${f.lifespanDays} day(s).`,
+    sickness: f => `💔 **${f.name}** fell ill and passed away without a cure after ${f.lifespanDays} day(s).`,
+    ran_away: f => `🐸 **${f.name}** grew too lonely and hopped away for good after ${f.lifespanDays} day(s).`,
 };
+function deathMessage(frog) { return (DEATH_MESSAGES[frog.deathReason] || DEATH_MESSAGES.old_age)(frog); }
 
-function deathMessage(frog) {
-    const fn = DEATH_MESSAGES[frog.deathReason] || DEATH_MESSAGES.old_age;
-    return fn(frog);
-}
-
-// Applies decay/passive-income/sickness-depression/age-cap since lastTickAt. Mutates and
-// returns frog. May set frog.justDied = true with frog.deathReason set.
 function applyDecay(frog, now = Date.now()) {
     normalizeFrog(frog, now);
-    const ageDays = (now - frog.bornAt) / DAY_MS;
+    const ageMult = frog.isMayor ? MAYOR_AGE_RATE : 1;
+    const ageDays = ((now - frog.bornAt) / DAY_MS) * ageMult;
     if (ageDays >= MAX_AGE_DAYS) {
         die(frog, now, 'old_age');
-        frog.stage = calcStage(frog, now);
+        frog.stage = calcStage(frog, now, ageMult);
         return frog;
     }
 
     const hours = Math.max(0, (now - frog.lastTickAt) / (60 * 60 * 1000));
-    const lilypadSlow = frog.lilypadLevel >= 9 ? 0.95 : 1;
-    const caretakerSlow = frog.career === 'caretaker' ? 0.9 : 1;
-    const hungerRate    = HUNGER_DECAY_PER_HOUR    * (colorPerk(frog) === 'hungerSlower'    ? 0.9 : 1) * lilypadSlow * caretakerSlow;
-    const happinessRate = HAPPINESS_DECAY_PER_HOUR * (colorPerk(frog) === 'happinessSlower' ? 0.9 : 1) * lilypadSlow * caretakerSlow;
+    const lilypadSlow  = frog.lilypadLevel >= 8 ? 0.85 : 1;
+    const caretakerSlow = frog.career === 'caretaker' ? 0.875 : 1;
+    const hungerRate    = HUNGER_DECAY_PER_HOUR    * (colorPerk(frog) === 'hungerSlower'    ? 0.875 : 1) * lilypadSlow * caretakerSlow;
+    const happinessRate = HAPPINESS_DECAY_PER_HOUR * (colorPerk(frog) === 'happinessSlower' ? 0.875 : 1) * lilypadSlow * caretakerSlow;
     frog.hunger    = Math.max(0, Math.min(100, frog.hunger    - hungerRate    * hours));
     frog.happiness = Math.max(0, Math.min(100, frog.happiness - happinessRate * hours));
     frog.lastTickAt = now;
 
-    // Lilypad passive income — credited per full day elapsed since lastPassiveAt.
     const daysSincePassive = Math.floor((now - frog.lastPassiveAt) / DAY_MS);
-    if (daysSincePassive > 0 && frog.lilypadLevel >= 5) {
-        const perDay = frog.lilypadLevel >= 7 ? 10 : 5;
-        frog.fireflies += perDay * daysSincePassive;
+    if (daysSincePassive > 0) {
+        if (frog.lilypadLevel >= 3) {
+            const perDay = frog.lilypadLevel >= 7 ? 10 : 5;
+            frog.fireflies += Math.round(perDay * daysSincePassive * mayorMult(frog));
+        }
+        if (frog.isMayor) {
+            frog.hunger    = Math.min(100, frog.hunger    + MAYOR_PASSIVE_PER_DAY * daysSincePassive);
+            frog.happiness = Math.min(100, frog.happiness + MAYOR_PASSIVE_PER_DAY * daysSincePassive);
+        }
         frog.lastPassiveAt += daysSincePassive * DAY_MS;
     }
 
-    // Fisher career passive income — credited per full 12h interval elapsed.
     if (frog.career === 'fisher') {
-        const intervalsSinceFisher = Math.floor((now - frog.lastFisherAt) / FISHER_INTERVAL_MS);
-        if (intervalsSinceFisher > 0) {
-            frog.fireflies += FISHER_INCOME * intervalsSinceFisher;
-            frog.lastFisherAt += intervalsSinceFisher * FISHER_INTERVAL_MS;
+        const intervals = Math.floor((now - frog.lastFisherAt) / FISHER_INTERVAL_MS);
+        if (intervals > 0) {
+            frog.fireflies += Math.round(FISHER_INCOME * intervals * mayorMult(frog));
+            frog.lastFisherAt += intervals * FISHER_INTERVAL_MS;
         }
     } else {
         frog.lastFisherAt = now;
@@ -311,27 +282,50 @@ function applyDecay(frog, now = Date.now()) {
 
     if (frog.hunger <= 0) {
         if (!frog.sick) { frog.sick = true; frog.sickSince = now; }
-        else if (now - frog.sickSince >= SICKNESS_GRACE_MS) { die(frog, now, 'sickness'); frog.stage = calcStage(frog, now); return frog; }
-    } else if (frog.sick) {
-        frog.sick = false;
-        frog.sickSince = null;
-    }
+        else if (now - frog.sickSince >= SICKNESS_GRACE_MS) { die(frog, now, 'sickness'); frog.stage = calcStage(frog, now, ageMult); return frog; }
+    } else if (frog.sick) { frog.sick = false; frog.sickSince = null; }
 
     if (frog.happiness <= 0) {
         if (!frog.depressed) { frog.depressed = true; frog.depressedSince = now; }
-        else if (now - frog.depressedSince >= DEPRESSION_GRACE_MS) { die(frog, now, 'ran_away'); frog.stage = calcStage(frog, now); return frog; }
-    } else if (frog.depressed) {
-        frog.depressed = false;
-        frog.depressedSince = null;
-    }
+        else if (now - frog.depressedSince >= DEPRESSION_GRACE_MS) { die(frog, now, 'ran_away'); frog.stage = calcStage(frog, now, ageMult); return frog; }
+    } else if (frog.depressed) { frog.depressed = false; frog.depressedSince = null; }
 
-    frog.stage = calcStage(frog, now);
+    frog.stage = calcStage(frog, now, ageMult);
     return frog;
 }
 
 function hasUnlockedCareer(frog, now = Date.now()) {
     return (now - frog.bornAt) / DAY_MS >= CAREER_MIN_STAGE_DAYS;
 }
+
+// Returns the most recent Monday 11:00 UTC (= 12:00 GMT+1).
+function lastMondayRespecWindowMs() {
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=Sun,1=Mon,...
+    const daysBack = day === 0 ? 6 : day - 1;
+    const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysBack, 11, 0, 0));
+    return monday.getTime();
+}
+
+// Returns the most recent Friday 11:00 UTC (= 12:00 GMT+1).
+function lastFridayTaxWindowMs() {
+    const now = new Date();
+    const day = now.getUTCDay(); // 5=Fri
+    const daysBack = day >= 5 ? day - 5 : day + 2;
+    const friday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysBack, 11, 0, 0));
+    return friday.getTime();
+}
+
+// Returns the most recent Wednesday 20:00 UTC for mayor election.
+function lastWednesdayElectionMs() {
+    const now = new Date();
+    const day = now.getUTCDay(); // 3=Wed
+    const daysBack = day >= 3 ? day - 3 : day + 4;
+    const wed = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysBack, 20, 0, 0));
+    return wed.getTime();
+}
+
+// ── Exploration ───────────────────────────────────────────────────────────────
 
 function explorationBonusMult(frog) {
     let bonus = 0;
@@ -340,107 +334,38 @@ function explorationBonusMult(frog) {
     return 1 + bonus;
 }
 
-// Tier probabilities aren't specified by the design doc — picked to make exploration the
-// primary early-game firefly source without making it swingy.
-const EXPLORATION_TABLE = [
-    { tier: 'common', weight: 0.55, outcomes: [
-        { text: 'finds nothing of interest', fireflies: 0 },
-        { text: 'finds a few stray fireflies', fireflies: 5 },
-        { text: 'finds a small cluster of fireflies', fireflies: 10 },
-    ] },
-    { tier: 'uncommon', weight: 0.30, outcomes: [
-        { text: 'finds a nice patch of fireflies', fireflies: 20 },
-        { text: 'meets a friendly turtle', happiness: 10 },
-        { text: 'finds a patch of juicy worms', hunger: 10 },
-    ] },
-    { tier: 'rare', weight: 0.15, outcomes: [
-        { text: 'gets ambushed by an angry goose and loses some fireflies', fireflies: -10 },
-        { text: 'stumbles on a huge firefly swarm', fireflies: 50 },
-    ] },
+const EXPLORATION_OUTCOMES = [
+    { weight: 0.25, text: 'finds nothing of interest',          fireflies: 0 },
+    { weight: 0.25, text: 'finds a few stray fireflies',        fireflies: 5 },
+    { weight: 0.20, text: 'finds a small cluster of fireflies', fireflies: 10 },
+    { weight: 0.10, text: 'finds a nice patch of fireflies',    fireflies: 20 },
+    { weight: 0.01, text: 'stumbles on a huge firefly swarm!',  fireflies: 50 },
+    { weight: 0.075, text: 'meets a friendly turtle',           happiness: 10 },
+    { weight: 0.075, text: 'finds a patch of juicy worms',      hunger: 10 },
+    { weight: 0.04,  text: 'gets ambushed by an angry goose!',  fireflies: -10 },
 ];
 
 function rollExploration(frog) {
     const roll = Math.random();
     let cumulative = 0;
-    let tier = EXPLORATION_TABLE[EXPLORATION_TABLE.length - 1];
-    for (const t of EXPLORATION_TABLE) {
-        cumulative += t.weight;
-        if (roll <= cumulative) { tier = t; break; }
+    let outcome = EXPLORATION_OUTCOMES[EXPLORATION_OUTCOMES.length - 1];
+    for (const o of EXPLORATION_OUTCOMES) {
+        cumulative += o.weight;
+        if (roll <= cumulative) { outcome = o; break; }
     }
-    const outcome = tier.outcomes[Math.floor(Math.random() * tier.outcomes.length)];
     let fireflyGain = outcome.fireflies || 0;
     if (fireflyGain > 0) {
-        fireflyGain = Math.round(fireflyGain * explorationBonusMult(frog));
-        if (frog.lilypadLevel >= 4) fireflyGain += 2;
-        if (frog.lilypadLevel >= 8) fireflyGain += 3;
+        fireflyGain = Math.round(fireflyGain * explorationBonusMult(frog) * mayorMult(frog));
+        if (frog.lilypadLevel >= 2) fireflyGain += 2;
     }
-    return { tier: tier.tier, text: outcome.text, fireflies: fireflyGain, hunger: outcome.hunger || 0, happiness: outcome.happiness || 0 };
+    return { text: outcome.text, fireflies: fireflyGain, hunger: outcome.hunger || 0, happiness: outcome.happiness || 0 };
 }
 
-// Zero-sum: each frog's "luck bonus" comes from age (capped at +15pp right at the 75-day
-// max-age mark) plus the pink color perk. The challenger's win chance is nudged by the
-// difference between the two frogs' bonuses, not an independent roll per side.
+// ── Hawk / frog fight shared helpers ─────────────────────────────────────────
+
 function luckBonus(frog, now = Date.now()) {
     const ageDays = (now - frog.bornAt) / DAY_MS;
-    let bonus = Math.min(0.15, ageDays * 0.002);
-    if (colorPerk(frog) === 'luckBoost') bonus += 0.05;
-    return bonus;
-}
-
-function rockfightWinChance(challenger, opponent, now = Date.now()) {
-    const diff = luckBonus(challenger, now) - luckBonus(opponent, now);
-    return Math.max(0.15, Math.min(0.85, 0.5 + diff / 2));
-}
-
-// ── Hawk minigame (tic-tac-toe vs a minimax AI) ──────────────────────────────
-// The AI always picks the objectively best move, but has a chance to play a random move
-// instead — that mistake chance is how "hunter career" and "pink luck" become meaningful
-// against what would otherwise be an unbeatable opponent.
-
-const TTT_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-
-function tttWinner(board) {
-    for (const [a, b, c] of TTT_LINES) {
-        if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
-    }
-    return board.every(c => c) ? 'draw' : null;
-}
-
-function tttEmptyCells(board) {
-    return board.reduce((acc, v, i) => { if (!v) acc.push(i); return acc; }, []);
-}
-
-function tttMinimax(board, isMaximizing) {
-    const winner = tttWinner(board);
-    if (winner === 'O') return 10;
-    if (winner === 'X') return -10;
-    if (winner === 'draw') return 0;
-    const cells = tttEmptyCells(board);
-    if (isMaximizing) {
-        let best = -Infinity;
-        for (const i of cells) { board[i] = 'O'; best = Math.max(best, tttMinimax(board, false)); board[i] = null; }
-        return best;
-    }
-    let best = Infinity;
-    for (const i of cells) { board[i] = 'X'; best = Math.min(best, tttMinimax(board, true)); board[i] = null; }
-    return best;
-}
-
-function tttBestMove(board) {
-    let bestScore = -Infinity, bestIdx = tttEmptyCells(board)[0];
-    for (const i of tttEmptyCells(board)) {
-        board[i] = 'O';
-        const score = tttMinimax(board, false);
-        board[i] = null;
-        if (score > bestScore) { bestScore = score; bestIdx = i; }
-    }
-    return bestIdx;
-}
-
-function tttAiMove(board, mistakeChance) {
-    const cells = tttEmptyCells(board);
-    if (Math.random() < mistakeChance) return cells[Math.floor(Math.random() * cells.length)];
-    return tttBestMove(board);
+    return Math.min(0.15, ageDays * 0.002);
 }
 
 function hawkMistakeChance(frog) {
@@ -450,282 +375,227 @@ function hawkMistakeChance(frog) {
     return Math.min(0.5, chance);
 }
 
-// ── Canvas drawing ───────────────────────────────────────────────────────────
-// Sprites are real artwork (Pond Assets) composited onto a procedural water background.
-// A module-level cache avoids re-reading the same small PNGs from disk on every render.
+// ── TTT helpers ───────────────────────────────────────────────────────────────
+
+const TTT_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+function tttWinner(board) {
+    for (const [a,b,c] of TTT_LINES) { if (board[a] && board[a]===board[b] && board[a]===board[c]) return board[a]; }
+    return board.every(c=>c) ? 'draw' : null;
+}
+
+function tttEmptyCells(board) { return board.reduce((a,v,i)=>{ if(!v)a.push(i); return a; },[]); }
+
+function tttMinimax(board, isMax) {
+    const w = tttWinner(board);
+    if (w==='O') return 10; if (w==='X') return -10; if (w==='draw') return 0;
+    const cells = tttEmptyCells(board);
+    if (isMax) { let b=-Infinity; for(const i of cells){board[i]='O';b=Math.max(b,tttMinimax(board,false));board[i]=null;} return b; }
+    let b=Infinity; for(const i of cells){board[i]='X';b=Math.min(b,tttMinimax(board,true));board[i]=null;} return b;
+}
+
+function tttBestMove(board) {
+    let best=-Infinity, idx=tttEmptyCells(board)[0];
+    for(const i of tttEmptyCells(board)){board[i]='O';const s=tttMinimax(board,false);board[i]=null;if(s>best){best=s;idx=i;}}
+    return idx;
+}
+
+function tttAiMove(board, mistakeChance) {
+    const cells = tttEmptyCells(board);
+    return Math.random()<mistakeChance ? cells[Math.floor(Math.random()*cells.length)] : tttBestMove(board);
+}
+
+function tttBoardComponents(board, gameOver, prefix) {
+    const rows=[];
+    for(let r=0;r<3;r++){
+        const row=new ActionRowBuilder();
+        for(let c=0;c<3;c++){
+            const i=r*3+c, cell=board[i];
+            row.addComponents(new ButtonBuilder().setCustomId(`${prefix}${i}`).setLabel(cell||'⬜').setStyle(cell==='X'?ButtonStyle.Primary:cell==='O'?ButtonStyle.Danger:ButtonStyle.Secondary).setDisabled(Boolean(cell)||gameOver));
+        }
+        rows.push(row);
+    }
+    return rows;
+}
+
+// RPS helpers
+const RPS_BEATS = { rock: 'worm', worm: 'lily', lily: 'rock' };
+const RPS_LABELS = { rock: '🪨 Rock', worm: '🪱 Worm', lily: '🍃 Lilypad' };
+function rpsResult(a, b) { if(a===b)return 'draw'; return RPS_BEATS[a]===b?'win':'lose'; }
+
+function rpsComponents(prefix, disabled=false) {
+    return [new ActionRowBuilder().addComponents(
+        ...Object.entries(RPS_LABELS).map(([k,label])=>new ButtonBuilder().setCustomId(`${prefix}${k}`).setLabel(label).setStyle(ButtonStyle.Secondary).setDisabled(disabled))
+    )];
+}
+
+// ── Canvas drawing ────────────────────────────────────────────────────────────
 
 const imageCache = new Map();
-async function loadCachedImage(filePath) {
-    if (imageCache.has(filePath)) return imageCache.get(filePath);
-    const img = await loadImage(filePath);
-    imageCache.set(filePath, img);
+async function loadCachedImage(fp) {
+    if (imageCache.has(fp)) return imageCache.get(fp);
+    const img = await loadImage(fp);
+    imageCache.set(fp, img);
     return img;
 }
-
-function colorFileSuffix(color) {
-    return color.charAt(0).toUpperCase() + color.slice(1);
-}
-
+function colorFileSuffix(c) { return c.charAt(0).toUpperCase()+c.slice(1); }
 async function loadFrogSprite(stage, color) {
-    const suffix = colorFileSuffix(color);
-    if (stage === 'egg') return loadCachedImage(path.join(ASSETS_DIR, 'eggs', `Egg${suffix}.png`));
-    if (stage === 'tadpole') return loadCachedImage(path.join(ASSETS_DIR, 'tadpoles', `Tadpole${suffix}.png`));
-    if (stage === 'froglet') return loadCachedImage(path.join(ASSETS_DIR, 'froglets', `Froglet${suffix}.png`));
-    return loadCachedImage(path.join(ASSETS_DIR, 'frogs', `Frog${suffix}.png`));
+    const s = colorFileSuffix(color);
+    if (stage==='egg')     return loadCachedImage(path.join(ASSETS_DIR,'eggs',`Egg${s}.png`));
+    if (stage==='tadpole') return loadCachedImage(path.join(ASSETS_DIR,'tadpoles',`Tadpole${s}.png`));
+    if (stage==='froglet') return loadCachedImage(path.join(ASSETS_DIR,'froglets',`Froglet${s}.png`));
+    return loadCachedImage(path.join(ASSETS_DIR,'frogs',`Frog${s}.png`));
 }
-
 async function loadLilypadSprite(level) {
-    const clamped = Math.max(1, Math.min(MAX_LILYPAD_LEVEL, Math.round(level || 1)));
-    return loadCachedImage(path.join(ASSETS_DIR, 'lilypads', `Lilypad_level_${clamped}.png`));
+    return loadCachedImage(path.join(ASSETS_DIR,'lilypads',`Lilypad_level_${Math.max(1,Math.min(MAX_LILYPAD_LEVEL,Math.round(level||1)))}.png`));
 }
 
-// width/height instead of a single `size` so this can paint one continuous water surface
-// across a whole multi-cell scene (drawPondScene) rather than each cell repainting an
-// identical mini-background — that repetition was what made /pond view look "tiled".
-// Ripple placement is randomized (not an evenly-spaced grid) for the same reason.
-function drawWaterBackground(ctx, width, height, ripplePhase = 0) {
-    const grad = ctx.createLinearGradient(0, 0, 0, height);
-    grad.addColorStop(0, '#2d6f8e');
-    grad.addColorStop(1, '#173f54');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    const shift = Math.sin(ripplePhase * Math.PI * 2) * width * 0.03;
-    const rippleCount = Math.max(4, Math.round((width * height) / 16000));
-    for (let i = 0; i < rippleCount; i++) {
-        const x = ((rippleSeed(i, 1) * width + shift) % width + width) % width;
-        const y = rippleSeed(i, 2) * height;
-        const rw = width * (0.05 + rippleSeed(i, 3) * 0.08);
-        ctx.beginPath();
-        ctx.ellipse(x, y, rw, height * 0.012, 0, 0, Math.PI * 2);
-        ctx.fill();
+function drawWaterBackground(ctx, W, H, ripplePhase=0) {
+    const grad=ctx.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0,'#2d6f8e'); grad.addColorStop(1,'#173f54');
+    ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='rgba(255,255,255,0.08)';
+    const shift=Math.sin(ripplePhase*Math.PI*2)*W*0.03;
+    const count=Math.max(4,Math.round((W*H)/16000));
+    for(let i=0;i<count;i++){
+        const x=((rs(i,1)*W+shift)%W+W)%W, y=rs(i,2)*H, rw=W*(0.05+rs(i,3)*0.08);
+        ctx.beginPath(); ctx.ellipse(x,y,rw,H*0.012,0,0,Math.PI*2); ctx.fill();
     }
 }
+function rs(i,salt){const x=Math.sin(i*12.9898+salt*78.233)*43758.5453;return x-Math.floor(x);}
 
-// Deterministic pseudo-random in [0, 1) — same (i, salt) always gives the same value, so a
-// frame-by-frame animated background doesn't jitter, but the sequence itself isn't a
-// regular grid like a plain modulo placement would be.
-function rippleSeed(i, salt) {
-    const x = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
-    return x - Math.floor(x);
+function drawFlowerCrown(ctx,cx,cy,s){
+    const pc=['#ffffff','#ffd6e8','#ffffff','#ffd6e8','#ffffff'];
+    for(let i=0;i<5;i++){const a=(i/5)*Math.PI*2;ctx.fillStyle=pc[i];ctx.beginPath();ctx.ellipse(cx+Math.cos(a)*s*0.18,cy-s*0.62+Math.sin(a)*s*0.18,s*0.1,s*0.065,a,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle='#e0b94a';ctx.beginPath();ctx.arc(cx,cy-s*0.62,s*0.07,0,Math.PI*2);ctx.fill();
 }
+function drawSpriteImage(ctx,img,cx,cy,s){const r=img.width/img.height,w=r>=1?s:s*r,h=r>=1?s/r:s;ctx.drawImage(img,cx-w/2,cy-h/2,w,h);}
 
-function drawFlowerCrown(ctx, cx, cy, s) {
-    const petalColors = ['#ffffff', '#ffd6e8', '#ffffff', '#ffd6e8', '#ffffff'];
-    for (let i = 0; i < 5; i++) {
-        const ang = (i / 5) * Math.PI * 2;
-        ctx.fillStyle = petalColors[i];
-        ctx.beginPath();
-        ctx.ellipse(cx + Math.cos(ang) * s * 0.18, cy - s * 0.62 + Math.sin(ang) * s * 0.18, s * 0.1, s * 0.065, ang, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    ctx.fillStyle = '#e0b94a';
-    ctx.beginPath(); ctx.arc(cx, cy - s * 0.62, s * 0.07, 0, Math.PI * 2); ctx.fill();
-}
+const PORTRAIT_SIZE=240, ANIM_FRAMES=8, ANIM_DELAY_MS=150;
 
-// Draws a sprite image centered at (cx, cy) scaled so its larger dimension equals `s`.
-function drawSpriteImage(ctx, img, cx, cy, s) {
-    const ratio = img.width / img.height;
-    const w = ratio >= 1 ? s : s * ratio;
-    const h = ratio >= 1 ? s / ratio : s;
-    ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
-}
-
-const PORTRAIT_SIZE = 240;
-const ANIM_FRAMES = 8;
-const ANIM_DELAY_MS = 150;
-
-async function drawPortraitFrame(ctx, size, frog, frogImg, lilypadImg, { bob, ripplePhase }) {
-    drawWaterBackground(ctx, size, size, ripplePhase);
-    drawSpriteImage(ctx, lilypadImg, size * 0.5, size * 0.72, size * 0.62);
-    const spriteScale = 0.62;
-    const cx = size * 0.5, cy = size * 0.46 + bob;
-    drawSpriteImage(ctx, frogImg, cx, cy, size * spriteScale);
-    if (frog.stage === 'elder') drawFlowerCrown(ctx, cx, cy, size * spriteScale);
-}
-
-// Animated GIF — gentle idle bob and a slowly drifting water shimmer, looping forever.
 async function drawFrogPortrait(frog) {
-    const [frogImg, lilypadImg] = await Promise.all([
-        loadFrogSprite(frog.stage, frog.color),
-        loadLilypadSprite(frog.lilypadLevel),
-    ]);
-
-    const encoder = new GifEncoder(PORTRAIT_SIZE, PORTRAIT_SIZE, 'neuquant', true);
-    encoder.setDelay(ANIM_DELAY_MS);
-    encoder.setRepeat(0);
-    encoder.start();
-
-    for (let i = 0; i < ANIM_FRAMES; i++) {
-        const bob = Math.sin((i / ANIM_FRAMES) * Math.PI * 2) * (PORTRAIT_SIZE * 0.025);
-        const ripplePhase = i / ANIM_FRAMES;
-        const canvas = createCanvas(PORTRAIT_SIZE, PORTRAIT_SIZE);
-        const ctx = canvas.getContext('2d');
-        await drawPortraitFrame(ctx, PORTRAIT_SIZE, frog, frogImg, lilypadImg, { bob, ripplePhase });
-        ctx.font = '700 22px "Noto Sans", sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText(frog.name, PORTRAIT_SIZE / 2, 30);
-        encoder.addFrame(ctx.getImageData(0, 0, PORTRAIT_SIZE, PORTRAIT_SIZE).data);
+    const [frogImg,lilypadImg]=await Promise.all([loadFrogSprite(frog.stage,frog.color),loadLilypadSprite(frog.lilypadLevel)]);
+    const enc=new GifEncoder(PORTRAIT_SIZE,PORTRAIT_SIZE,'neuquant',true);
+    enc.setDelay(ANIM_DELAY_MS); enc.setRepeat(0); enc.start();
+    for(let i=0;i<ANIM_FRAMES;i++){
+        const bob=Math.sin((i/ANIM_FRAMES)*Math.PI*2)*(PORTRAIT_SIZE*0.025), rp=i/ANIM_FRAMES;
+        const canvas=createCanvas(PORTRAIT_SIZE,PORTRAIT_SIZE), ctx=canvas.getContext('2d');
+        drawWaterBackground(ctx,PORTRAIT_SIZE,PORTRAIT_SIZE,rp);
+        drawSpriteImage(ctx,lilypadImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.72,PORTRAIT_SIZE*0.62);
+        drawSpriteImage(ctx,frogImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.46+bob,PORTRAIT_SIZE*0.62);
+        if(frog.stage==='elder')drawFlowerCrown(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.46+bob,PORTRAIT_SIZE*0.62);
+        ctx.font='700 22px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
+        ctx.fillText(frog.name,PORTRAIT_SIZE/2,30);
+        enc.addFrame(ctx.getImageData(0,0,PORTRAIT_SIZE,PORTRAIT_SIZE).data);
     }
-
-    encoder.finish();
-    return Buffer.from(encoder.out.getData());
+    enc.finish(); return Buffer.from(enc.out.getData());
 }
 
-const CELL_SIZE = 150;
+const CELL_SIZE=150, SCENE_FRAMES=8, SCENE_DELAY=150;
 
-const SCENE_ANIM_FRAMES = 8;
-const SCENE_ANIM_DELAY_MS = 150;
-
-// Animated GIF — same gentle idle bob + water shimmer as single portraits, just composited
-// for every frog in the scene at once. Frog bob phases are slightly offset by index so the
-// whole pond doesn't bob perfectly in sync, which reads as more alive.
 async function drawPondScene(frogs) {
-    const cols = Math.min(5, Math.max(1, frogs.length));
-    const rows = Math.max(1, Math.ceil(frogs.length / cols));
-    const headerH = 50;
-    const W = cols * CELL_SIZE;
-    const H = rows * CELL_SIZE + headerH;
-
-    const sprites = await Promise.all(frogs.map(frog => Promise.all([
-        loadFrogSprite(frog.stage, frog.color),
-        loadLilypadSprite(frog.lilypadLevel),
-    ])));
-
-    const encoder = new GifEncoder(W, H, 'neuquant', true);
-    encoder.setDelay(SCENE_ANIM_DELAY_MS);
-    encoder.setRepeat(0);
-    encoder.start();
-
-    for (let f = 0; f < SCENE_ANIM_FRAMES; f++) {
-        const ripplePhase = f / SCENE_ANIM_FRAMES;
-        const canvas = createCanvas(W, H);
-        const ctx = canvas.getContext('2d');
-
-        // One continuous water surface across the whole scene, painted once per frame —
-        // drawing an identical mini water-background per cell made the grid look tiled.
-        drawWaterBackground(ctx, W, H, ripplePhase);
-
-        ctx.font = '700 26px "Noto Sans", sans-serif';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText('The Pond', W / 2, 36);
-
-        for (let i = 0; i < frogs.length; i++) {
-            const frog = frogs[i];
-            const [frogImg, lilypadImg] = sprites[i];
-            const col = i % cols, row = Math.floor(i / cols);
-            const x = col * CELL_SIZE, y = headerH + row * CELL_SIZE;
-            const phase = (f / SCENE_ANIM_FRAMES + i * 0.13) % 1;
-            const bob = Math.sin(phase * Math.PI * 2) * (CELL_SIZE * 0.025);
-            ctx.save();
-            ctx.translate(x, y);
-            drawSpriteImage(ctx, lilypadImg, CELL_SIZE * 0.5, CELL_SIZE * 0.64, CELL_SIZE * 0.6);
-            const cx = CELL_SIZE * 0.5, cy = CELL_SIZE * 0.4 + bob;
-            drawSpriteImage(ctx, frogImg, cx, cy, CELL_SIZE * 0.55);
-            if (frog.stage === 'elder') drawFlowerCrown(ctx, cx, cy, CELL_SIZE * 0.55);
+    const cols=Math.min(5,Math.max(1,frogs.length)), rows=Math.max(1,Math.ceil(frogs.length/cols));
+    const headerH=50, W=cols*CELL_SIZE, H=rows*CELL_SIZE+headerH;
+    const sprites=await Promise.all(frogs.map(f=>Promise.all([loadFrogSprite(f.stage,f.color),loadLilypadSprite(f.lilypadLevel)])));
+    const enc=new GifEncoder(W,H,'neuquant',true);
+    enc.setDelay(SCENE_DELAY); enc.setRepeat(0); enc.start();
+    for(let f=0;f<SCENE_FRAMES;f++){
+        const rp=f/SCENE_FRAMES, canvas=createCanvas(W,H), ctx=canvas.getContext('2d');
+        drawWaterBackground(ctx,W,H,rp);
+        ctx.font='700 26px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
+        ctx.fillText('The Pond',W/2,36);
+        for(let i=0;i<frogs.length;i++){
+            const frog=frogs[i],[frogImg,lilypadImg]=sprites[i];
+            const col=i%cols, row=Math.floor(i/cols);
+            const x=col*CELL_SIZE, y=headerH+row*CELL_SIZE;
+            const bob=Math.sin(((f/SCENE_FRAMES+i*0.13)%1)*Math.PI*2)*(CELL_SIZE*0.025);
+            ctx.save(); ctx.translate(x,y);
+            drawSpriteImage(ctx,lilypadImg,CELL_SIZE*0.5,CELL_SIZE*0.64,CELL_SIZE*0.6);
+            drawSpriteImage(ctx,frogImg,CELL_SIZE*0.5,CELL_SIZE*0.4+bob,CELL_SIZE*0.55);
+            if(frog.stage==='elder')drawFlowerCrown(ctx,CELL_SIZE*0.5,CELL_SIZE*0.4+bob,CELL_SIZE*0.55);
             ctx.restore();
-            ctx.font = '600 14px "Noto Sans", sans-serif';
-            ctx.fillStyle = '#ffffff';
-            ctx.textAlign = 'center';
-            ctx.fillText(frog.name, x + CELL_SIZE / 2, y + CELL_SIZE - 12);
+            ctx.font='600 14px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
+            ctx.fillText(frog.name,x+CELL_SIZE/2,y+CELL_SIZE-12);
         }
-
-        encoder.addFrame(ctx.getImageData(0, 0, W, H).data);
+        enc.addFrame(ctx.getImageData(0,0,W,H).data);
     }
-
-    encoder.finish();
-    return Buffer.from(encoder.out.getData());
+    enc.finish(); return Buffer.from(enc.out.getData());
 }
 
-// ── Slash command definitions ───────────────────────────────────────────────
+// ── Slash command definitions ─────────────────────────────────────────────────
 
-const colorChoices = Object.entries(FROG_COLORS).map(([value, c]) => ({ name: c.name, value }));
-const shopItemChoices = Object.entries(SHOP_ITEMS).map(([value, item]) => ({ name: item.label, value }));
-const careerChoices = Object.entries(CAREERS).map(([value, c]) => ({ name: c.label, value }));
+const colorChoices    = Object.entries(FROG_COLORS).map(([v,c])=>({name:c.name,value:v}));
+const shopItemChoices = Object.entries(SHOP_ITEMS).map(([v,i])=>({name:i.label,value:v}));
+const careerChoices   = Object.entries(CAREERS).map(([v,c])=>({name:c.label,value:v}));
 
 const pondCommands = [
     new SlashCommandBuilder()
-        .setName('frog')
-        .setDescription('Take care of your pond frog')
-        .addSubcommand(sub => sub
-            .setName('adopt')
-            .setDescription('Adopt a new frog')
-            .addStringOption(opt => opt.setName('name').setDescription('Name your frog').setRequired(true).setMaxLength(20))
-            .addStringOption(opt => opt.setName('color').setDescription('Pick a color').setRequired(true).addChoices(...colorChoices)))
-        .addSubcommand(sub => sub
-            .setName('feed')
-            .setDescription('Feed your frog')
-            .addBooleanOption(opt => opt.setName('use_item').setDescription('Use a worm for a bigger boost (consumes 1)')))
-        .addSubcommand(sub => sub
-            .setName('play')
-            .setDescription('Play with your frog')
-            .addBooleanOption(opt => opt.setName('use_item').setDescription('Use a toy for a bigger boost (consumes 1)')))
-        .addSubcommand(sub => sub.setName('cure').setDescription('Cure your sick frog (35 fireflies)'))
-        .addSubcommand(sub => sub.setName('soothe').setDescription('Throw a bubble party for your depressed frog (35 fireflies)'))
-        .addSubcommand(sub => sub.setName('status').setDescription('Check on your frog'))
-        .addSubcommand(sub => sub.setName('leaderboard').setDescription('See the longest-living frogs'))
-        .addSubcommand(sub => sub.setName('explore').setDescription('Send your frog exploring (once a day)'))
-        .addSubcommand(sub => sub.setName('hawk').setDescription('Battle a hawk in tic-tac-toe (once a day)'))
-        .addSubcommandGroup(group => group
-            .setName('lilypad')
-            .setDescription('Manage your frog\'s lilypad')
-            .addSubcommand(sub => sub.setName('info').setDescription('See your lilypad level and next upgrade'))
-            .addSubcommand(sub => sub.setName('upgrade').setDescription('Upgrade your lilypad to the next level')))
-        .addSubcommandGroup(group => group
-            .setName('rockfight')
-            .setDescription('Challenge another frog to a rock-throwing fight')
-            .addSubcommand(sub => sub
-                .setName('challenge')
-                .setDescription('Challenge a specific player')
-                .addUserOption(opt => opt.setName('user').setDescription('Who to challenge').setRequired(true))
-                .addIntegerOption(opt => opt.setName('wager').setDescription('Fireflies to wager (5-20)').setRequired(true).setMinValue(ROCKFIGHT_MIN_WAGER).setMaxValue(ROCKFIGHT_MAX_WAGER)))
-            .addSubcommand(sub => sub
-                .setName('any')
-                .setDescription('Open a challenge for anyone to accept')
-                .addIntegerOption(opt => opt.setName('wager').setDescription('Fireflies to wager (5-20)').setRequired(true).setMinValue(ROCKFIGHT_MIN_WAGER).setMaxValue(ROCKFIGHT_MAX_WAGER))))
-        .addSubcommandGroup(group => group
-            .setName('career')
-            .setDescription('Manage your frog\'s career (unlocks at day 14)')
-            .addSubcommand(sub => sub.setName('info').setDescription('See your current career'))
-            .addSubcommand(sub => sub
-                .setName('choose')
-                .setDescription('Choose your first career (free)')
-                .addStringOption(opt => opt.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices)))
-            .addSubcommand(sub => sub
-                .setName('respec')
-                .setDescription(`Change career for a fee (${CAREER_RESPEC_COST} fireflies)`)
-                .addStringOption(opt => opt.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices)))),
+        .setName('frog').setDescription('Take care of your pond frog')
+        .addSubcommand(s=>s.setName('adopt').setDescription('Adopt a new frog')
+            .addStringOption(o=>o.setName('name').setDescription('Name your frog').setRequired(true).setMaxLength(20))
+            .addStringOption(o=>o.setName('color').setDescription('Pick a color').setRequired(true).addChoices(...colorChoices)))
+        .addSubcommand(s=>s.setName('feed').setDescription('Feed your frog')
+            .addBooleanOption(o=>o.setName('use_item').setDescription('Use a worm for a bigger boost (consumes 1)')))
+        .addSubcommand(s=>s.setName('play').setDescription('Play with your frog')
+            .addBooleanOption(o=>o.setName('use_item').setDescription('Use a toy for a bigger boost (consumes 1)')))
+        .addSubcommand(s=>s.setName('cure').setDescription('Cure your sick frog (35 fireflies)'))
+        .addSubcommand(s=>s.setName('soothe').setDescription('Throw a bubble party for your depressed frog (35 fireflies)'))
+        .addSubcommand(s=>s.setName('status').setDescription('Check on your frog'))
+        .addSubcommand(s=>s.setName('leaderboard').setDescription('See the longest-living frogs'))
+        .addSubcommand(s=>s.setName('explore').setDescription('Send your frog exploring (twice a day)'))
+        .addSubcommand(s=>s.setName('hawk').setDescription('Battle a hawk in a minigame (twice a day)'))
+        .addSubcommand(s=>s.setName('mayor').setDescription('See who the current frog mayor is'))
+        .addSubcommand(s=>s.setName('commands').setDescription('See an overview of all pond commands'))
+        .addSubcommandGroup(g=>g.setName('lilypad').setDescription("Manage your frog's lilypad")
+            .addSubcommand(s=>s.setName('info').setDescription('See your lilypad level and next upgrade'))
+            .addSubcommand(s=>s.setName('upgrade').setDescription('Upgrade your lilypad to the next level')))
+        .addSubcommandGroup(g=>g.setName('frogfight').setDescription('Challenge another frog to a fight')
+            .addSubcommand(s=>s.setName('challenge').setDescription('Challenge a specific player')
+                .addUserOption(o=>o.setName('user').setDescription('Who to challenge').setRequired(true))
+                .addIntegerOption(o=>o.setName('wager').setDescription('Fireflies to wager (5-20)').setRequired(true).setMinValue(FROGFIGHT_MIN_WAGER).setMaxValue(FROGFIGHT_MAX_WAGER))
+                .addIntegerOption(o=>o.setName('guess').setDescription('Your secret number 1-100 (for Bullfrog games)').setMinValue(1).setMaxValue(100)))
+            .addSubcommand(s=>s.setName('any').setDescription('Open a challenge for anyone to accept')
+                .addIntegerOption(o=>o.setName('wager').setDescription('Fireflies to wager (5-20)').setRequired(true).setMinValue(FROGFIGHT_MIN_WAGER).setMaxValue(FROGFIGHT_MAX_WAGER))
+                .addIntegerOption(o=>o.setName('guess').setDescription('Your secret number 1-100 (for Bullfrog games)').setMinValue(1).setMaxValue(100))))
+        .addSubcommandGroup(g=>g.setName('career').setDescription("Manage your frog's career (unlocks at day 7)")
+            .addSubcommand(s=>s.setName('info').setDescription('See your current career'))
+            .addSubcommand(s=>s.setName('choose').setDescription('Choose your first career (free)')
+                .addStringOption(o=>o.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices)))
+            .addSubcommand(s=>s.setName('respec').setDescription('Change career (35 fireflies, Mondays only)')
+                .addStringOption(o=>o.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices)))),
     new SlashCommandBuilder()
-        .setName('pond')
-        .setDescription('The Pond — where everyone\'s frogs hang out')
-        .addSubcommand(sub => sub.setName('view').setDescription('See everyone\'s frogs together in the pond'))
-        .addSubcommand(sub => sub.setName('memorial').setDescription('Remember frogs that have passed on'))
-        .addSubcommand(sub => sub.setName('rules').setDescription('How to play The Pond'))
-        .addSubcommandGroup(group => group
-            .setName('shop')
-            .setDescription('Buy supplies for your frog')
-            .addSubcommand(sub => sub
-                .setName('buy')
-                .setDescription('Buy an item')
-                .addStringOption(opt => opt.setName('item').setDescription('What to buy').setRequired(true).addChoices(...shopItemChoices))
-                .addIntegerOption(opt => opt.setName('quantity').setDescription('How many (default 1)').setMinValue(1).setMaxValue(50)))),
+        .setName('pond').setDescription("The Pond — where everyone's frogs hang out")
+        .addSubcommand(s=>s.setName('view').setDescription("See everyone's frogs together in the pond"))
+        .addSubcommand(s=>s.setName('memorial').setDescription('Remember frogs that have passed on'))
+        .addSubcommand(s=>s.setName('rules').setDescription('How to play The Pond'))
+        .addSubcommandGroup(g=>g.setName('shop').setDescription('Buy supplies for your frog')
+            .addSubcommand(s=>s.setName('buy').setDescription('Buy an item')
+                .addStringOption(o=>o.setName('item').setDescription('What to buy').setRequired(true).addChoices(...shopItemChoices))
+                .addIntegerOption(o=>o.setName('quantity').setDescription('How many (default 1)').setMinValue(1).setMaxValue(50)))),
 ];
 
-// ── Interaction handling ─────────────────────────────────────────────────────
-// Short-lived multiplayer state (hawk games, rock-fight challenges) lives in-memory,
-// keyed by message ID — same pattern as the Imposter/Traitors/Escape Room games in
-// index.js, just scoped to this module. Only the persistent frog doc goes to Firestore.
+// ── In-memory game state ──────────────────────────────────────────────────────
 
-const pondHawkGames = new Map();      // messageId → { ownerId, board, mistakeChance, timer }
-const pondRockfights = new Map();     // messageId → { challengerId, targetId (null = open), wager, resolved, timer }
+const pondHawkGames  = new Map(); // msgId → { ownerId, mistakeChance, gameType, state, timer }
+const pondFrogfights = new Map(); // msgId → { challengerId, targetId, wager, challengerGuess, resolved, awaitingModal, timer }
+const pondFrogGames  = new Map(); // msgId → active game state after challenge accepted
+
+// ── Shared guard helpers ──────────────────────────────────────────────────────
+
+function requireLiveFrog(frog, interaction) {
+    if (!frog || !frog.alive) {
+        interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
+        return false;
+    }
+    return true;
+}
+
+// ── Frog command handlers ─────────────────────────────────────────────────────
 
 async function handleFrogAdopt(interaction) {
     const existing = await pondFrogGet(interaction.user.id);
-    if (existing && existing.alive) {
-        return interaction.reply({ content: `🐸 You already have a frog named **${existing.name}**! Take care of it with \`/frog feed\` and \`/frog play\`.`, ephemeral: true });
-    }
+    if (existing && existing.alive)
+        return interaction.reply({ content: `🐸 You already have a frog named **${existing.name}**!`, ephemeral: true });
     const name = interaction.options.getString('name').trim();
     const color = interaction.options.getString('color');
     const now = Date.now();
@@ -734,10 +604,11 @@ async function handleFrogAdopt(interaction) {
         stage: 'egg', hunger: 100, happiness: 100,
         bornAt: now, lastFedAt: now, lastPlayedAt: now, lastTickAt: now,
         alive: true, diedAt: null, lifespanDays: null,
+        fireflies: 15, patchV2Granted: true,
     }, now);
     await pondFrogSet(interaction.user.id, frog);
     await interaction.reply({
-        content: `🐣 Welcome **${name}** to the pond! Keep them happy and fed with \`/frog feed\` and \`/frog play\` — check in once a day and they'll thrive.`,
+        content: `🐣 Welcome **${name}** to the pond! You start with **15 🪲 fireflies**. Keep them happy with \`/frog feed\` and \`/frog play\` — check in twice a day!`,
         files: [new AttachmentBuilder(await drawFrogPortrait(frog), { name: 'frog.gif' })],
     });
 }
@@ -752,738 +623,853 @@ async function getLiveFrog(userId) {
 
 async function handleFrogCare(interaction, kind) {
     const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
+    if (!requireLiveFrog(frog, interaction)) return;
     if (frog.justDied) {
         await pondFrogSet(interaction.user.id, frog);
-        return announceDeath(interaction.client, frog).then(() =>
-            interaction.reply({ content: `${deathMessage(frog)} Rest gently, little one. You can adopt a new frog with \`/frog adopt\`.` })
-        );
+        return announceDeath(interaction.client, frog).then(()=>interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` }));
     }
-
-    const isFeed = kind === 'feed';
+    const isFeed = kind==='feed';
     const lastAt = isFeed ? frog.lastFedAt : frog.lastPlayedAt;
     const cooldown = isFeed ? FEED_COOLDOWN_MS : PLAY_COOLDOWN_MS;
-    const remaining = cooldown - (Date.now() - lastAt);
-    if (remaining > 0) {
-        const mins = Math.ceil(remaining / 60000);
-        return interaction.reply({ content: `🐸 **${frog.name}** is ${isFeed ? 'still full' : 'still happy from playtime'}! Try again in ~${mins < 60 ? `${mins}m` : `${Math.ceil(mins / 60)}h`}.`, ephemeral: true });
+    const remaining = cooldown-(Date.now()-lastAt);
+    if (remaining>0) {
+        const mins=Math.ceil(remaining/60000);
+        return interaction.reply({ content: `🐸 **${frog.name}** is ${isFeed?'still full':'still happy from playtime'}! Try again in ~${mins<60?`${mins}m`:`${Math.ceil(mins/60)}h`}.`, ephemeral: true });
     }
-
     const useItem = interaction.options.getBoolean('use_item');
-    let restore = isFeed ? FEED_RESTORE_BASE : PLAY_RESTORE_BASE;
-    let usedItem = false;
-    if (useItem && (isFeed ? frog.worms : frog.toys) > 0) {
-        restore = ITEM_RESTORE;
-        usedItem = true;
-        if (isFeed) frog.worms -= 1; else frog.toys -= 1;
-    } else if (isFeed && frog.lilypadLevel >= 2) {
-        restore += 5;
-    } else if (!isFeed && frog.lilypadLevel >= 3) {
-        restore += 5;
+    let restore = isFeed?FEED_RESTORE_BASE:PLAY_RESTORE_BASE, usedItem=false;
+    if (useItem && (isFeed?frog.worms:frog.toys)>0) {
+        restore=ITEM_RESTORE; usedItem=true;
+        if(isFeed)frog.worms-=1; else frog.toys-=1;
+    } else if (isFeed && frog.lilypadLevel>=4) {
+        restore+=5;
+    } else if (!isFeed && frog.lilypadLevel>=5) {
+        restore+=5;
     }
-
-    if (isFeed) { frog.hunger = Math.min(100, frog.hunger + restore); frog.lastFedAt = Date.now(); }
-    else { frog.happiness = Math.min(100, frog.happiness + restore); frog.lastPlayedAt = Date.now(); }
-
+    if(isFeed){frog.hunger=Math.min(100,frog.hunger+restore);frog.lastFedAt=Date.now();}
+    else{frog.happiness=Math.min(100,frog.happiness+restore);frog.lastPlayedAt=Date.now();}
     await pondFrogSet(interaction.user.id, frog);
-    const verb = isFeed
-        ? (usedItem ? 'gobbles down a juicy worm 🪱' : 'munches happily on some flies 🪰')
-        : (usedItem ? 'plays with a fun new toy 🧸' : 'hops around joyfully with you 🌿');
-    await interaction.reply({
-        content: `🐸 **${frog.name}** ${verb}! Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100`,
-        files: [new AttachmentBuilder(await drawFrogPortrait(frog), { name: 'frog.gif' })],
-    });
+    const verb=isFeed?(usedItem?'gobbles down a juicy worm 🪱':'munches happily on some flies 🪰'):(usedItem?'plays with a fun new toy 🧸':'hops around joyfully with you 🌿');
+    await interaction.reply({ content:`🐸 **${frog.name}** ${verb}! Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100`, files:[new AttachmentBuilder(await drawFrogPortrait(frog),{name:'frog.gif'})] });
 }
 
 async function handleFrogCure(interaction, kind) {
-    const isCure = kind === 'cure';
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    if (frog.justDied) {
-        await pondFrogSet(interaction.user.id, frog);
-        return announceDeath(interaction.client, frog).then(() =>
-            interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` })
-        );
-    }
-    const isAfflicted = isCure ? frog.sick : frog.depressed;
-    if (!isAfflicted) {
-        return interaction.reply({ content: `🐸 **${frog.name}** doesn't need that right now.`, ephemeral: true });
-    }
-    const cost = shopPrice(frog, isCure ? CURE_COST : SOOTHE_COST);
-    if (frog.fireflies < cost) {
-        return interaction.reply({ content: `🪲 You need ${cost} fireflies for that, but **${frog.name}** only has ${frog.fireflies}.`, ephemeral: true });
-    }
-    frog.fireflies -= cost;
-    if (isCure) { frog.hunger = 50; frog.sick = false; frog.sickSince = null; }
-    else { frog.happiness = 50; frog.depressed = false; frog.depressedSince = null; }
-
-    await pondFrogSet(interaction.user.id, frog);
-    const verb = isCure ? 'is nursed back to health 💊' : 'splashes joyfully through a bubble party 🫧';
-    await interaction.reply({
-        content: `🐸 **${frog.name}** ${verb}! (-${cost} fireflies) Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100`,
-        files: [new AttachmentBuilder(await drawFrogPortrait(frog), { name: 'frog.gif' })],
-    });
+    const isCure=kind==='cure';
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    if(frog.justDied){await pondFrogSet(interaction.user.id,frog);return announceDeath(interaction.client,frog).then(()=>interaction.reply({content:`${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.`}));}
+    const isAfflicted=isCure?frog.sick:frog.depressed;
+    if(!isAfflicted)return interaction.reply({content:`🐸 **${frog.name}** doesn't need that right now.`,ephemeral:true});
+    const cost=shopPrice(frog,isCure?CURE_COST:SOOTHE_COST);
+    if(frog.fireflies<cost)return interaction.reply({content:`🪲 You need ${cost} fireflies, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});
+    frog.fireflies-=cost;
+    if(isCure){frog.hunger=50;frog.sick=false;frog.sickSince=null;}
+    else{frog.happiness=50;frog.depressed=false;frog.depressedSince=null;}
+    await pondFrogSet(interaction.user.id,frog);
+    const verb=isCure?'is nursed back to health 💊':'splashes joyfully through a bubble party 🫧';
+    await interaction.reply({content:`🐸 **${frog.name}** ${verb}! (-${cost} fireflies) Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100`,files:[new AttachmentBuilder(await drawFrogPortrait(frog),{name:'frog.gif'})]});
 }
 
 async function handleFrogStatus(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog) {
-        return interaction.reply({ content: "🐸 You don't have a frog yet. Adopt one with `/frog adopt`!", ephemeral: true });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!frog)return interaction.reply({content:"🐸 You don't have a frog yet. Adopt one with `/frog adopt`!",ephemeral:true});
+    if(!frog.alive){
+        await pondFrogSet(interaction.user.id,frog);
+        if(frog.justDied)await announceDeath(interaction.client,frog);
+        return interaction.reply({content:`${deathMessage(frog)} \`/pond memorial\` to remember them. Adopt a new frog with \`/frog adopt\`.`});
     }
-    if (!frog.alive) {
-        await pondFrogSet(interaction.user.id, frog);
-        if (frog.justDied) await announceDeath(interaction.client, frog);
-        return interaction.reply({ content: `${deathMessage(frog)} \`/pond memorial\` to remember them. Adopt a new frog with \`/frog adopt\`.` });
-    }
-    await pondFrogSet(interaction.user.id, frog);
-    const age = formatAge(Date.now() - frog.bornAt);
-    const colorInfo = FROG_COLORS[frog.color] || FROG_COLORS.green;
-    const statusFlags = [];
-    if (frog.sick) statusFlags.push('🤒 sick — `/frog cure`');
-    if (frog.depressed) statusFlags.push('😔 depressed — `/frog soothe`');
+    await pondFrogSet(interaction.user.id,frog);
+    const age=formatAge(Date.now()-frog.bornAt);
+    const ci=FROG_COLORS[frog.color]||FROG_COLORS.green;
+    const flags=[];
+    if(frog.sick)flags.push('🤒 sick — `/frog cure`');
+    if(frog.depressed)flags.push('😔 depressed — `/frog soothe`');
+    if(frog.isMayor)flags.push('👑 Frog Mayor');
+    const careerLine=frog.career?` · 💼 ${CAREERS[frog.career].label}`:'';
     await interaction.reply({
-        content: `🐸 **${frog.name}** — ${frog.stage}, ${age} old\n`
-            + `Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100\n`
-            + `🪲 Fireflies: ${frog.fireflies} · 🍃 Lilypad: level ${frog.lilypadLevel}\n`
-            + `🎨 ${colorInfo.name} — ${PERK_DESCRIPTIONS[colorInfo.perk]}`
-            + (statusFlags.length ? `\n${statusFlags.join(' · ')}` : ''),
-        files: [new AttachmentBuilder(await drawFrogPortrait(frog), { name: 'frog.gif' })],
+        content:`🐸 **${frog.name}** — ${frog.stage}, ${age} old\n`
+            +`Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100\n`
+            +`🪲 Fireflies: ${frog.fireflies} · 🍃 Lilypad: level ${frog.lilypadLevel}${careerLine}\n`
+            +`🎨 ${ci.name} — ${PERK_DESCRIPTIONS[ci.perk]}`
+            +(flags.length?`\n${flags.join(' · ')}`:``),
+        files:[new AttachmentBuilder(await drawFrogPortrait(frog),{name:'frog.gif'})],
     });
 }
 
 async function handleFrogLilypadInfo(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    await pondFrogSet(interaction.user.id, frog);
-    const level = frog.lilypadLevel;
-    const next = LILYPAD_LEVELS[level + 1];
-    const lines = [`🍃 **${frog.name}**'s lilypad is level ${level} — ${LILYPAD_LEVELS[level].label}`];
-    if (next) {
-        lines.push(`Next: level ${level + 1} for ${shopPrice(frog, next.cost)} fireflies — ${next.label}`);
-        lines.push('Upgrade with `/frog lilypad upgrade`.');
-    } else {
-        lines.push('Already at the max level!');
-    }
-    await interaction.reply({ content: lines.join('\n') });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    await pondFrogSet(interaction.user.id,frog);
+    const level=frog.lilypadLevel, next=LILYPAD_LEVELS[level+1];
+    const lines=[`🍃 **${frog.name}**'s lilypad is level ${level} — ${LILYPAD_LEVELS[level].label}`];
+    if(next){lines.push(`Next: level ${level+1} for ${shopPrice(frog,next.cost)} fireflies — ${next.label}`);lines.push('Upgrade with `/frog lilypad upgrade`.');}
+    else lines.push('Already at the max level!');
+    await interaction.reply({content:lines.join('\n')});
 }
 
 async function handleFrogLilypadUpgrade(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    const next = LILYPAD_LEVELS[frog.lilypadLevel + 1];
-    if (!next) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🍃 **${frog.name}**'s lilypad is already at the max level!`, ephemeral: true });
-    }
-    const cost = shopPrice(frog, next.cost);
-    if (frog.fireflies < cost) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🪲 You need ${cost} fireflies for that upgrade, but **${frog.name}** only has ${frog.fireflies}.`, ephemeral: true });
-    }
-    frog.fireflies -= cost;
-    frog.lilypadLevel += 1;
-    await pondFrogSet(interaction.user.id, frog);
-    await interaction.reply({
-        content: `🍃 **${frog.name}**'s lilypad is now level ${frog.lilypadLevel}! ${LILYPAD_LEVELS[frog.lilypadLevel].label} (-${cost} fireflies)`,
-        files: [new AttachmentBuilder(await drawFrogPortrait(frog), { name: 'frog.gif' })],
-    });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    const next=LILYPAD_LEVELS[frog.lilypadLevel+1];
+    if(!next){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🍃 **${frog.name}**'s lilypad is already at the max level!`,ephemeral:true});}
+    const cost=shopPrice(frog,next.cost);
+    if(frog.fireflies<cost){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 You need ${cost} fireflies for that upgrade, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
+    frog.fireflies-=cost;
+    frog.lilypadLevel+=1;
+    if(frog.lilypadLevel===10&&!frog.lilypadL10Claimed){frog.fireflies+=100;frog.lilypadL10Claimed=true;}
+    await pondFrogSet(interaction.user.id,frog);
+    const bonus=frog.lilypadLevel===10?' (+100 fireflies reward!)':'';
+    await interaction.reply({content:`🍃 **${frog.name}**'s lilypad is now level ${frog.lilypadLevel}! ${LILYPAD_LEVELS[frog.lilypadLevel].label}${bonus} (-${cost} fireflies)`,files:[new AttachmentBuilder(await drawFrogPortrait(frog),{name:'frog.gif'})]});
 }
 
 async function handlePondShopBuy(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    const itemKey = interaction.options.getString('item');
-    const item = SHOP_ITEMS[itemKey];
-    const quantity = itemKey === 'nest' ? 1 : (interaction.options.getInteger('quantity') || 1);
-
-    if (itemKey === 'nest' && frog.hasNest) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🪺 **${frog.name}** already has a nest.`, ephemeral: true });
-    }
-
-    const unitCost = shopPrice(frog, item.cost);
-    const totalCost = unitCost * quantity;
-    if (frog.fireflies < totalCost) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🪲 You need ${totalCost} fireflies for ${quantity}x ${item.label}, but **${frog.name}** only has ${frog.fireflies}.`, ephemeral: true });
-    }
-
-    frog.fireflies -= totalCost;
-    if (itemKey === 'worms') frog.worms += quantity;
-    else if (itemKey === 'toys') frog.toys += quantity;
-    else if (itemKey === 'nest') frog.hasNest = true;
-
-    await pondFrogSet(interaction.user.id, frog);
-    await interaction.reply({ content: `🛒 Bought ${quantity}x **${item.label}** for ${totalCost} fireflies! ${item.desc}` });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    const itemKey=interaction.options.getString('item'), item=SHOP_ITEMS[itemKey];
+    const quantity=itemKey==='nest'?1:(interaction.options.getInteger('quantity')||1);
+    if(itemKey==='nest'&&frog.hasNest){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪺 **${frog.name}** already has a nest.`,ephemeral:true});}
+    const totalCost=shopPrice(frog,item.cost)*quantity;
+    if(frog.fireflies<totalCost){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 You need ${totalCost} fireflies for ${quantity}x ${item.label}, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
+    frog.fireflies-=totalCost;
+    if(itemKey==='worms')frog.worms+=quantity;
+    else if(itemKey==='toys')frog.toys+=quantity;
+    else if(itemKey==='nest')frog.hasNest=true;
+    await pondFrogSet(interaction.user.id,frog);
+    await interaction.reply({content:`🛒 Bought ${quantity}x **${item.label}** for ${totalCost} fireflies! ${item.desc}`});
 }
 
 async function handleFrogLeaderboard(interaction) {
-    const frogs = await pondFirestoreQuery();
-    if (frogs.length === 0) {
-        return interaction.reply({ content: '🐸 No frogs have been adopted yet — be the first with `/frog adopt`!' });
-    }
-    const now = Date.now();
-    // Sort by exact age in ms, not the day-rounded display value — otherwise frogs adopted
-    // on the same calendar day tie on `ageDays` and fall back to Firestore's arbitrary
-    // query order instead of who was actually adopted first.
-    const ranked = frogs
-        .map(f => ({
-            ...f,
-            ageDays: f.alive ? Math.floor((now - f.bornAt) / DAY_MS) : f.lifespanDays,
-            ageMs: f.alive ? now - f.bornAt : (f.diedAt || now) - f.bornAt,
-        }))
-        .sort((a, b) => b.ageMs - a.ageMs)
-        .slice(0, 10);
-    const lines = ranked.map((f, i) =>
-        `${i + 1}. **${f.name}** — ${f.ageDays} day(s) ${f.alive ? '🐸' : '🪦'}`);
-    await interaction.reply({ content: `🏆 **Longest-living frogs**\n${lines.join('\n')}` });
+    const frogs=await pondFirestoreQuery();
+    if(!frogs.length)return interaction.reply({content:'🐸 No frogs have been adopted yet — be the first with `/frog adopt`!'});
+    const now=Date.now();
+    const ranked=frogs.map(f=>({...f,ageDays:f.alive?Math.floor((now-f.bornAt)/DAY_MS):f.lifespanDays,ageMs:f.alive?now-f.bornAt:(f.diedAt||now)-f.bornAt})).sort((a,b)=>b.ageMs-a.ageMs).slice(0,10);
+    await interaction.reply({content:`🏆 **Longest-living frogs**\n${ranked.map((f,i)=>`${i+1}. **${f.name}** — ${f.ageDays} day(s) ${f.alive?'🐸':'🪦'}`).join('\n')}`});
 }
 
 async function handleFrogExplore(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    if (frog.justDied) {
-        await pondFrogSet(interaction.user.id, frog);
-        return announceDeath(interaction.client, frog).then(() =>
-            interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` })
-        );
-    }
-    const remaining = EXPLORE_COOLDOWN_MS - (Date.now() - (frog.lastExploreAt || 0));
-    if (frog.lastExploreAt && remaining > 0) {
-        const hrs = Math.ceil(remaining / (60 * 60 * 1000));
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🌿 **${frog.name}** already explored today. Try again in ~${hrs}h.`, ephemeral: true });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    if(frog.justDied){await pondFrogSet(interaction.user.id,frog);return announceDeath(interaction.client,frog).then(()=>interaction.reply({content:`${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.`}));}
+
+    const today=getTodayKey();
+    if(frog.exploresResetDay!==today){frog.exploresToday=0;frog.exploresResetDay=today;}
+    const limit=getExploreLimit(frog);
+    if(frog.exploresToday>=limit){
+        await pondFrogSet(interaction.user.id,frog);
+        return interaction.reply({content:`🌿 **${frog.name}** has already explored ${limit} time(s) today. Come back tomorrow!`,ephemeral:true});
     }
 
-    const result = rollExploration(frog);
-    frog.lastExploreAt = Date.now();
-    frog.fireflies = Math.max(0, frog.fireflies + result.fireflies);
-    if (result.hunger) frog.hunger = Math.min(100, frog.hunger + result.hunger);
-    if (result.happiness) frog.happiness = Math.min(100, frog.happiness + result.happiness);
+    const result=rollExploration(frog);
+    frog.exploresToday+=1;
+    frog.fireflies=Math.max(0,frog.fireflies+result.fireflies);
+    if(result.hunger)frog.hunger=Math.min(100,frog.hunger+result.hunger);
+    if(result.happiness)frog.happiness=Math.min(100,frog.happiness+result.happiness);
+    await pondFrogSet(interaction.user.id,frog);
 
-    await pondFrogSet(interaction.user.id, frog);
-    const parts = [`🧭 **${frog.name}** ${result.text}!`];
-    if (result.fireflies) parts.push(`${result.fireflies > 0 ? '+' : ''}${result.fireflies} fireflies`);
-    if (result.hunger) parts.push(`+${result.hunger} hunger`);
-    if (result.happiness) parts.push(`+${result.happiness} happiness`);
-    await interaction.reply({ content: parts.join(' ') });
+    const parts=[`🧭 **${frog.name}** ${result.text}!`];
+    if(result.fireflies)parts.push(`${result.fireflies>0?'+':''}${result.fireflies} 🪲`);
+    if(result.hunger)parts.push(`+${result.hunger} hunger`);
+    if(result.happiness)parts.push(`+${result.happiness} happiness`);
+    parts.push(`*(${frog.exploresToday}/${limit} explores today)*`);
+    await interaction.reply({content:parts.join(' ')});
+}
+
+async function handleFrogMayor(interaction) {
+    const meta=await pondFirestoreGet(POND_META_DOC_ID);
+    if(!meta||!meta.mayorOwnerId)return interaction.reply({content:'🗳️ No mayor has been elected yet. Elections happen every Wednesday at 20:00 UTC.'});
+    const mayorFrog=await pondFrogGet(meta.mayorOwnerId);
+    if(!mayorFrog||!mayorFrog.alive)return interaction.reply({content:'🗳️ The current mayor seems to have left the pond. A new election is coming soon.'});
+    const ci=FROG_COLORS[mayorFrog.color]||FROG_COLORS.green;
+    await interaction.reply({content:`👑 **${mayorFrog.name}** is the current Frog Mayor! (${ci.name})\n🪲 +10% firefly income · 😊 +2 hunger/happiness per day · ⏱️ Ages 10% faster`});
 }
 
 async function handleFrogCareerInfo(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    await pondFrogSet(interaction.user.id,frog);
+    if(!frog.career){
+        const unlocked=hasUnlockedCareer(frog);
+        return interaction.reply({content:unlocked?`🐸 **${frog.name}** hasn't picked a career yet. Use \`/frog career choose\` to pick one (free first time).`:`🐸 **${frog.name}** is too young for a career — careers unlock at day ${CAREER_MIN_STAGE_DAYS}.`});
     }
-    await pondFrogSet(interaction.user.id, frog);
-    if (!frog.career) {
-        const unlocked = hasUnlockedCareer(frog);
-        return interaction.reply({ content: unlocked
-            ? `🐸 **${frog.name}** hasn't picked a career yet. Use \`/frog career choose\` to pick one (free the first time).`
-            : `🐸 **${frog.name}** is too young for a career yet — careers unlock at day ${CAREER_MIN_STAGE_DAYS}.` });
-    }
-    const c = CAREERS[frog.career];
-    await interaction.reply({ content: `🐸 **${frog.name}** is a **${c.label}** — ${c.desc}.\nChange career anytime with \`/frog career respec\` (${shopPrice(frog, CAREER_RESPEC_COST)} fireflies).` });
+    const c=CAREERS[frog.career];
+    await interaction.reply({content:`🐸 **${frog.name}** is a **${c.label}** — ${c.desc}.\nRespec on Mondays from 12:00 (GMT+1) for ${shopPrice(frog,CAREER_RESPEC_COST)} fireflies with \`/frog career respec\`.`});
 }
 
 async function handleFrogCareerSet(interaction, isRespec) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    if (!hasUnlockedCareer(frog)) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🐸 **${frog.name}** is too young for a career yet — careers unlock at day ${CAREER_MIN_STAGE_DAYS}.`, ephemeral: true });
-    }
-    if (isRespec && !frog.career) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🐸 **${frog.name}** doesn't have a career yet — use \`/frog career choose\` for your first (free) pick.`, ephemeral: true });
-    }
-    if (!isRespec && frog.career) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🐸 **${frog.name}** is already a ${CAREERS[frog.career].label} — use \`/frog career respec\` to change.`, ephemeral: true });
-    }
-    const career = interaction.options.getString('career');
-    let cost = 0;
-    if (isRespec) {
-        cost = shopPrice(frog, CAREER_RESPEC_COST);
-        if (frog.fireflies < cost) {
-            await pondFrogSet(interaction.user.id, frog);
-            return interaction.reply({ content: `🪲 You need ${cost} fireflies to respec, but **${frog.name}** only has ${frog.fireflies}.`, ephemeral: true });
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    if(!hasUnlockedCareer(frog)){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🐸 **${frog.name}** is too young for a career — careers unlock at day ${CAREER_MIN_STAGE_DAYS}.`,ephemeral:true});}
+    if(isRespec&&!frog.career){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🐸 **${frog.name}** doesn't have a career yet — use \`/frog career choose\` for your first (free) pick.`,ephemeral:true});}
+    if(!isRespec&&frog.career){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🐸 **${frog.name}** is already a ${CAREERS[frog.career].label} — use \`/frog career respec\` to change.`,ephemeral:true});}
+
+    const career=interaction.options.getString('career');
+    let cost=0;
+    if(isRespec){
+        const windowMs=lastMondayRespecWindowMs();
+        if(frog.lastCareerRespecAt && frog.lastCareerRespecAt>=windowMs){
+            await pondFrogSet(interaction.user.id,frog);
+            return interaction.reply({content:`🐸 **${frog.name}** already changed career this week. Respec windows open every Monday at 12:00 (GMT+1).`,ephemeral:true});
         }
-        frog.fireflies -= cost;
+        if(Date.now()<windowMs){
+            await pondFrogSet(interaction.user.id,frog);
+            return interaction.reply({content:`🐸 The respec window opens every **Monday at 12:00 (GMT+1)**. Come back then!`,ephemeral:true});
+        }
+        cost=shopPrice(frog,CAREER_RESPEC_COST);
+        if(frog.fireflies<cost){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 You need ${cost} fireflies to respec, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
+        frog.fireflies-=cost;
+        frog.lastCareerRespecAt=Date.now();
     }
-    frog.career = career;
-    await pondFrogSet(interaction.user.id, frog);
-    const c = CAREERS[career];
-    await interaction.reply({ content: `🐸 **${frog.name}** is now a **${c.label}**! ${c.desc}.${cost ? ` (-${cost} fireflies)` : ''}` });
+    frog.career=career;
+    await pondFrogSet(interaction.user.id,frog);
+    const c=CAREERS[career];
+    await interaction.reply({content:`🐸 **${frog.name}** is now a **${c.label}**! ${c.desc}.${cost?` (-${cost} fireflies)`:''}`});
 }
 
 // ── Hawk minigame ─────────────────────────────────────────────────────────────
 
-function hawkBoardComponents(board, gameOver) {
-    const rows = [];
-    for (let r = 0; r < 3; r++) {
-        const row = new ActionRowBuilder();
-        for (let c = 0; c < 3; c++) {
-            const i = r * 3 + c;
-            const cell = board[i];
-            row.addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`pond:hawk:${i}`)
-                    .setLabel(cell || '⬜')
-                    .setStyle(cell === 'X' ? ButtonStyle.Primary : cell === 'O' ? ButtonStyle.Danger : ButtonStyle.Secondary)
-                    .setDisabled(Boolean(cell) || gameOver)
-            );
-        }
-        rows.push(row);
+async function handleFrogHawk(interaction) {
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    if(frog.justDied){await pondFrogSet(interaction.user.id,frog);return announceDeath(interaction.client,frog).then(()=>interaction.reply({content:`${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.`}));}
+
+    const today=getTodayKey();
+    if(frog.hawksResetDay!==today){frog.hawksDoneToday=0;frog.hawksResetDay=today;}
+    if(frog.hawksDoneToday>=HAWK_DAILY_BASE){
+        await pondFrogSet(interaction.user.id,frog);
+        return interaction.reply({content:`🦅 **${frog.name}** has already faced the hawk ${HAWK_DAILY_BASE} times today. Come back tomorrow!`,ephemeral:true});
     }
-    return rows;
+    frog.hawksDoneToday+=1;
+    await pondFrogSet(interaction.user.id,frog);
+
+    const mc=hawkMistakeChance(frog);
+    await interaction.reply({
+        content:`🦅 **${frog.name}** vs the hawk — choose your battle! (${frog.hawksDoneToday}/${HAWK_DAILY_BASE} today)`,
+        components:[new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pond:hawk:pick:ttt').setLabel('⬜ Tic-Tac-Toe').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('pond:hawk:pick:rps').setLabel('🪨 Rock-Worm-Lilypad').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pond:hawk:pick:reeds').setLabel('🌿 The Reeds').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pond:hawk:pick:firefly').setLabel('🪲 Firefly Count').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pond:hawk:pick:predator').setLabel('🦅 Predator\'s Thinking').setStyle(ButtonStyle.Secondary),
+        )],
+    });
+    const msg=await interaction.fetchReply();
+    const state={ ownerId:interaction.user.id, mistakeChance:mc, gameType:null, state:{}, timer:null };
+    state.timer=setTimeout(()=>{
+        if(pondHawkGames.get(msg.id)===state){pondHawkGames.delete(msg.id);msg.edit({content:'🦅 The hawk flew away — game expired.',components:[]}).catch(()=>{});}
+    },HAWK_GAME_TIMEOUT_MS);
+    pondHawkGames.set(msg.id,state);
 }
 
-async function handleFrogHawk(interaction) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    if (frog.justDied) {
-        await pondFrogSet(interaction.user.id, frog);
-        return announceDeath(interaction.client, frog).then(() =>
-            interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` })
-        );
-    }
-    const remaining = HAWK_COOLDOWN_MS - (Date.now() - (frog.lastHawkAt || 0));
-    if (frog.lastHawkAt && remaining > 0) {
-        const hrs = Math.ceil(remaining / (60 * 60 * 1000));
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🦅 **${frog.name}** already faced the hawk today. Try again in ~${hrs}h.`, ephemeral: true });
-    }
+async function startHawkGame(interaction, state, msg, gameType) {
+    state.gameType=gameType;
+    clearTimeout(state.timer);
+    state.timer=setTimeout(()=>{
+        if(pondHawkGames.get(msg.id)===state){pondHawkGames.delete(msg.id);msg.edit({content:'🦅 The hawk flew away — game expired.',components:[]}).catch(()=>{});}
+    },HAWK_GAME_TIMEOUT_MS);
 
-    frog.lastHawkAt = Date.now();
-    await pondFrogSet(interaction.user.id, frog);
-
-    const board = Array(9).fill(null);
-    await interaction.reply({
-        content: `🦅 **${frog.name}** vs the hawk! You're 🟦 (X), the hawk is 🟥 (O). Click a square.`,
-        components: hawkBoardComponents(board, false),
-    });
-    const msg = await interaction.fetchReply();
-    const state = {
-        ownerId: interaction.user.id,
-        board,
-        mistakeChance: hawkMistakeChance(frog),
-        timer: null,
-    };
-    state.timer = setTimeout(() => {
-        if (pondHawkGames.get(msg.id) === state) {
-            pondHawkGames.delete(msg.id);
-            msg.edit({ content: '🦅 The hawk lost interest and flew off — game expired.', components: [] }).catch(() => {});
-        }
-    }, HAWK_GAME_TIMEOUT_MS);
-    pondHawkGames.set(msg.id, state);
+    if(gameType==='ttt'){
+        const board=Array(9).fill(null); state.state={board};
+        return interaction.update({content:`🦅 Tic-Tac-Toe! You're 🟦 (X), the hawk is 🟥 (O).`,components:tttBoardComponents(board,false,'pond:hawk:ttt:')});
+    }
+    if(gameType==='rps'){
+        state.state={round:1,playerWins:0,hawkWins:0};
+        return interaction.update({content:`🦅 Rock-Worm-Lilypad (best of 3)! Round 1 — pick your move:`,components:rpsComponents('pond:hawk:rps:')});
+    }
+    if(gameType==='reeds'){
+        return interaction.update({content:`🦅 The Reeds! A hawk hides behind one. Pick a reed to hide in:\n🌿 🌿 🌿`,components:[new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pond:hawk:reeds:1').setLabel('Reed 1').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pond:hawk:reeds:2').setLabel('Reed 2').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('pond:hawk:reeds:3').setLabel('Reed 3').setStyle(ButtonStyle.Secondary),
+        )]});
+    }
+    if(gameType==='firefly'){
+        const count=Math.floor(Math.random()*6)+5;
+        state.state={target:count};
+        const flies='🪲'.repeat(count);
+        await interaction.update({content:`🦅 Count the fireflies!\n${flies}\nClick "Submit Count" to enter your answer!`,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('pond:hawk:firefly:submit').setLabel('Submit Count').setStyle(ButtonStyle.Primary))]});
+        return;
+    }
+    if(gameType==='predator'){
+        const num=Math.floor(Math.random()*50)+1; state.state={hawkNum:num};
+        return interaction.update({content:`🦅 A Predator's Thinking! The hawk has secretly chosen a number between 1 and 50. How close can you get?\n\n🏆 Exact match → +40 🪲 | Within 1-3 → +20 🪲 | Within 4-5 → +10 🪲 | 6+ off → -10% 🪲`,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('pond:hawk:predator:submit').setLabel('Enter My Guess').setStyle(ButtonStyle.Primary))]});
+    }
 }
 
 async function finishHawkGame(interaction, state, msg, resultText, fireflyDelta) {
     clearTimeout(state.timer);
     pondHawkGames.delete(msg.id);
-    const frog = await getLiveFrog(state.ownerId);
-    let content = resultText;
-    if (frog && frog.alive) {
-        if (fireflyDelta > 0) {
-            frog.fireflies += fireflyDelta;
-            content += ` +${fireflyDelta} fireflies.`;
-        } else if (fireflyDelta < 0) {
-            frog.fireflies = Math.max(0, frog.fireflies + fireflyDelta);
-            content += ` ${fireflyDelta} fireflies.`;
+    const frog=await getLiveFrog(state.ownerId);
+    let content=resultText;
+    if(frog&&frog.alive){
+        if(fireflyDelta>0){
+            const gain=Math.round(fireflyDelta*mayorMult(frog));
+            frog.fireflies+=gain; content+=` +${gain} 🪲`;
+        } else if(fireflyDelta<0){
+            const loss=Math.floor(frog.fireflies*Math.abs(fireflyDelta));
+            frog.fireflies=Math.max(0,frog.fireflies-loss); content+=` -${loss} 🪲`;
         }
-        await pondFrogSet(state.ownerId, frog);
+        await pondFrogSet(state.ownerId,frog);
     }
-    await interaction.update({ content, components: [] }).catch(() => msg.edit({ content, components: [] }).catch(() => {}));
+    const edit={content,components:[]};
+    await interaction.update(edit).catch(()=>msg.edit(edit).catch(()=>{}));
 }
 
 async function handleHawkButton(interaction) {
-    const msg = interaction.message;
-    const state = pondHawkGames.get(msg.id);
-    if (!state) {
-        return interaction.reply({ content: '🦅 This hawk battle has expired.', ephemeral: true });
-    }
-    if (interaction.user.id !== state.ownerId) {
-        return interaction.reply({ content: "🐸 This isn't your hawk battle!", ephemeral: true });
-    }
-    const cell = Number(interaction.customId.split(':')[2]);
-    if (state.board[cell]) {
-        return interaction.reply({ content: 'That square is already taken.', ephemeral: true });
+    const msg=interaction.message;
+    const state=pondHawkGames.get(msg.id);
+    if(!state)return interaction.reply({content:'🦅 This hawk battle has expired.',ephemeral:true});
+    if(interaction.user.id!==state.ownerId)return interaction.reply({content:"🐸 This isn't your hawk battle!",ephemeral:true});
+
+    const parts=interaction.customId.split(':'); // pond:hawk:<type>:<detail>
+    const type=parts[2], detail=parts[3];
+
+    if(type==='pick'){
+        if(state.gameType!==null)return interaction.reply({content:'Game already started.',ephemeral:true});
+        return startHawkGame(interaction,state,msg,detail);
     }
 
-    state.board[cell] = 'X';
-    let winner = tttWinner(state.board);
-    if (!winner) {
-        const aiMove = tttAiMove(state.board, state.mistakeChance);
-        state.board[aiMove] = 'O';
-        winner = tttWinner(state.board);
+    if(type==='ttt'){
+        const cell=Number(detail);
+        if(state.state.board[cell])return interaction.reply({content:'That square is already taken.',ephemeral:true});
+        state.state.board[cell]='X';
+        let winner=tttWinner(state.state.board);
+        if(!winner){const ai=tttAiMove(state.state.board,state.mistakeChance);state.state.board[ai]='O';winner=tttWinner(state.state.board);}
+        if(!winner)return interaction.update({components:tttBoardComponents(state.state.board,false,'pond:hawk:ttt:')});
+        if(winner==='X')return finishHawkGame(interaction,state,msg,'🎉 You beat the hawk!',HAWK_WIN_REWARD);
+        if(winner==='O'){const frog=await getLiveFrog(state.ownerId);const lr=frog&&frog.lilypadLevel>=6?HAWK_LOSS_RATE_REDUCED:HAWK_LOSS_RATE;return finishHawkGame(interaction,state,msg,'🦅 The hawk got the upper hand.',lr*-1);}
+        return finishHawkGame(interaction,state,msg,"🤝 It's a draw — the hawk gave up.",0);
     }
 
-    if (!winner) {
-        return interaction.update({ components: hawkBoardComponents(state.board, false) });
+    if(type==='rps'){
+        const playerPick=detail;
+        const hawkPool=Object.keys(RPS_BEATS);
+        const hawkRaw=hawkPool[Math.floor(Math.random()*hawkPool.length)];
+        const hawkPick=Math.random()<state.mistakeChance?playerPick:hawkRaw;
+        const result=rpsResult(playerPick,hawkPick);
+        state.state.playerWins+=(result==='win'?1:0);
+        state.state.hawkWins+=(result==='lose'?1:0);
+        const roundMsg=`Round ${state.state.round}: You picked ${RPS_LABELS[playerPick]}, hawk picked ${RPS_LABELS[hawkPick]} → ${result==='win'?'You win!':result==='lose'?'Hawk wins!':'Draw!'}`;
+        state.state.round+=1;
+        if(state.state.round>3||state.state.playerWins>=2||state.state.hawkWins>=2){
+            const pWins=state.state.playerWins,hWins=state.state.hawkWins;
+            const overall=pWins>hWins?'win':hWins>pWins?'lose':'draw';
+            if(overall==='win')return finishHawkGame(interaction,state,msg,`${roundMsg}\n🎉 You won the match!`,HAWK_WIN_REWARD);
+            if(overall==='lose'){const frog=await getLiveFrog(state.ownerId);const lr=frog&&frog.lilypadLevel>=6?HAWK_LOSS_RATE_REDUCED:HAWK_LOSS_RATE;return finishHawkGame(interaction,state,msg,`${roundMsg}\n🦅 The hawk won the match.`,lr*-1);}
+            return finishHawkGame(interaction,state,msg,`${roundMsg}\n🤝 Match drawn — the hawk slinks off.`,0);
+        }
+        return interaction.update({content:`${roundMsg}\nRound ${state.state.round} — pick your move:`,components:rpsComponents('pond:hawk:rps:')});
     }
 
-    if (winner === 'X') {
-        return finishHawkGame(interaction, state, msg, '🎉 You beat the hawk!', HAWK_WIN_REWARD);
+    if(type==='reeds'){
+        const chosen=Number(detail);
+        const hawkReed=Math.random()<state.mistakeChance?chosen:(Math.floor(Math.random()*3)+1);
+        if(hawkReed===chosen)return finishHawkGame(interaction,state,msg,`🦅 The hawk attacked Reed ${hawkReed}... and caught you!`,HAWK_LOSS_RATE*-1);
+        return finishHawkGame(interaction,state,msg,`🌿 The hawk attacked Reed ${hawkReed}! You hid safely in Reed ${chosen}.`,HAWK_WIN_REWARD);
     }
-    if (winner === 'O') {
-        const frog = await getLiveFrog(state.ownerId);
-        const lossRate = frog && frog.lilypadLevel >= 6 ? HAWK_LOSS_RATE_REDUCED : HAWK_LOSS_RATE;
-        const lost = frog ? -Math.floor(frog.fireflies * lossRate) : 0;
-        return finishHawkGame(interaction, state, msg, '🦅 The hawk got the upper hand this time.', lost);
+
+    if(type==='firefly'&&detail==='submit'){
+        const modal=new ModalBuilder().setCustomId(`pond:hawk:firefly_modal:${msg.id}`).setTitle('🪲 Firefly Count');
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('count').setLabel('How many fireflies did you count?').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3)));
+        return interaction.showModal(modal);
     }
-    return finishHawkGame(interaction, state, msg, "🤝 It's a draw — the hawk gave up the chase.", 0);
+
+    if(type==='predator'&&detail==='submit'){
+        const modal=new ModalBuilder().setCustomId(`pond:hawk:predator_modal:${msg.id}`).setTitle("🦅 Predator's Thinking");
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('guess').setLabel('Guess the hawk\'s number (1-50)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2)));
+        return interaction.showModal(modal);
+    }
 }
 
-// ── Rock fights ────────────────────────────────────────────────────────────────
+async function handleHawkModal(interaction) {
+    const parts=interaction.customId.split(':'); // pond:hawk:<game>_modal:<msgId>
+    const gameKey=parts[2]; // 'firefly_modal' or 'predator_modal'
+    const msgId=parts[3];
+    const state=pondHawkGames.get(msgId);
+    if(!state)return interaction.reply({content:'🦅 This hawk battle has expired.',ephemeral:true});
+    if(interaction.user.id!==state.ownerId)return interaction.reply({content:"🐸 This isn't your hawk battle!",ephemeral:true});
 
-function rockfightComponents() {
+    const msg={id:msgId, edit:(d)=>interaction.channel?.messages.fetch(msgId).then(m=>m.edit(d)).catch(()=>{})};
+
+    if(gameKey==='firefly_modal'){
+        const raw=interaction.fields.getTextInputValue('count').trim();
+        const guess=parseInt(raw,10);
+        const target=state.state.target;
+        const adjusted=Math.random()<state.mistakeChance?Math.max(5,target-1):target;
+        if(isNaN(guess)||guess<1||guess>15)return interaction.reply({content:'Please enter a number between 1 and 15.',ephemeral:true});
+        await interaction.deferUpdate().catch(()=>{});
+        const real=await interaction.channel?.messages.fetch(msgId).catch(()=>null);
+        if(guess===adjusted){return finishHawkGame({update:d=>real?.edit(d)||Promise.resolve(),message:{id:msgId}},state,{id:msgId},`🎉 Correct! There were **${target}** fireflies!`,HAWK_WIN_REWARD);}
+        return finishHawkGame({update:d=>real?.edit(d)||Promise.resolve(),message:{id:msgId}},state,{id:msgId},`❌ There were **${target}** fireflies, you guessed ${guess}.`,HAWK_LOSS_RATE*-1);
+    }
+
+    if(gameKey==='predator_modal'){
+        const raw=interaction.fields.getTextInputValue('guess').trim();
+        const guess=parseInt(raw,10);
+        if(isNaN(guess)||guess<1||guess>50)return interaction.reply({content:'Please enter a number between 1 and 50.',ephemeral:true});
+        await interaction.deferUpdate().catch(()=>{});
+        const real=await interaction.channel?.messages.fetch(msgId).catch(()=>null);
+        let hawkNum=state.state.hawkNum;
+        const nudge=Math.floor(state.mistakeChance*50);
+        if(guess>hawkNum&&guess-hawkNum<=nudge)hawkNum=guess;
+        else if(guess<hawkNum&&hawkNum-guess<=nudge)hawkNum=guess;
+        const diff=Math.abs(guess-hawkNum);
+        let reward,msg2;
+        if(diff===0){reward=40;msg2=`🎯 Exact match! The hawk's number was **${hawkNum}**!`;}
+        else if(diff<=3){reward=HAWK_WIN_REWARD;msg2=`🔥 Very close! The hawk's number was **${hawkNum}** (off by ${diff}).`;}
+        else if(diff<=5){reward=10;msg2=`👍 Close enough! The hawk's number was **${hawkNum}** (off by ${diff}).`;}
+        else{reward=-(HAWK_LOSS_RATE);msg2=`💨 Too far off. The hawk's number was **${hawkNum}** (off by ${diff}).`;}
+        return finishHawkGame({update:d=>real?.edit(d)||Promise.resolve(),message:{id:msgId}},state,{id:msgId},msg2,reward);
+    }
+}
+
+// ── Frog fights ───────────────────────────────────────────────────────────────
+
+const FROGFIGHT_GAMES = ['ttt','rps','bullfrog','bullfrog_hard'];
+
+function frogfightComponents() {
     return [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('pond:rf:accept').setLabel('Accept').setStyle(ButtonStyle.Success).setEmoji('🥊'),
-        new ButtonBuilder().setCustomId('pond:rf:decline').setLabel('Decline').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('pond:ff:accept').setLabel('Accept').setStyle(ButtonStyle.Success).setEmoji('🥊'),
+        new ButtonBuilder().setCustomId('pond:ff:decline').setLabel('Decline').setStyle(ButtonStyle.Danger),
     )];
 }
 
-async function handleFrogRockfight(interaction, isOpen) {
-    const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.reply({ content: "🐸 You don't have a living frog right now. Adopt one with `/frog adopt`!", ephemeral: true });
-    }
-    if (frog.justDied) {
-        await pondFrogSet(interaction.user.id, frog);
-        return announceDeath(interaction.client, frog).then(() =>
-            interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` })
-        );
-    }
-    const wager = interaction.options.getInteger('wager');
-    if (frog.fireflies < wager) {
-        await pondFrogSet(interaction.user.id, frog);
-        return interaction.reply({ content: `🪲 You need ${wager} fireflies to wager that much, but **${frog.name}** only has ${frog.fireflies}.`, ephemeral: true });
-    }
-    await pondFrogSet(interaction.user.id, frog);
-
-    const target = isOpen ? null : interaction.options.getUser('user');
-    if (target && target.id === interaction.user.id) {
-        return interaction.reply({ content: "🐸 You can't challenge your own frog!", ephemeral: true });
-    }
-
-    const content = isOpen
-        ? `🥊 **${frog.name}** opens a rock fight for **${wager}** fireflies — anyone, click Accept!`
-        : `🥊 **${frog.name}** challenges <@${target.id}> to a rock fight for **${wager}** fireflies!`;
-    await interaction.reply({ content, components: rockfightComponents() });
-    const msg = await interaction.fetchReply();
-
-    const state = {
-        challengerId: interaction.user.id,
-        targetId: target ? target.id : null,
-        wager,
-        resolved: false,
-        timer: null,
-    };
-    state.timer = setTimeout(() => {
-        if (pondRockfights.get(msg.id) === state && !state.resolved) {
-            state.resolved = true;
-            pondRockfights.delete(msg.id);
-            msg.edit({ content: `${content}\n*Challenge expired.*`, components: [] }).catch(() => {});
-        }
-    }, ROCKFIGHT_EXPIRY_MS);
-    pondRockfights.set(msg.id, state);
+async function handleFrogFrogfight(interaction, isOpen) {
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    if(frog.justDied){await pondFrogSet(interaction.user.id,frog);return announceDeath(interaction.client,frog).then(()=>interaction.reply({content:`${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.`}));}
+    const wager=interaction.options.getInteger('wager');
+    if(frog.fireflies<wager){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 You need ${wager} fireflies to wager that, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
+    await pondFrogSet(interaction.user.id,frog);
+    const target=isOpen?null:interaction.options.getUser('user');
+    if(target&&target.id===interaction.user.id)return interaction.reply({content:"🐸 You can't challenge your own frog!",ephemeral:true});
+    const challengerGuess=interaction.options.getInteger('guess')||null;
+    const content=isOpen?`🥊 **${frog.name}** opens a frog fight for **${wager}** 🪲 — click Accept to face them!`:`🥊 **${frog.name}** challenges <@${target.id}> to a frog fight for **${wager}** 🪲!`;
+    await interaction.reply({content,components:frogfightComponents()});
+    const msg=await interaction.fetchReply();
+    const state={challengerId:interaction.user.id,targetId:target?target.id:null,wager,challengerGuess,resolved:false,awaitingModal:false,timer:null};
+    state.timer=setTimeout(()=>{
+        if(pondFrogfights.get(msg.id)===state&&!state.resolved){state.resolved=true;pondFrogfights.delete(msg.id);msg.edit({content:`${content}\n*Challenge expired.*`,components:[]}).catch(()=>{});}
+    },FROGFIGHT_EXPIRY_MS);
+    pondFrogfights.set(msg.id,state);
 }
 
-async function handleRockfightButton(interaction) {
-    const msg = interaction.message;
-    const state = pondRockfights.get(msg.id);
-    if (!state || state.resolved) {
-        return interaction.reply({ content: '🥊 This challenge has already been settled or expired.', ephemeral: true });
-    }
-    const isAccept = interaction.customId === 'pond:rf:accept';
-    const isDecline = interaction.customId === 'pond:rf:decline';
+async function handleFrogfightButton(interaction) {
+    const msg=interaction.message;
+    const customId=interaction.customId;
 
-    if (state.targetId) {
-        if (interaction.user.id !== state.targetId) {
-            return interaction.reply({ content: "🐸 This challenge isn't for you!", ephemeral: true });
-        }
-    } else if (isAccept && interaction.user.id === state.challengerId) {
-        return interaction.reply({ content: "🐸 You can't accept your own open challenge!", ephemeral: true });
-    } else if (isDecline && interaction.user.id !== state.challengerId) {
-        return interaction.reply({ content: '🐸 Only the challenger can cancel an open challenge — feel free to Accept it instead!', ephemeral: true });
+    // Active game phase (after accept)
+    if(pondFrogGames.has(msg.id)){
+        const game=pondFrogGames.get(msg.id);
+        return handleActiveFFGame(interaction,game,msg);
     }
 
-    if (isDecline) {
-        if (state.resolved) return;
-        state.resolved = true;
-        clearTimeout(state.timer);
-        pondRockfights.delete(msg.id);
-        return interaction.update({ content: '🥊 Challenge declined.', components: [] });
-    }
-    if (!isAccept) return;
+    // Challenge accept/decline phase
+    const state=pondFrogfights.get(msg.id);
+    if(!state||state.resolved)return interaction.reply({content:'🥊 This challenge has already been settled or expired.',ephemeral:true});
 
-    // Synchronous check-and-set before any await — closes the race window where two
-    // clicks on an open challenge could both pass the `!state.resolved` check above.
-    if (state.resolved) return;
-    state.resolved = true;
-    clearTimeout(state.timer);
-    pondRockfights.delete(msg.id);
-
-    const challenger = await getLiveFrog(state.challengerId);
-    const opponent = await getLiveFrog(interaction.user.id);
-    if (!challenger || !challenger.alive || !opponent || !opponent.alive) {
-        return interaction.update({ content: '🥊 One of the frogs is no longer around to fight — challenge cancelled.', components: [] });
-    }
-    if (challenger.fireflies < state.wager || opponent.fireflies < state.wager) {
-        return interaction.update({ content: "🥊 One of you can't cover the wager anymore — challenge cancelled.", components: [] });
+    const isAccept=customId==='pond:ff:accept', isDecline=customId==='pond:ff:decline';
+    if(state.targetId){
+        if(interaction.user.id!==state.targetId)return interaction.reply({content:"🐸 This challenge isn't for you!",ephemeral:true});
+    } else if(isAccept&&interaction.user.id===state.challengerId){
+        return interaction.reply({content:"🐸 You can't accept your own open challenge!",ephemeral:true});
+    } else if(isDecline&&interaction.user.id!==state.challengerId){
+        return interaction.reply({content:'🐸 Only the challenger can cancel an open challenge.',ephemeral:true});
     }
 
-    const winChance = rockfightWinChance(challenger, opponent);
-    const challengerWins = Math.random() < winChance;
-    challenger.fireflies += challengerWins ? state.wager : -state.wager;
-    opponent.fireflies += challengerWins ? -state.wager : state.wager;
-    await pondFrogSet(state.challengerId, { fireflies: challenger.fireflies });
-    await pondFrogSet(interaction.user.id, { fireflies: opponent.fireflies });
+    if(isDecline){
+        state.resolved=true; clearTimeout(state.timer); pondFrogfights.delete(msg.id);
+        return interaction.update({content:'🥊 Challenge declined.',components:[]});
+    }
+    if(!isAccept)return;
+    if(state.resolved)return;
+    state.resolved=true; clearTimeout(state.timer); pondFrogfights.delete(msg.id);
 
-    const winnerName = challengerWins ? challenger.name : opponent.name;
-    const loserName = challengerWins ? opponent.name : challenger.name;
-    await interaction.update({
-        content: `🥊 **${winnerName}** wins the rock fight against **${loserName}** and takes **${state.wager}** fireflies!`,
-        components: [],
-    });
+    const challenger=await getLiveFrog(state.challengerId);
+    const opponent=await getLiveFrog(interaction.user.id);
+    if(!challenger||!challenger.alive||!opponent||!opponent.alive)
+        return interaction.update({content:'🥊 One of the frogs is no longer around — challenge cancelled.',components:[]});
+    if(challenger.fireflies<state.wager||opponent.fireflies<state.wager)
+        return interaction.update({content:"🥊 One of you can't cover the wager anymore — challenge cancelled.",components:[]});
+
+    const gameType=FROGFIGHT_GAMES[Math.floor(Math.random()*FROGFIGHT_GAMES.length)];
+    state.gameType=gameType;
+    state.opponentId=interaction.user.id;
+    pondFrogGames.set(msg.id,{...state, challengerName:challenger.name, opponentName:opponent.name});
+
+    if(gameType==='bullfrog'||gameType==='bullfrog_hard'){
+        state.awaitingModal=true; pondFrogGames.set(msg.id,{...state,challengerName:challenger.name,opponentName:opponent.name});
+        const modal=new ModalBuilder().setCustomId(`pond:ff:bullfrog_modal:${msg.id}`).setTitle(gameType==='bullfrog'?"🐸 Bullfrog's Guess":"🐸 Bullfrog's Guess (Hard)");
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('guess').setLabel('Pick a secret number (1-100)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(3)));
+        await interaction.showModal(modal);
+        return;
+    }
+
+    if(gameType==='ttt'){
+        const board=Array(9).fill(null);
+        pondFrogGames.set(msg.id,{...state,challengerName:challenger.name,opponentName:opponent.name,board,currentTurn:'challenger'});
+        return interaction.update({content:`🥊 Frog Fight: **Tic-Tac-Toe** (wager: ${state.wager} 🪲)\n**${challenger.name}** (X) vs **${opponent.name}** (O)\n${challenger.name}'s turn!`,components:tttBoardComponents(board,false,'pond:ff:ttt:')});
+    }
+    if(gameType==='rps'){
+        pondFrogGames.set(msg.id,{...state,challengerName:challenger.name,opponentName:opponent.name,round:1,cWins:0,oWins:0,currentTurn:'challenger',challengerPick:null});
+        return interaction.update({content:`🥊 Frog Fight: **Rock-Worm-Lilypad** (wager: ${state.wager} 🪲)\n**${challenger.name}** vs **${opponent.name}**\n${challenger.name}, pick your move for Round 1:`,components:rpsComponents('pond:ff:rps:')});
+    }
 }
+
+async function handleActiveFFGame(interaction, game, msg) {
+    const uid=interaction.user.id;
+    const isChallenger=uid===game.challengerId, isOpponent=uid===game.opponentId;
+    if(!isChallenger&&!isOpponent)return interaction.reply({content:"🐸 You're not in this fight!",ephemeral:true});
+
+    const parts=interaction.customId.split(':'); // pond:ff:<type>:<detail>
+    const type=parts[2], detail=parts[3];
+
+    if(type==='ttt'){
+        if((game.currentTurn==='challenger'&&!isChallenger)||(game.currentTurn==='opponent'&&!isOpponent))
+            return interaction.reply({content:"It's not your turn!",ephemeral:true});
+        const cell=Number(detail);
+        const mark=isChallenger?'X':'O';
+        if(game.board[cell])return interaction.reply({content:'That square is already taken.',ephemeral:true});
+        game.board[cell]=mark;
+        const winner=tttWinner(game.board);
+        if(!winner){
+            game.currentTurn=isChallenger?'opponent':'challenger';
+            const nextName=game.currentTurn==='challenger'?game.challengerName:game.opponentName;
+            return interaction.update({content:`🥊 Tic-Tac-Toe (${game.wager} 🪲)\n**${game.challengerName}** (X) vs **${game.opponentName}** (O)\n${nextName}'s turn!`,components:tttBoardComponents(game.board,false,'pond:ff:ttt:')});
+        }
+        pondFrogGames.delete(msg.id);
+        const winnerName=winner==='X'?game.challengerName:winner==='O'?game.opponentName:null;
+        const winnerId=winner==='X'?game.challengerId:winner==='O'?game.opponentId:null;
+        const loserId=winner==='X'?game.opponentId:winner==='O'?game.challengerId:null;
+        if(winner==='draw'){
+            const cFrog=await getLiveFrog(game.challengerId), oFrog=await getLiveFrog(game.opponentId);
+            return interaction.update({content:`🤝 Tic-Tac-Toe draw between **${game.challengerName}** and **${game.opponentName}**! Wagers returned.`,components:[]});
+        }
+        const wFrog=await getLiveFrog(winnerId), lFrog=await getLiveFrog(loserId);
+        if(wFrog&&wFrog.alive){wFrog.fireflies+=game.wager;await pondFrogSet(winnerId,{fireflies:wFrog.fireflies});}
+        if(lFrog&&lFrog.alive){lFrog.fireflies=Math.max(0,lFrog.fireflies-game.wager);await pondFrogSet(loserId,{fireflies:lFrog.fireflies});}
+        return interaction.update({content:`🥊 **${winnerName}** wins the Tic-Tac-Toe match and takes **${game.wager}** 🪲!`,components:[]});
+    }
+
+    if(type==='rps'){
+        if(game.currentTurn==='challenger'&&!isChallenger)return interaction.reply({content:`Waiting for **${game.challengerName}** to pick first.`,ephemeral:true});
+        if(game.currentTurn==='opponent'&&!isOpponent)return interaction.reply({content:`Waiting for **${game.opponentName}** to pick.`,ephemeral:true});
+        const pick=detail;
+        if(game.currentTurn==='challenger'){
+            game.challengerPick=pick; game.currentTurn='opponent';
+            return interaction.update({content:`🥊 Rock-Worm-Lilypad Round ${game.round}\n**${game.challengerName}** has picked! **${game.opponentName}**, pick your move:`,components:rpsComponents('pond:ff:rps:')});
+        }
+        // opponent picked — reveal round
+        const cPick=game.challengerPick, oPick=pick;
+        const cResult=rpsResult(cPick,oPick);
+        game.cWins+=(cResult==='win'?1:0); game.oWins+=(cResult==='lose'?1:0);
+        const roundMsg=`Round ${game.round}: ${game.challengerName} picked ${RPS_LABELS[cPick]}, ${game.opponentName} picked ${RPS_LABELS[oPick]} → ${cResult==='win'?`${game.challengerName} wins!`:cResult==='lose'?`${game.opponentName} wins!`:'Draw!'}`;
+        game.round+=1; game.challengerPick=null; game.currentTurn='challenger';
+        if(game.round>3||game.cWins>=2||game.oWins>=2){
+            pondFrogGames.delete(msg.id);
+            const overall=game.cWins>game.oWins?'challenger':game.oWins>game.cWins?'opponent':'draw';
+            if(overall==='draw'){return interaction.update({content:`${roundMsg}\n🤝 Match drawn! Wagers returned.`,components:[]});}
+            const wId=overall==='challenger'?game.challengerId:game.opponentId;
+            const lId=overall==='challenger'?game.opponentId:game.challengerId;
+            const wName=overall==='challenger'?game.challengerName:game.opponentName;
+            const wF=await getLiveFrog(wId), lF=await getLiveFrog(lId);
+            if(wF&&wF.alive){wF.fireflies+=game.wager;await pondFrogSet(wId,{fireflies:wF.fireflies});}
+            if(lF&&lF.alive){lF.fireflies=Math.max(0,lF.fireflies-game.wager);await pondFrogSet(lId,{fireflies:lF.fireflies});}
+            return interaction.update({content:`${roundMsg}\n🥊 **${wName}** wins the match and takes **${game.wager}** 🪲!`,components:[]});
+        }
+        return interaction.update({content:`${roundMsg}\nRound ${game.round} — **${game.challengerName}**, pick your move:`,components:rpsComponents('pond:ff:rps:')});
+    }
+}
+
+async function handleFrogfightModal(interaction) {
+    const parts=interaction.customId.split(':'); // pond:ff:bullfrog_modal:<msgId>
+    const msgId=parts[3];
+    const game=pondFrogGames.get(msgId);
+    if(!game)return interaction.reply({content:'🥊 This fight has expired.',ephemeral:true});
+    if(interaction.user.id!==game.opponentId)return interaction.reply({content:"🐸 This isn't your fight!",ephemeral:true});
+
+    const raw=interaction.fields.getTextInputValue('guess').trim();
+    const opponentGuess=parseInt(raw,10);
+    if(isNaN(opponentGuess)||opponentGuess<1||opponentGuess>100)return interaction.reply({content:'Please enter a number between 1 and 100.',ephemeral:true});
+
+    pondFrogGames.delete(msgId);
+    const cGuess=game.challengerGuess||Math.floor(Math.random()*100)+1;
+    const pondNum=Math.floor(Math.random()*100)+1;
+    const cDiff=Math.abs(cGuess-pondNum), oDiff=Math.abs(opponentGuess-pondNum);
+
+    await interaction.deferUpdate().catch(()=>{});
+    const real=await interaction.channel?.messages.fetch(msgId).catch(()=>null);
+
+    let winnerId=null, resultMsg='';
+    if(game.gameType==='bullfrog'){
+        if(cDiff<oDiff)winnerId=game.challengerId;
+        else if(oDiff<cDiff)winnerId=game.opponentId;
+        resultMsg=`🎰 **Bullfrog's Guess!** Pond's number: **${pondNum}**\n${game.challengerName} guessed ${cGuess} (off by ${cDiff})\n${game.opponentName} guessed ${opponentGuess} (off by ${oDiff})\n`;
+    } else {
+        const cValid=cGuess<=pondNum, oValid=opponentGuess<=pondNum;
+        if(cValid&&oValid)winnerId=cGuess>opponentGuess?game.challengerId:opponentGuess>cGuess?game.opponentId:null;
+        else if(cValid)winnerId=game.challengerId;
+        else if(oValid)winnerId=game.opponentId;
+        resultMsg=`🎰 **Bullfrog's Guess (Hard)!** Pond's number: **${pondNum}**\n${game.challengerName} guessed ${cGuess}${cGuess>pondNum?' ❌ (over!)':''}\n${game.opponentName} guessed ${opponentGuess}${opponentGuess>pondNum?' ❌ (over!)':''}\n`;
+    }
+
+    if(!winnerId){
+        resultMsg+='🤝 Tie! Wagers returned.';
+        if(real)await real.edit({content:resultMsg,components:[]});
+        return;
+    }
+    const loserId=winnerId===game.challengerId?game.opponentId:game.challengerId;
+    const winName=winnerId===game.challengerId?game.challengerName:game.opponentName;
+    const wF=await getLiveFrog(winnerId), lF=await getLiveFrog(loserId);
+    if(wF&&wF.alive){wF.fireflies+=game.wager;await pondFrogSet(winnerId,{fireflies:wF.fireflies});}
+    if(lF&&lF.alive){lF.fireflies=Math.max(0,lF.fireflies-game.wager);await pondFrogSet(loserId,{fireflies:lF.fireflies});}
+    resultMsg+=`🥊 **${winName}** wins and takes **${game.wager}** 🪲!`;
+    if(real)await real.edit({content:resultMsg,components:[]});
+}
+
+// ── Pond / community commands ─────────────────────────────────────────────────
 
 async function handlePondView(interaction) {
     await interaction.deferReply();
-    const frogs = (await pondFirestoreQuery({ aliveOnly: true })).map(f => normalizeFrog({ ...f, stage: calcStage(f) }));
-    if (frogs.length === 0) {
-        return interaction.editReply({ content: '🌿 The pond is quiet right now — adopt a frog with `/frog adopt` to bring it to life!' });
-    }
-    const buffer = await drawPondScene(frogs.slice(0, 30));
-    await interaction.editReply({ files: [new AttachmentBuilder(buffer, { name: 'pond.gif' })] });
+    const frogs=(await pondFirestoreQuery({aliveOnly:true})).map(f=>normalizeFrog({...f,stage:calcStage(f,Date.now(),f.isMayor?MAYOR_AGE_RATE:1)}));
+    if(!frogs.length)return interaction.editReply({content:'🌿 The pond is quiet right now — adopt a frog with `/frog adopt` to bring it to life!'});
+    const buffer=await drawPondScene(frogs.slice(0,30));
+    await interaction.editReply({files:[new AttachmentBuilder(buffer,{name:'pond.gif'})]});
 }
 
 async function handlePondMemorial(interaction) {
-    const frogs = await pondFirestoreQuery();
-    // Sort by exact lifespan in ms, not the day-rounded lifespanDays — same tie-breaking
-    // fix as the leaderboard, for frogs that passed after the same number of whole days.
-    const departed = frogs.filter(f => !f.alive)
-        .sort((a, b) => ((b.diedAt || 0) - (b.bornAt || 0)) - ((a.diedAt || 0) - (a.bornAt || 0)))
-        .slice(0, 15);
-    if (departed.length === 0) {
-        return interaction.reply({ content: '🌿 No frogs have passed on yet. The pond remembers them when they do.' });
-    }
-    const lines = departed.map(f => `🪦 **${f.name}** (${(FROG_COLORS[f.color] || {}).name || f.color}) — lived ${f.lifespanDays} day(s)`);
-    await interaction.reply({ content: `These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}` });
+    const frogs=await pondFirestoreQuery();
+    const departed=frogs.filter(f=>!f.alive).sort((a,b)=>((b.diedAt||0)-(b.bornAt||0))-((a.diedAt||0)-(a.bornAt||0))).slice(0,15);
+    if(!departed.length)return interaction.reply({content:'🌿 No frogs have passed on yet. The pond remembers them when they do.'});
+    const lines=departed.map(f=>`🪦 **${f.name}** (${(FROG_COLORS[f.color]||{}).name||f.color}) — lived ${f.lifespanDays} day(s)`);
+    await interaction.reply({content:`These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}`});
 }
 
 const RULES_EMBED = {
     color: 0x2d6f8e,
     title: '🐸 The Pond — How to Play',
-    description: "A cozy frog-keeping game with a small economy. Adopt a frog with `/frog adopt`, then check in once or twice a day to keep it thriving — here's everything else you can do.",
+    description: "A cozy frog-keeping game with a fireflies economy. Adopt a frog with `/frog adopt` — you start with **15 🪲 fireflies**. Check in twice a day to keep them thriving.",
     fields: [
-        {
-            name: '🥚 Life Stages',
-            value: 'Egg (day 0) → Tadpole (day 1+) → Froglet (day 3+) → Frog (day 14+) → Elder (day 60+, gets a flower crown). Stages are purely time-based, not affected by care. Every frog passes peacefully of old age at **day 75**, however well looked after.',
-        },
-        {
-            name: '🎨 Adopt & Colors',
-            value: '`/frog adopt name:<name> color:<choice>` — color is permanent and is also a one-time perk:\n'
-                + '🟢 Green: hunger decays 10% slower\n'
-                + '🟣 Purple: happiness decays 10% slower\n'
-                + '🟡 Golden: 10% off shop/upgrades/cure/soothe\n'
-                + '🔵 Blue: +10% exploration rewards\n'
-                + '🩷 Pink: +10% luck (rock fights/hawks)\n'
-                + '🟤 Brown: reserved for future baby breeding',
-        },
-        {
-            name: '🍃 Daily Care',
-            value: 'Hunger and happiness both drain ~2/hr on their own — one or two check-ins a day keeps a frog comfortably ahead of it.\n'
-                + '`/frog feed [use_item]` — +20 hunger (4h cooldown), or +35 using a worm.\n'
-                + '`/frog play [use_item]` — +20 happiness (4h cooldown), or +35 using a toy.\n'
-                + '`/frog status` — portrait, stats, fireflies, lilypad level, career, and any sickness/depression.',
-        },
-        {
-            name: '🤒 If You Neglect It',
-            value: 'Hunger hits 0 → **sick**: 72h to `/frog cure` (35 fireflies, hunger → 50) or the frog dies.\n'
-                + 'Happiness hits 0 → **depressed**: 72h to `/frog soothe` (35 fireflies, happiness → 50) or it runs away for good.\n'
-                + 'Sickness and depression are independent — a frog can be both at once.',
-        },
-        {
-            name: '🧭 Earning Fireflies',
-            value: '`/frog explore` — once a day, a random reward (mostly fireflies, sometimes a stat boost, rarely a goose steals some).\n'
-                + '`/frog hawk` — once a day, tic-tac-toe vs a hawk for 20 fireflies; lose and forfeit 10% of fireflies (5% at lilypad lvl 6+).\n'
-                + '`/frog rockfight challenge user:<@user> wager:<5-20>` or `/frog rockfight any wager:<5-20>` — PvP firefly wagers, targeted or an open challenge anyone can accept. Older, luckier frogs have better odds.',
-        },
-        {
-            name: '💼 Careers (unlock day 14+)',
-            value: '`/frog career info|choose|respec` — first pick is free: fisher (passive income), hunter (better hawk odds), caretaker (slower decay), explorer (better exploration), nursery (reserved for future breeding). Changing later costs a fee.',
-        },
-        {
-            name: '🛒 Spending Fireflies',
-            value: '`/pond shop buy item:<worms|toys|nest> quantity:<n>` — worms/toys 2 fireflies each; a nest is a one-time 100 fireflies (reserved for future breeding).\n'
-                + '`/frog lilypad info` / `/frog lilypad upgrade` — 10 levels, bigger feed/play bonuses, daily passive income, slower decay.\n'
-                + 'Once a week, everyone pays a 5% pond-maintenance tax on their fireflies balance — automatic.',
-        },
-        {
-            name: '🌐 Community',
-            value: '`/pond view` · `/pond memorial` · `/frog leaderboard`',
-        },
+        { name: '🥚 Life Stages',
+          value: 'Egg (day 0) → Tadpole (day 2+) → Froglet (day 4+) → Frog (day 7+) → Elder (day 60+, flower crown). Stages are time-based only. Every frog passes peacefully of old age at **day 75**.' },
+        { name: '🎨 Colors & Perks',
+          value: '🟢 Green: hunger -12.5% slower · 🟣 Purple: happiness -12.5% slower · 🟡 Golden: 10% shop discount\n🔵 Blue: +10% exploration rewards · 🩷 Pink: +10% hawk luck · 🟤 Brown: babies worth 10% more' },
+        { name: '🍽️ Daily Care',
+          value: 'Hunger & happiness drain ~2/hr (8 per 4h). Feed & play give +20 (4h cooldown each).\n`/frog feed [use_item]` — +35 with a worm · `/frog play [use_item]` — +35 with a toy\n`/frog status` — see your frog\'s portrait and full stats.' },
+        { name: '🤒 Neglect & Illness',
+          value: 'Hunger hits 0 → **sick** (72h to `/frog cure` for 35 🪲, or frog dies).\nHappiness hits 0 → **depressed** (72h to `/frog soothe` for 35 🪲, or frog runs away).' },
+        { name: '🧭 Earning Fireflies',
+          value: '`/frog explore` — **twice a day** (3x at lilypad lvl 9), random reward.\n`/frog hawk` — **twice a day**, pick from 5 minigames vs a hawk for 20 🪲.\n`/frog frogfight challenge @user|any wager` — bet 5-20 🪲 on a randomly-chosen 1v1 minigame.' },
+        { name: '🍃 Lilypad Upgrades',
+          value: '`/frog lilypad info|upgrade` — 10 levels:\nL2: +2 explore 🪲 · L3: +5/day passive · L4: +5 feeding · L5: +5 playing · L6: hawk loss 5% · L7: +10/day · L8: -15% decay · L9: +1 explore slot · L10: 100 🪲 bonus' },
+        { name: '💼 Careers (day 7+)',
+          value: '`/frog career info|choose|respec` — Free first pick. Respec every **Monday at 12:00 (GMT+1)** for 35 🪲.\nFisher: +3🪲/12h · Hunter: hawk luck · Caretaker: -12.5% decay · Explorer: +10% explore · Nursery: faster babies' },
+        { name: '👑 Frog Mayor',
+          value: 'A random frog is elected **every Wednesday at 20:00 UTC**. The mayor gets +2 hunger/happiness per day and +10% firefly income — but ages 10% faster. `/frog mayor` to see who\'s in charge.' },
+        { name: '🛒 Shop & Tax',
+          value: '`/pond shop buy worms|toys|nest` — worms/toys 2 🪲 each.\nPond tax: **10% of balance** every Friday at 12:00 (GMT+1) — automatic.' },
+        { name: '🌐 Community',
+          value: '`/pond view` · `/pond memorial` · `/frog leaderboard` · `/frog commands`' },
     ],
-    footer: { text: 'Coming later: frog mayors, partnerships, and baby breeding.' },
+    footer: { text: 'Coming later: baby breeding, mayor voting, and partnerships.' },
 };
 
-async function handlePondRules(interaction) {
-    await interaction.reply({ embeds: [RULES_EMBED] });
-}
+async function handlePondRules(interaction) { await interaction.reply({embeds:[RULES_EMBED]}); }
+
+const COMMANDS_EMBED = {
+    color: 0x2d6f8e,
+    title: '🐸 Frog Command Overview',
+    fields: [
+        { name: '🐣 Getting Started', value: '`/frog adopt` — adopt your frog (starts with 15 🪲)\n`/frog status` — check your frog\n`/frog commands` — this list\n`/pond rules` — full game guide', inline: false },
+        { name: '🍽️ Care', value: '`/frog feed [use_item]` — +20 hunger (4h CD, or +35 with worm)\n`/frog play [use_item]` — +20 happiness (4h CD, or +35 with toy)\n`/frog cure` — cure sickness (35 🪲)\n`/frog soothe` — lift depression (35 🪲)', inline: false },
+        { name: '🧭 Activities', value: '`/frog explore` — explore for rewards (2x/day)\n`/frog hawk` — hawk minigame (2x/day, pick from 5 types)\n`/frog frogfight challenge @user wager` — challenge someone\n`/frog frogfight any wager` — open challenge for anyone', inline: false },
+        { name: '🍃 Economy', value: '`/frog lilypad info` — see lilypad level & next upgrade\n`/frog lilypad upgrade` — spend 🪲 to upgrade\n`/pond shop buy item qty` — buy worms, toys, or nest\n`/frog leaderboard` — longest-living frogs', inline: false },
+        { name: '💼 Career', value: '`/frog career info` — your current career\n`/frog career choose` — first pick (free, day 7+)\n`/frog career respec` — change career (35 🪲, Mondays only)', inline: false },
+        { name: '🌐 Pond', value: '`/pond view` — see all frogs\n`/pond memorial` — frogs that have passed\n`/frog mayor` — current mayor info', inline: false },
+    ],
+};
+
+async function handleFrogCommands(interaction) { await interaction.reply({embeds:[COMMANDS_EMBED]}); }
 
 async function announceDeath(client, frog) {
-    if (!POND_CHANNEL_ID) return;
-    try {
-        const channel = await client.channels.fetch(POND_CHANNEL_ID);
-        await channel.send({ content: deathMessage(frog) });
-    } catch (e) { console.error('[Pond] announceDeath failed:', e.message); }
+    if(!POND_CHANNEL_ID)return;
+    try { const ch=await client.channels.fetch(POND_CHANNEL_ID); await ch.send({content:deathMessage(frog)}); }
+    catch(e){console.error('[Pond] announceDeath failed:',e.message);}
 }
+
+// ── Interaction router ────────────────────────────────────────────────────────
 
 async function handlePondInteraction(interaction) {
-    if (!interaction.isChatInputCommand()) return;
+    if(!interaction.isChatInputCommand())return;
     try {
-        if (interaction.commandName === 'frog') {
-            const group = interaction.options.getSubcommandGroup(false);
-            const sub = interaction.options.getSubcommand();
-            if (group === 'lilypad') {
-                if (sub === 'info') return await handleFrogLilypadInfo(interaction);
-                if (sub === 'upgrade') return await handleFrogLilypadUpgrade(interaction);
+        if(interaction.commandName==='frog'){
+            const group=interaction.options.getSubcommandGroup(false), sub=interaction.options.getSubcommand();
+            if(group==='lilypad'){
+                if(sub==='info')return await handleFrogLilypadInfo(interaction);
+                if(sub==='upgrade')return await handleFrogLilypadUpgrade(interaction);
             }
-            if (group === 'rockfight') {
-                if (sub === 'challenge') return await handleFrogRockfight(interaction, false);
-                if (sub === 'any') return await handleFrogRockfight(interaction, true);
+            if(group==='frogfight'){
+                if(sub==='challenge')return await handleFrogFrogfight(interaction,false);
+                if(sub==='any')return await handleFrogFrogfight(interaction,true);
             }
-            if (group === 'career') {
-                if (sub === 'info') return await handleFrogCareerInfo(interaction);
-                if (sub === 'choose') return await handleFrogCareerSet(interaction, false);
-                if (sub === 'respec') return await handleFrogCareerSet(interaction, true);
+            if(group==='career'){
+                if(sub==='info')return await handleFrogCareerInfo(interaction);
+                if(sub==='choose')return await handleFrogCareerSet(interaction,false);
+                if(sub==='respec')return await handleFrogCareerSet(interaction,true);
             }
-            if (sub === 'adopt') return await handleFrogAdopt(interaction);
-            if (sub === 'feed') return await handleFrogCare(interaction, 'feed');
-            if (sub === 'play') return await handleFrogCare(interaction, 'play');
-            if (sub === 'cure') return await handleFrogCure(interaction, 'cure');
-            if (sub === 'soothe') return await handleFrogCure(interaction, 'soothe');
-            if (sub === 'status') return await handleFrogStatus(interaction);
-            if (sub === 'leaderboard') return await handleFrogLeaderboard(interaction);
-            if (sub === 'explore') return await handleFrogExplore(interaction);
-            if (sub === 'hawk') return await handleFrogHawk(interaction);
+            if(sub==='adopt')return await handleFrogAdopt(interaction);
+            if(sub==='feed')return await handleFrogCare(interaction,'feed');
+            if(sub==='play')return await handleFrogCare(interaction,'play');
+            if(sub==='cure')return await handleFrogCure(interaction,'cure');
+            if(sub==='soothe')return await handleFrogCure(interaction,'soothe');
+            if(sub==='status')return await handleFrogStatus(interaction);
+            if(sub==='leaderboard')return await handleFrogLeaderboard(interaction);
+            if(sub==='explore')return await handleFrogExplore(interaction);
+            if(sub==='hawk')return await handleFrogHawk(interaction);
+            if(sub==='mayor')return await handleFrogMayor(interaction);
+            if(sub==='commands')return await handleFrogCommands(interaction);
         }
-        if (interaction.commandName === 'pond') {
-            const group = interaction.options.getSubcommandGroup(false);
-            const sub = interaction.options.getSubcommand();
-            if (group === 'shop' && sub === 'buy') return await handlePondShopBuy(interaction);
-            if (sub === 'view') return await handlePondView(interaction);
-            if (sub === 'memorial') return await handlePondMemorial(interaction);
-            if (sub === 'rules') return await handlePondRules(interaction);
+        if(interaction.commandName==='pond'){
+            const group=interaction.options.getSubcommandGroup(false), sub=interaction.options.getSubcommand();
+            if(group==='shop'&&sub==='buy')return await handlePondShopBuy(interaction);
+            if(sub==='view')return await handlePondView(interaction);
+            if(sub==='memorial')return await handlePondMemorial(interaction);
+            if(sub==='rules')return await handlePondRules(interaction);
         }
-    } catch (e) {
-        console.error('[Pond] handlePondInteraction failed:', e.stack || e.message);
-        const payload = { content: '❌ Something went wrong in the pond. Try again in a moment.', ephemeral: true };
-        if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-        else await interaction.reply(payload).catch(() => {});
+    } catch(e){
+        console.error('[Pond] handlePondInteraction failed:',e.stack||e.message);
+        const payload={content:'❌ Something went wrong in the pond. Try again in a moment.',ephemeral:true};
+        if(interaction.deferred||interaction.replied)await interaction.editReply(payload).catch(()=>{});
+        else await interaction.reply(payload).catch(()=>{});
     }
 }
 
-function isPondButton(customId) {
-    return typeof customId === 'string' && customId.startsWith('pond:');
-}
+function isPondButton(customId) { return typeof customId==='string'&&customId.startsWith('pond:'); }
+function isPondModal(customId)  { return typeof customId==='string'&&customId.startsWith('pond:'); }
 
 async function handlePondButtonInteraction(interaction) {
-    if (!interaction.isButton()) return;
+    if(!interaction.isButton())return;
     try {
-        if (interaction.customId.startsWith('pond:hawk:')) return await handleHawkButton(interaction);
-        if (interaction.customId === 'pond:rf:accept' || interaction.customId === 'pond:rf:decline') return await handleRockfightButton(interaction);
-    } catch (e) {
-        console.error('[Pond] handlePondButtonInteraction failed:', e.stack || e.message);
-        const payload = { content: '❌ Something went wrong in the pond. Try again in a moment.', ephemeral: true };
-        if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
-        else await interaction.reply(payload).catch(() => {});
+        if(interaction.customId.startsWith('pond:hawk:'))return await handleHawkButton(interaction);
+        if(interaction.customId==='pond:ff:accept'||interaction.customId==='pond:ff:decline'||interaction.customId.startsWith('pond:ff:ttt:')||interaction.customId.startsWith('pond:ff:rps:'))return await handleFrogfightButton(interaction);
+    } catch(e){
+        console.error('[Pond] handlePondButtonInteraction failed:',e.stack||e.message);
+        const payload={content:'❌ Something went wrong in the pond. Try again in a moment.',ephemeral:true};
+        if(interaction.deferred||interaction.replied)await interaction.editReply(payload).catch(()=>{});
+        else await interaction.reply(payload).catch(()=>{});
     }
 }
 
-// ── Decay ticker ─────────────────────────────────────────────────────────────
-
-let tickerRunning = false;
-
-async function runPondTax(client) {
-    const meta = await pondFirestoreGet(POND_META_DOC_ID);
-    const now = Date.now();
-    if (!meta || !meta.lastPondTaxAt) {
-        // First run after this feature shipped — start the 7-day clock now instead of
-        // taxing everyone immediately on rollout day.
-        await pondFirestoreSet(POND_META_DOC_ID, { lastPondTaxAt: now }, 'pondMeta');
-        return;
+async function handlePondModalInteraction(interaction) {
+    if(!interaction.isModalSubmit())return;
+    try {
+        if(interaction.customId.startsWith('pond:hawk:'))return await handleHawkModal(interaction);
+        if(interaction.customId.startsWith('pond:ff:bullfrog_modal:'))return await handleFrogfightModal(interaction);
+    } catch(e){
+        console.error('[Pond] handlePondModalInteraction failed:',e.stack||e.message);
+        if(!interaction.replied&&!interaction.deferred)await interaction.reply({content:'❌ Something went wrong. Try again.',ephemeral:true}).catch(()=>{});
     }
-    if (now - meta.lastPondTaxAt < POND_TAX_INTERVAL_MS) return;
+}
 
-    const frogs = await pondFirestoreQuery({ aliveOnly: true });
-    let totalCollected = 0;
-    for (const frog of frogs) {
+// ── Decay ticker ──────────────────────────────────────────────────────────────
+
+let tickerRunning=false;
+
+async function runPondTax(client, meta, now) {
+    const fridayMs=lastFridayTaxWindowMs();
+    if(now<fridayMs)return;
+    if(meta.lastPondTaxAt && meta.lastPondTaxAt>=fridayMs)return;
+
+    const frogs=await pondFirestoreQuery({aliveOnly:true});
+    let total=0;
+    for(const frog of frogs){
         normalizeFrog(frog);
-        const owed = Math.floor(frog.fireflies * POND_TAX_RATE);
-        if (owed <= 0) continue;
-        frog.fireflies -= owed;
-        totalCollected += owed;
-        await pondFrogSet(frog.ownerId, { fireflies: frog.fireflies });
+        const owed=Math.floor(frog.fireflies*POND_TAX_RATE);
+        if(owed<=0)continue;
+        frog.fireflies-=owed; total+=owed;
+        await pondFrogSet(frog.ownerId,{fireflies:frog.fireflies});
     }
-    await pondFirestoreSet(POND_META_DOC_ID, { lastPondTaxAt: now }, 'pondMeta');
+    await pondFirestoreSet(POND_META_DOC_ID,{lastPondTaxAt:now},'pondMeta');
+    if(total>0&&POND_CHANNEL_ID){
+        try{const ch=await client.channels.fetch(POND_CHANNEL_ID);await ch.send({content:`🪲 **Pond maintenance!** ${total} fireflies collected (10% tax). The pond stays clean 🌿`});}
+        catch(e){console.error('[Pond] runPondTax announce failed:',e.message);}
+    }
+}
 
-    if (totalCollected > 0 && POND_CHANNEL_ID) {
-        try {
-            const channel = await client.channels.fetch(POND_CHANNEL_ID);
-            await channel.send({ content: `🪲 **Pond maintenance day!** ${totalCollected} fireflies were collected (5% of everyone's balance) to keep the pond clean and tidy. 🌿` });
-        } catch (e) { console.error('[Pond] runPondTax announce failed:', e.message); }
+async function runMayorElection(client, meta, now) {
+    const wedMs=lastWednesdayElectionMs();
+    if(now<wedMs)return;
+    if(meta.lastMayorElectionAt && meta.lastMayorElectionAt>=wedMs)return;
+
+    const frogs=await pondFirestoreQuery({aliveOnly:true});
+    if(!frogs.length)return;
+
+    // Clear all current isMayor flags
+    if(meta.mayorOwnerId){
+        try { await pondFrogSet(meta.mayorOwnerId,{isMayor:false}); } catch(_){}
+    }
+
+    const elected=frogs[Math.floor(Math.random()*frogs.length)];
+    elected.isMayor=true;
+    await pondFrogSet(elected.ownerId,{isMayor:true});
+    await pondFirestoreSet(POND_META_DOC_ID,{mayorOwnerId:elected.ownerId,lastMayorElectionAt:now},'pondMeta');
+
+    if(POND_CHANNEL_ID){
+        try{const ch=await client.channels.fetch(POND_CHANNEL_ID);await ch.send({content:`👑 **${elected.name}** has been elected **Frog Mayor** of the pond! They gain +2 hunger/happiness per day and +10% 🪲 income — but age 10% faster. Next election: Wednesday 20:00 UTC.`});}
+        catch(e){console.error('[Pond] runMayorElection announce failed:',e.message);}
     }
 }
 
 async function runPondTick(client) {
-    if (tickerRunning) return;
-    tickerRunning = true;
+    if(tickerRunning)return;
+    tickerRunning=true;
     try {
-        const frogs = await pondFirestoreQuery({ aliveOnly: true });
-        for (const frog of frogs) {
-            normalizeFrog(frog);
-            const before = frog.alive;
-            applyDecay(frog);
-            await pondFrogSet(frog.ownerId, {
-                hunger: frog.hunger, happiness: frog.happiness, stage: frog.stage,
-                lastTickAt: frog.lastTickAt, fireflies: frog.fireflies, lastPassiveAt: frog.lastPassiveAt, lastFisherAt: frog.lastFisherAt,
-                sick: frog.sick, sickSince: frog.sickSince, depressed: frog.depressed, depressedSince: frog.depressedSince,
-                alive: frog.alive, diedAt: frog.diedAt, deathReason: frog.deathReason, lifespanDays: frog.lifespanDays,
-                ownerId: frog.ownerId, name: frog.name, color: frog.color, lilypadLevel: frog.lilypadLevel,
-                worms: frog.worms, toys: frog.toys, hasNest: frog.hasNest,
-                bornAt: frog.bornAt, lastFedAt: frog.lastFedAt, lastPlayedAt: frog.lastPlayedAt,
-            });
-            if (before && !frog.alive) await announceDeath(client, frog);
+        const now=Date.now();
+        let meta=await pondFirestoreGet(POND_META_DOC_ID)||{};
+
+        // One-time pin message on first deploy after this version ships
+        if(!meta.pinMessageId&&POND_CHANNEL_ID){
+            try {
+                const ch=await client.channels.fetch(POND_CHANNEL_ID);
+                const pm=await ch.send({content:"*Welcome to the pond!* 🐸\n\nBegin your journey with `/frog adopt`.\n\nYour frog has:\n🍽️ Hunger\n😊 Happiness\nThese decay over time, so remember to feed and play with your frog!"});
+                await pm.pin().catch(()=>{});
+                await pondFirestoreSet(POND_META_DOC_ID,{pinMessageId:pm.id},'pondMeta');
+                meta.pinMessageId=pm.id;
+            } catch(e){console.error('[Pond] pin message failed:',e.message);}
         }
-        await runPondTax(client);
-    } catch (e) {
-        console.error('[Pond] runPondTick error:', e.stack || e.message);
-    } finally {
-        tickerRunning = false;
-    }
+
+        const frogs=await pondFirestoreQuery({aliveOnly:true});
+        for(const frog of frogs){
+            normalizeFrog(frog,now);
+            const ageMult=frog.isMayor?MAYOR_AGE_RATE:1;
+            const before=frog.alive;
+            applyDecay(frog,now);
+            await pondFrogSet(frog.ownerId,{
+                hunger:frog.hunger, happiness:frog.happiness, stage:frog.stage,
+                lastTickAt:frog.lastTickAt, fireflies:frog.fireflies, lastPassiveAt:frog.lastPassiveAt, lastFisherAt:frog.lastFisherAt,
+                sick:frog.sick, sickSince:frog.sickSince, depressed:frog.depressed, depressedSince:frog.depressedSince,
+                alive:frog.alive, diedAt:frog.diedAt, deathReason:frog.deathReason, lifespanDays:frog.lifespanDays,
+                ownerId:frog.ownerId, name:frog.name, color:frog.color, lilypadLevel:frog.lilypadLevel,
+                worms:frog.worms, toys:frog.toys, hasNest:frog.hasNest, isMayor:frog.isMayor,
+                patchV2Granted:frog.patchV2Granted, lilypadL10Claimed:frog.lilypadL10Claimed,
+                exploresToday:frog.exploresToday, exploresResetDay:frog.exploresResetDay,
+                hawksDoneToday:frog.hawksDoneToday, hawksResetDay:frog.hawksResetDay,
+                lastCareerRespecAt:frog.lastCareerRespecAt, career:frog.career,
+                bornAt:frog.bornAt, lastFedAt:frog.lastFedAt, lastPlayedAt:frog.lastPlayedAt,
+            });
+            if(before&&!frog.alive)await announceDeath(client,frog);
+        }
+        // Re-fetch meta after potential pin write
+        meta=await pondFirestoreGet(POND_META_DOC_ID)||{};
+        await runPondTax(client,meta,now);
+        await runMayorElection(client,meta,now);
+    } catch(e){
+        console.error('[Pond] runPondTick error:',e.stack||e.message);
+    } finally { tickerRunning=false; }
 }
 
 function startPondTicker(client) {
-    setInterval(() => runPondTick(client).catch(() => {}), TICK_INTERVAL_MS);
-    setTimeout(() => runPondTick(client).catch(() => {}), 10000); // first tick 10s after ready
+    setInterval(()=>runPondTick(client).catch(()=>{}),TICK_INTERVAL_MS);
+    setTimeout(()=>runPondTick(client).catch(()=>{}),10000);
 }
 
 module.exports = {
@@ -1492,5 +1478,7 @@ module.exports = {
     handlePondInteraction,
     isPondButton,
     handlePondButtonInteraction,
+    isPondModal,
+    handlePondModalInteraction,
     startPondTicker,
 };

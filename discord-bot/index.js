@@ -35,7 +35,7 @@ const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
 const GifEncoder = require('gif-encoder-2');
-const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, startPondTicker } = require('./pond');
+const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
@@ -72,11 +72,12 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🧭 Frog exploration', value: '`/frog explore` — once a day, send your frog out for a random reward: fireflies, a happiness/hunger boost, or rarely a goose stealing some.' },
-    { name: '🦅 Hawk minigame', value: '`/frog hawk` — once a day, battle a hawk in tic-tac-toe for 20 fireflies. Lose and you forfeit some fireflies instead.' },
-    { name: '🥊 Rock fights', value: '`/frog rockfight challenge @user` or `/frog rockfight any` — wager fireflies on a rock fight against a friend or an open challenge anyone can accept.' },
-    { name: '💼 Frog careers', value: '`/frog career choose` (free at day 14+) picks a career — fisher, hunter, caretaker, explorer, or nursery — each with its own perk. Respec later for a fee.' },
-    { name: '🐸 Pink & blue perks activated', value: 'Pink frogs now get real luck in rock fights/hawks, and blue frogs get bigger exploration rewards.' },
+    { name: '🪲 Start with 15 fireflies', value: 'Every new frog starts with 15 fireflies. Existing frogs also get 15 fireflies added as a one-time patch bonus.' },
+    { name: '🥊 Frog fights (was rock fights)', value: '`/frog frogfight challenge @user|any wager` — 4 random minigames: Tic-Tac-Toe, Rock-Worm-Lilypad, Bullfrog\'s Guess, and Bullfrog\'s Guess Hard.' },
+    { name: '🦅 5 hawk minigames', value: '`/frog hawk` — now twice a day, with 5 games to pick: Tic-Tac-Toe, Rock-Worm-Lilypad, The Reeds, Firefly Count, and A Predator\'s Thinking.' },
+    { name: '🧭 Explore twice a day', value: '`/frog explore` — now available twice a day (3x at lilypad level 9), with an updated reward table.' },
+    { name: '👑 Frog mayor', value: 'A random frog is elected mayor every Wednesday at 20:00 UTC. The mayor earns +10% firefly income and +2 hunger/happiness per day — but ages 10% faster.' },
+    { name: '⚡ Rebalanced everything', value: 'New stage thresholds (frog at day 7, not 14), new lilypad level effects, careers unlock at day 7, Monday-only respec window, 10% Friday pond tax.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -7646,6 +7647,12 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
         }
         return handlePondButtonInteraction(interaction);
+    }
+    if (interaction.isModalSubmit() && isPondModal(interaction.customId)) {
+        if (botFeatures.pondFrogs === false) {
+            return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
+        }
+        return handlePondModalInteraction(interaction);
     }
 
     // ── Slash commands ───────────────────────────────────────────────────────

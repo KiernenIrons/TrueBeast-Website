@@ -1,5 +1,50 @@
 # Beast Bot Changelog
 
+## [2026-06-30] — The Pond: major spec update (mayor, frog fights, 5 hawk games, full rebalance)
+
+Complete rewrite of `pond.js` implementing the full new design spec:
+
+- **Frog fights** (renamed from rock fights): `/frog frogfight challenge|any`, 4 randomly-
+  selected minigames — Tic-Tac-Toe (1v1 turn-based), Rock-Worm-Lilypad (3-round RPS),
+  Bullfrog's Guess, Bullfrog's Guess Hard. Challenger provides secret guess at challenge
+  time; opponent submits via modal on accept. TTT and RPS are fully interactive (both
+  players take turns via buttons).
+- **Hawk minigames × 5**: `/frog hawk` now posts a game-selection menu first, then plays
+  the chosen game: Tic-Tac-Toe (AI), Rock-Worm-Lilypad (3-round vs AI), The Reeds
+  (button pick), Firefly Count (modal, count 5-10 flies), A Predator's Thinking (modal,
+  guess 1-50). All use the existing `hawkMistakeChance()` luck mechanic.
+- **Explore twice a day** (3x at lilypad L9) via daily-count tracking
+  (`exploresToday`/`exploresResetDay`) instead of a single 24h cooldown. New flat
+  probability table matching the spec (25/25/20/10/1/7.5/7.5/4%).
+- **Hawk twice a day** via same daily-count pattern (`hawksDoneToday`/`hawksResetDay`).
+- **Mayor system**: `runMayorElection()` in `runPondTick` checks if it's past Wednesday
+  20:00 UTC since the last election, picks a random alive frog, sets `isMayor: true` on
+  their doc, posts announcement. Mayor gets +10% firefly income (`mayorMult()`), +2
+  hunger/happiness per day (in passive-income block of `applyDecay`), +10% aging rate
+  (`calcStage` now takes optional `ageMult` param). `/frog mayor` command shows who's in
+  charge.
+- **Stage thresholds**: tadpole 2d (was 1), froglet 4d (was 3), frog 7d (was 14).
+- **Lilypad effects reshuffled**: L2=explore bonus, L3=passive income, L4=feed bonus,
+  L5=play bonus, L6=hawk loss reduction, L7=+passive, L8=-15% decay (was L9/5%),
+  L9=+1 explore slot, L10=100 fireflies bonus.
+- **Decay multipliers**: 12.5% (0.875) for green/purple/caretaker (was 10%). Lilypad
+  L8 gives 15% slower (was L9/5%).
+- **Career unlock**: day 7 (was 14). Respec now Monday-gated (12:00 GMT+1 weekly
+  window, `lastMondayRespecWindowMs()`), not anytime-for-fee.
+- **Pond tax**: 10% rate (was 5%), Friday 11:00 UTC schedule
+  (`lastFridayTaxWindowMs()`) instead of every-7-days interval.
+- **Starting fireflies**: 15 for new adopts. One-time migration: `normalizeFrog()`
+  grants +15 to any frog where `patchV2Granted !== true` (set on adopt too).
+- **Pin message**: on first tick after this deploy, bot posts the welcome message to
+  `#the-pond` and pins it (once only, `pond_meta.pinMessageId` guards against repeats).
+- **Modals wired in**: added `isPondModal`/`handlePondModalInteraction` exports and
+  a `isModalSubmit()` dispatch block in `index.js`, mirroring the button dispatch.
+- **`/frog commands`**: new command, overview embed listing all commands.
+- **`/pond rules`** and **`/frog status`** updated to reflect all new spec values.
+- Verified: all 22 subcommands register cleanly, stage boundary tests pass, migration
+  idempotency confirmed, mayor aging math verified, L3 lilypad passive income triggers
+  correctly.
+
 ## [2026-06-25] — The Pond: fix leaderboard/memorial sort ties
 
 - `/frog leaderboard` sorted by `ageDays`, a day-rounded value — frogs adopted on the same
