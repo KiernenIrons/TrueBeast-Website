@@ -255,6 +255,7 @@ const DEATH_MESSAGES = {
     old_age:  f => `🌼 **${f.name}** lived a long, full life and passed peacefully of old age after ${f.lifespanDays} day(s).`,
     sickness: f => `💔 **${f.name}** fell ill and passed away without a cure after ${f.lifespanDays} day(s).`,
     ran_away: f => `🐸 **${f.name}** grew too lonely and hopped away for good after ${f.lifespanDays} day(s).`,
+    gassed:   f => `💀 **${f.name}** met an untimely end after ${f.lifespanDays} day(s). Gassed. Gone. 🪦`,
 };
 function deathMessage(frog) { return (DEATH_MESSAGES[frog.deathReason] || DEATH_MESSAGES.old_age)(frog); }
 
@@ -582,6 +583,7 @@ const pondCommands = [
         .addSubcommand(s=>s.setName('hawk').setDescription('Battle a hawk in a minigame (twice a day)'))
         .addSubcommand(s=>s.setName('mayor').setDescription('See who the current frog mayor is'))
         .addSubcommand(s=>s.setName('commands').setDescription('See an overview of all pond commands'))
+        .addSubcommand(s=>s.setName('gas').setDescription('💀 End your frog\'s life immediately'))
         .addSubcommandGroup(g=>g.setName('lilypad').setDescription("Manage your frog's lilypad")
             .addSubcommand(s=>s.setName('info').setDescription('See your lilypad level and next upgrade'))
             .addSubcommand(s=>s.setName('upgrade').setDescription('Upgrade your lilypad to the next level')))
@@ -838,6 +840,20 @@ async function handleFrogMayor(interaction) {
     if(!mayorFrog||!mayorFrog.alive)return interaction.reply({content:'🗳️ The current mayor seems to have left the pond. A new election is coming soon.'});
     const ci=FROG_COLORS[mayorFrog.color]||FROG_COLORS.green;
     await interaction.reply({content:`👑 **${mayorFrog.name}** is the current Frog Mayor! (${ci.name})\n🪲 +10% firefly income · 😊 +2 hunger/happiness per day · ⏱️ Ages 10% faster`});
+}
+
+async function handleFrogGas(interaction) {
+    const frog = await getLiveFrog(interaction.user.id);
+    if (!requireLiveFrog(frog, interaction)) return;
+    if (frog.justDied) {
+        await pondFrogSet(interaction.user.id, frog);
+        return announceDeath(interaction.client, frog).then(() => interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` }));
+    }
+    const now = Date.now();
+    die(frog, now, 'gassed');
+    await pondFrogSet(interaction.user.id, frog);
+    await announceDeath(interaction.client, frog);
+    await interaction.reply({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.` });
 }
 
 async function handleFrogCareerInfo(interaction) {
@@ -1582,7 +1598,7 @@ async function handlePondMemorial(interaction) {
     const frogs=await pondFirestoreQuery();
     const departed=frogs.filter(f=>!f.alive).sort((a,b)=>((b.diedAt||0)-(b.bornAt||0))-((a.diedAt||0)-(a.bornAt||0))).slice(0,15);
     if(!departed.length)return interaction.reply({content:'🌿 No frogs have passed on yet. The pond remembers them when they do.'});
-    const lines=departed.map(f=>`🪦 **${f.name}** (${(FROG_COLORS[f.color]||{}).name||f.color}) — lived ${f.lifespanDays} day(s)`);
+    const lines=departed.map(f=>`🪦 **${f.name}** (${(FROG_COLORS[f.color]||{}).name||f.color}) — <@${f.ownerId}> — lived ${f.lifespanDays} day(s)`);
     await interaction.reply({content:`These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}`});
 }
 
@@ -1705,6 +1721,7 @@ async function handlePondInteraction(interaction) {
             if(sub==='hawk')return await handleFrogHawk(interaction);
             if(sub==='mayor')return await handleFrogMayor(interaction);
             if(sub==='commands')return await handleFrogCommands(interaction);
+            if(sub==='gas')return await handleFrogGas(interaction);
         }
         if(interaction.commandName==='pond'){
             const group=interaction.options.getSubcommandGroup(false), sub=interaction.options.getSubcommand();

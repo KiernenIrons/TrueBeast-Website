@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-06-30] — Pond: /frog gas command; memorial shows frog owners
+
+- **`/frog gas`** — instantly kills your own frog. Sets `deathReason: 'gassed'`,
+  fires the existing `announceDeath` channel announcement, replies in-channel with
+  a short eulogy. Added `gassed` to `DEATH_MESSAGES` so the memorial and leaderboard
+  display the right flavour text instead of falling back to the old-age message.
+- **`/pond memorial`** — now shows the frog owner (`<@userId>`) alongside each entry
+  so it's clear who the frog belonged to.
+
 ## [2026-06-30] — Pond: reduce frog sprite size by ~25%
 
 - `drawFrogPortrait`: frog scale `0.62 → 0.465`, cy offset `0.46 → 0.52` (moved down
