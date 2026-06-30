@@ -247,15 +247,15 @@ function mayorMult(frog) { return frog.isMayor ? (1 + MAYOR_FIREFLY_BONUS) : 1; 
 
 function die(frog, now, reason) {
     frog.alive = false; frog.diedAt = now; frog.deathReason = reason;
-    frog.lifespanDays = Math.max(1, Math.round((now - frog.bornAt) / DAY_MS));
+    frog.lifespanDays = Math.max(0, Math.round((now - frog.bornAt) / DAY_MS));
     frog.justDied = true;
 }
 
 const DEATH_MESSAGES = {
-    old_age:  f => `🌼 **${f.name}** lived a long, full life and passed peacefully of old age after ${f.lifespanDays} day(s).`,
-    sickness: f => `💔 **${f.name}** fell ill and passed away without a cure after ${f.lifespanDays} day(s).`,
-    ran_away: f => `🐸 **${f.name}** grew too lonely and hopped away for good after ${f.lifespanDays} day(s).`,
-    gassed:   f => `💀 **${f.name}** met an untimely end after ${f.lifespanDays} day(s). Gassed. Gone. 🪦`,
+    old_age:  f => `🌼 **${f.name}** lived a long, full life and passed peacefully of old age after ${f.lifespanDays ?? 0} day(s).`,
+    sickness: f => `💔 **${f.name}** fell ill and passed away without a cure after ${f.lifespanDays ?? 0} day(s).`,
+    ran_away: f => `🐸 **${f.name}** grew too lonely and hopped away for good after ${f.lifespanDays ?? 0} day(s).`,
+    gassed:   f => `💀 **${f.name}** met an untimely end after ${f.lifespanDays ?? 0} day(s). Gassed. Gone. 🪦`,
 };
 function deathMessage(frog) { return (DEATH_MESSAGES[frog.deathReason] || DEATH_MESSAGES.old_age)(frog); }
 
@@ -849,11 +849,30 @@ async function handleFrogGas(interaction) {
         await pondFrogSet(interaction.user.id, frog);
         return announceDeath(interaction.client, frog).then(() => interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` }));
     }
-    const now = Date.now();
-    die(frog, now, 'gassed');
+    await pondFrogSet(interaction.user.id, frog);
+    await interaction.reply({
+        content: `⚠️ Are you sure you want to gas **${frog.name}**? This cannot be undone.`,
+        components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('pond:gas:confirm').setLabel('Yes, gas them 💀').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('pond:gas:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+        )],
+        ephemeral: true,
+    });
+}
+
+async function handleFrogGasButton(interaction) {
+    if (interaction.customId === 'pond:gas:cancel') {
+        return interaction.update({ content: '👍 Cancelled — your frog is safe.', components: [] });
+    }
+    // Confirm
+    const frog = await getLiveFrog(interaction.user.id);
+    if (!frog || !frog.alive) {
+        return interaction.update({ content: "🐸 You don't have a living frog anymore.", components: [] });
+    }
+    die(frog, Date.now(), 'gassed');
     await pondFrogSet(interaction.user.id, frog);
     await announceDeath(interaction.client, frog);
-    await interaction.reply({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.` });
+    await interaction.update({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
 }
 
 async function handleFrogCareerInfo(interaction) {
@@ -1748,6 +1767,7 @@ async function handlePondButtonInteraction(interaction) {
         if(interaction.customId.startsWith('pond:hawk:'))return await handleHawkButton(interaction);
         if(interaction.customId==='pond:ff:accept'||interaction.customId==='pond:ff:decline'||interaction.customId.startsWith('pond:ff:ttt:')||interaction.customId.startsWith('pond:ff:rps:'))return await handleFrogfightButton(interaction);
         if(interaction.customId==='pond:partner:accept'||interaction.customId==='pond:partner:decline')return await handlePartnerButton(interaction);
+        if(interaction.customId==='pond:gas:confirm'||interaction.customId==='pond:gas:cancel')return await handleFrogGasButton(interaction);
         if(interaction.customId.startsWith('pond:event:'))return await handleEventButton(interaction);
     } catch(e){
         console.error('[Pond] handlePondButtonInteraction failed:',e.stack||e.message);

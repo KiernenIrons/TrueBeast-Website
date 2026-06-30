@@ -1,5 +1,18 @@
 # Beast Bot Changelog
 
+## [2026-06-30] — Pond: /frog gas confirmation step; fix null lifespanDays
+
+- **`/frog gas` confirmation step**: command now shows an ephemeral "Are you sure?"
+  message with Confirm/Decline buttons before killing the frog. The actual kill
+  (`die()` + Firestore write) only happens on Confirm, on a fresh Firestore read —
+  this closes the race where the previous direct-kill could silently fail and leave
+  the frog alive in Firestore while the bot had already announced the death.
+- **`null day(s)` in death messages fixed**: all four death message templates now
+  use `f.lifespanDays ?? 0` so frogs killed before `lifespanDays` was tracked
+  (or edge-cases where it's null) display `0` instead of `null`.
+- **`Math.max(1, ...)` → `Math.max(0, ...)`** in `die()` so same-day kills show
+  `0 days` rather than being rounded up to `1`.
+
 ## [2026-06-30] — Pond: /frog gas command; memorial shows frog owners
 
 - **`/frog gas`** — instantly kills your own frog. Sets `deathReason: 'gassed'`,
