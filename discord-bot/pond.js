@@ -153,8 +153,14 @@ async function pondFirestoreSet(docId, data, kind = 'pondFrog') {
     const fields = { kind: { stringValue: kind } };
     for (const [k, v] of Object.entries(data)) fields[k] = toFirestoreValue(v);
     try {
-        await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) });
-    } catch (e) { console.error(`[Pond] pondFirestoreSet ${docId} failed:`, e.message); }
+        const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) });
+        if (!res.ok) {
+            const body = await res.text().catch(() => '(unreadable)');
+            console.error(`[Pond] pondFirestoreSet ${docId} HTTP ${res.status}:`, body);
+            return false;
+        }
+        return true;
+    } catch (e) { console.error(`[Pond] pondFirestoreSet ${docId} failed:`, e.message); return false; }
 }
 
 async function pondFirestoreGet(docId) {
@@ -876,12 +882,14 @@ async function handleFrogGasButton(interaction) {
         return interaction.update({ content: "🐸 You don't have a living frog anymore.", components: [] });
     }
     die(frog, Date.now(), 'gassed');
-    // Write only the death fields — a targeted partial write is less likely to fail than
-    // a full-object write, and avoids accidentally leaving the frog alive if the write
-    // succeeds for some fields but not alive:false.
-    await pondFrogSet(interaction.user.id, {
-        alive: false, diedAt: frog.diedAt, deathReason: frog.deathReason, lifespanDays: frog.lifespanDays,
-    });
+    // Write the full frog object (justDied/babyEaten are stripped by pondFrogSet).
+    // Check the return value — if Firestore rejected the write, abort rather than
+    // announcing a death that didn't actually stick.
+    const saved = await pondFrogSet(interaction.user.id, frog);
+    if (!saved) {
+        console.error(`[Pond] gas write failed for ${interaction.user.id}`);
+        return interaction.update({ content: `❌ Something went wrong saving **${frog.name}**'s death to the database. Try again in a moment.`, components: [] });
+    }
     await announceDeath(interaction.client, frog);
     await interaction.update({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
 }
