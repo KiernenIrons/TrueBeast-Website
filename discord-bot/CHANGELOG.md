@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Auto-quarantine system: suspicious account + DM activity detection
+
+- Added `QUARANTINE_ROLE_ID` (`1522001409334313030`) and `QUARANTINE_CHANNEL_ID` (`1522016873653207080`) constants.
+- `quarantineUser(guild, member, reason)`: adds the Quarantine role, posts "Hello @user! Your account has been flagged..." in the quarantine channel (readable by quarantined users), sends a separate embed notification to `MOD_CHANNEL_ID` for staff, and logs to the log channel.
+- `checkQuarantineExpiry()`: runs every 5 minutes; auto-bans any quarantined user who has not sent a single message within 48 hours. Cleans up the entry after ban or if the guild/user is no longer resolvable.
+- On-join detection (`guildMemberAdd`): flags accounts < 1 day old, < 7 days old, no custom avatar, or bot-pattern usernames. Quarantines if brand-new (< 1 day) or 2+ flags present.
+- In-server detection (`messageCreate`): quarantines on rapid message flooding (8+ msgs in 60s), mass-mentioning 4+ unique users in 2 minutes, or DM-soliciting phrases from accounts < 7 days old.
+- When a quarantined user sends any message, marks `responded: true` (cancels auto-ban) and notifies mods via `MOD_CHANNEL_ID`.
+- `quarantinedUsers` Map persisted in `buildFullBackup` / restored in `applyBackupToMemory` (pending-only entries restored on restart).
+- `userActivityTrack` Map is ephemeral — not persisted (rate windows are short enough that losing them on restart is harmless).
+
 ## [2026-07-01] — Fix memorial: ticker race condition + filter + no pings
 
 - **Root cause**: the background ticker queries alive frogs, runs decay, then writes back — including `alive:true`. If gas killed a frog between the ticker's query and its save, the ticker overwrote the kill with `alive:true`. The frog would end up alive in Firestore, invisible to the memorial.

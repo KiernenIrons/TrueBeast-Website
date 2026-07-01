@@ -73,10 +73,10 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🚨 Auto-Quarantine System', value: 'The bot now auto-detects suspicious accounts and DM activity. New/suspicious accounts are given the Quarantine role and prompted to confirm they\'re human. No response in 48h = auto-ban.' },
     { name: '🪦 Frog Memorial Fix', value: 'Gassed frogs now appear in `/pond memorial`. The background ticker was overwriting gas kills with `alive:true` due to a race condition. Fixed filter, sort, and removed pings from the memorial.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
-    { name: '⚗️ Reaction XP Cap', value: 'Reaction XP is now capped at 50 per day to keep the leaderboard fair.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1164,6 +1164,17 @@ const TZ_LABELS = {
 // userId → { reason, originalNickname, timestamp }
 const afkUsers = new Map();
 
+// ── Quarantine System ─────────────────────────────────────────────────────────
+const QUARANTINE_ROLE_ID    = '1522001409334313030';
+const QUARANTINE_CHANNEL_ID = '1522016873653207080'; // #quarantine — readable by quarantined users
+const QUARANTINE_BAN_MS     = 48 * 60 * 60 * 1000; // 48 hours
+
+// userId → { timestamp, guildId, reason, responded }
+const quarantinedUsers = new Map();
+
+// userId → { msgs: [ts, ...], mentionSet: Set, mentionWindowStart: ts }
+const userActivityTrack = new Map();
+
 // ── Introductions ─────────────────────────────────────────────────────────────
 
 async function hasIntroduced(userId) {
@@ -1438,6 +1449,71 @@ async function checkWeeklyBumpReset(guild) {
 
     await saveBumpCounts().catch(() => {});
     console.log(`[BeastBot] Weekly bump reset — top bumper: ${top?.uid ?? 'none'} (${top?.count ?? 0} bumps)`);
+}
+
+// ── Quarantine helpers ────────────────────────────────────────────────────────
+
+async function quarantineUser(guild, member, reason) {
+    if (quarantinedUsers.has(member.id)) return;
+    if (member.user.bot) return;
+    try {
+        await member.roles.add(QUARANTINE_ROLE_ID, `Auto-quarantine: ${reason}`);
+        quarantinedUsers.set(member.id, {
+            timestamp: Date.now(),
+            guildId:   guild.id,
+            reason,
+            responded: false,
+        });
+        // Tell the user in the quarantine channel (must be a channel they can still read)
+        if (QUARANTINE_CHANNEL_ID) {
+            const qCh = await client.channels.fetch(QUARANTINE_CHANNEL_ID).catch(() => null);
+            if (qCh) await qCh.send(`Hello <@${member.id}>! Your account has been flagged for suspicious activity. Please confirm you're human.`);
+        }
+        // Notify mods separately
+        if (MOD_CHANNEL_ID) {
+            const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
+            if (modCh) await modCh.send({ embeds: [buildLogEmbed({
+                color:       0xFF6B00,
+                user:        member.user,
+                description: `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}\n\nIf this was a mistake, remove the <@&${QUARANTINE_ROLE_ID}> role manually.`,
+            })] });
+        }
+        await sendLog(guild, buildLogEmbed({
+            color:       0xFF6B00,
+            user:        member.user,
+            description: `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}`,
+        }));
+        console.log(`[BeastBot] 🚨 Quarantined ${member.user.tag}: ${reason}`);
+    } catch (e) {
+        console.error(`[BeastBot] Failed to quarantine ${member.user.tag}:`, e.message);
+    }
+}
+
+async function checkQuarantineExpiry() {
+    const now = Date.now();
+    for (const [userId, data] of quarantinedUsers) {
+        if (data.responded) continue;
+        if (now - data.timestamp < QUARANTINE_BAN_MS) continue;
+        const guild = client.guilds.cache.get(data.guildId);
+        if (!guild) { quarantinedUsers.delete(userId); continue; }
+        try {
+            const user = await client.users.fetch(userId).catch(() => null);
+            await guild.members.ban(userId, {
+                reason: 'Auto-ban: quarantined account did not respond within 48 hours (suspected bot/spam)',
+                deleteMessageSeconds: 86400,
+            });
+            quarantinedUsers.delete(userId);
+            await sendLog(guild, buildLogEmbed({
+                color:       0xFF0000,
+                user:        user || { id: userId, tag: userId, username: userId, displayAvatarURL: () => '' },
+                description: `🔨 <@${userId}> was **auto-banned** — no response after 48h quarantine\nOriginal reason: ${data.reason}`,
+            }));
+            console.log(`[BeastBot] 🔨 Auto-banned quarantined user ${userId} (48h no response)`);
+        } catch (e) {
+            console.error(`[BeastBot] Failed to auto-ban quarantined user ${userId}:`, e.message);
+            quarantinedUsers.delete(userId);
+        }
+    }
 }
 
 async function postMemberSpotlight() {
@@ -2070,6 +2146,9 @@ function buildFullBackup() {
     const afk = {};
     for (const [uid, d] of afkUsers) afk[uid] = { reason: d.reason, originalNickname: d.originalNickname, timestamp: d.timestamp };
 
+    const quarantine = {};
+    for (const [uid, d] of quarantinedUsers) quarantine[uid] = { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: d.responded };
+
     return {
         savedAt: new Date().toISOString(),
         voiceMinutes: vm,
@@ -2111,6 +2190,7 @@ function buildFullBackup() {
             for (const [pid, panel] of reactionRoles) rr[pid] = panel;
             return rr;
         })(),
+        quarantine,
     };
 }
 
@@ -2433,9 +2513,14 @@ function applyBackupToMemory(data) {
     for (const [pid, panel] of Object.entries(data.reactionRoles || {})) {
         reactionRoles.set(pid, panel);
     }
+    // Quarantine state — only restore pending (not yet responded) entries
+    quarantinedUsers.clear();
+    for (const [uid, d] of Object.entries(data.quarantine || {})) {
+        if (!d.responded) quarantinedUsers.set(uid, { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: false });
+    }
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
-    console.log(`[BeastBot] ✅ State loaded: ${voiceMinutes.size} voice, ${messageDays.size} msg, ${rankAchievements.size} rank, ${reactionDays.size} reaction users (${voiceTotal} total voice mins), ${afkUsers.size} AFK`);
+    console.log(`[BeastBot] ✅ State loaded: ${voiceMinutes.size} voice, ${messageDays.size} msg, ${rankAchievements.size} rank, ${reactionDays.size} reaction users (${voiceTotal} total voice mins), ${afkUsers.size} AFK, ${quarantinedUsers.size} quarantined`);
 }
 
 // Once-per-day Firestore write — writes all collections (not just backups)
@@ -5058,6 +5143,7 @@ client.once('clientReady', async () => {
         })).then(() => console.log('[BeastBot] Emoji image cache warmed'));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkWeeklyBumpReset(guild).catch(() => {}), 60 * 60 * 1000);
+        setInterval(() => checkQuarantineExpiry().catch(() => {}), 5 * 60 * 1000); // check every 5 min
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
@@ -12229,6 +12315,75 @@ client.on('messageCreate', async (message) => {
 
     if (message.author.bot) return;
 
+    // ── Quarantine: mark as responded / detect unusual activity ──────────────
+    if (message.guild) {
+        const uid = message.author.id;
+        const now = Date.now();
+
+        // If quarantined and they just sent a message, lift the auto-ban
+        if (quarantinedUsers.has(uid)) {
+            const qData = quarantinedUsers.get(uid);
+            if (!qData.responded) {
+                qData.responded = true;
+                if (MOD_CHANNEL_ID) {
+                    const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
+                    if (modCh) await modCh.send({ embeds: [buildLogEmbed({
+                        color:       0x00CC44,
+                        user:        message.author,
+                        description: `✅ <@${uid}> **responded** after quarantine — auto-ban cancelled.\nPlease review manually.`,
+                    })] }).catch(() => {});
+                }
+                console.log(`[BeastBot] ✅ Quarantined user ${message.author.tag} responded — auto-ban cancelled`);
+            }
+        } else {
+            // Unusual in-server activity detection
+            const RATE_WINDOW_MS    = 60 * 1000;
+            const MENTION_WINDOW_MS = 2 * 60 * 1000;
+
+            let track = userActivityTrack.get(uid) || { msgs: [], mentionSet: new Set(), mentionWindowStart: now };
+
+            // Purge messages outside the rate window
+            track.msgs = track.msgs.filter(t => now - t < RATE_WINDOW_MS);
+            track.msgs.push(now);
+
+            // Track unique mentions within 2-min window
+            const mentionedNow = [...message.mentions.users.keys()].filter(id => id !== uid);
+            if (now - track.mentionWindowStart > MENTION_WINDOW_MS) {
+                track.mentionSet = new Set();
+                track.mentionWindowStart = now;
+            }
+            for (const id of mentionedNow) track.mentionSet.add(id);
+
+            userActivityTrack.set(uid, track);
+
+            // Flag: rapid message flooding (8+ in 60s)
+            if (track.msgs.length >= 8) {
+                await quarantineUser(message.guild, message.member,
+                    `Unusual DM activity: rapid message flooding (${track.msgs.length} msgs in 60s)`);
+            // Flag: mass-mentioning 4+ unique users within 2 min
+            } else if (track.mentionSet.size >= 4) {
+                await quarantineUser(message.guild, message.member,
+                    `Unusual DM activity: mass-mentioning ${track.mentionSet.size} unique users within 2 minutes`);
+            // Flag: DM-soliciting phrases from a new account (< 7 days old)
+            } else {
+                const accountAgeDays = (now - message.author.createdTimestamp) / 86400000;
+                if (accountAgeDays < 7) {
+                    const content = message.content;
+                    const dmSoliciting = /check\s+your\s+dms?|i\s+(?:just\s+)?dm[d']?(?:\s+you)?|sent?\s+(?:you\s+)?a\s+(?:dm|pm|message)|free\s+nitro|gift\s+(?:card|code)|click\s+(?:here|this\s+link)/i;
+                    if (dmSoliciting.test(content)) {
+                        await quarantineUser(message.guild, message.member,
+                            `Unusual DM activity: DM-soliciting content from new account (${Math.floor(accountAgeDays * 24)}h old)`);
+                    }
+                }
+            }
+
+            // Clean up tracking for long-idle users
+            if (track.msgs.length === 0 && now - track.mentionWindowStart > 10 * 60 * 1000) {
+                userActivityTrack.delete(uid);
+            }
+        }
+    }
+
     // ── Invite link detection ─────────────────────────────────────────────────
     if (message.guild) {
         const inviteRegex = /discord\.gg\/\S+|discord(?:app)?\.com\/invite\/\S+/gi;
@@ -12665,6 +12820,21 @@ client.on('guildMemberAdd', async (member) => {
             // User may have DMs disabled — silently ignore
             console.log(`[BeastBot] Could not send welcome DM to ${user.tag}: ${e.message}`);
         }
+    }
+
+    // ── Suspicious account detection on join ──────────────────────────────────
+    const accountAgeDays = (Date.now() - user.createdTimestamp) / 86400000;
+    const suspiciousFlags = [];
+
+    if (accountAgeDays < 1)      suspiciousFlags.push(`Account created ${Math.floor(accountAgeDays * 24)}h ago`);
+    else if (accountAgeDays < 7) suspiciousFlags.push(`Account only ${Math.floor(accountAgeDays)} days old`);
+    if (!user.avatar)             suspiciousFlags.push('No profile picture (default avatar)');
+    if (/^[a-zA-Z]{0,4}\d{6,}$/.test(user.username)) suspiciousFlags.push('Bot-pattern username');
+
+    // Auto-quarantine: brand-new account, OR two or more suspicion flags together
+    const shouldQuarantine = accountAgeDays < 1 || suspiciousFlags.length >= 2;
+    if (shouldQuarantine) {
+        setTimeout(() => quarantineUser(member.guild, member, suspiciousFlags.join('; ')).catch(() => {}), 3000);
     }
 });
 
