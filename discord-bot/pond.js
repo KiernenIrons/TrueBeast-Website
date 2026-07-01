@@ -856,11 +856,6 @@ async function handleFrogMayor(interaction) {
 async function handleFrogGas(interaction) {
     const frog = await getLiveFrog(interaction.user.id);
     if (!requireLiveFrog(frog, interaction)) return;
-    if (frog.justDied) {
-        await pondFrogSet(interaction.user.id, frog);
-        await announceDeath(interaction.client, frog);
-        return interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` });
-    }
     await pondFrogSet(interaction.user.id, frog);
     await interaction.reply({
         content: `⚠️ Are you sure you want to gas **${frog.name}**? This permanently ends their life — there is no going back.`,
@@ -876,24 +871,19 @@ async function handleFrogGasButton(interaction) {
     if (interaction.customId === 'pond:gas:cancel') {
         return interaction.update({ content: '👍 Cancelled — your frog is safe.', components: [] });
     }
-    // Acknowledge immediately so Discord's 3-second window doesn't expire during Firestore work
-    await interaction.deferUpdate();
+    // deferUpdate can throw in edge cases — suppress and continue; the kill must happen regardless
+    await interaction.deferUpdate().catch(() => {});
     const frog = await getLiveFrog(interaction.user.id);
-    if (!frog) {
-        return interaction.editReply({ content: "🐸 You don't have a frog.", components: [] });
-    }
-    if (!frog.alive) {
-        // Frog naturally died during the decay check — save it so they can adopt
-        if (frog.justDied) {
-            await pondFrogSet(interaction.user.id, frog);
-            await announceDeath(interaction.client, frog);
-        }
-        return interaction.editReply({ content: `🐸 Your frog is already gone. Adopt a new one with \`/frog adopt\`.`, components: [] });
+    if (!frog || !frog.alive) {
+        return interaction.editReply({ content: `🐸 Your frog is already gone. Adopt a new one with \`/frog adopt\`.`, components: [] }).catch(() => {});
     }
     die(frog, Date.now(), 'gassed');
-    await pondFrogSet(interaction.user.id, frog);
+    const saved = await pondFrogSet(interaction.user.id, frog);
+    if (!saved) {
+        return interaction.editReply({ content: `❌ Couldn't save the kill — Firestore write failed. Try again.`, components: [] }).catch(() => {});
+    }
     await announceDeath(interaction.client, frog);
-    await interaction.editReply({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
+    await interaction.editReply({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] }).catch(() => {});
 }
 
 async function handleFrogCareerInfo(interaction) {
@@ -1734,7 +1724,15 @@ async function handlePondAdminFireflies(interaction) {
 
 async function announceDeath(client, frog) {
     if(!POND_CHANNEL_ID)return;
-    try { const ch=await client.channels.fetch(POND_CHANNEL_ID); await ch.send({content:deathMessage(frog)}); }
+    try {
+        const ch = await client.channels.fetch(POND_CHANNEL_ID);
+        let ownerName = null;
+        try { const m = await ch.guild.members.fetch(frog.ownerId); ownerName = m.displayName; } catch(_){}
+        const msg = ownerName
+            ? deathMessage(frog).replace(`**${frog.name}**`, `**${frog.name}** (${ownerName})`)
+            : deathMessage(frog);
+        await ch.send({ content: msg, allowedMentions: { parse: [] } });
+    }
     catch(e){console.error('[Pond] announceDeath failed:',e.message);}
 }
 

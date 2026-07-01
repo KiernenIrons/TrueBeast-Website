@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Fix frog gas v2: deferUpdate catch, save check, owner name in announcement
+
+- Root cause found: `interaction.deferUpdate()` was throwing before `pondFrogSet` was ever called, so the frog stayed alive in Firestore. Every other `deferUpdate` call in pond.js uses `.catch(()=>{})` — this one didn't.
+- Added `.catch(()=>{})` to `deferUpdate` so a Discord API hiccup can't abort the kill.
+- `pondFrogSet` return value is now checked — if the Firestore write fails, the user sees an explicit error instead of a fake success with the frog still alive.
+- Death announcement now fetches the guild member's display name and injects it as plain text (`frog name (ownerName)`) with `allowedMentions: { parse: [] }` so no ping is sent.
+- Removed dead code `justDied` branch from `handleFrogGas` — it was unreachable because `requireLiveFrog` always blocks first when the frog is dead.
+
 ## [2026-07-01] — Fix frog gas system
 
 - Removed `pondFrogKill` — a custom PATCH function with a Firestore read-back verify step that was causing silent failures. If the verify read had any network hiccup, it returned `false` and the frog stayed alive in Firestore even though the write had already succeeded.
