@@ -73,7 +73,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🐸 Frog Gas Fix v2', value: 'Fixed `/frog gas` for real — `deferUpdate()` was silently throwing before the Firestore write could run, leaving the frog alive. Now the write is checked explicitly and the death announcement shows the owner\'s name (no ping).' },
+    { name: '🪦 Frog Memorial Fix', value: 'Gassed frogs now appear in `/pond memorial`. The background ticker was overwriting gas kills with `alive:true` due to a race condition. Fixed filter, sort, and removed pings from the memorial.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
     { name: '⚗️ Reaction XP Cap', value: 'Reaction XP is now capped at 50 per day to keep the leaderboard fair.' },

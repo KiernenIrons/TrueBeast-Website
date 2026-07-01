@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Fix memorial: ticker race condition + filter + no pings
+
+- **Root cause**: the background ticker queries alive frogs, runs decay, then writes back — including `alive:true`. If gas killed a frog between the ticker's query and its save, the ticker overwrote the kill with `alive:true`. The frog would end up alive in Firestore, invisible to the memorial.
+- **Fix**: ticker no longer writes `alive:true` during routine ticks. It only writes `alive:false` (plus `diedAt`, `deathReason`, `lifespanDays`) when the frog actually dies that tick. The alive state is only ever set by the adoption or death paths.
+- **Memorial filter**: changed `!f.alive` to `f.alive === false` (strict equality) so null/undefined can't accidentally exclude real dead frogs.
+- **Memorial sort**: now sorts by `diedAt` descending (most recently dead first) instead of by lifespan.
+- **Memorial pings**: added `allowedMentions: { parse: [] }` so `<@userId>` renders as a clickable name but sends no notification.
+
 ## [2026-07-01] — Fix frog gas v2: deferUpdate catch, save check, owner name in announcement
 
 - Root cause found: `interaction.deferUpdate()` was throwing before `pondFrogSet` was ever called, so the frog stayed alive in Firestore. Every other `deferUpdate` call in pond.js uses `.catch(()=>{})` — this one didn't.

@@ -1645,10 +1645,10 @@ async function handlePondView(interaction) {
 
 async function handlePondMemorial(interaction) {
     const frogs=await pondFirestoreQuery();
-    const departed=frogs.filter(f=>!f.alive).sort((a,b)=>((b.diedAt||0)-(b.bornAt||0))-((a.diedAt||0)-(a.bornAt||0))).slice(0,15);
+    const departed=frogs.filter(f=>f.alive===false).sort((a,b)=>(b.diedAt||0)-(a.diedAt||0)).slice(0,15);
     if(!departed.length)return interaction.reply({content:'🌿 No frogs have passed on yet. The pond remembers them when they do.'});
-    const lines=departed.map(f=>`🪦 **${f.name}** (${(FROG_COLORS[f.color]||{}).name||f.color}) — <@${f.ownerId}> — lived ${f.lifespanDays} day(s)`);
-    await interaction.reply({content:`These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}`});
+    const lines=departed.map(f=>`🪦 **${f.name}** (${(FROG_COLORS[f.color]||{}).name||f.color}) — <@${f.ownerId}> — lived ${f.lifespanDays??0} day(s)`);
+    await interaction.reply({content:`These frogs hopped on to the great lilypad in the sky, but they'll always be remembered 💚\n\n${lines.join('\n')}`,allowedMentions:{parse:[]}});
 }
 
 const RULES_EMBED = {
@@ -1899,11 +1899,13 @@ async function runPondTick(client) {
             const ageMult=frog.isMayor?MAYOR_AGE_RATE:1;
             const before=frog.alive;
             applyDecay(frog,now);
-            await pondFrogSet(frog.ownerId,{
+            // Never write alive:true during a routine tick — if gas (or any other path) killed this
+            // frog between the query and now, writing alive:true would silently undo that kill.
+            // Only write alive:false (plus death fields) when the frog actually dies this tick.
+            const tickSave = {
                 hunger:frog.hunger, happiness:frog.happiness, stage:frog.stage,
                 lastTickAt:frog.lastTickAt, fireflies:frog.fireflies, lastPassiveAt:frog.lastPassiveAt, lastFisherAt:frog.lastFisherAt,
                 sick:frog.sick, sickSince:frog.sickSince, depressed:frog.depressed, depressedSince:frog.depressedSince,
-                alive:frog.alive, diedAt:frog.diedAt, deathReason:frog.deathReason, lifespanDays:frog.lifespanDays,
                 ownerId:frog.ownerId, name:frog.name, color:frog.color, lilypadLevel:frog.lilypadLevel,
                 worms:frog.worms, toys:frog.toys, hasNest:frog.hasNest, isMayor:frog.isMayor,
                 patchV2Granted:frog.patchV2Granted, lilypadL10Claimed:frog.lilypadL10Claimed,
@@ -1913,7 +1915,12 @@ async function runPondTick(client) {
                 hasBaby:frog.hasBaby, babyBornAt:frog.babyBornAt, hungerDangerSince:frog.hungerDangerSince,
                 partnerId:frog.partnerId,
                 bornAt:frog.bornAt, lastFedAt:frog.lastFedAt, lastPlayedAt:frog.lastPlayedAt,
-            });
+            };
+            if(!frog.alive){
+                tickSave.alive=false; tickSave.diedAt=frog.diedAt;
+                tickSave.deathReason=frog.deathReason; tickSave.lifespanDays=frog.lifespanDays;
+            }
+            await pondFrogSet(frog.ownerId, tickSave);
             if(before&&!frog.alive)await announceDeath(client,frog);
             if(frog.babyEaten&&POND_CHANNEL_ID){
                 try{const ch=await client.channels.fetch(POND_CHANNEL_ID);await ch.send({content:`🍽️ **${frog.name}**'s hunger dropped below 50 for too long — the baby was eaten. 💔`});}
