@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — VIP role system + reaction XP cap
+
+- Added `VIP_ROLE_ID`, `TWITCH_SUB_ROLES`, and `YT_MEMBER_ROLES` constants. The bot watches `guildMemberUpdate` for Discord's native Twitch/YouTube integration roles and syncs the VIP role automatically — no API credentials needed.
+- `syncVipRole(member)` reads the member's live role cache to decide qualification; no Firestore involved.
+- Boost detection in `guildMemberUpdate` now calls `syncVipRole` on start and end.
+- Added `/vip` slash command — shows ephemeral embed with Boost/Twitch/YouTube status. Perk role panel scaffolding is in place (`VIP_PERK_ROLES`, `buildVipPerkPanel`) but intentionally empty; fills automatically when perk roles are added.
+- Added `REACTION_XP_DAILY_CAP = 50` — reaction XP is now capped per user per day. Cap check happens before the dedup set so un-reacting frees the slot.
+
 ## [2026-07-01] — Weekly Bump Leaderboard + Top Bumper role
 
 - The bot now tracks every `/bump` run on Disboard per user, per ISO week (Monday–Sunday).

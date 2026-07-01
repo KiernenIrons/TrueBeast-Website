@@ -28,6 +28,24 @@
  *   FIREBASE_PROJECT_ID            — your Firebase project ID (e.g. "truebeast-support")
  *   FIREBASE_SERVICE_ACCOUNT_EMAIL — service account email from Firebase Console
  *   FIREBASE_SERVICE_ACCOUNT_KEY   — service account private key (PEM format)
+ *
+ * VIP verification secrets (add in Cloudflare Worker → Settings → Variables):
+ *   FIREBASE_API_KEY               — same public web API key the bot uses for Firestore
+ *   DISCORD_CLIENT_ID              — Discord app client ID (Developer Portal → OAuth2)
+ *   DISCORD_CLIENT_SECRET          — Discord app OAuth2 secret
+ *   VIP_STATE_SECRET               — any random string; signs the OAuth state to prevent CSRF
+ *   TWITCH_CLIENT_ID               — Twitch application client ID
+ *   TWITCH_CLIENT_SECRET           — Twitch application client secret
+ *   TWITCH_BROADCASTER_ID          — Kiernen's numeric Twitch user ID
+ *   TWITCH_BROADCASTER_REFRESH     — Broadcaster Twitch OAuth refresh token (channel:read:subscriptions scope)
+ *   YOUTUBE_CLIENT_ID              — Google/YouTube OAuth client ID
+ *   YOUTUBE_CLIENT_SECRET          — Google/YouTube OAuth client secret
+ *   YOUTUBE_CREATOR_REFRESH        — Creator YouTube OAuth refresh token (youtube.channel-memberships.creator scope)
+ *
+ * VIP routes (no auth required — browser navigations):
+ *   GET  /vip/start?uid=DISCORD_USER_ID  — redirects to Discord OAuth
+ *   GET  /vip/callback                   — handles OAuth callback, writes Firestore
+ *   POST /vip/recheck { userId }         — re-checks Twitch/YouTube status (called by bot daily)
  */
 
 const ALLOWED_ORIGINS = [
@@ -270,6 +288,253 @@ async function handleFirebaseDisableUser(request, env, corsHeaders) {
     return jsonResponse(data, res.status, corsHeaders);
 }
 
+// ── VIP Verification System ───────────────────────────────────────────────────
+//
+// Required Worker secrets:
+//   FIREBASE_API_KEY              — same public key the bot uses for Firestore REST
+//   DISCORD_CLIENT_ID             — Discord application client ID (Developer Portal)
+//   DISCORD_CLIENT_SECRET         — Discord OAuth2 secret (Developer Portal)
+//   VIP_STATE_SECRET              — any random string; signs the OAuth state param
+//   TWITCH_CLIENT_ID              — Twitch application client ID
+//   TWITCH_CLIENT_SECRET          — Twitch application client secret
+//   TWITCH_BROADCASTER_ID         — Kiernen's numeric Twitch user ID
+//   TWITCH_BROADCASTER_REFRESH    — Broadcaster OAuth refresh token (channel:read:subscriptions scope)
+//   YOUTUBE_CLIENT_ID             — YouTube/GCP OAuth client ID
+//   YOUTUBE_CLIENT_SECRET         — YouTube/GCP OAuth client secret
+//   YOUTUBE_CREATOR_REFRESH       — Creator OAuth refresh token (youtube.channel-memberships.creator scope)
+
+async function hmacSign(message, secret) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+    return btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function firestoreGetVipWorker(userId, env) {
+    const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/vipUsers/${userId}?key=${env.FIREBASE_API_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.fields) return null;
+    const result = {};
+    for (const [k, v] of Object.entries(data.fields)) {
+        result[k] = v.integerValue !== undefined ? Number(v.integerValue) : (v.stringValue || '');
+    }
+    return result;
+}
+
+async function firestoreSetVipWorker(userId, data, env) {
+    const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/vipUsers/${userId}?key=${env.FIREBASE_API_KEY}`;
+    const fields = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (typeof v === 'number') fields[k] = { integerValue: String(v) };
+        else fields[k] = { stringValue: String(v) };
+    }
+    const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+    });
+    return res.ok;
+}
+
+async function refreshOAuthToken(refreshToken, clientId, clientSecret, tokenUrl) {
+    const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
+    });
+    const data = await res.json();
+    return data.access_token || null;
+}
+
+async function checkTwitchSubscription(twitchUserId, env) {
+    if (!env.TWITCH_BROADCASTER_REFRESH || !env.TWITCH_CLIENT_ID || !env.TWITCH_CLIENT_SECRET || !env.TWITCH_BROADCASTER_ID) {
+        return { active: false, tier: 0 };
+    }
+    const token = await refreshOAuthToken(env.TWITCH_BROADCASTER_REFRESH, env.TWITCH_CLIENT_ID, env.TWITCH_CLIENT_SECRET, 'https://id.twitch.tv/oauth2/token');
+    if (!token) return { active: false, tier: 0 };
+
+    const res  = await fetch(`https://api.twitch.tv/helix/subscriptions?broadcaster_id=${env.TWITCH_BROADCASTER_ID}&user_id=${twitchUserId}`, {
+        headers: { Authorization: `Bearer ${token}`, 'Client-Id': env.TWITCH_CLIENT_ID },
+    });
+    const data = await res.json();
+    if (!data.data || data.data.length === 0) return { active: false, tier: 0 };
+    const tierStr = data.data[0].tier || '1000'; // "1000", "2000", "3000"
+    return { active: true, tier: Math.min(3, Math.round(Number(tierStr) / 1000)) };
+}
+
+async function checkYoutubeMembership(youtubeChannelId, env) {
+    if (!env.YOUTUBE_CREATOR_REFRESH || !env.YOUTUBE_CLIENT_ID || !env.YOUTUBE_CLIENT_SECRET) {
+        return { active: false, tier: 0 };
+    }
+    const token = await refreshOAuthToken(env.YOUTUBE_CREATOR_REFRESH, env.YOUTUBE_CLIENT_ID, env.YOUTUBE_CLIENT_SECRET, 'https://oauth2.googleapis.com/token');
+    if (!token) return { active: false, tier: 0 };
+
+    // Get all membership levels to build a tier map (cheapest first = Tier 1)
+    const levelsRes  = await fetch('https://www.googleapis.com/youtube/v3/membershipsLevels?part=snippet', {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const levelsData = await levelsRes.json();
+    const levels     = (levelsData.items || []).map((l, i) => ({ id: l.id, name: l.snippet?.levelDetails?.displayName, index: i }));
+
+    // Check if this channel ID is a member
+    const membersRes  = await fetch(`https://www.googleapis.com/youtube/v3/members?part=snippet&filterByMemberChannelId=${youtubeChannelId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    const membersData = await membersRes.json();
+    const member      = (membersData.items || [])[0];
+    if (!member) return { active: false, tier: 0 };
+
+    const levelName  = member.snippet?.membershipsDetails?.membershipsDuration?.memberLevelName || '';
+    const levelEntry = levels.find(l => l.name === levelName);
+    const tier       = levelEntry ? Math.min(3, levelEntry.index + 1) : 1; // default Tier 1 if level unknown
+    return { active: true, tier };
+}
+
+function vipHtmlPage(title, message, isSuccess) {
+    return new Response(`<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} — TrueBeast VIP</title>
+<style>body{font-family:sans-serif;background:#1a1a2e;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:#16213e;border-radius:12px;padding:2rem 2.5rem;text-align:center;max-width:480px;box-shadow:0 4px 24px #0004}
+h1{color:${isSuccess ? '#f4c430' : '#ff6b6b'};margin-top:0}p{line-height:1.6}
+a{color:#a78bfa;text-decoration:none;font-weight:600}a:hover{text-decoration:underline}</style>
+</head>
+<body><div class="card"><h1>${isSuccess ? '💎' : '❌'} ${title}</h1><p>${message}</p>
+<p><a href="https://truebeast.io">← Back to TrueBeast.io</a></p></div></body></html>`, {
+        headers: { 'Content-Type': 'text/html;charset=UTF-8' },
+    });
+}
+
+async function handleVipStart(request, env) {
+    const uid = new URL(request.url).searchParams.get('uid');
+    if (!uid || !/^\d{17,20}$/.test(uid)) {
+        return vipHtmlPage('Invalid Link', 'This verification link is invalid. Run <code>/vip</code> in Discord to get a fresh one.', false);
+    }
+    if (!env.DISCORD_CLIENT_ID || !env.VIP_STATE_SECRET) {
+        return vipHtmlPage('Not Configured', 'VIP verification is not yet configured. Check back later!', false);
+    }
+
+    const state       = `${uid}.${await hmacSign(uid, env.VIP_STATE_SECRET)}`;
+    const callbackUrl = new URL(request.url).origin + '/vip/callback';
+    const oauthUrl    = `https://discord.com/api/oauth2/authorize?client_id=${encodeURIComponent(env.DISCORD_CLIENT_ID)}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=identify+connections&state=${encodeURIComponent(state)}`;
+    return Response.redirect(oauthUrl, 302);
+}
+
+async function handleVipCallback(request, env) {
+    const params    = new URL(request.url).searchParams;
+    const code      = params.get('code');
+    const stateRaw  = params.get('state');
+    const error     = params.get('error');
+
+    if (error) return vipHtmlPage('Access Denied', 'You declined the Discord authorization. Run <code>/vip</code> and try again.', false);
+    if (!code || !stateRaw) return vipHtmlPage('Bad Request', 'Missing OAuth parameters.', false);
+
+    const [uid, sig] = stateRaw.split('.');
+    if (!uid || !sig) return vipHtmlPage('Invalid State', 'Verification link is malformed. Run <code>/vip</code> for a new one.', false);
+
+    const expectedSig = await hmacSign(uid, env.VIP_STATE_SECRET || '');
+    if (sig !== expectedSig) return vipHtmlPage('Security Error', 'State signature mismatch. Run <code>/vip</code> for a fresh link.', false);
+
+    // Exchange code for Discord access token
+    const callbackUrl = new URL(request.url).origin + '/vip/callback';
+    const tokenRes    = await fetch('https://discord.com/api/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, client_secret: env.DISCORD_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: callbackUrl }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) return vipHtmlPage('Auth Error', 'Could not exchange Discord code. Try again from Discord.', false);
+
+    // Verify Discord user ID matches the uid from state
+    const meRes  = await fetch('https://discord.com/api/v10/users/@me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    const meData = await meRes.json();
+    if (meData.id !== uid) return vipHtmlPage('User Mismatch', 'The Discord account that authorized doesn\'t match the /vip command. Use the same account.', false);
+
+    // Fetch connected accounts
+    const connRes  = await fetch('https://discord.com/api/v10/users/@me/connections', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    const connData = await connRes.json();
+    const twitchConn  = Array.isArray(connData) ? connData.find(c => c.type === 'twitch')  : null;
+    const youtubeConn = Array.isArray(connData) ? connData.find(c => c.type === 'youtube') : null;
+
+    // Check Twitch subscription
+    let twitchResult  = { active: false, tier: 0 };
+    let youtubeResult = { active: false, tier: 0 };
+
+    if (twitchConn?.id) twitchResult  = await checkTwitchSubscription(twitchConn.id, env);
+    if (youtubeConn?.id) youtubeResult = await checkYoutubeMembership(youtubeConn.id, env);
+
+    // Load existing VIP data to preserve boost status
+    const existing = await firestoreGetVipWorker(uid, env);
+    const boostActive = existing?.boostActive === 'true';
+
+    const tiers     = [boostActive ? 1 : 0, twitchResult.active ? twitchResult.tier : 0, youtubeResult.active ? youtubeResult.tier : 0];
+    const maxTier   = Math.max(...tiers);
+
+    await firestoreSetVipWorker(uid, {
+        boostActive:      String(boostActive),
+        twitchActive:     String(twitchResult.active),
+        twitchTier:       twitchResult.tier,
+        twitchUserId:     twitchConn?.id || existing?.twitchUserId || '',
+        youtubeActive:    String(youtubeResult.active),
+        youtubeTier:      youtubeResult.tier,
+        youtubeChannelId: youtubeConn?.id || existing?.youtubeChannelId || '',
+        maxTier,
+        verifiedAt:       new Date().toISOString(),
+        lastChecked:      new Date().toISOString(),
+    }, env);
+
+    const tierLabel = ['None', 'Tier 1', 'Tier 2', 'Tier 3'];
+    const lines = [
+        `💜 Server Boost: ${boostActive ? '✅' : '❌'}`,
+        `🟣 Twitch Sub: ${twitchResult.active ? `✅ ${tierLabel[twitchResult.tier]}` : '❌'} ${twitchConn ? '' : '(no Twitch account connected to Discord)'}`,
+        `🔴 YouTube Member: ${youtubeResult.active ? `✅ ${tierLabel[youtubeResult.tier]}` : '❌'} ${youtubeConn ? '' : '(no YouTube account connected to Discord)'}`,
+    ].join('<br>');
+
+    const msg = maxTier >= 1
+        ? `Your VIP status is now <strong>${tierLabel[maxTier]}</strong>! Go back to Discord and run <code>/vip</code> to pick your perk roles.<br><br>${lines}`
+        : `No active VIP qualification found.<br><br>${lines}<br><br>Make sure your Twitch/YouTube accounts are connected in Discord settings, and that you're actively subscribed/membered.`;
+
+    return vipHtmlPage(maxTier >= 1 ? 'Verified!' : 'Not Qualified', msg, maxTier >= 1);
+}
+
+async function handleVipRecheck(request, env) {
+    let body;
+    try { body = await request.json(); } catch { return new Response('Bad JSON', { status: 400 }); }
+    const { userId } = body;
+    if (!userId || !/^\d{17,20}$/.test(userId)) return new Response('Invalid userId', { status: 400 });
+
+    const existing = await firestoreGetVipWorker(userId, env);
+    if (!existing) return new Response(JSON.stringify({ changed: false, maxTier: 0 }), { headers: { 'Content-Type': 'application/json' } });
+
+    let twitchResult  = { active: existing.twitchActive === 'true', tier: Number(existing.twitchTier) || 0 };
+    let youtubeResult = { active: existing.youtubeActive === 'true', tier: Number(existing.youtubeTier) || 0 };
+
+    if (existing.twitchUserId)     twitchResult  = await checkTwitchSubscription(existing.twitchUserId, env);
+    if (existing.youtubeChannelId) youtubeResult = await checkYoutubeMembership(existing.youtubeChannelId, env);
+
+    const boostActive = existing.boostActive === 'true';
+    const tiers       = [boostActive ? 1 : 0, twitchResult.active ? twitchResult.tier : 0, youtubeResult.active ? youtubeResult.tier : 0];
+    const maxTier     = Math.max(...tiers);
+    const oldMaxTier  = Number(existing.maxTier) || 0;
+    const changed     = maxTier !== oldMaxTier || twitchResult.active !== (existing.twitchActive === 'true') || youtubeResult.active !== (existing.youtubeActive === 'true');
+
+    if (changed) {
+        await firestoreSetVipWorker(userId, {
+            ...existing,
+            twitchActive:  String(twitchResult.active),
+            twitchTier:    twitchResult.tier,
+            youtubeActive: String(youtubeResult.active),
+            youtubeTier:   youtubeResult.tier,
+            maxTier,
+            lastChecked:   new Date().toISOString(),
+        }, env);
+    }
+
+    return new Response(JSON.stringify({ changed, maxTier, oldMaxTier }), { headers: { 'Content-Type': 'application/json' } });
+}
+
 export default {
     async fetch(request, env) {
         const origin = request.headers.get('Origin') || '';
@@ -317,6 +582,17 @@ export default {
         }
         if (path === '/firebase/disable-user' && request.method === 'POST') {
             return handleFirebaseDisableUser(request, env, corsHeaders);
+        }
+
+        // ── VIP verification routes (no CORS restriction — browser navigations) ──
+        if (path === '/vip/start' && request.method === 'GET') {
+            return handleVipStart(request, env);
+        }
+        if (path === '/vip/callback' && request.method === 'GET') {
+            return handleVipCallback(request, env);
+        }
+        if (path === '/vip/recheck' && request.method === 'POST') {
+            return handleVipRecheck(request, env);
         }
 
         // ── Email proxy (existing) ───────────────────────────────────────────

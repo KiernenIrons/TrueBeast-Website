@@ -73,7 +73,9 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '👑 Weekly Bump Leaderboard', value: 'The bot now tracks who uses `/bump` each week. At the end of the week the top bumper is announced, earns the Top Bumper role for the next week, and gets bumped off when someone beats them. Use `/bump-leaderboard` to see current standings.' },
+    { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
+    { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
+    { name: '⚗️ Reaction XP Cap', value: 'Reaction XP is now capped at 50 per day to keep the leaderboard fair.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -416,6 +418,85 @@ async function firestoreGet(collection, docId) {
         }
         return result;
     } catch (e) { return null; }
+}
+
+// ── VIP helpers ───────────────────────────────────────────────────────────────
+
+// Returns true if the member currently holds any VIP-qualifying role.
+function memberHasVipQualification(member) {
+    if (member.premiumSinceTimestamp) return true; // server booster
+    if (TWITCH_SUB_ROLES.some(r => member.roles.cache.has(r.id))) return true;
+    if (YT_MEMBER_ROLES.some(r => member.roles.cache.has(r.id))) return true;
+    return false;
+}
+
+// Adds or removes the VIP role based on current member roles. That's all it does right now.
+// When perk roles are added later (see VIP_PERK_ROLES), tier tracking will come in alongside this.
+async function syncVipRole(member) {
+    if (!VIP_ROLE_ID) return;
+    try {
+        const qualifies = memberHasVipQualification(member);
+        if (qualifies && !member.roles.cache.has(VIP_ROLE_ID)) {
+            await member.roles.add(VIP_ROLE_ID);
+        } else if (!qualifies && member.roles.cache.has(VIP_ROLE_ID)) {
+            await member.roles.remove(VIP_ROLE_ID);
+        }
+    } catch (e) {
+        console.error(`[BeastBot] syncVipRole failed for ${member.id}:`, e.message);
+    }
+}
+
+// Returns the highest Twitch tier the member currently has (0 = none).
+function getMemberTwitchTier(member) {
+    const active = TWITCH_SUB_ROLES.filter(r => member.roles.cache.has(r.id));
+    return active.length ? Math.max(...active.map(r => r.tier)) : 0;
+}
+
+// Returns the highest YouTube tier the member currently has (0 = none).
+function getMemberYoutubeTier(member) {
+    const active = YT_MEMBER_ROLES.filter(r => member.roles.cache.has(r.id));
+    return active.length ? Math.max(...active.map(r => r.tier)) : 0;
+}
+
+// Perk panel — empty for now; will render automatically once VIP_PERK_ROLES is populated.
+// When that time comes, pass the member's highest tier across all sources as `maxTier`.
+function buildVipPerkPanel(maxTier, memberRoleCache) {
+    if (!VIP_PERK_ROLES.length) return [];
+    const btns = VIP_PERK_ROLES.map(perk => {
+        const locked  = maxTier < perk.minTier;
+        const hasRole = !locked && memberRoleCache?.has(perk.id);
+        return new ButtonBuilder()
+            .setCustomId(`vip:perk:${perk.id}`)
+            .setLabel(locked ? `🔒 ${perk.label} (Tier ${perk.minTier}+)` : (hasRole ? `✅ ${perk.label}` : perk.label))
+            .setEmoji(perk.emoji)
+            .setStyle(hasRole ? ButtonStyle.Success : ButtonStyle.Secondary)
+            .setDisabled(locked);
+    });
+    const rows = [];
+    for (let i = 0; i < btns.length; i += 5) rows.push(new ActionRowBuilder().addComponents(btns.slice(i, i + 5)));
+    return rows;
+}
+
+// Builds the /vip status embed from the member's live role cache — no Firestore read needed.
+function getVipStatusEmbed(member) {
+    const isBooster  = !!member.premiumSinceTimestamp;
+    const twitchTier = getMemberTwitchTier(member);
+    const ytTier     = getMemberYoutubeTier(member);
+    const isVip      = isBooster || twitchTier > 0 || ytTier > 0;
+    const chk        = v => v ? '✅' : '❌';
+    const tierLabel  = ['', 'Tier 1', 'Tier 2', 'Tier 3'];
+    return {
+        color: isVip ? 0xf4c430 : 0x555555,
+        title: isVip ? '💎 VIP Status — Active' : '🔒 VIP Status — Not Active',
+        description: isVip
+            ? `You have VIP! More perks are coming — stay tuned.`
+            : `You don't have VIP yet.\nBoost the server, subscribe on Twitch, or join as a YouTube Member.`,
+        fields: [
+            { name: '💜 Server Boost',   value: chk(isBooster),                                         inline: true },
+            { name: '🟣 Twitch Sub',     value: twitchTier > 0 ? `${chk(true)} ${tierLabel[twitchTier]}` : chk(false), inline: true },
+            { name: '🔴 YouTube Member', value: ytTier > 0     ? `${chk(true)} ${tierLabel[ytTier]}`     : chk(false), inline: true },
+        ],
+    };
 }
 
 async function getBotFeatures() {
@@ -1003,6 +1084,48 @@ let lastBumperID  = null;
 // Create a "Top Bumper 👑" role in Discord and paste its ID here:
 const BUMP_KING_ROLE_ID = '1521821341790113862'; // Top Bumper 👑
 const bumpCounts    = new Map(); // userId → { weeks: { [weekKey]: count }, allTime: number }
+
+// ── VIP System ────────────────────────────────────────────────────────────────
+//
+// HOW VERIFICATION WORKS (no extra credentials needed):
+//   • Boost:   detected automatically via guildMemberUpdate.premiumSinceTimestamp
+//   • Twitch:  go to Server Settings → Integrations → Twitch, connect the channel,
+//              and create tier roles there. Discord assigns/removes them automatically.
+//              Then paste those role IDs into TWITCH_SUB_ROLES below.
+//   • YouTube: same — Server Settings → Integrations → YouTube, connect the channel,
+//              create membership-level roles there. Paste IDs into YT_MEMBER_ROLES below.
+//   The bot watches guildMemberUpdate for those role changes and syncs VIP automatically.
+//
+// PERK ROLES (future):
+//   VIP_PERK_ROLES is intentionally empty for now. When you're ready to let VIPs pick
+//   cosmetic/access roles, create those roles in Discord and add them here with a minTier.
+//   The /vip command already builds the perk panel — it just has nothing to show yet.
+
+const VIP_ROLE_ID = '1521840170264039605';
+
+// Twitch roles assigned by Discord's native Twitch integration (Server Settings → Integrations → Twitch)
+// The generic "Twitch Subscriber" role is given to ALL tiers — treated as a Tier 1 fallback.
+const TWITCH_SUB_ROLES = [
+    { id: '1521861388681744424', tier: 1 }, // Twitch Subscriber (generic — all tiers)
+    { id: '1521861388681744425', tier: 1 }, // Twitch Subscriber: Tier 1
+    { id: '1521861388681744426', tier: 2 }, // Twitch Subscriber: Tier 2
+    { id: '1521861388681744427', tier: 3 }, // Twitch Subscriber: Tier 3
+];
+
+// YouTube membership roles assigned by Discord's native YouTube integration (Server Settings → Integrations → YouTube)
+// The generic "YouTube Member" role is given to all members — treated as a Tier 1 fallback.
+const YT_MEMBER_ROLES = [
+    { id: '1521861436173844600', tier: 1 }, // YouTube Member (generic — all levels)
+    { id: '1521865593245143210', tier: 1 }, // YouTube Member: Beastling (entry level)
+    { id: '1521861436173844603', tier: 2 }, // YouTube Member: True-Beast
+    { id: '1521861436173844604', tier: 3 }, // YouTube Member: Apex-Beast
+];
+
+// Perk roles — currently empty, revisit when ready. minTier: 1/2/3.
+// The /vip perk panel is already built and will show these automatically once added.
+const VIP_PERK_ROLES = [
+    // { id: 'ROLE_ID', label: 'Perk Name', emoji: '✨', minTier: 1 },
+];
 let   bumpKingUserId = null;    // current role holder
 let   _bumpWeekKey   = null;    // ISO week that bumpCounts was last reset for
 
@@ -1115,6 +1238,7 @@ const VOICE_RANK_ROLES = [
 
 // 1 message = 1 equivalent voice minute → 60 msgs ≡ 1h in VC
 const MSGS_TO_MIN = 1;
+const REACTION_XP_DAILY_CAP = 50; // max XP from reactions per day per user
 
 // Discord.me: fires at the start of each 6-hour bump window (00:00, 06:00, 12:00, 18:00 UTC)
 // DISABLED — Discord.me reminder removed; only Disboard bump remains active
@@ -3060,6 +3184,14 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             description: `⚔️ <@${user.id}> **roles have changed**`,
             fields,
         }));
+
+        // VIP: detect Discord's native Twitch/YouTube integration roles being added or removed.
+        // Discord assigns/removes these automatically when someone subs, upgrades, or unsubs.
+        const affectedRoleIds = new Set([...addedRoles.keys(), ...removedRoles.keys()]);
+        const vipRoleChanged  = [...affectedRoleIds].some(id =>
+            TWITCH_SUB_ROLES.some(r => r.id === id) || YT_MEMBER_ROLES.some(r => r.id === id)
+        );
+        if (vipRoleChanged) await syncVipRole(newMember);
     }
 
     // Boost started / ended
@@ -3070,11 +3202,13 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             color: 0xf47fff, user,
             description: `💎 <@${user.id}> **started boosting the server!**`,
         }));
+        await syncVipRole(newMember);
     } else if (wasBoosting && !isBoosting) {
         await sendLog(newMember.guild, buildLogEmbed({
             color: LOG_COLORS.leave, user,
             description: `💔 <@${user.id}> **stopped boosting the server**`,
         }));
+        await syncVipRole(newMember);
     }
 });
 
@@ -3406,7 +3540,7 @@ function buildRanksEmbed() {
                     '**Screen share** - +1 XP per minute (2 XP/min total)',
                     '**Camera + screen share** - +2 XP per minute (3 XP/min total)',
                     '**Messages** - 1 XP per message sent',
-                    '**Reactions** - 1 XP per reaction you add',
+                    '**Reactions** - 1 XP per reaction you add (max 50/day)',
                     '*Same rules apply to stage channels.*',
                 ].join('\n'),
             },
@@ -5049,6 +5183,7 @@ client.once('clientReady', async () => {
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
     setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
 
+
     // Restore schedule GIF channel/message from Firestore so updates resume after restart
     try {
         const gifState = await firestoreGet('botState', 'scheduleGif');
@@ -5433,6 +5568,9 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('bump-leaderboard')
                 .setDescription('Show who has bumped the server the most this week'),
+            new SlashCommandBuilder()
+                .setName('vip')
+                .setDescription('Check your VIP status and pick perk roles'),
             ...pondCommands,
         ].map(c => c.toJSON());
 
@@ -10316,6 +10454,20 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /vip ─────────────────────────────────────────────────────────────
+        if (interaction.commandName === 'vip') {
+            const member   = interaction.member;
+            const embed    = getVipStatusEmbed(member);
+            const maxTier  = Math.max(
+                member.premiumSinceTimestamp ? 1 : 0,
+                getMemberTwitchTier(member),
+                getMemberYoutubeTier(member),
+            );
+            const perkRows = buildVipPerkPanel(maxTier, member?.roles?.cache);
+            await interaction.reply({ embeds: [embed], components: perkRows, ephemeral: true });
+            return;
+        }
+
     }
 
     // ── Introduction modal submit ─────────────────────────────────────────────
@@ -11839,6 +11991,42 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── VIP: perk role toggle button ─────────────────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith('vip:perk:')) {
+        const roleId = interaction.customId.split(':')[2];
+        const perk   = VIP_PERK_ROLES.find(p => p.id === roleId);
+        const member = interaction.member;
+        if (!perk || !member) { await interaction.reply({ content: '❌ Could not find that perk role.', ephemeral: true }); return; }
+        try {
+            await interaction.deferUpdate();
+            const maxTier = Math.max(
+                member.premiumSinceTimestamp ? 1 : 0,
+                getMemberTwitchTier(member),
+                getMemberYoutubeTier(member),
+            );
+            if (maxTier < perk.minTier) {
+                await interaction.followUp({ content: `🔒 **${perk.label}** requires Tier ${perk.minTier} VIP.`, ephemeral: true });
+                return;
+            }
+            const role = interaction.guild.roles.cache.get(roleId);
+            const roleName = role?.name || perk.label;
+            let action;
+            if (member.roles.cache.has(roleId)) {
+                await member.roles.remove(roleId);
+                action = `Removed **${roleName}**`;
+            } else {
+                await member.roles.add(roleId);
+                action = `Added **${roleName}**`;
+            }
+            const embed    = { ...getVipStatusEmbed(member), footer: { text: `✅ ${action}` } };
+            const perkRows = buildVipPerkPanel(maxTier, member.roles.cache);
+            await interaction.editReply({ embeds: [embed], components: perkRows });
+        } catch (e) {
+            await interaction.followUp({ content: `❌ Could not update role: ${e.message}`, ephemeral: true });
+        }
+        return;
+    }
+
     // ── Reaction Roles: role toggle button ───────────────────────────────────
     if (interaction.isButton() && interaction.customId.startsWith('rr:role:')) {
         const parts   = interaction.customId.split(':');
@@ -12281,14 +12469,20 @@ client.on('messageReactionAdd', async (reaction, user) => {
     // Dedup: one XP credit per user per message per emoji — react/unreact/re-react gives no extra credit
     const creditKey = `${userId}:${reaction.message.id}:${emojiKey}`;
     if (creditedReactions.has(creditKey)) return;
+
+    // Check daily cap before crediting — if at limit, ignore entirely (don't add to creditedReactions
+    // so the slot remains available if they free up space by un-reacting something else)
+    let rMap = reactionDays.get(userId);
+    if (!rMap) { rMap = new Map(); reactionDays.set(userId, rMap); }
+    const todayCount = rMap.get(today) ?? 0;
+    if (todayCount >= REACTION_XP_DAILY_CAP) return;
+
     creditedReactions.add(creditKey);
     // Safety valve: if the set grows extremely large, clear it (restarts also clear it naturally)
     if (creditedReactions.size > 100000) creditedReactions.clear();
 
     // Reaction-specific tracking (reactions do NOT increment messageCounts/messageDays)
-    let rMap = reactionDays.get(userId);
-    if (!rMap) { rMap = new Map(); reactionDays.set(userId, rMap); }
-    const reactionCount = (rMap.get(today) ?? 0) + 1;
+    const reactionCount = todayCount + 1;
     rMap.set(today, reactionCount);
 
     // All-time emoji tally
