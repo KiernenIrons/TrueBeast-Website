@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Add Google Safe Browsing link checker for thoughts channel
+
+- Links submitted via the Thoughts modal (both new posts and edits) are now checked against the Google Safe Browsing API v4 before posting.
+- If a link is flagged (malware, phishing, unwanted software, or potentially harmful app), the post is blocked and the user receives an ephemeral error.
+- Mods are alerted in the mod channel with the flagged URL, threat type, and instructions for safely reviewing it (VirusTotal / URLScan).
+- If the API key is missing or the request fails, the check is skipped silently (fail-open) so a misconfigured key never blocks posts.
+
 ## [2026-07-01] — Fix AFK system: clear on message, on VC leave, and on startup
 
 - AFK now clears whenever the user sends any message, regardless of whether they're still in voice — previously it silently did nothing if they'd already left VC.

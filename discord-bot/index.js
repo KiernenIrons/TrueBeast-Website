@@ -61,9 +61,10 @@ const MOD_ROLE_ID       = process.env.MOD_ROLE_ID || '874315329474555944';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const FIREBASE_PROJECT  = process.env.FIREBASE_PROJECT_ID;
 const FIREBASE_API_KEY  = process.env.FIREBASE_API_KEY;
-const STEAM_API_KEY     = process.env.STEAM_API_KEY;
-const STEAM_ID          = process.env.STEAM_ID || '76561198254213878';
-const OWNER_DISCORD_ID  = '392450364340830208';
+const STEAM_API_KEY              = process.env.STEAM_API_KEY;
+const STEAM_ID                   = process.env.STEAM_ID || '76561198254213878';
+const GOOGLE_SAFE_BROWSING_KEY   = process.env.GOOGLE_SAFE_BROWSING_KEY;
+const OWNER_DISCORD_ID           = '392450364340830208';
 
 if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CHANNEL_IDS.length === 0) {
     console.error('[BeastBot] ❌  Missing required env vars.');
@@ -72,9 +73,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🐛 AFK clears when you type', value: 'Typing in any channel now removes your AFK — even if you\'ve already left voice chat. Previously it only cleared if you were still in VC.' },
-    { name: '🐛 AFK clears when you leave voice', value: 'Leaving a voice channel now automatically removes your AFK status and restores your nickname.' },
-    { name: '🐛 Stuck AFK on restart fixed', value: 'Any AFK that was still stuck from before a bot restart is now cleared on startup for anyone not actively in voice.' },
+    { name: '🔒 Link safety check in Thoughts', value: 'Links posted in the Thoughts channel are now scanned by Google Safe Browsing. If a link is flagged as malware or phishing, the post is blocked and mods are alerted.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -882,6 +881,81 @@ async function notifyMods(message) {
         );
     } catch (e) {
         console.error('[BeastBot] Failed to notify mods:', e.message);
+    }
+}
+
+// ── Link safety check ────────────────────────────────────────────────────────
+
+// Returns null if safe, or an array of threat match objects if unsafe.
+// Falls through (returns null) if the API key is missing or the request fails,
+// so the post is never silently blocked due to a misconfigured key.
+async function checkLinkSafety(url) {
+    if (!GOOGLE_SAFE_BROWSING_KEY) {
+        console.warn('[BeastBot] GOOGLE_SAFE_BROWSING_KEY not set — skipping link safety check');
+        return null;
+    }
+    try {
+        const res = await fetch(
+            `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    client: { clientId: 'truebeast-beast-bot', clientVersion: '1.0' },
+                    threatInfo: {
+                        threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE', 'POTENTIALLY_HARMFUL_APPLICATION'],
+                        platformTypes: ['ANY_PLATFORM'],
+                        threatEntryTypes: ['URL'],
+                        threatEntries: [{ url }],
+                    },
+                }),
+            }
+        );
+        if (!res.ok) {
+            console.error('[BeastBot] Safe Browsing API error:', res.status, await res.text());
+            return null;
+        }
+        const data = await res.json();
+        return data.matches?.length > 0 ? data.matches : null;
+    } catch (e) {
+        console.error('[BeastBot] Safe Browsing check failed:', e.message);
+        return null;
+    }
+}
+
+const THREAT_LABELS = {
+    MALWARE: 'Malware',
+    SOCIAL_ENGINEERING: 'Phishing / Social Engineering',
+    UNWANTED_SOFTWARE: 'Unwanted Software',
+    POTENTIALLY_HARMFUL_APPLICATION: 'Potentially Harmful App',
+};
+
+async function notifyModsUnsafeLink(interaction, url, matches) {
+    if (!MOD_CHANNEL_ID) return;
+    try {
+        const modChannel = await client.channels.fetch(MOD_CHANNEL_ID);
+        const rolePing   = MOD_ROLE_ID ? `<@&${MOD_ROLE_ID}> ` : '';
+        const threats    = matches.map(m => THREAT_LABELS[m.threatType] || m.threatType).join(', ');
+        const user       = interaction.user;
+        await modChannel.send({ embeds: [{
+            title: '🚨 Unsafe Link Blocked in Thoughts',
+            color: 0xef4444,
+            fields: [
+                { name: 'User', value: `<@${user.id}> (${user.tag})`, inline: true },
+                { name: 'Threat Type', value: threats, inline: true },
+                { name: 'Flagged URL', value: `\`${url}\`` },
+                {
+                    name: 'How to review safely',
+                    value:
+                        '• **VirusTotal:** https://www.virustotal.com/gui/home/url — paste the URL there\n' +
+                        '• **URLScan:** https://urlscan.io — scan without visiting\n' +
+                        '• **Do not** click the link directly from this message',
+                },
+            ],
+            timestamp: new Date().toISOString(),
+        }], content: `${rolePing}A thought with a flagged link was blocked.` });
+    } catch (e) {
+        console.error('[BeastBot] Failed to notify mods of unsafe link:', e.message);
     }
 }
 
@@ -10109,6 +10183,19 @@ client.on('interactionCreate', async (interaction) => {
         const user     = interaction.user;
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
+
+        if (linkUrl) {
+            const threats = await checkLinkSafety(linkUrl);
+            if (threats) {
+                await notifyModsUnsafeLink(interaction, linkUrl, threats);
+                await interaction.reply({
+                    content: '🚫 **Your edit was not saved.** The link you included was flagged as unsafe by Google Safe Browsing. Mods have been notified and will review it.',
+                    ephemeral: true,
+                });
+                return;
+            }
+        }
+
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
             const msg = await thoughtChannel.messages.fetch(msgId);
@@ -10167,6 +10254,18 @@ client.on('interactionCreate', async (interaction) => {
         const user     = interaction.user;
         const member   = interaction.member;
         const display  = member?.displayName || user.username;
+
+        if (linkUrl) {
+            const threats = await checkLinkSafety(linkUrl);
+            if (threats) {
+                await notifyModsUnsafeLink(interaction, linkUrl, threats);
+                await interaction.reply({
+                    content: '🚫 **Your thought was not posted.** The link you included was flagged as unsafe by Google Safe Browsing. Mods have been notified and will review it.',
+                    ephemeral: true,
+                });
+                return;
+            }
+        }
 
         try {
             const thoughtChannel = await client.channels.fetch(THOUGHTS_CHANNEL_ID);
