@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Fix AFK system: clear on message, on VC leave, and on startup
+
+- AFK now clears whenever the user sends any message, regardless of whether they're still in voice — previously it silently did nothing if they'd already left VC.
+- Leaving a voice channel now immediately clears AFK status and restores the original nickname.
+- On bot startup, any AFK that was stuck on a user not currently in voice is automatically cleared (fixes stale AFKs that survived restarts).
+
 ## [2026-07-01] — Pond: limit button events to 5 claims, one per frog
 
 - Firefly Migration, Worm Bloom, and Warm Sunshine events now track claims

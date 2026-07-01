@@ -72,12 +72,9 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🪲 Start with 15 fireflies', value: 'Every new frog starts with 15 fireflies. Existing frogs also get 15 fireflies added as a one-time patch bonus.' },
-    { name: '🥊 Frog fights (was rock fights)', value: '`/frog frogfight challenge @user|any wager` — 4 random minigames: Tic-Tac-Toe, Rock-Worm-Lilypad, Bullfrog\'s Guess, and Bullfrog\'s Guess Hard.' },
-    { name: '🦅 5 hawk minigames', value: '`/frog hawk` — now twice a day, with 5 games to pick: Tic-Tac-Toe, Rock-Worm-Lilypad, The Reeds, Firefly Count, and A Predator\'s Thinking.' },
-    { name: '🧭 Explore twice a day', value: '`/frog explore` — now available twice a day (3x at lilypad level 9), with an updated reward table.' },
-    { name: '👑 Frog mayor', value: 'A random frog is elected mayor every Wednesday at 20:00 UTC. The mayor earns +10% firefly income and +2 hunger/happiness per day — but ages 10% faster.' },
-    { name: '⚡ Rebalanced everything', value: 'New stage thresholds (frog at day 7, not 14), new lilypad level effects, careers unlock at day 7, Monday-only respec window, 10% Friday pond tax.' },
+    { name: '🐛 AFK clears when you type', value: 'Typing in any channel now removes your AFK — even if you\'ve already left voice chat. Previously it only cleared if you were still in VC.' },
+    { name: '🐛 AFK clears when you leave voice', value: 'Leaving a voice channel now automatically removes your AFK status and restores your nickname.' },
+    { name: '🐛 Stuck AFK on restart fixed', value: 'Any AFK that was still stuck from before a bot restart is now cleared on startup for anyone not actively in voice.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -2887,6 +2884,19 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const oldCh = oldState.channelId;
     const newCh = newState.channelId;
 
+    // ── AFK: clear when user leaves voice ────────────────────────────────────
+    if (oldCh && !newCh) {
+        const leavingMember = oldState.member;
+        if (leavingMember && !leavingMember.user.bot) {
+            const afkData = afkUsers.get(leavingMember.id);
+            if (afkData) {
+                afkUsers.delete(leavingMember.id);
+                try { await leavingMember.setNickname(afkData.originalNickname); } catch (_) {}
+                console.log(`[BeastBot] AFK cleared for ${leavingMember.user.tag} (left voice)`);
+            }
+        }
+    }
+
     // Handle camera/stream toggles without channel change (also mute/deafen — harmless to update)
     if (oldCh === newCh) {
         const m = newState.member || oldState.member;
@@ -4713,6 +4723,26 @@ client.once('clientReady', async () => {
             }
             if (afkRestored > 0) console.log(`[BeastBot] Restored ${afkRestored} AFK users from nicknames`);
         } catch (e) { console.error('[BeastBot] AFK nickname restore failed:', e.message); }
+
+        // Clear all AFKs on startup — anyone not actively in voice shouldn't remain AFK
+        try {
+            const voiceUserIds = new Set(
+                [...guild.channels.cache.values()]
+                    .filter(ch => ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice)
+                    .flatMap(ch => [...ch.members.keys()])
+            );
+            let afkCleared = 0;
+            for (const [uid, afkData] of [...afkUsers]) {
+                if (voiceUserIds.has(uid)) continue; // still in VC, leave them alone
+                const member = guild.members.cache.get(uid);
+                afkUsers.delete(uid);
+                if (member) {
+                    try { await member.setNickname(afkData.originalNickname); } catch (_) {}
+                }
+                afkCleared++;
+            }
+            if (afkCleared > 0) console.log(`[BeastBot] Cleared ${afkCleared} stale AFK users on startup`);
+        } catch (e) { console.error('[BeastBot] AFK startup clear failed:', e.message); }
 
         // Pre-warm emoji image cache for rank pill rendering
         Promise.all(VOICE_RANK_ROLES.map(r => {
@@ -11764,17 +11794,15 @@ client.on('messageCreate', async (message) => {
         const afkData = afkUsers.get(message.author.id);
         if (afkData && !message.content.toLowerCase().startsWith('!!afk')) {
             const member = message.member;
+            // Remove AFK regardless of whether they're still in voice
+            afkUsers.delete(message.author.id);
+            try {
+                await member.setNickname(afkData.originalNickname);
+            } catch (e) {
+                console.error('[BeastBot] Failed to restore nickname:', e.message);
+            }
             const voiceChannel = member?.voice?.channel;
             if (voiceChannel) {
-                // Remove AFK
-                afkUsers.delete(message.author.id);
-                try {
-                    await member.setNickname(afkData.originalNickname);
-                } catch (e) {
-                    console.error('[BeastBot] Failed to restore nickname:', e.message);
-                }
-                // Find the text chat associated with the voice channel
-                // Voice channels have a built-in text chat (same channel ID)
                 try {
                     const duration = Math.round((Date.now() - afkData.timestamp) / 60000);
                     let timeStr;
@@ -11784,8 +11812,8 @@ client.on('messageCreate', async (message) => {
                 } catch (e) {
                     console.error('[BeastBot] Failed to announce AFK return in VC text:', e.message);
                 }
-                console.log(`[BeastBot] AFK removed for ${message.author.tag}`);
             }
+            console.log(`[BeastBot] AFK removed for ${message.author.tag}`);
         }
 
         // AFK is now handled via /afk slash command
