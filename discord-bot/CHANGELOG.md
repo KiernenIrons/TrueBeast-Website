@@ -1,5 +1,18 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Pond: limit button events to 5 claims, one per frog
+
+- Firefly Migration, Worm Bloom, and Warm Sunshine events now track claims
+  in-memory on the event state (`claimedBy: Set`, `maxClaims: 5`).
+- Each frog/user can only claim once per event — clicking again gives an
+  ephemeral "already claimed" reply.
+- After 5 total claims the button is removed from the message and replaced
+  with "all 5 claims collected! 🎉".
+- Each successful claim reply now shows how many claims remain.
+- The claim is added to the Set synchronously before any awaits, closing the
+  race window where two simultaneous clicks could both pass the size check.
+- Updated event descriptions to state the 5-frog / one-per-frog limit.
+
 ## [2026-06-30] — Pond: /frog gas confirmation step; fix null lifespanDays
 
 - **`/frog gas` confirmation step**: command now shows an ephemeral "Are you sure?"

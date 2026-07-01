@@ -1573,9 +1573,9 @@ async function runDailyEvent(client, meta, now) {
     await pondFirestoreSet(POND_META_DOC_ID, { lastEventDay: today }, 'pondMeta');
 
     const EVENT_INFO = {
-        firefly_migration: { emoji: '🪲', title: 'Firefly Migration!',     desc: 'A swarm of fireflies passes through! Click to collect **+20 🪲**!',              btn: 'Collect 🪲' },
-        worm_bloom:        { emoji: '🪱', title: 'Worm Bloom!',            desc: 'Worms are everywhere! Click to fill your frog\'s hunger to **100**!',             btn: 'Grab Worms 🪱' },
-        warm_sunshine:     { emoji: '☀️', title: 'Warm Sunshine!',         desc: 'A beautiful sunny day! Click to fill your frog\'s happiness to **100**!',         btn: 'Soak it up ☀️' },
+        firefly_migration: { emoji: '🪲', title: 'Firefly Migration!',     desc: 'A swarm of fireflies passes through! Up to **5 frogs** can collect **+20 🪲** each — one claim per frog.',              btn: 'Collect 🪲' },
+        worm_bloom:        { emoji: '🪱', title: 'Worm Bloom!',            desc: 'Worms are everywhere! Up to **5 frogs** can fill their hunger to **100** — one claim per frog.',             btn: 'Grab Worms 🪱' },
+        warm_sunshine:     { emoji: '☀️', title: 'Warm Sunshine!',         desc: 'A beautiful sunny day! Up to **5 frogs** can fill their happiness to **100** — one claim per frog.',         btn: 'Soak it up ☀️' },
         hawk_season:       { emoji: '🦅', title: 'Hawk Season!',           desc: '🦅 **Hawk Season** is here for **24 hours** — hawk rewards AND penalties are **doubled**!', btn: null },
         mysterious_frog:   { emoji: '🐸', title: 'A Mysterious Frog!',     desc: '🐸 A mysterious frog has been spotted for **12 hours** — exploration rewards are **doubled**!', btn: null },
     };
@@ -1594,11 +1594,12 @@ async function runDailyEvent(client, meta, now) {
                 content: `${info.emoji} **Pond Event: ${info.title}**\n${info.desc}`,
                 components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`pond:event:${pick}`).setLabel(info.btn).setStyle(ButtonStyle.Primary))],
             });
-            const eState = { eventType: pick, timer: null };
+            const MAX_EVENT_CLAIMS = 5;
+            const eState = { eventType: pick, claimedBy: new Set(), maxClaims: MAX_EVENT_CLAIMS, info, timer: null };
             eState.timer = setTimeout(() => {
                 if (pondEventButtons.get(msg.id) === eState) {
                     pondEventButtons.delete(msg.id);
-                    msg.edit({ content: `${info.emoji} **${info.title}** — the event has ended.`, components: [] }).catch(() => {});
+                    msg.edit({ content: `${info.emoji} **${info.title}** — the event has ended. (${eState.claimedBy.size}/${MAX_EVENT_CLAIMS} claimed)`, components: [] }).catch(() => {});
                 }
             }, EVENT_BUTTON_EXPIRY_MS);
             pondEventButtons.set(msg.id, eState);
@@ -1626,21 +1627,39 @@ async function handleEventButton(interaction) {
     }
 
     if (!state) return interaction.reply({ content: '🐸 This event has already ended.', ephemeral: true });
+
+    // Per-user and total-claim limits
+    if (state.claimedBy.has(interaction.user.id))
+        return interaction.reply({ content: '🐸 Your frog already claimed this event!', ephemeral: true });
+    if (state.claimedBy.size >= state.maxClaims)
+        return interaction.reply({ content: `🐸 This event has already been claimed by ${state.maxClaims} frogs — all gone!`, ephemeral: true });
+
     const frog = await getLiveFrog(interaction.user.id);
     if (!frog || !frog.alive) return interaction.reply({ content: "🐸 You don't have a living frog to claim this!", ephemeral: true });
+
+    // Register the claim before the async write so concurrent clicks can't both pass the size check
+    state.claimedBy.add(interaction.user.id);
+    const remaining = state.maxClaims - state.claimedBy.size;
 
     if (eventType === 'firefly_migration') {
         frog.fireflies += 20;
         await pondFrogSet(interaction.user.id, { fireflies: frog.fireflies });
-        await interaction.reply({ content: `🪲 **${frog.name}** grabbed **+20 🪲** from the firefly migration!`, ephemeral: true });
+        await interaction.reply({ content: `🪲 **${frog.name}** grabbed **+20 🪲** from the firefly migration! (${remaining} claim${remaining === 1 ? '' : 's'} left)`, ephemeral: true });
     } else if (eventType === 'worm_bloom') {
         frog.hunger = 100;
         await pondFrogSet(interaction.user.id, { hunger: frog.hunger });
-        await interaction.reply({ content: `🪱 **${frog.name}** feasted on worms — hunger is back to **100**!`, ephemeral: true });
+        await interaction.reply({ content: `🪱 **${frog.name}** feasted on worms — hunger is back to **100**! (${remaining} claim${remaining === 1 ? '' : 's'} left)`, ephemeral: true });
     } else if (eventType === 'warm_sunshine') {
         frog.happiness = 100;
         await pondFrogSet(interaction.user.id, { happiness: frog.happiness });
-        await interaction.reply({ content: `☀️ **${frog.name}** soaked up the sunshine — happiness is back to **100**!`, ephemeral: true });
+        await interaction.reply({ content: `☀️ **${frog.name}** soaked up the sunshine — happiness is back to **100**! (${remaining} claim${remaining === 1 ? '' : 's'} left)`, ephemeral: true });
+    }
+
+    // If all claims used up, close the button
+    if (state.claimedBy.size >= state.maxClaims) {
+        clearTimeout(state.timer);
+        pondEventButtons.delete(msg.id);
+        msg.edit({ content: `${state.info.emoji} **${state.info.title}** — all ${state.maxClaims} claims collected! 🎉`, components: [] }).catch(() => {});
     }
 }
 
