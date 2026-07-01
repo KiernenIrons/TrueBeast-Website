@@ -4961,6 +4961,23 @@ client.once('clientReady', async () => {
             console.log(`[BeastBot] Cached ${memberNameCache.size} member display names`);
         } catch (e) { console.error('[BeastBot] Member cache fetch failed:', e.message); }
 
+        // VIP backfill — runs once on every startup to catch anyone whose qualifying roles
+        // changed while the bot was offline, or who had roles before this feature shipped.
+        setTimeout(async () => {
+            let synced = 0;
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                const qualifies = memberHasVipQualification(member);
+                const hasVip    = member.roles.cache.has(VIP_ROLE_ID);
+                if (qualifies !== hasVip) {
+                    await syncVipRole(member);
+                    synced++;
+                    await new Promise(r => setTimeout(r, 300)); // avoid rate limits
+                }
+            }
+            if (synced > 0) console.log(`[VIP] Startup backfill: synced ${synced} member(s)`);
+        }, 5000);
+
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild, true).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
 
