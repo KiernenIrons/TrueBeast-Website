@@ -73,7 +73,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔒 Link safety check in Thoughts', value: 'Links posted in the Thoughts channel are now scanned by Google Safe Browsing. If a link is flagged as malware or phishing, the post is blocked and mods are alerted.' },
+    { name: '👑 Weekly Bump Leaderboard', value: 'The bot now tracks who uses `/bump` each week. At the end of the week the top bumper is announced, earns the Top Bumper role for the next week, and gets bumped off when someone beats them. Use `/bump-leaderboard` to see current standings.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -999,6 +999,13 @@ let bumpTimer     = null;
 let discadiaTimer = null;
 let lastBumperID  = null;
 
+// ── Bump King (weekly leaderboard) ────────────────────────────────────────────
+// Create a "Top Bumper 👑" role in Discord and paste its ID here:
+const BUMP_KING_ROLE_ID = '1521821341790113862'; // Top Bumper 👑
+const bumpCounts    = new Map(); // userId → { weeks: { [weekKey]: count }, allTime: number }
+let   bumpKingUserId = null;    // current role holder
+let   _bumpWeekKey   = null;    // ISO week that bumpCounts was last reset for
+
 // ── Temp Voice Channels ───────────────────────────────────────────────────────
 const TEMP_VC_TRIGGER_ID = '1484970124292128992';
 // channelId → { ownerId, ownerName, deleteTimer }
@@ -1091,7 +1098,6 @@ const AFK_CHANNEL_ID     = process.env.AFK_CHANNEL_ID || '';
 // Voice channels that don't earn XP — private/excluded channels
 const NO_XP_VC_IDS = new Set(['1017862214083952671']); // owner's private channel
 
-const MONTHLY_RECAP_CHANNEL = '1486021237548257330'; // swap to 1324878590101159957 after testing
 
 const VOICE_RANK_ROLES = [
     { id: '1486023901330018335', name: '🥉 Bronze I',      minXp: 0      },
@@ -1185,6 +1191,128 @@ function scheduleBumpReminder(bumperId) {
         }
     }, BUMP_INTERVAL);
     console.log(`[BeastBot] Disboard bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
+}
+
+// ── Bump leaderboard helpers ──────────────────────────────────────────────────
+
+function getISOWeekKey(date = new Date()) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - day); // nearest Thursday (ISO week anchor)
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+function weekKeyToMonday(weekKey) {
+    try {
+        const [year, week] = weekKey.split('-W').map(Number);
+        const jan4 = new Date(Date.UTC(year, 0, 4));
+        const startOfWeek1 = new Date(jan4.getTime() - ((jan4.getUTCDay() || 7) - 1) * 86400000);
+        return new Date(startOfWeek1.getTime() + (week - 1) * 7 * 86400000);
+    } catch { return null; }
+}
+
+function recordBump(userId) {
+    if (!userId) return;
+    const weekKey = getISOWeekKey();
+    const data = bumpCounts.get(userId) || { weeks: {}, allTime: 0 };
+    data.weeks[weekKey] = (data.weeks[weekKey] || 0) + 1;
+    data.allTime = (data.allTime || 0) + 1;
+    bumpCounts.set(userId, data);
+    saveBumpCounts().catch(() => {});
+}
+
+async function saveBumpCounts() {
+    const weekKey = getISOWeekKey();
+    const weekCounts = {};
+    const allTimeCounts = {};
+    for (const [uid, data] of bumpCounts) {
+        if (data.weeks[weekKey]) weekCounts[uid] = data.weeks[weekKey];
+        if (data.allTime) allTimeCounts[uid] = data.allTime;
+    }
+    await firestoreSet('botConfig', 'bumpLeaderboard', {
+        weekKey,
+        kingUserId:     bumpKingUserId ?? '',
+        weekCounts:     JSON.stringify(weekCounts),
+        allTimeCounts:  JSON.stringify(allTimeCounts),
+    });
+}
+
+async function checkWeeklyBumpReset(guild) {
+    const currentWeek = getISOWeekKey();
+    if (_bumpWeekKey === currentWeek) return;
+
+    const oldWeek = _bumpWeekKey;
+    _bumpWeekKey = currentWeek;
+
+    if (!oldWeek) {
+        // First run — just record the current week with no announcement
+        await saveBumpCounts().catch(() => {});
+        return;
+    }
+
+    // Gather last week's counts
+    const entries = [];
+    for (const [uid, data] of bumpCounts) {
+        const count = data.weeks[oldWeek] || 0;
+        if (count > 0) entries.push({ uid, count });
+    }
+    entries.sort((a, b) => b.count - a.count);
+    const top = entries[0] ?? null;
+
+    // Post leaderboard to bump channel
+    try {
+        const channel = await client.channels.fetch(BUMP_CHANNEL_ID);
+        const monday = weekKeyToMonday(oldWeek);
+        const weekLabel = monday
+            ? monday.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+            : oldWeek;
+
+        if (entries.length > 0) {
+            const medals = ['🥇', '🥈', '🥉'];
+            const lines = entries.slice(0, 10).map(({ uid, count }, i) => {
+                const prefix = medals[i] || `**${i + 1}.**`;
+                return `${prefix} <@${uid}> — **${count}** bump${count === 1 ? '' : 's'}`;
+            });
+            const crownLine = top
+                ? `👑 <@${top.uid}> is this week's **Top Bumper** with **${top.count}** bump${top.count === 1 ? '' : 's'}!`
+                : '';
+            await channel.send({
+                content: crownLine,
+                embeds: [{
+                    color: 0x5865f2,
+                    title: '🏆 Weekly Bump Leaderboard',
+                    description: lines.join('\n'),
+                    footer: { text: `Week of ${weekLabel} · New week starting now — keep bumping!` },
+                    timestamp: new Date().toISOString(),
+                }],
+            });
+            console.log(`[BeastBot] Posted weekly bump leaderboard for ${oldWeek}`);
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to post bump leaderboard:', e.message);
+    }
+
+    // Reassign the Bump King role
+    if (BUMP_KING_ROLE_ID && guild) {
+        if (bumpKingUserId && bumpKingUserId !== top?.uid) {
+            try {
+                const oldKing = await guild.members.fetch(bumpKingUserId);
+                await oldKing.roles.remove(BUMP_KING_ROLE_ID);
+            } catch (_) {}
+        }
+        if (top?.uid) {
+            try {
+                const newKing = await guild.members.fetch(top.uid);
+                await newKing.roles.add(BUMP_KING_ROLE_ID);
+            } catch (_) {}
+        }
+        bumpKingUserId = top?.uid ?? null;
+    }
+
+    await saveBumpCounts().catch(() => {});
+    console.log(`[BeastBot] Weekly bump reset — top bumper: ${top?.uid ?? 'none'} (${top?.count ?? 0} bumps)`);
 }
 
 async function postMemberSpotlight() {
@@ -3213,52 +3341,6 @@ async function assignVoiceRank(member, xp, forceReset = false) {
     }
 }
 
-async function postMonthlyRecap(guild, oldMonthStr) { // e.g. "2026-02"
-    try {
-        const channel = await client.channels.fetch(MONTHLY_RECAP_CHANNEL);
-        const entries = [];
-        for (const [userId, data] of voiceMinutes.entries()) {
-            let sum = 0;
-            for (const [k, v] of data.days.entries()) {
-                if (k.startsWith(oldMonthStr)) sum += v;
-            }
-            if (sum > 0) entries.push({ userId, value: sum });
-        }
-        entries.sort((a, b) => b.value - a.value);
-        const top10 = [];
-        for (const entry of entries) {
-            if (top10.length >= 10) break;
-            try {
-                const member = await guild.members.fetch(entry.userId);
-                top10.push({ member, value: entry.value });
-            } catch {}
-        }
-        if (top10.length === 0) return;
-        const medals = ['🥇', '🥈', '🥉'];
-        const lines = top10.map(({ member, value }, i) => {
-            const prefix = medals[i] || `**${i + 1}.**`;
-            const display = value >= 60 ? `${Math.floor(value / 60)}h ${value % 60}m` : `${value}m`;
-            return `${prefix} **${member.displayName}** - ${display}`;
-        });
-        const mentions = top10.map(({ member }) => `<@${member.id}>`).join(' ');
-        const oldDate = new Date(oldMonthStr + '-01');
-        const monthLabel = oldDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        await channel.send({
-            content: `🏆 **Voice Chat Top 10 — ${monthLabel}**\n${mentions}`,
-            embeds: [{
-                color: 0xffd700,
-                title: `🏆 Voice Chat Leaderboard — ${monthLabel}`,
-                description: lines.join('\n'),
-                footer: { text: 'Rankings reset for the new month. Keep chatting!' },
-                timestamp: new Date().toISOString(),
-            }],
-        });
-        console.log(`[BeastBot] Posted monthly voice recap for ${monthLabel}`);
-    } catch (e) {
-        console.error('[BeastBot] Failed to post monthly recap:', e.message);
-    }
-}
-
 async function checkMonthlyReset(guild, fromStartup = false) {
     const currentMonth = new Date().toISOString().slice(0, 7);
     let stored = _cachedCurrentMonth;
@@ -3276,7 +3358,6 @@ async function checkMonthlyReset(guild, fromStartup = false) {
     // Only wipe roles if we have a valid previous month — if stored is null (first run / migration),
     // just record the current month without resetting anyone.
     if (stored && /^\d{4}-\d{2}$/.test(stored)) {
-        await postMonthlyRecap(guild, stored);
         // Finalise Apex count for anyone who hit it this month, then reset roles to Bronze I
         try {
             const allRankIds = [...voiceRankRoleCache.values()].map(r => r.id);
@@ -4824,6 +4905,7 @@ client.once('clientReady', async () => {
             return e ? loadEmojiImage(e) : null;
         })).then(() => console.log('[BeastBot] Emoji image cache warmed'));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
+        setInterval(() => checkWeeklyBumpReset(guild).catch(() => {}), 60 * 60 * 1000);
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
@@ -5348,6 +5430,9 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('view-schedule')
                 .setDescription('View the current stream schedule and next stream time'),
+            new SlashCommandBuilder()
+                .setName('bump-leaderboard')
+                .setDescription('Show who has bumped the server the most this week'),
             ...pondCommands,
         ].map(c => c.toJSON());
 
@@ -5395,6 +5480,31 @@ client.once('clientReady', async () => {
     } catch (e) {
         console.error('[BeastBot] Failed to restore timers:', e.message);
         // scheduleDiscadiaReminder(10 * 60 * 60 * 1000); // DISABLED
+    }
+
+    // Restore bump leaderboard from Firestore
+    try {
+        const bumpData = await firestoreGet('botConfig', 'bumpLeaderboard');
+        if (bumpData) {
+            _bumpWeekKey  = bumpData.weekKey   || null;
+            bumpKingUserId = bumpData.kingUserId || null;
+            const weekKey       = getISOWeekKey();
+            const storedWeek    = _bumpWeekKey;
+            const weekCounts    = JSON.parse(bumpData.weekCounts   || '{}');
+            const allTimeCounts = JSON.parse(bumpData.allTimeCounts || '{}');
+            const activeWeek    = storedWeek === weekKey ? weekCounts : {};
+            const allUsers = new Set([...Object.keys(activeWeek), ...Object.keys(allTimeCounts)]);
+            for (const uid of allUsers) {
+                bumpCounts.set(uid, {
+                    weeks:   activeWeek[uid]    ? { [weekKey]: Number(activeWeek[uid]) }    : {},
+                    allTime: allTimeCounts[uid] ? Number(allTimeCounts[uid]) : 0,
+                });
+            }
+            console.log(`[BeastBot] Bump leaderboard restored — ${bumpCounts.size} bumpers, week: ${_bumpWeekKey ?? 'none'}, king: ${bumpKingUserId ?? 'none'}`);
+        }
+        await checkWeeklyBumpReset(client.guilds.cache.first()).catch(() => {});
+    } catch (e) {
+        console.error('[BeastBot] Failed to restore bump leaderboard:', e.message);
     }
 
     // Clean up orphaned temp VCs (empty VCs in same category as trigger, left from before restart)
@@ -10168,6 +10278,44 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        if (interaction.commandName === 'bump-leaderboard') {
+            const weekKey = getISOWeekKey();
+            const entries = [];
+            for (const [uid, data] of bumpCounts) {
+                const count = data.weeks[weekKey] || 0;
+                if (count > 0) entries.push({ uid, count });
+            }
+            entries.sort((a, b) => b.count - a.count);
+
+            if (entries.length === 0) {
+                await interaction.reply({ content: '📋 No bumps recorded yet this week. Be the first — run `/bump`!', ephemeral: true });
+                return;
+            }
+
+            const medals  = ['🥇', '🥈', '🥉'];
+            const lines   = entries.slice(0, 10).map(({ uid, count }, i) => {
+                const prefix = medals[i] || `**${i + 1}.**`;
+                return `${prefix} <@${uid}> — **${count}** bump${count === 1 ? '' : 's'}`;
+            });
+            const monday   = weekKeyToMonday(weekKey);
+            const sunday   = monday ? new Date(monday.getTime() + 6 * 86400000) : null;
+            const rangeLabel = monday && sunday
+                ? `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : weekKey;
+            const kingLine = bumpKingUserId ? `👑 Current king: <@${bumpKingUserId}>\n\n` : '';
+
+            await interaction.reply({
+                embeds: [{
+                    color: 0x5865f2,
+                    title: '🏆 Bump Leaderboard — This Week',
+                    description: `${kingLine}${lines.join('\n')}`,
+                    footer: { text: `Week: ${rangeLabel} · Resets Monday midnight UTC` },
+                    timestamp: new Date().toISOString(),
+                }],
+            });
+            return;
+        }
+
     }
 
     // ── Introduction modal submit ─────────────────────────────────────────────
@@ -11859,6 +12007,7 @@ client.on('messageCreate', async (message) => {
             const bumper = message.interaction?.user;
             console.log(`[BeastBot] Disboard bump detected by ${bumper?.tag ?? 'unknown'} — resetting 2h timer`);
             scheduleBumpReminder(bumper?.id);
+            recordBump(bumper?.id);
         }
         return;
     }

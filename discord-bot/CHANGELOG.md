@@ -1,5 +1,17 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Weekly Bump Leaderboard + Top Bumper role
+
+- The bot now tracks every `/bump` run on Disboard per user, per ISO week (Monday–Sunday).
+- At the end of each week (detected hourly), the top bumper is announced in the bump channel with a ranked embed and the `Top Bumper 👑` role is assigned to them for the coming week. The role is removed from the previous holder automatically.
+- `/bump-leaderboard` command shows current week standings at any time.
+- Bump counts (per-week + all-time) and the current king are persisted to `botConfig/bumpLeaderboard` in Firestore so everything survives restarts.
+- **Setup required:** create a "Top Bumper 👑" role in Discord and either set `BUMP_KING_ROLE_ID` as a Fly.io secret or hardcode the role ID in the `BUMP_KING_ROLE_ID` constant.
+
+## [2026-07-01] — Remove monthly Voice Chat Top 10 leaderboard
+
+- Removed `postMonthlyRecap` and the `MONTHLY_RECAP_CHANNEL` constant — the end-of-month voice chat top 10 no longer posts.
+
 ## [2026-07-01] — Add Google Safe Browsing link checker for thoughts channel
 
 - Links submitted via the Thoughts modal (both new posts and edits) are now checked against the Google Safe Browsing API v4 before posting.
