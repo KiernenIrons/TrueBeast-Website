@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-01] — Fix frog gas system
+
+- Removed `pondFrogKill` — a custom PATCH function with a Firestore read-back verify step that was causing silent failures. If the verify read had any network hiccup, it returned `false` and the frog stayed alive in Firestore even though the write had already succeeded.
+- Gas confirm handler now uses `pondFrogSet` (the same write path used by all other frog deaths), making gas reliable.
+- Added `interaction.deferUpdate()` at the start of the confirm button handler so Discord's 3-second interaction window doesn't expire while Firestore work is in progress; follow-up calls now use `interaction.editReply()` accordingly.
+- Added handling for the edge case where a frog naturally dies from decay during the confirm button handler — the death is now saved to Firestore and announced, leaving the user free to adopt.
+
 ## [2026-07-01] — VIP role system + reaction XP cap
 
 - Added `VIP_ROLE_ID`, `TWITCH_SUB_ROLES`, and `YT_MEMBER_ROLES` constants. The bot watches `guildMemberUpdate` for Discord's native Twitch/YouTube integration roles and syncs the VIP role automatically — no API credentials needed.

@@ -73,6 +73,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🐸 Frog Gas Fix', value: 'Fixed `/frog gas` — gassing your frog now reliably kills it so you can adopt a new one. The old system had a flaky Firestore verify step that caused silent failures.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
     { name: '⚗️ Reaction XP Cap', value: 'Reaction XP is now capped at 50 per day to keep the leaderboard fair.' },

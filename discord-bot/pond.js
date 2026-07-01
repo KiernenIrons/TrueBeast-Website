@@ -203,29 +203,6 @@ async function pondFrogSet(userId, data) {
     return pondFirestoreSet(`${POND_DOC_PREFIX}${userId}`, clean, 'pondFrog');
 }
 
-// Full-document replacement (no updateMask) — used for death writes where we must be
-// certain alive:false is set and there is no per-field ambiguity.
-async function pondFrogKill(userId, frog) {
-    const { justDied: _jd, babyEaten: _be, ...clean } = frog;
-    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/${POND_DOC_PREFIX}${userId}?key=${FIREBASE_API_KEY}`;
-    const fields = { kind: { stringValue: 'pondFrog' } };
-    for (const [k, v] of Object.entries(clean)) fields[k] = toFirestoreValue(v);
-    try {
-        const res = await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) });
-        if (!res.ok) {
-            const body = await res.text().catch(() => '(unreadable)');
-            console.error(`[Pond] pondFrogKill ${userId} HTTP ${res.status}:`, body);
-            return false;
-        }
-        // Read back immediately to confirm alive:false actually landed in Firestore.
-        const verify = await pondFrogGet(userId);
-        if (!verify || verify.alive !== false) {
-            console.error(`[Pond] pondFrogKill ${userId}: write returned 200 but alive is still ${verify?.alive}`);
-            return false;
-        }
-        return true;
-    } catch (e) { console.error('[Pond] pondFrogKill failed:', e.message); return false; }
-}
 
 // ── Game logic ────────────────────────────────────────────────────────────────
 
@@ -881,11 +858,12 @@ async function handleFrogGas(interaction) {
     if (!requireLiveFrog(frog, interaction)) return;
     if (frog.justDied) {
         await pondFrogSet(interaction.user.id, frog);
-        return announceDeath(interaction.client, frog).then(() => interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` }));
+        await announceDeath(interaction.client, frog);
+        return interaction.reply({ content: `${deathMessage(frog)} You can adopt a new frog with \`/frog adopt\`.` });
     }
     await pondFrogSet(interaction.user.id, frog);
     await interaction.reply({
-        content: `⚠️ Are you sure you want to gas **${frog.name}**? This cannot be undone.`,
+        content: `⚠️ Are you sure you want to gas **${frog.name}**? This permanently ends their life — there is no going back.`,
         components: [new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('pond:gas:confirm').setLabel('Yes, gas them 💀').setStyle(ButtonStyle.Danger),
             new ButtonBuilder().setCustomId('pond:gas:cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary),
@@ -898,22 +876,24 @@ async function handleFrogGasButton(interaction) {
     if (interaction.customId === 'pond:gas:cancel') {
         return interaction.update({ content: '👍 Cancelled — your frog is safe.', components: [] });
     }
-    // Confirm
+    // Acknowledge immediately so Discord's 3-second window doesn't expire during Firestore work
+    await interaction.deferUpdate();
     const frog = await getLiveFrog(interaction.user.id);
-    if (!frog || !frog.alive) {
-        return interaction.update({ content: "🐸 You don't have a living frog anymore.", components: [] });
+    if (!frog) {
+        return interaction.editReply({ content: "🐸 You don't have a frog.", components: [] });
+    }
+    if (!frog.alive) {
+        // Frog naturally died during the decay check — save it so they can adopt
+        if (frog.justDied) {
+            await pondFrogSet(interaction.user.id, frog);
+            await announceDeath(interaction.client, frog);
+        }
+        return interaction.editReply({ content: `🐸 Your frog is already gone. Adopt a new one with \`/frog adopt\`.`, components: [] });
     }
     die(frog, Date.now(), 'gassed');
-    // Write the full frog object (justDied/babyEaten are stripped by pondFrogSet).
-    // Check the return value — if Firestore rejected the write, abort rather than
-    // announcing a death that didn't actually stick.
-    const saved = await pondFrogKill(interaction.user.id, frog);
-    if (!saved) {
-        console.error(`[Pond] gas kill failed for ${interaction.user.id}`);
-        return interaction.update({ content: `❌ Something went wrong saving **${frog.name}**'s death. Please try again.`, components: [] });
-    }
+    await pondFrogSet(interaction.user.id, frog);
     await announceDeath(interaction.client, frog);
-    await interaction.update({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
+    await interaction.editReply({ content: `💀 **${frog.name}** has been gassed. A moment of silence. 🪦\nAdopt a new frog with \`/frog adopt\`.`, components: [] });
 }
 
 async function handleFrogCareerInfo(interaction) {
