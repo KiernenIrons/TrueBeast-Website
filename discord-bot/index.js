@@ -37,6 +37,7 @@ const path = require('path');
 const sodium = require('libsodium-wrappers');
 const GifEncoder = require('gif-encoder-2');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
+const _englishWords = require('an-array-of-english-words').filter(w => w.length >= 4 && w.length <= 11 && /^[a-z]+$/.test(w));
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
@@ -74,8 +75,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🔤 Unscramble Game', value: 'A new word game posts scrambled words in <#1522112363090673684> throughout the day. Type the correct word to earn a point — wrong guesses are deleted to keep the channel clean. Use `/unscramble-leaderboard` to see the all-time standings. Words come from a 220k-word English dictionary so every puzzle is different!' },
     { name: '🚨 Auto-Quarantine System', value: 'The bot auto-detects suspicious accounts using Discord\'s own Signals (Spammer, AutoMod flags) plus heuristics (account age, no avatar, etc.). Mods can also quarantine manually — the bot will detect the role being added, post in the quarantine channel, notify mods with who did it, and start the 48h auto-ban countdown.' },
-    { name: '🪦 Frog Memorial Fix', value: 'Gassed frogs now appear in `/pond memorial`. The background ticker was overwriting gas kills with `alive:true` due to a race condition. Fixed filter, sort, and removed pings from the memorial.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
 ];
@@ -92,7 +93,15 @@ let botFeatures = {
     traitorsGame:        true,
     escapeRoomGame:      true,
     pondFrogs:           true,
+    unscrambleGame:      true,
 };
+
+// ── Unscramble Game ───────────────────────────────────────────────────────────
+const UNSCRAMBLE_CHANNEL_ID = '1522112363090673684';
+const unscrambleScores = new Map(); // userId → all-time points
+let   _unscrambleLoaded = false;    // true once restored from backup, guards save
+let   unscramblePuzzle  = null;     // { word, scrambled, messageId, startedAt } or null
+let   unscrambleTimer   = null;     // setTimeout handle for next puzzle post
 
 // ── Imposter Game ─────────────────────────────────────────────────────────────
 const IMPOSTER_CHANNEL_ID  = '1498354389356904628';
@@ -2212,6 +2221,11 @@ function buildFullBackup() {
             return rr;
         })(),
         quarantine,
+        unscrambleScores: (() => {
+            const us = {};
+            for (const [uid, score] of unscrambleScores) if (score > 0) us[uid] = score;
+            return us;
+        })(),
     };
 }
 
@@ -2539,6 +2553,13 @@ function applyBackupToMemory(data) {
     for (const [uid, d] of Object.entries(data.quarantine || {})) {
         if (!d.responded) quarantinedUsers.set(uid, { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: false });
     }
+    // Unscramble scores
+    unscrambleScores.clear();
+    for (const [uid, score] of Object.entries(data.unscrambleScores || {})) {
+        const n = Number(score);
+        if (n > 0) unscrambleScores.set(uid, n);
+    }
+    if (unscrambleScores.size > 0) _unscrambleLoaded = true;
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
     console.log(`[BeastBot] ✅ State loaded: ${voiceMinutes.size} voice, ${messageDays.size} msg, ${rankAchievements.size} rank, ${reactionDays.size} reaction users (${voiceTotal} total voice mins), ${afkUsers.size} AFK, ${quarantinedUsers.size} quarantined`);
@@ -5744,6 +5765,9 @@ client.once('clientReady', async () => {
                 .setName('bump-leaderboard')
                 .setDescription('Show who has bumped the server the most this week'),
             new SlashCommandBuilder()
+                .setName('unscramble-leaderboard')
+                .setDescription('Show the all-time Unscramble leaderboard'),
+            new SlashCommandBuilder()
                 .setName('vip')
                 .setDescription('Check your VIP status and pick perk roles'),
             ...pondCommands,
@@ -5820,6 +5844,24 @@ client.once('clientReady', async () => {
         console.error('[BeastBot] Failed to restore bump leaderboard:', e.message);
     }
 
+    // Restore Unscramble scores from Firestore and kick off the first puzzle
+    try {
+        const usData = await firestoreGet('botConfig', 'unscrambleScores');
+        if (usData && usData.scores) {
+            const obj = JSON.parse(usData.scores);
+            for (const [uid, score] of Object.entries(obj)) {
+                const n = Number(score);
+                if (n > 0) unscrambleScores.set(uid, n);
+            }
+            _unscrambleLoaded = true;
+            console.log(`[BeastBot] 🔤 Unscramble scores restored — ${unscrambleScores.size} players`);
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to restore unscramble scores:', e.message);
+    }
+    // Post first puzzle 30s after startup (gives the bot time to fully init)
+    setTimeout(() => postUnscramblePuzzle().catch(() => {}), 30 * 1000);
+
     // Clean up orphaned temp VCs (empty VCs in same category as trigger, left from before restart)
     try {
         const trigger = await client.channels.fetch(TEMP_VC_TRIGGER_ID);
@@ -5869,6 +5911,110 @@ client.once('clientReady', async () => {
 
 
 });
+
+// ── Unscramble Game Logic ─────────────────────────────────────────────────────
+
+function pickRandomWord() {
+    return _englishWords[Math.floor(Math.random() * _englishWords.length)];
+}
+
+function scrambleWord(word) {
+    const arr = word.split('');
+    let tries = 30;
+    do {
+        for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+    } while (arr.join('') === word && --tries > 0);
+    return arr.join('');
+}
+
+async function saveUnscrambleScores() {
+    if (!_unscrambleLoaded) return;
+    const obj = {};
+    for (const [uid, score] of unscrambleScores) obj[uid] = score;
+    await firestoreSet('botConfig', 'unscrambleScores', {
+        scores:  JSON.stringify(obj),
+        savedAt: new Date().toISOString(),
+    });
+}
+
+async function postUnscramblePuzzle() {
+    if (!botFeatures.unscrambleGame) return;
+    const channel = await client.channels.fetch(UNSCRAMBLE_CHANNEL_ID).catch(() => null);
+    if (!channel) return;
+
+    if (unscrambleTimer) { clearTimeout(unscrambleTimer); unscrambleTimer = null; }
+
+    // If an old puzzle wasn't solved, reveal the answer before starting a new one
+    if (unscramblePuzzle) {
+        await channel.send({ embeds: [{
+            color: 0x888888,
+            description: `⌛ Time's up! Nobody got it. The word was **${unscramblePuzzle.word}**.`,
+        }] }).catch(() => {});
+    }
+
+    const word      = pickRandomWord();
+    const scrambled = scrambleWord(word);
+
+    const msg = await channel.send({ embeds: [{
+        color: 0xff9900,
+        title: '🔤 Unscramble the Word!',
+        description: `## \`${scrambled.toUpperCase()}\`\n\nType your answer in this channel — first correct guess wins a point!`,
+        footer: { text: `${word.length} letters` },
+        timestamp: new Date().toISOString(),
+    }] }).catch(() => null);
+
+    unscramblePuzzle = { word, scrambled, messageId: msg?.id ?? null, startedAt: Date.now() };
+    console.log(`[BeastBot] 🔤 Unscramble: posted "${scrambled}" (answer: ${word})`);
+
+    // Auto-advance: post next puzzle in 90–180 min whether or not this one is solved
+    const delay = (90 + Math.floor(Math.random() * 90)) * 60 * 1000;
+    unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
+}
+
+async function handleUnscrambleMessage(message) {
+    if (message.author.bot) return;
+    if (!botFeatures.unscrambleGame) return;
+
+    if (!unscramblePuzzle) {
+        await message.delete().catch(() => {});
+        return;
+    }
+
+    const guess = message.content.trim().toLowerCase();
+
+    if (guess === unscramblePuzzle.word) {
+        const uid      = message.author.id;
+        const newScore = (unscrambleScores.get(uid) || 0) + 1;
+        unscrambleScores.set(uid, newScore);
+        _unscrambleLoaded = true;
+
+        const solved = unscramblePuzzle;
+        unscramblePuzzle = null;
+
+        // Clear the auto-advance timer so we don't double-post
+        if (unscrambleTimer) { clearTimeout(unscrambleTimer); unscrambleTimer = null; }
+
+        await message.react('✅').catch(() => {});
+        await message.channel.send({ embeds: [{
+            color: 0x00cc44,
+            title: '🎉 Correct!',
+            description: `<@${uid}> solved it! The word was **${solved.word}**.\nThey now have **${newScore}** point${newScore === 1 ? '' : 's'} on the leaderboard!`,
+            footer: { text: 'Next puzzle coming soon...' },
+            timestamp: new Date().toISOString(),
+        }] }).catch(() => {});
+
+        saveUnscrambleScores().catch(() => {});
+
+        // Post next puzzle after a short break
+        const delay = (5 + Math.floor(Math.random() * 10)) * 60 * 1000; // 5–15 min
+        unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
+    } else {
+        await message.delete().catch(() => {});
+    }
+}
 
 // ── Imposter Game Logic ───────────────────────────────────────────────────────
 
@@ -10629,6 +10775,38 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /unscramble-leaderboard ───────────────────────────────────────────
+        if (interaction.commandName === 'unscramble-leaderboard') {
+            const entries = [...unscrambleScores.entries()]
+                .filter(([, s]) => s > 0)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 10);
+
+            if (entries.length === 0) {
+                await interaction.reply({ content: `📋 No unscramble scores yet! Check <#${UNSCRAMBLE_CHANNEL_ID}> to play.`, ephemeral: true });
+                return;
+            }
+
+            const medals = ['🥇', '🥈', '🥉'];
+            const lines  = entries.map(([uid, score], i) => {
+                const prefix = medals[i] || `**${i + 1}.**`;
+                return `${prefix} <@${uid}> — **${score}** point${score === 1 ? '' : 's'}`;
+            });
+
+            const currentInfo = unscramblePuzzle
+                ? `\n\n🔤 **Active puzzle:** \`${unscramblePuzzle.scrambled.toUpperCase()}\` — go guess it!`
+                : '';
+
+            await interaction.reply({ embeds: [{
+                color: 0xff9900,
+                title: '🔤 Unscramble Leaderboard',
+                description: lines.join('\n') + currentInfo,
+                footer: { text: 'All-time points' },
+                timestamp: new Date().toISOString(),
+            }] });
+            return;
+        }
+
         // ── /vip ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'vip') {
             const member   = interaction.member;
@@ -12358,6 +12536,12 @@ client.on('messageCreate', async (message) => {
     // Counting channel game
     if (message.channel.id === COUNTING_CHANNEL_ID) {
         await handleCountingMessage(message);
+        return;
+    }
+
+    // Unscramble game
+    if (message.channel.id === UNSCRAMBLE_CHANNEL_ID) {
+        await handleUnscrambleMessage(message);
         return;
     }
 

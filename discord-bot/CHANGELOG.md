@@ -1,5 +1,22 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Add Unscramble word game with leaderboard
+
+- Added `UNSCRAMBLE_CHANNEL_ID` constant, `unscrambleScores` Map, `unscramblePuzzle` state, and `_unscrambleLoaded` guard at module level.
+- Installed `an-array-of-english-words` npm package; filtered to 219k words (4–11 letters, a–z only) at startup.
+- `pickRandomWord()` — picks a random word from the filtered list.
+- `scrambleWord(word)` — Fisher-Yates shuffle with up to 30 retries to ensure the scrambled form differs from the original.
+- `postUnscramblePuzzle()` — fetches the channel, reveals the previous unanswered word (if any), posts a new scrambled-word embed, and schedules the next puzzle in 90–180 min.
+- `handleUnscrambleMessage(message)` — deletes wrong guesses and messages when no puzzle is active; on correct guess reacts ✅, posts a congratulation embed, awards 1 point, saves scores, and schedules the next puzzle in 5–15 min.
+- `saveUnscrambleScores()` — serialises the scores Map to JSON and writes to `botConfig/unscrambleScores` in Firestore; guarded by `_unscrambleLoaded` so an empty startup state never wipes real data.
+- `buildFullBackup()` — now includes `unscrambleScores` for disaster-recovery backup.
+- `applyBackupToMemory()` — restores `unscrambleScores` from backup snapshot.
+- `clientReady` — restores scores from `botConfig/unscrambleScores` on startup; schedules first puzzle 30 s after boot.
+- `messageCreate` — added early-exit branch routing all messages in `UNSCRAMBLE_CHANNEL_ID` to `handleUnscrambleMessage`.
+- Registered `/unscramble-leaderboard` slash command; handler shows top-10 all-time players and the current active scramble if one is live.
+- Added `unscrambleGame: true` feature flag to `botFeatures` (admin-toggleable via Firestore).
+- Updated `UPDATE_NOTES` to describe the new game.
+
 ## [2026-07-02] — Quarantine: detect manual role add, mod attribution, shared 48h countdown
 
 - `quarantineUser(guild, member, reason, moderator = null)` — added optional `moderator` param. When set, mod embed says "manually quarantined by X" with the 48h countdown warning; auto-quarantine message unchanged.
