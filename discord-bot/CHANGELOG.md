@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Quarantine: hook Discord's own signal flags (Spammer, AutoMod, unusual DM)
+
+- Imported `UserFlags` and `GuildMemberFlags` from discord.js (were missing from the destructure).
+- Added `discordSignalReason(member)`: checks `UserFlags.Spammer`, `UserFlags.Quarantined`, `GuildMemberFlags.AutomodQuarantinedUsernameOrGuildNickname`, `GuildMemberFlags.AutomodQuarantinedBio`, and `member.unusualDmActivityUntil` — returns a reason string or null.
+- `guildMemberAdd`: Discord signals checked first; if flagged, quarantine immediately (skips the heuristic checks). Heuristic checks (age, avatar, username pattern) only run if no Discord signal present.
+- `guildMemberUpdate`: if `discordSignalReason` returns a signal on the new state but not the old state, quarantine the member in-place (catches members who get flagged after already joining).
+- Updated UPDATE_NOTES to mention Discord Signals as a detection source.
+
 ## [2026-07-02] — Auto-quarantine system: suspicious account + DM activity detection
 
 - Added `QUARANTINE_ROLE_ID` (`1522001409334313030`) and `QUARANTINE_CHANNEL_ID` (`1522016873653207080`) constants.

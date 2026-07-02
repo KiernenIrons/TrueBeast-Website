@@ -25,6 +25,7 @@ const {
     SlashCommandBuilder, REST, Routes, AttachmentBuilder,
     AuditLogEvent, MessageFlags,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
+    UserFlags, GuildMemberFlags,
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
@@ -73,7 +74,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🚨 Auto-Quarantine System', value: 'The bot now auto-detects suspicious accounts and DM activity. New/suspicious accounts are given the Quarantine role and prompted to confirm they\'re human. No response in 48h = auto-ban.' },
+    { name: '🚨 Auto-Quarantine System', value: 'The bot now auto-detects suspicious accounts and DM activity — including Discord\'s own Signals (Spammer, AutoMod flags). Flagged accounts get the Quarantine role and are prompted to confirm they\'re human. No response in 48h = auto-ban.' },
     { name: '🪦 Frog Memorial Fix', value: 'Gassed frogs now appear in `/pond memorial`. The background ticker was overwriting gas kills with `alive:true` due to a race condition. Fixed filter, sort, and removed pings from the memorial.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
@@ -1452,6 +1453,19 @@ async function checkWeeklyBumpReset(guild) {
 }
 
 // ── Quarantine helpers ────────────────────────────────────────────────────────
+
+// Returns a reason string if Discord's own signals flag this member, otherwise null.
+function discordSignalReason(member) {
+    const uFlags = member.user.flags;
+    const mFlags = member.flags;
+    if (uFlags?.has(UserFlags.Spammer))    return 'Discord signal: unusual account activity (Spammer)';
+    if (uFlags?.has(UserFlags.Quarantined)) return 'Discord signal: account quarantined by Discord';
+    if (mFlags?.has(GuildMemberFlags.AutomodQuarantinedUsernameOrGuildNickname)) return 'Discord AutoMod: quarantined username';
+    if (mFlags?.has(GuildMemberFlags.AutomodQuarantinedBio))                     return 'Discord AutoMod: quarantined bio';
+    const dmUntil = member.unusualDmActivityUntil ?? null;
+    if (dmUntil && new Date(dmUntil).getTime() > Date.now()) return 'Discord signal: unusual DM activity';
+    return null;
+}
 
 async function quarantineUser(guild, member, reason) {
     if (quarantinedUsers.has(member.id)) return;
@@ -3220,6 +3234,17 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             displayName: newMember.displayName,
             avatarUrl: newMember.user.displayAvatarURL({ size: 128, extension: 'png' }),
         });
+    }
+
+    // ── Discord signal flags — quarantine if newly flagged ────────────────────
+    if (!newMember.user.bot && !quarantinedUsers.has(newMember.id)) {
+        const signal = discordSignalReason(newMember);
+        if (signal) {
+            const hadSignalBefore = discordSignalReason(oldMember);
+            if (!hadSignalBefore) {
+                quarantineUser(newMember.guild, newMember, signal).catch(() => {});
+            }
+        }
     }
 
     const user = newMember.user;
@@ -12831,10 +12856,16 @@ client.on('guildMemberAdd', async (member) => {
     if (!user.avatar)             suspiciousFlags.push('No profile picture (default avatar)');
     if (/^[a-zA-Z]{0,4}\d{6,}$/.test(user.username)) suspiciousFlags.push('Bot-pattern username');
 
-    // Auto-quarantine: brand-new account, OR two or more suspicion flags together
-    const shouldQuarantine = accountAgeDays < 1 || suspiciousFlags.length >= 2;
-    if (shouldQuarantine) {
-        setTimeout(() => quarantineUser(member.guild, member, suspiciousFlags.join('; ')).catch(() => {}), 3000);
+    // Discord's own signal flags take priority — quarantine immediately regardless of other checks
+    const discordSignal = discordSignalReason(member);
+    if (discordSignal) {
+        setTimeout(() => quarantineUser(member.guild, member, discordSignal).catch(() => {}), 3000);
+    } else {
+        // Auto-quarantine: brand-new account, OR two or more suspicion flags together
+        const shouldQuarantine = accountAgeDays < 1 || suspiciousFlags.length >= 2;
+        if (shouldQuarantine) {
+            setTimeout(() => quarantineUser(member.guild, member, suspiciousFlags.join('; ')).catch(() => {}), 3000);
+        }
     }
 });
 
