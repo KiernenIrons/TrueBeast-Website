@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Unscramble: easier words, no auto-advance
+
+- Word pool narrowed to 4–6 letters only (was 4–11) — shorter words are far easier to unscramble and more commonly known
+- Removed the 90–180 min auto-advance timer — a new puzzle is now only posted after the current one is correctly solved (5–15 min break after each solve)
+- Removed the "time's up" reveal message since puzzles no longer expire automatically
+
 ## [2026-07-02] — Add Unscramble word game with leaderboard
 
 - Added `UNSCRAMBLE_CHANNEL_ID` constant, `unscrambleScores` Map, `unscramblePuzzle` state, and `_unscrambleLoaded` guard at module level.

@@ -37,7 +37,7 @@ const path = require('path');
 const sodium = require('libsodium-wrappers');
 const GifEncoder = require('gif-encoder-2');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
-const _englishWords = require('an-array-of-english-words').filter(w => w.length >= 4 && w.length <= 11 && /^[a-z]+$/.test(w));
+const _englishWords = require('an-array-of-english-words').filter(w => w.length >= 4 && w.length <= 6 && /^[a-z]+$/.test(w));
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
 
@@ -75,7 +75,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔤 Unscramble Game', value: 'A new word game posts scrambled words in <#1522112363090673684> throughout the day. Type the correct word to earn a point — wrong guesses are deleted to keep the channel clean. Use `/unscramble-leaderboard` to see the all-time standings. Words come from a 220k-word English dictionary so every puzzle is different!' },
+    { name: '🔤 Unscramble Game', value: 'A word game in <#1522112363090673684> — unscramble the letters to guess the word and earn a point. Wrong guesses are deleted. Words are 4–6 letters so they\'re actually guessable. A new puzzle appears a few minutes after each solve. Use `/unscramble-leaderboard` to see the all-time standings.' },
     { name: '🚨 Auto-Quarantine System', value: 'The bot auto-detects suspicious accounts using Discord\'s own Signals (Spammer, AutoMod flags) plus heuristics (account age, no avatar, etc.). Mods can also quarantine manually — the bot will detect the role being added, post in the quarantine channel, notify mods with who did it, and start the 48h auto-ban countdown.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
@@ -5945,16 +5945,6 @@ async function postUnscramblePuzzle() {
     const channel = await client.channels.fetch(UNSCRAMBLE_CHANNEL_ID).catch(() => null);
     if (!channel) return;
 
-    if (unscrambleTimer) { clearTimeout(unscrambleTimer); unscrambleTimer = null; }
-
-    // If an old puzzle wasn't solved, reveal the answer before starting a new one
-    if (unscramblePuzzle) {
-        await channel.send({ embeds: [{
-            color: 0x888888,
-            description: `⌛ Time's up! Nobody got it. The word was **${unscramblePuzzle.word}**.`,
-        }] }).catch(() => {});
-    }
-
     const word      = pickRandomWord();
     const scrambled = scrambleWord(word);
 
@@ -5968,10 +5958,6 @@ async function postUnscramblePuzzle() {
 
     unscramblePuzzle = { word, scrambled, messageId: msg?.id ?? null, startedAt: Date.now() };
     console.log(`[BeastBot] 🔤 Unscramble: posted "${scrambled}" (answer: ${word})`);
-
-    // Auto-advance: post next puzzle in 90–180 min whether or not this one is solved
-    const delay = (90 + Math.floor(Math.random() * 90)) * 60 * 1000;
-    unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
 }
 
 async function handleUnscrambleMessage(message) {
@@ -5993,9 +5979,6 @@ async function handleUnscrambleMessage(message) {
 
         const solved = unscramblePuzzle;
         unscramblePuzzle = null;
-
-        // Clear the auto-advance timer so we don't double-post
-        if (unscrambleTimer) { clearTimeout(unscrambleTimer); unscrambleTimer = null; }
 
         await message.react('✅').catch(() => {});
         await message.channel.send({ embeds: [{
