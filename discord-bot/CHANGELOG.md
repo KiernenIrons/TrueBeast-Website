@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Quarantine: startup scan of all existing members for Discord signals
+
+- Added a `setTimeout(..., 8000)` block in `clientReady` that iterates `guild.members.cache` (already populated by the startup `guild.members.fetch()`) and calls `discordSignalReason()` on every non-bot member.
+- Skips members already in `quarantinedUsers` or already holding `QUARANTINE_ROLE_ID`.
+- Quarantines flagged members with a 500ms delay between each action to stay within Discord rate limits.
+- Logs `[BeastBot] 🔍 Startup signal scan complete — N member(s) quarantined` on completion.
+- Runs 8 seconds after boot (after VIP backfill at 5s) so the member cache is guaranteed to be warm.
+
 ## [2026-07-02] — Quarantine: hook Discord's own signal flags (Spammer, AutoMod, unusual DM)
 
 - Imported `UserFlags` and `GuildMemberFlags` from discord.js (were missing from the destructure).

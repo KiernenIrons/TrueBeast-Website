@@ -74,7 +74,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🚨 Auto-Quarantine System', value: 'The bot now auto-detects suspicious accounts and DM activity — including Discord\'s own Signals (Spammer, AutoMod flags). Flagged accounts get the Quarantine role and are prompted to confirm they\'re human. No response in 48h = auto-ban.' },
+    { name: '🚨 Auto-Quarantine System', value: 'The bot auto-detects suspicious accounts using Discord\'s own Signals (Spammer, AutoMod flags) plus heuristics (account age, no avatar, etc.). On every startup it scans all existing members and quarantines anyone flagged. Flagged accounts get the Quarantine role and are prompted to confirm they\'re human — no response in 48h = auto-ban.' },
     { name: '🪦 Frog Memorial Fix', value: 'Gassed frogs now appear in `/pond memorial`. The background ticker was overwriting gas kills with `alive:true` due to a race condition. Fixed filter, sort, and removed pings from the memorial.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
@@ -5088,6 +5088,23 @@ client.once('clientReady', async () => {
             }
             if (synced > 0) console.log(`[VIP] Startup backfill: synced ${synced} member(s)`);
         }, 5000);
+
+        // Quarantine signal scan — check all existing members for Discord's signal flags
+        setTimeout(async () => {
+            let flagged = 0;
+            for (const [, member] of guild.members.cache) {
+                if (member.user.bot) continue;
+                if (quarantinedUsers.has(member.id)) continue;
+                if (member.roles.cache.has(QUARANTINE_ROLE_ID)) continue; // already quarantined
+                const signal = discordSignalReason(member);
+                if (signal) {
+                    await quarantineUser(guild, member, signal).catch(() => {});
+                    flagged++;
+                    await new Promise(r => setTimeout(r, 500)); // avoid rate limits
+                }
+            }
+            console.log(`[BeastBot] 🔍 Startup signal scan complete — ${flagged} member(s) quarantined`);
+        }, 8000);
 
         await ensureVoiceRankRoles(guild).catch(e => console.error('[BeastBot] ensureVoiceRankRoles failed:', e.message));
         await checkMonthlyReset(guild, true).catch(e => console.error('[BeastBot] checkMonthlyReset failed:', e.message));
