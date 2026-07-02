@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Unscramble: replace word list with curated common words
+
+- Removed `an-array-of-english-words` dependency (Unix dictionary — too many obscure/archaic words)
+- Replaced with an embedded `UNSCRAMBLE_WORDS` array of ~700 genuinely common English words (4–6 letters), hand-curated from high-frequency English word lists
+- `pickRandomWord()` now draws from `UNSCRAMBLE_WORDS` instead of the filtered npm package array
+
 ## [2026-07-02] — Unscramble: easier words, no auto-advance
 
 - Word pool narrowed to 4–6 letters only (was 4–11) — shorter words are far easier to unscramble and more commonly known
