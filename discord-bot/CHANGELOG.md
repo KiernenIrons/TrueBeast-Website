@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Quarantine: detect manual role add, mod attribution, shared 48h countdown
+
+- `quarantineUser(guild, member, reason, moderator = null)` — added optional `moderator` param. When set, mod embed says "manually quarantined by X" with the 48h countdown warning; auto-quarantine message unchanged.
+- Role-add guard: `quarantineUser` now checks `member.roles.cache.has(QUARANTINE_ROLE_ID)` before calling `roles.add()` — skips the redundant API call when a mod already added it manually.
+- `guildMemberUpdate`: when `QUARANTINE_ROLE_ID` appears in `addedRoles` and the member isn't already in `quarantinedUsers`, fetch the audit log (`MemberRoleUpdate`), confirm the executor isn't the bot, then call `quarantineUser(..., modName)`. Covers the manual case end-to-end.
+- `byBot` guard prevents double-triggering when the bot's own `roles.add()` fires the update event (the `quarantinedUsers` map entry is set synchronously before the gateway event arrives, so this is belt-and-suspenders).
+
 ## [2026-07-02] — Quarantine: deny view+connect on temp VCs and workout rooms
 
 - In `createTempVC`: push `{ id: QUARANTINE_ROLE_ID, deny: [ViewChannel, Connect] }` into `permOverwrites` before `guild.channels.create()` so quarantined users can't see or enter any join-to-create VC from the moment it's created.

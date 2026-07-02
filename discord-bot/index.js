@@ -74,7 +74,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🚨 Auto-Quarantine System', value: 'The bot auto-detects suspicious accounts using Discord\'s own Signals (Spammer, AutoMod flags) plus heuristics (account age, no avatar, etc.). Quarantined users are blocked from seeing or joining any voice chats. Flagged accounts are prompted to confirm they\'re human — no response in 48h = auto-ban.' },
+    { name: '🚨 Auto-Quarantine System', value: 'The bot auto-detects suspicious accounts using Discord\'s own Signals (Spammer, AutoMod flags) plus heuristics (account age, no avatar, etc.). Mods can also quarantine manually — the bot will detect the role being added, post in the quarantine channel, notify mods with who did it, and start the 48h auto-ban countdown.' },
     { name: '🪦 Frog Memorial Fix', value: 'Gassed frogs now appear in `/pond memorial`. The background ticker was overwriting gas kills with `alive:true` due to a race condition. Fixed filter, sort, and removed pings from the memorial.' },
     { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
     { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
@@ -1467,11 +1467,15 @@ function discordSignalReason(member) {
     return null;
 }
 
-async function quarantineUser(guild, member, reason) {
+// moderator — display name/tag of the mod who manually added the role, or null for auto-quarantine
+async function quarantineUser(guild, member, reason, moderator = null) {
     if (quarantinedUsers.has(member.id)) return;
     if (member.user.bot) return;
     try {
-        await member.roles.add(QUARANTINE_ROLE_ID, `Auto-quarantine: ${reason}`);
+        // Only add the role when the bot is doing the quarantine; manual adds already have it
+        if (!member.roles.cache.has(QUARANTINE_ROLE_ID)) {
+            await member.roles.add(QUARANTINE_ROLE_ID, `Auto-quarantine: ${reason}`);
+        }
         quarantinedUsers.set(member.id, {
             timestamp: Date.now(),
             guildId:   guild.id,
@@ -1483,21 +1487,24 @@ async function quarantineUser(guild, member, reason) {
             const qCh = await client.channels.fetch(QUARANTINE_CHANNEL_ID).catch(() => null);
             if (qCh) await qCh.send(`Hello <@${member.id}>! Your account has been flagged for suspicious activity. Please confirm you're human.`);
         }
-        // Notify mods separately
+        // Notify mods — include who quarantined if manual
         if (MOD_CHANNEL_ID) {
             const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
-            if (modCh) await modCh.send({ embeds: [buildLogEmbed({
-                color:       0xFF6B00,
-                user:        member.user,
-                description: `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}\n\nIf this was a mistake, remove the <@&${QUARANTINE_ROLE_ID}> role manually.`,
-            })] });
+            if (modCh) {
+                const modDesc = moderator
+                    ? `🚨 <@${member.id}> was **manually quarantined** by **${moderator}**\nReason: ${reason}\n\nThe 48h auto-ban countdown has started. Remove the <@&${QUARANTINE_ROLE_ID}> role to cancel it.`
+                    : `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}\n\nIf this was a mistake, remove the <@&${QUARANTINE_ROLE_ID}> role manually.`;
+                await modCh.send({ embeds: [buildLogEmbed({ color: 0xFF6B00, user: member.user, description: modDesc })] });
+            }
         }
         await sendLog(guild, buildLogEmbed({
             color:       0xFF6B00,
             user:        member.user,
-            description: `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}`,
+            description: moderator
+                ? `🚨 <@${member.id}> was **manually quarantined** by **${moderator}**\nReason: ${reason}`
+                : `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}`,
         }));
-        console.log(`[BeastBot] 🚨 Quarantined ${member.user.tag}: ${reason}`);
+        console.log(`[BeastBot] 🚨 Quarantined ${member.user.tag}: ${reason}${moderator ? ` (by ${moderator})` : ''}`);
     } catch (e) {
         console.error(`[BeastBot] Failed to quarantine ${member.user.tag}:`, e.message);
     }
@@ -3315,6 +3322,16 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             TWITCH_SUB_ROLES.some(r => r.id === id) || YT_MEMBER_ROLES.some(r => r.id === id)
         );
         if (vipRoleChanged) await syncVipRole(newMember);
+
+        // Manual quarantine detection — someone gave the role directly in Discord
+        if (addedRoles.has(QUARANTINE_ROLE_ID) && !quarantinedUsers.has(newMember.id)) {
+            const entry = await getAuditEntry(newMember.guild, AuditLogEvent.MemberRoleUpdate, newMember.id, 8000);
+            const byBot = entry?.executor?.id === client.user?.id;
+            if (!byBot) {
+                const modName = entry?.executor?.displayName || entry?.executor?.username || 'Unknown moderator';
+                quarantineUser(newMember.guild, newMember, 'Manually quarantined by moderator', modName).catch(() => {});
+            }
+        }
     }
 
     // Boost started / ended
