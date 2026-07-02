@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-02] — Quarantine: deny view+connect on temp VCs and workout rooms
+
+- In `createTempVC`: push `{ id: QUARANTINE_ROLE_ID, deny: [ViewChannel, Connect] }` into `permOverwrites` before `guild.channels.create()` so quarantined users can't see or enter any join-to-create VC from the moment it's created.
+- In `createWorkoutRoom`: identical overwrite added to the fitness VC creation path for the same reason.
+- Applies to every new temp VC going forward — existing channels are unaffected (they don't persist between sessions anyway).
+
 ## [2026-07-02] — Quarantine: startup scan of all existing members for Discord signals
 
 - Added a `setTimeout(..., 8000)` block in `clientReady` that iterates `guild.members.cache` (already populated by the startup `guild.members.fetch()`) and calls `discordSignalReason()` on every non-bot member.
