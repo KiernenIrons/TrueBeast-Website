@@ -198,6 +198,10 @@ const STEAM_API_KEY              = process.env.STEAM_API_KEY;
 const STEAM_ID                   = process.env.STEAM_ID || '76561198254213878';
 const GOOGLE_SAFE_BROWSING_KEY   = process.env.GOOGLE_SAFE_BROWSING_KEY;
 const OWNER_DISCORD_ID           = '392450364340830208';
+const WIDGET_APP_ID              = '1522610369640792086';
+const WIDGET_BOT_TOKEN           = process.env.WIDGET_BOT_TOKEN;
+const WIDGET_YT_API_KEY          = process.env.WIDGET_YOUTUBE_API_KEY;
+const WIDGET_YT_CHANNEL          = 'UCPwd8BU-o5RvD0Osh6Z_4gQ';
 
 if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CHANNEL_IDS.length === 0) {
     console.error('[BeastBot] ❌  Missing required env vars.');
@@ -206,10 +210,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔤 Unscramble Game', value: 'A word game in <#1522112363090673684> — unscramble the letters to guess the word and earn a point. Wrong guesses are deleted. Words are picked from a curated list of common everyday English words (4–6 letters). A new puzzle drops a few minutes after each solve. Use `/unscramble-leaderboard` for the standings.' },
-    { name: '🚨 Auto-Quarantine System', value: 'The bot auto-detects suspicious accounts using Discord\'s own Signals (Spammer, AutoMod flags) plus heuristics (account age, no avatar, etc.). Mods can also quarantine manually — the bot will detect the role being added, post in the quarantine channel, notify mods with who did it, and start the 48h auto-ban countdown.' },
-    { name: '💎 VIP Role', value: 'Server boosters, Twitch subscribers, and YouTube members now automatically receive the VIP role. The bot detects these in real time — no manual action needed.' },
-    { name: '✨ /vip Command', value: 'Use `/vip` to check your VIP status and see which sources (Boost, Twitch sub, YouTube membership) are active on your account.' },
+    { name: '📊 Discord Profile Widget', value: 'The bot now automatically updates Kiernen\'s Discord profile widget every 15 minutes with live YouTube subscriber count and Discord member count.' },
+    { name: '✨ /widget-refresh', value: 'New owner-only command to manually trigger an immediate update of the Discord profile widget stats without waiting for the next auto-refresh.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -876,6 +878,59 @@ async function fetchDiscordContext(guild) {
     _discordContextCache   = result;
     _discordContextCacheAt = now;
     return result;
+}
+
+// ── Discord profile widget ────────────────────────────────────────────────────
+
+function formatStatCount(n) {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1_000)     return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(n);
+}
+
+async function pushDiscordWidget() {
+    if (!WIDGET_BOT_TOKEN || !WIDGET_YT_API_KEY) return;
+    try {
+        const ytRes  = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${WIDGET_YT_CHANNEL}&key=${WIDGET_YT_API_KEY}`);
+        const ytData = await ytRes.json();
+        const subs   = parseInt(ytData.items?.[0]?.statistics?.subscriberCount || '0', 10);
+        const subStr = formatStatCount(subs) + ' subscribers';
+
+        const guild       = client.guilds.cache.first();
+        const memberCount = guild?.memberCount ?? 0;
+
+        const payload = {
+            username: 'TrueBeast',
+            data: {
+                dynamic: [
+                    { type: 1, name: 'youtube_subs',    value: subStr      },
+                    { type: 2, name: 'discord_members', value: memberCount },
+                ],
+            },
+        };
+
+        const res = await fetch(
+            `https://discord.com/api/v9/applications/${WIDGET_APP_ID}/users/${OWNER_DISCORD_ID}/identities/0/profile`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bot ${WIDGET_BOT_TOKEN}`,
+                    'User-Agent': 'DiscordBot (https://github.com/discord/discord-api-docs, 1.0.0)',
+                },
+                body: JSON.stringify(payload),
+            }
+        );
+
+        if (!res.ok) {
+            const text = await res.text();
+            console.error(`[Widget] PATCH failed ${res.status}: ${text}`);
+        } else {
+            console.log(`[Widget] Updated — YT: ${subStr} | Discord: ${memberCount} members`);
+        }
+    } catch (e) {
+        console.error('[Widget] Update error:', e.message);
+    }
 }
 
 // ── Steam ─────────────────────────────────────────────────────────────────────
@@ -5367,6 +5422,8 @@ client.once('clientReady', async () => {
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkWeeklyBumpReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkQuarantineExpiry().catch(() => {}), 5 * 60 * 1000); // check every 5 min
+        pushDiscordWidget().catch(() => {});
+        setInterval(() => pushDiscordWidget().catch(() => {}), 15 * 60 * 1000);
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
@@ -5901,6 +5958,9 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('vip')
                 .setDescription('Check your VIP status and pick perk roles'),
+            new SlashCommandBuilder()
+                .setName('widget-refresh')
+                .setDescription('(Owner only) Manually refresh the Discord profile widget stats'),
             ...pondCommands,
         ].map(c => c.toJSON());
 
@@ -10851,6 +10911,17 @@ client.on('interactionCreate', async (interaction) => {
                 }],
                 ephemeral: true,
             });
+            return;
+        }
+
+        if (interaction.commandName === 'widget-refresh') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: 'Only the server owner can use this.', ephemeral: true });
+                return;
+            }
+            await interaction.deferReply({ ephemeral: true });
+            await pushDiscordWidget();
+            await interaction.editReply('Widget stats refreshed.');
             return;
         }
 

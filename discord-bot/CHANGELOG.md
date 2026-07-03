@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-03] — Add Discord profile widget auto-updater
+
+- Added `pushDiscordWidget()` — fetches live YouTube subscriber count via YouTube Data API v3 and Discord member count, then PATCHes Discord's widget identity endpoint every 15 minutes
+- Added `/widget-refresh` slash command (owner only) to manually trigger an immediate widget update
+- Added `WIDGET_BOT_TOKEN` and `WIDGET_YOUTUBE_API_KEY` env var references; widget silently no-ops if either is missing
+- Added `formatStatCount()` helper for human-readable counts (e.g. 72.4K, 1.2M)
+
 ## [2026-07-03] — Unscramble: allow chat, only scan single-word messages as guesses
 
 - Multi-word messages in the unscramble channel now pass through untouched — people can chat freely
