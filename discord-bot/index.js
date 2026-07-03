@@ -909,31 +909,6 @@ async function fetchTikTokStats() {
     }
 }
 
-async function fetchInstagramStats() {
-    try {
-        const res  = await fetch('https://socialblade.com/instagram/user/truebeasttv', {
-            headers: {
-                ...SCRAPE_HEADERS,
-                'Accept':  'text/html,application/xhtml+xml',
-                'Referer': 'https://socialblade.com/',
-            },
-        });
-        if (!res.ok) { console.warn('[Widget] Socialblade Instagram: HTTP', res.status); return null; }
-        const html = await res.text();
-        // Socialblade puts raw follower count in a hidden span or near the Followers label
-        const match = html.match(/id="rawFollowers"[^>]*>([0-9,]+)</)
-            || html.match(/Followers[\s\S]{0,300}?<[^>]*>\s*([0-9][0-9,]*)\s*</)
-            || html.match(/([0-9,]{3,})\s*<\/[^>]+>\s*(?:Followers|followers)/);
-        if (!match) { console.warn('[Widget] Socialblade Instagram: follower count not found in page'); return null; }
-        const followers = parseInt(match[1].replace(/,/g, ''), 10);
-        console.log(`[Widget] Socialblade Instagram: ${followers} followers`);
-        return { followers };
-    } catch (e) {
-        console.warn('[Widget] Socialblade Instagram scrape failed:', e.message);
-        return null;
-    }
-}
-
 async function pushDiscordWidget() {
     if (!WIDGET_BOT_TOKEN || !WIDGET_YT_API_KEY) return;
     try {
@@ -949,7 +924,7 @@ async function pushDiscordWidget() {
         const memberCount = guild?.memberCount ?? 0;
         const memberStr   = formatStatCount(memberCount) + ' members';
 
-        const [ttStats, igStats] = await Promise.all([fetchTikTokStats(), fetchInstagramStats()]);
+        const ttStats = await fetchTikTokStats();
 
         const dynamic = [
             { type: 1, name: 'youtube_stats',  value: `${subStr} • ${viewStr}` },
@@ -958,9 +933,6 @@ async function pushDiscordWidget() {
 
         if (ttStats) {
             dynamic.push({ type: 1, name: 'tiktok_stats', value: `${formatStatCount(ttStats.followers)} followers • ${formatStatCount(ttStats.likes)} likes` });
-        }
-        if (igStats) {
-            dynamic.push({ type: 1, name: 'instagram_stats', value: formatStatCount(igStats.followers) + ' followers' });
         }
 
         const payload = { username: 'TrueBeast', data: { dynamic } };
@@ -983,8 +955,7 @@ async function pushDiscordWidget() {
             console.error(`[Widget] PATCH failed ${res.status}: ${text}`);
         } else {
             const ttLog = ttStats ? `TT: ${formatStatCount(ttStats.followers)} followers / ${formatStatCount(ttStats.likes)} likes` : 'TT: scrape failed';
-            const igLog = igStats ? `IG: ${formatStatCount(igStats.followers)} followers` : 'IG: scrape failed';
-            console.log(`[Widget] Updated — YT: ${subStr} / ${viewStr} | Discord: ${memberStr} | ${ttLog} | ${igLog}`);
+            console.log(`[Widget] Updated — YT: ${subStr} / ${viewStr} | Discord: ${memberStr} | ${ttLog}`);
         }
     } catch (e) {
         console.error('[Widget] Update error:', e.message);
