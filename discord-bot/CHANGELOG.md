@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-03] — Widget: combine stats into single fields per platform
+
+- Merged youtube_subs + youtube_views into one `youtube_stats` field ("120K subscribers • 52.4M views")
+- Merged tiktok_followers + tiktok_likes into one `tiktok_stats` field ("45K followers • 1.2M likes")
+- `instagram_stats` stays as a single followers string
+- `discord_members` unchanged
+- Fewer fields needed in the widget editor (3 instead of 6)
+
 ## [2026-07-03] — Widget: add YouTube views, TikTok and Instagram scrapers
 
 - Added `youtube_views` field — extracted from same YouTube API call (viewCount), always reliable

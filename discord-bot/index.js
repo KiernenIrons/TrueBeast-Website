@@ -210,7 +210,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📊 Widget: More Stats', value: 'The profile widget now shows YouTube total views, TikTok followers & likes, and Instagram followers — updated every 15 minutes alongside the existing YouTube subs and Discord member count.' },
+    { name: '📊 Widget Stats', value: 'Profile widget now shows combined stats per platform: YouTube (subs • views), TikTok (followers • likes), Instagram (followers), and Discord members — all in one field each, updated every 15 minutes.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -949,17 +949,15 @@ async function pushDiscordWidget() {
         const [ttStats, igStats] = await Promise.all([fetchTikTokStats(), fetchInstagramStats()]);
 
         const dynamic = [
-            { type: 1, name: 'youtube_subs',       value: subStr    },
-            { type: 1, name: 'youtube_views',       value: viewStr   },
-            { type: 1, name: 'discord_members',     value: memberStr },
+            { type: 1, name: 'youtube_stats',  value: `${subStr} • ${viewStr}` },
+            { type: 1, name: 'discord_members', value: memberStr },
         ];
 
         if (ttStats) {
-            dynamic.push({ type: 1, name: 'tiktok_followers', value: formatStatCount(ttStats.followers) + ' followers' });
-            dynamic.push({ type: 1, name: 'tiktok_likes',     value: formatStatCount(ttStats.likes)     + ' likes'     });
+            dynamic.push({ type: 1, name: 'tiktok_stats', value: `${formatStatCount(ttStats.followers)} followers • ${formatStatCount(ttStats.likes)} likes` });
         }
         if (igStats) {
-            dynamic.push({ type: 1, name: 'instagram_followers', value: formatStatCount(igStats.followers) + ' followers' });
+            dynamic.push({ type: 1, name: 'instagram_stats', value: formatStatCount(igStats.followers) + ' followers' });
         }
 
         const payload = { username: 'TrueBeast', data: { dynamic } };
@@ -981,7 +979,7 @@ async function pushDiscordWidget() {
             const text = await res.text();
             console.error(`[Widget] PATCH failed ${res.status}: ${text}`);
         } else {
-            const ttLog = ttStats ? `TT: ${formatStatCount(ttStats.followers)} followers` : 'TT: scrape failed';
+            const ttLog = ttStats ? `TT: ${formatStatCount(ttStats.followers)} followers / ${formatStatCount(ttStats.likes)} likes` : 'TT: scrape failed';
             const igLog = igStats ? `IG: ${formatStatCount(igStats.followers)} followers` : 'IG: scrape failed';
             console.log(`[Widget] Updated — YT: ${subStr} / ${viewStr} | Discord: ${memberStr} | ${ttLog} | ${igLog}`);
         }
