@@ -911,7 +911,7 @@ async function fetchTikTokStats() {
 
 async function fetchInstagramStats() {
     try {
-        const res  = await fetch('https://www.instagram.com/api/v1/users/web_profile_info/?username=kiernen_100', {
+        const res  = await fetch('https://www.instagram.com/api/v1/users/web_profile_info/?username=truebeasttv', {
             headers: {
                 ...SCRAPE_HEADERS,
                 'x-ig-app-id': '936619743392459',
