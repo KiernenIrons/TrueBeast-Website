@@ -6129,7 +6129,7 @@ async function handleUnscrambleMessage(message) {
         const delay = (5 + Math.floor(Math.random() * 10)) * 60 * 1000; // 5–15 min
         unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
     } else {
-        await message.delete().catch(() => {});
+        await message.react('❌').catch(() => {});
     }
 }
 
