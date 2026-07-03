@@ -898,13 +898,14 @@ async function pushDiscordWidget() {
 
         const guild       = client.guilds.cache.first();
         const memberCount = guild?.memberCount ?? 0;
+        const memberStr   = formatStatCount(memberCount) + ' members';
 
         const payload = {
             username: 'TrueBeast',
             data: {
                 dynamic: [
-                    { type: 1, name: 'youtube_subs',    value: subStr      },
-                    { type: 2, name: 'discord_members', value: memberCount },
+                    { type: 1, name: 'youtube_subs',    value: subStr    },
+                    { type: 1, name: 'discord_members', value: memberStr },
                 ],
             },
         };
@@ -926,7 +927,7 @@ async function pushDiscordWidget() {
             const text = await res.text();
             console.error(`[Widget] PATCH failed ${res.status}: ${text}`);
         } else {
-            console.log(`[Widget] Updated — YT: ${subStr} | Discord: ${memberCount} members`);
+            console.log(`[Widget] Updated — YT: ${subStr} | Discord: ${memberStr}`);
         }
     } catch (e) {
         console.error('[Widget] Update error:', e.message);

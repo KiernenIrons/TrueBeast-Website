@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-07-03] — Fix discord_members widget field type
+
+- Changed `discord_members` from `type: 2` (number) to `type: 1` (text string) to match how Discord widget fields render
+- Now sends formatted string e.g. "1.2K members" consistent with the YouTube subscribers field
+
 ## [2026-07-03] — Add Discord profile widget auto-updater
 
 - Added `pushDiscordWidget()` — fetches live YouTube subscriber count via YouTube Data API v3 and Discord member count, then PATCHes Discord's widget identity endpoint every 15 minutes
