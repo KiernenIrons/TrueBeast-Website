@@ -210,8 +210,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📊 Discord Profile Widget', value: 'The bot now automatically updates Kiernen\'s Discord profile widget every 15 minutes with live YouTube subscriber count and Discord member count.' },
-    { name: '✨ /widget-refresh', value: 'New owner-only command to manually trigger an immediate update of the Discord profile widget stats without waiting for the next auto-refresh.' },
+    { name: '📊 Widget: More Stats', value: 'The profile widget now shows YouTube total views, TikTok followers & likes, and Instagram followers — updated every 15 minutes alongside the existing YouTube subs and Discord member count.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -888,27 +887,82 @@ function formatStatCount(n) {
     return String(n);
 }
 
+const SCRAPE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+};
+
+async function fetchTikTokStats() {
+    try {
+        const res  = await fetch('https://www.tiktok.com/@realtruebeast', { headers: SCRAPE_HEADERS });
+        const html = await res.text();
+        const match = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application\/json">([\s\S]*?)<\/script>/);
+        if (!match) { console.warn('[Widget] TikTok: data script not found'); return null; }
+        const data     = JSON.parse(match[1]);
+        const stats    = data?.['__DEFAULT_SCOPE__']?.['webapp.user-detail']?.userInfo?.stats;
+        if (!stats) { console.warn('[Widget] TikTok: stats not found in JSON'); return null; }
+        return { followers: stats.followerCount ?? 0, likes: stats.heartCount ?? 0 };
+    } catch (e) {
+        console.warn('[Widget] TikTok scrape failed:', e.message);
+        return null;
+    }
+}
+
+async function fetchInstagramStats() {
+    try {
+        const res  = await fetch('https://www.instagram.com/api/v1/users/web_profile_info/?username=kiernen_100', {
+            headers: {
+                ...SCRAPE_HEADERS,
+                'x-ig-app-id': '936619743392459',
+                'Referer':     'https://www.instagram.com/',
+                'Origin':      'https://www.instagram.com',
+                'Accept':      '*/*',
+            },
+        });
+        if (!res.ok) { console.warn('[Widget] Instagram: HTTP', res.status); return null; }
+        const data = await res.json();
+        const user = data?.data?.user;
+        if (!user) { console.warn('[Widget] Instagram: user not in response'); return null; }
+        return { followers: user.edge_followed_by?.count ?? 0 };
+    } catch (e) {
+        console.warn('[Widget] Instagram scrape failed:', e.message);
+        return null;
+    }
+}
+
 async function pushDiscordWidget() {
     if (!WIDGET_BOT_TOKEN || !WIDGET_YT_API_KEY) return;
     try {
-        const ytRes  = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${WIDGET_YT_CHANNEL}&key=${WIDGET_YT_API_KEY}`);
-        const ytData = await ytRes.json();
-        const subs   = parseInt(ytData.items?.[0]?.statistics?.subscriberCount || '0', 10);
-        const subStr = formatStatCount(subs) + ' subscribers';
+        const ytRes   = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${WIDGET_YT_CHANNEL}&key=${WIDGET_YT_API_KEY}`);
+        const ytData  = await ytRes.json();
+        const ytStats = ytData.items?.[0]?.statistics ?? {};
+        const subs    = parseInt(ytStats.subscriberCount || '0', 10);
+        const views   = parseInt(ytStats.viewCount      || '0', 10);
+        const subStr  = formatStatCount(subs)  + ' subscribers';
+        const viewStr = formatStatCount(views) + ' views';
 
         const guild       = client.guilds.cache.first();
         const memberCount = guild?.memberCount ?? 0;
         const memberStr   = formatStatCount(memberCount) + ' members';
 
-        const payload = {
-            username: 'TrueBeast',
-            data: {
-                dynamic: [
-                    { type: 1, name: 'youtube_subs',    value: subStr    },
-                    { type: 1, name: 'discord_members', value: memberStr },
-                ],
-            },
-        };
+        const [ttStats, igStats] = await Promise.all([fetchTikTokStats(), fetchInstagramStats()]);
+
+        const dynamic = [
+            { type: 1, name: 'youtube_subs',       value: subStr    },
+            { type: 1, name: 'youtube_views',       value: viewStr   },
+            { type: 1, name: 'discord_members',     value: memberStr },
+        ];
+
+        if (ttStats) {
+            dynamic.push({ type: 1, name: 'tiktok_followers', value: formatStatCount(ttStats.followers) + ' followers' });
+            dynamic.push({ type: 1, name: 'tiktok_likes',     value: formatStatCount(ttStats.likes)     + ' likes'     });
+        }
+        if (igStats) {
+            dynamic.push({ type: 1, name: 'instagram_followers', value: formatStatCount(igStats.followers) + ' followers' });
+        }
+
+        const payload = { username: 'TrueBeast', data: { dynamic } };
 
         const res = await fetch(
             `https://discord.com/api/v9/applications/${WIDGET_APP_ID}/users/${OWNER_DISCORD_ID}/identities/0/profile`,
@@ -927,7 +981,9 @@ async function pushDiscordWidget() {
             const text = await res.text();
             console.error(`[Widget] PATCH failed ${res.status}: ${text}`);
         } else {
-            console.log(`[Widget] Updated — YT: ${subStr} | Discord: ${memberStr}`);
+            const ttLog = ttStats ? `TT: ${formatStatCount(ttStats.followers)} followers` : 'TT: scrape failed';
+            const igLog = igStats ? `IG: ${formatStatCount(igStats.followers)} followers` : 'IG: scrape failed';
+            console.log(`[Widget] Updated — YT: ${subStr} / ${viewStr} | Discord: ${memberStr} | ${ttLog} | ${igLog}`);
         }
     } catch (e) {
         console.error('[Widget] Update error:', e.message);

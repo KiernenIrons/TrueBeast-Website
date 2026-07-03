@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-03] — Widget: add YouTube views, TikTok and Instagram scrapers
+
+- Added `youtube_views` field — extracted from same YouTube API call (viewCount), always reliable
+- Added `fetchTikTokStats()` — scrapes `__UNIVERSAL_DATA_FOR_REHYDRATION__` JSON from TikTok profile page; returns follower + heart count or null on failure
+- Added `fetchInstagramStats()` — hits Instagram's undocumented `web_profile_info` endpoint with app headers; returns follower count or null on failure
+- `pushDiscordWidget()` runs scrapers in parallel via `Promise.all`; skips TikTok/Instagram fields silently if scraping fails so YouTube and Discord always update
+- New dynamic fields: `youtube_views`, `tiktok_followers`, `tiktok_likes`, `instagram_followers`
+
 ## [2026-07-03] — Fix discord_members widget field type
 
 - Changed `discord_members` from `type: 2` (number) to `type: 1` (text string) to match how Discord widget fields render
