@@ -910,47 +910,28 @@ async function fetchTikTokStats() {
 }
 
 async function fetchInstagramStats() {
-    const cookie = process.env.INSTAGRAM_SESSION_ID ? `sessionid=${process.env.INSTAGRAM_SESSION_ID}` : '';
-    const igHeaders = {
-        ...SCRAPE_HEADERS,
-        'x-ig-app-id': '936619743392459',
-        'Referer':     'https://www.instagram.com/',
-        'Origin':      'https://www.instagram.com',
-        'Accept':      '*/*',
-        ...(cookie ? { 'Cookie': cookie } : {}),
-    };
-
-    // Attempt 1: web_profile_info API endpoint
     try {
-        const res  = await fetch('https://www.instagram.com/api/v1/users/web_profile_info/?username=truebeasttv', { headers: igHeaders });
-        const body = await res.text();
-        console.log(`[Widget] Instagram API: ${res.status} — ${body.slice(0, 200)}`);
-        if (res.ok) {
-            const data = JSON.parse(body);
-            const user = data?.data?.user;
-            if (user) return { followers: user.edge_followed_by?.count ?? 0 };
-        }
-    } catch (e) {
-        console.warn('[Widget] Instagram API attempt failed:', e.message);
-    }
-
-    // Attempt 2: scrape profile page HTML
-    try {
-        const res  = await fetch('https://www.instagram.com/truebeasttv/', {
-            headers: { ...SCRAPE_HEADERS, ...(cookie ? { 'Cookie': cookie } : {}) },
+        const res  = await fetch('https://socialblade.com/instagram/user/truebeasttv', {
+            headers: {
+                ...SCRAPE_HEADERS,
+                'Accept':  'text/html,application/xhtml+xml',
+                'Referer': 'https://socialblade.com/',
+            },
         });
+        if (!res.ok) { console.warn('[Widget] Socialblade Instagram: HTTP', res.status); return null; }
         const html = await res.text();
-        const match = html.match(/"follower_count"\s*:\s*(\d+)/) || html.match(/"edge_followed_by"\s*:\s*\{"count"\s*:\s*(\d+)/);
-        if (match) {
-            console.log(`[Widget] Instagram HTML scrape: found ${match[1]} followers`);
-            return { followers: parseInt(match[1], 10) };
-        }
-        console.warn('[Widget] Instagram HTML: follower count not found in page (len=' + html.length + ')');
+        // Socialblade puts raw follower count in a hidden span or near the Followers label
+        const match = html.match(/id="rawFollowers"[^>]*>([0-9,]+)</)
+            || html.match(/Followers[\s\S]{0,300}?<[^>]*>\s*([0-9][0-9,]*)\s*</)
+            || html.match(/([0-9,]{3,})\s*<\/[^>]+>\s*(?:Followers|followers)/);
+        if (!match) { console.warn('[Widget] Socialblade Instagram: follower count not found in page'); return null; }
+        const followers = parseInt(match[1].replace(/,/g, ''), 10);
+        console.log(`[Widget] Socialblade Instagram: ${followers} followers`);
+        return { followers };
     } catch (e) {
-        console.warn('[Widget] Instagram HTML attempt failed:', e.message);
+        console.warn('[Widget] Socialblade Instagram scrape failed:', e.message);
+        return null;
     }
-
-    return null;
 }
 
 async function pushDiscordWidget() {
