@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-03] — Unscramble: allow chat, only scan single-word messages as guesses
+
+- Multi-word messages in the unscramble channel now pass through untouched — people can chat freely
+- Only single-word messages (no whitespace) are checked against the active puzzle answer
+- Single-word messages when no puzzle is active are also left alone
+
 ## [2026-07-02] — Unscramble: replace word list with curated common words
 
 - Removed `an-array-of-english-words` dependency (Unix dictionary — too many obscure/archaic words)

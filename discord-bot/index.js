@@ -6095,12 +6095,15 @@ async function handleUnscrambleMessage(message) {
     if (message.author.bot) return;
     if (!botFeatures.unscrambleGame) return;
 
-    if (!unscramblePuzzle) {
-        await message.delete().catch(() => {});
-        return;
-    }
+    const trimmed = message.content.trim();
 
-    const guess = message.content.trim().toLowerCase();
+    // Let multi-word messages through so people can chat normally
+    if (/\s/.test(trimmed)) return;
+
+    // No active puzzle — single-word messages are fine too
+    if (!unscramblePuzzle) return;
+
+    const guess = trimmed.toLowerCase();
 
     if (guess === unscramblePuzzle.word) {
         const uid      = message.author.id;
