@@ -918,6 +918,7 @@ async function fetchInstagramStats() {
                 'Referer':     'https://www.instagram.com/',
                 'Origin':      'https://www.instagram.com',
                 'Accept':      '*/*',
+                ...(process.env.INSTAGRAM_SESSION_ID ? { 'Cookie': `sessionid=${process.env.INSTAGRAM_SESSION_ID}` } : {}),
             },
         });
         if (!res.ok) { console.warn('[Widget] Instagram: HTTP', res.status); return null; }
