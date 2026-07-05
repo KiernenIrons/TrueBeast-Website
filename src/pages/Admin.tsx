@@ -25,6 +25,8 @@ import {
   Users01,
   ShieldTick,
   Image01,
+  LayersThree01,
+  UserPlus01,
 } from '@untitledui/icons';
 import { Tabs, TabList, TabPanel, Tab } from '@/components/application/tabs/tabs';
 import { Button } from '@/components/base/buttons/button';
@@ -298,50 +300,89 @@ function renderDiscordMarkdown(text: string, bot: BotData): string {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function LoginScreen() {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
+  const [mode, setMode] = useState<'signin' | 'register'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    if (mode === 'register' && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
     setLoading(true);
-    try { await login(email, password); }
-    catch (err: any) { setError(err?.message ?? 'Login failed.'); }
-    finally { setLoading(false); }
+    try {
+      if (mode === 'signin') {
+        await login(email, password);
+      } else {
+        await register(email, password);
+        setRegistered(true);
+      }
+    } catch (err: any) {
+      setError(err?.message ?? (mode === 'signin' ? 'Login failed.' : 'Registration failed.'));
+    } finally { setLoading(false); }
   }
+
+  const switchMode = () => { setMode((m) => m === 'signin' ? 'register' : 'signin'); setError(''); setEmail(''); setPassword(''); setConfirmPassword(''); };
 
   return (
     <PageLayout gradientVariant="green" title="Admin Login | TrueBeast">
       <div className="min-h-[70vh] flex items-center justify-center px-4">
         <GlassCard strong className="w-full max-w-md p-8">
           <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center mb-4">
-              <Lock01 className="w-7 h-7 text-green-400" />
+            <div className={`w-14 h-14 rounded-2xl ${mode === 'register' ? 'bg-indigo-500/10 border border-indigo-500/20' : 'bg-green-500/10 border border-green-500/20'} flex items-center justify-center mb-4`}>
+              {mode === 'register' ? <UserPlus01 className="w-7 h-7 text-indigo-400" /> : <Lock01 className="w-7 h-7 text-green-400" />}
             </div>
-            <h1 className="text-2xl font-bold font-display text-white">Admin Panel</h1>
-            <p className="text-gray-400 text-sm mt-1">Sign in to manage your site</p>
+            <h1 className="text-2xl font-bold font-display text-white">{mode === 'signin' ? 'Admin Panel' : 'Request Access'}</h1>
+            <p className="text-gray-400 text-sm mt-1">{mode === 'signin' ? 'Sign in to manage your site' : 'Create an account — Kiernen will grant you access'}</p>
           </div>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label htmlFor="admin-email" className={lbl}>Email</label>
-              <input id="admin-email" type="email" required placeholder="admin@truebeast.com" value={email} onChange={(e) => setEmail(e.target.value)} className={inp} autoComplete="email" />
+
+          {registered ? (
+            <div className="text-center space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center mx-auto">
+                <ShieldTick className="w-7 h-7 text-green-400" />
+              </div>
+              <p className="text-green-400 font-semibold">Account created!</p>
+              <p className="text-gray-400 text-sm">Your account is pending access. Once Kiernen grants you admin permissions, you'll be able to sign in.</p>
+              <button type="button" onClick={() => { setRegistered(false); setMode('signin'); setEmail(''); setPassword(''); setConfirmPassword(''); }}
+                className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors text-sm cursor-pointer">
+                Back to Sign In
+              </button>
             </div>
-            <div>
-              <label htmlFor="admin-password" className={lbl}>Password</label>
-              <input id="admin-password" type="password" required placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} className={inp} autoComplete="current-password" />
-            </div>
-            {error && <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-sm">{error}</div>}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white font-semibold py-3 px-6 rounded-xl transition-colors text-sm"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label htmlFor="admin-email" className={lbl}>Email</label>
+                <input id="admin-email" type="email" required placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} className={inp} autoComplete="email" />
+              </div>
+              <div>
+                <label htmlFor="admin-password" className={lbl}>Password</label>
+                <input id="admin-password" type="password" required placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} className={inp} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} />
+              </div>
+              {mode === 'register' && (
+                <div>
+                  <label htmlFor="admin-confirm" className={lbl}>Confirm Password</label>
+                  <input id="admin-confirm" type="password" required placeholder="Confirm your password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={inp} autoComplete="new-password" />
+                </div>
+              )}
+              {error && <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-sm">{error}</div>}
+              <button type="submit" disabled={loading}
+                className={`w-full ${mode === 'signin' ? 'bg-green-600 hover:bg-green-500' : 'bg-indigo-600 hover:bg-indigo-500'} disabled:opacity-50 text-white font-semibold py-3 px-6 rounded-xl transition-colors text-sm cursor-pointer`}>
+                {loading ? (mode === 'signin' ? 'Signing in...' : 'Creating account...') : (mode === 'signin' ? 'Sign In' : 'Create Account')}
+              </button>
+              <div className="text-center">
+                <button type="button" onClick={switchMode} className="text-xs text-gray-500 hover:text-gray-300 transition-colors cursor-pointer">
+                  {mode === 'signin' ? "Don't have an account? Request access" : 'Already have an account? Sign in'}
+                </button>
+              </div>
+            </form>
+          )}
         </GlassCard>
       </div>
     </PageLayout>
@@ -2835,13 +2876,539 @@ function DiscordCardsTab() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Announcements v2 Tab — Discord Components v2
+// ═══════════════════════════════════════════════════════════════════════════
+
+type V2BlockKind = 'text' | 'section' | 'separator' | 'media_gallery' | 'buttons';
+
+interface V2TextBlock     { id: string; kind: 'text';          content: string }
+interface V2SeparatorBlock{ id: string; kind: 'separator';     divider: boolean; spacing: 1 | 2 }
+interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; thumbnailUrl: string; thumbnailAlt: string }
+interface V2MediaItem     { url: string; description: string }
+interface V2MediaGalleryBlock{ id: string; kind: 'media_gallery'; items: V2MediaItem[] }
+interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
+type V2Block = V2TextBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
+
+interface V2State { accentColor: string; blocks: V2Block[] }
+
+function emptyV2State(): V2State {
+  return { accentColor: '#5865f2', blocks: [{ id: uid(), kind: 'text', content: '' }] };
+}
+
+function newV2Block(kind: V2BlockKind): V2Block {
+  switch (kind) {
+    case 'text':          return { id: uid(), kind: 'text', content: '' };
+    case 'section':       return { id: uid(), kind: 'section', texts: ['', ''], thumbnailUrl: '', thumbnailAlt: '' };
+    case 'separator':     return { id: uid(), kind: 'separator', divider: true, spacing: 1 };
+    case 'media_gallery': return { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '' }] };
+    case 'buttons':       return { id: uid(), kind: 'buttons', row: [newButton()] };
+  }
+}
+
+function buildPayloadV2(state: V2State): Record<string, unknown> | null {
+  const accentInt = parseInt(state.accentColor.replace('#', ''), 16);
+  const inner: unknown[] = [];
+
+  for (const block of state.blocks) {
+    if (block.kind === 'text') {
+      if (!block.content.trim()) continue;
+      inner.push({ type: 10, content: block.content });
+    } else if (block.kind === 'separator') {
+      inner.push({ type: 14, divider: block.divider, spacing: block.spacing });
+    } else if (block.kind === 'section') {
+      const textComps = block.texts.filter((t) => t.trim()).map((t) => ({ type: 10, content: t }));
+      if (!textComps.length) continue;
+      const section: Record<string, unknown> = { type: 9, components: textComps };
+      if (block.thumbnailUrl.trim()) {
+        section.accessory = { type: 11, media: { url: block.thumbnailUrl }, ...(block.thumbnailAlt ? { description: block.thumbnailAlt } : {}) };
+      }
+      inner.push(section);
+    } else if (block.kind === 'media_gallery') {
+      const items = block.items.filter((i) => i.url.trim()).map((i) => ({
+        media: { url: i.url }, ...(i.description.trim() ? { description: i.description } : {}),
+      }));
+      if (!items.length) continue;
+      inner.push({ type: 12, items });
+    } else if (block.kind === 'buttons') {
+      const buttons = block.row
+        .filter((b) => b.url.trim() && (b.label.trim() || b.emoji))
+        .map((b) => {
+          const btn: Record<string, unknown> = { type: 2, style: 5, url: b.url };
+          if (b.label.trim()) btn.label = b.label;
+          if (b.emoji) {
+            const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
+            if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
+            else btn.emoji = { name: b.emoji };
+          }
+          return btn;
+        });
+      if (!buttons.length) continue;
+      inner.push({ type: 1, components: buttons });
+    }
+  }
+
+  if (!inner.length) return null;
+  return { flags: 32768, components: [{ type: 17, accent_color: accentInt, components: inner }] };
+}
+
+const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
+  { kind: 'text',          label: 'Text Display',  desc: 'Markdown text block' },
+  { kind: 'section',       label: 'Section',        desc: 'Text + optional thumbnail' },
+  { kind: 'separator',     label: 'Separator',      desc: 'Visual divider / spacer' },
+  { kind: 'media_gallery', label: 'Media Gallery',  desc: 'Image grid (up to 4)' },
+  { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link buttons' },
+];
+
+function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMoveDown }: {
+  block: V2Block; index: number; total: number;
+  onChange: (b: V2Block) => void; onRemove: () => void;
+  onMoveUp: () => void; onMoveDown: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const typeInfo = V2_BLOCK_TYPES.find((t) => t.kind === block.kind)!;
+
+  const kindLabel: Record<V2BlockKind, string> = { text: 'T', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡' };
+
+  return (
+    <div className="border border-white/5 rounded-xl overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.02]">
+        <span className="text-gray-500 text-xs w-5 text-center font-mono select-none">{kindLabel[block.kind]}</span>
+        <button type="button" onClick={() => setOpen(!open)} className="flex-1 text-left min-w-0">
+          <span className="text-sm font-medium text-gray-200">{typeInfo.label}</span>
+          {block.kind === 'text' && block.content.trim() && (
+            <span className="ml-2 text-xs text-gray-500 truncate">{block.content.slice(0, 50)}</span>
+          )}
+        </button>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button type="button" onClick={onMoveUp} disabled={index === 0}
+            className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors cursor-pointer">
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={onMoveDown} disabled={index === total - 1}
+            className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors cursor-pointer">
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={onRemove} className="p-1 text-gray-600 hover:text-red-400 transition-colors cursor-pointer">
+            <XClose className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={() => setOpen(!open)} className="p-1 text-gray-600 hover:text-gray-300 transition-colors cursor-pointer">
+            {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="p-3 border-t border-white/5 space-y-3">
+          {block.kind === 'text' && (
+            <RichTextarea value={block.content} onChange={(v) => onChange({ ...block, content: v })}
+              label="Content (Discord markdown)" placeholder="## Heading&#10;**Bold**, *italic*, > quote, `code`..." rows={4} />
+          )}
+
+          {block.kind === 'section' && (
+            <>
+              <div>
+                <label className={subLbl}>Text Blocks (left side, max 3)</label>
+                {block.texts.map((t, ti) => (
+                  <div key={ti} className="flex gap-2 items-start mb-2">
+                    <div className="flex-1">
+                      <RichTextarea value={t}
+                        onChange={(v) => { const ts = [...block.texts]; ts[ti] = v; onChange({ ...block, texts: ts }); }}
+                        label={`Text ${ti + 1}`} rows={2} />
+                    </div>
+                    {block.texts.length > 1 && (
+                      <button type="button"
+                        onClick={() => onChange({ ...block, texts: block.texts.filter((_, i) => i !== ti) })}
+                        className="mt-5 text-gray-500 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0">
+                        <Minus className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {block.texts.length < 3 && (
+                  <button type="button" onClick={() => onChange({ ...block, texts: [...block.texts, ''] })}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
+                    <Plus className="w-3 h-3" /> Add text block
+                  </button>
+                )}
+              </div>
+              <div>
+                <label className={subLbl}>Thumbnail (right side, optional)</label>
+                <input type="url" value={block.thumbnailUrl}
+                  onChange={(e) => onChange({ ...block, thumbnailUrl: e.target.value })}
+                  placeholder="https://... image URL" className={inpSm} />
+                {block.thumbnailUrl && (
+                  <input type="text" value={block.thumbnailAlt}
+                    onChange={(e) => onChange({ ...block, thumbnailAlt: e.target.value })}
+                    placeholder="Alt text (optional)" className={inpSm + ' mt-1'} />
+                )}
+              </div>
+            </>
+          )}
+
+          {block.kind === 'separator' && (
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-gray-300">
+                <input type="checkbox" checked={block.divider}
+                  onChange={(e) => onChange({ ...block, divider: e.target.checked })}
+                  className="w-4 h-4 rounded accent-indigo-500 cursor-pointer" />
+                Show divider line
+              </label>
+              <div className="flex gap-2">
+                {([1, 2] as const).map((s) => (
+                  <button key={s} type="button" onClick={() => onChange({ ...block, spacing: s })}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${block.spacing === s ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10'}`}>
+                    {s === 1 ? 'Small gap' : 'Large gap'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {block.kind === 'media_gallery' && (
+            <div>
+              <label className={subLbl}>Images ({block.items.length}/4)</label>
+              {block.items.map((item, ii) => (
+                <div key={ii} className="flex gap-2 items-start mb-2">
+                  <div className="flex-1 space-y-1">
+                    <input type="url" value={item.url}
+                      onChange={(e) => { const items = [...block.items]; items[ii] = { ...items[ii], url: e.target.value }; onChange({ ...block, items }); }}
+                      placeholder="https://... image URL" className={inpSm} />
+                    <input type="text" value={item.description}
+                      onChange={(e) => { const items = [...block.items]; items[ii] = { ...items[ii], description: e.target.value }; onChange({ ...block, items }); }}
+                      placeholder="Description (optional)" className={inpSm} />
+                  </div>
+                  {block.items.length > 1 && (
+                    <button type="button" onClick={() => onChange({ ...block, items: block.items.filter((_, i) => i !== ii) })}
+                      className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer pt-1">
+                      <Minus className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {block.items.length < 4 && (
+                <button type="button" onClick={() => onChange({ ...block, items: [...block.items, { url: '', description: '' }] })}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
+                  <Plus className="w-3 h-3" /> Add image
+                </button>
+              )}
+            </div>
+          )}
+
+          {block.kind === 'buttons' && (
+            <div>
+              <label className={subLbl}>Link Buttons (max 5)</label>
+              <ButtonRowEditor row={block.row} rowIndex={0}
+                onChange={(r) => onChange({ ...block, row: r })}
+                onRemoveRow={() => {}} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function V2Preview({ state }: { state: V2State }) {
+  const bot = useContext(BotCtx);
+  const hasContent = state.blocks.some((b) => {
+    if (b.kind === 'text') return b.content.trim().length > 0;
+    if (b.kind === 'section') return b.texts.some((t) => t.trim());
+    if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
+    if (b.kind === 'buttons') return b.row.some((btn) => btn.url.trim() && (btn.label.trim() || btn.emoji));
+    return true;
+  });
+
+  if (!hasContent) return <div className="text-gray-500 text-sm italic text-center py-8">Add some blocks to see a preview…</div>;
+
+  return (
+    <div className="flex rounded overflow-hidden">
+      <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: state.accentColor }} />
+      <div className="bg-[#2f3136] rounded-r p-3 flex-1 min-w-0 space-y-2">
+        {state.blocks.map((block) => {
+          if (block.kind === 'text') {
+            if (!block.content.trim()) return null;
+            return (
+              <div key={block.id} className="text-gray-200 text-sm leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(block.content, bot) }} />
+            );
+          }
+          if (block.kind === 'separator') {
+            return (
+              <div key={block.id} className={block.spacing === 2 ? 'py-3' : 'py-1.5'}>
+                {block.divider && <hr className="border-white/15" />}
+              </div>
+            );
+          }
+          if (block.kind === 'section') {
+            const texts = block.texts.filter((t) => t.trim());
+            if (!texts.length) return null;
+            return (
+              <div key={block.id} className="flex gap-3 items-start">
+                <div className="flex-1 min-w-0 space-y-1">
+                  {texts.map((t, i) => (
+                    <div key={i} className="text-gray-200 text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(t, bot) }} />
+                  ))}
+                </div>
+                {block.thumbnailUrl.trim() && (
+                  <img src={block.thumbnailUrl} alt={block.thumbnailAlt || ''} className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                    onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                )}
+              </div>
+            );
+          }
+          if (block.kind === 'media_gallery') {
+            const images = block.items.filter((i) => i.url.trim());
+            if (!images.length) return null;
+            return (
+              <div key={block.id} className={`grid gap-1 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                {images.map((img, i) => (
+                  <div key={i} className="relative rounded overflow-hidden bg-white/5"
+                    style={{ aspectRatio: images.length === 1 ? '16/9' : '1/1' }}>
+                    <img src={img.url} alt={img.description || ''} className="w-full h-full object-cover"
+                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                    {img.description && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-0.5">
+                        <p className="text-white text-[10px] truncate">{img.description}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          if (block.kind === 'buttons') {
+            const buttons = block.row.filter((b) => b.url.trim() && (b.label.trim() || b.emoji));
+            if (!buttons.length) return null;
+            return (
+              <div key={block.id} className="flex flex-wrap gap-1.5">
+                {buttons.map((b, bi) => {
+                  const m = b.emoji?.match(/(?:(.+):)?(\d{15,})$/);
+                  const eid = m?.[2];
+                  const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
+                  return (
+                    <span key={bi} className="inline-flex items-center gap-1.5 bg-[#4f545c] text-white text-xs font-medium px-3 py-1.5 rounded cursor-default">
+                      {eid ? <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt="" className="w-4 h-4" /> : b.emoji ? <span>{b.emoji}</span> : null}
+                      {b.label && <span>{b.label}</span>}
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          }
+          return null;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementsV2Tab() {
+  const bot = useContext(BotCtx);
+  const [channelId, setChannelId] = useState(() => localStorage.getItem(CHANNEL_KEY) ?? '');
+  const [state, setState] = useState<V2State>(emptyV2State);
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+
+  useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
+  useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
+
+  const updateBlock = (id: string, b: V2Block) => setState((s) => ({ ...s, blocks: s.blocks.map((x) => x.id === id ? b : x) }));
+  const removeBlock = (id: string) => setState((s) => ({ ...s, blocks: s.blocks.filter((x) => x.id !== id) }));
+  const addBlock = (kind: V2BlockKind) => { setState((s) => ({ ...s, blocks: [...s.blocks, newV2Block(kind)] })); setAddMenuOpen(false); };
+  const moveBlock = (index: number, dir: -1 | 1) => setState((s) => {
+    const blocks = [...s.blocks];
+    const target = index + dir;
+    if (target < 0 || target >= blocks.length) return s;
+    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+    return { ...s, blocks };
+  });
+
+  const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
+
+  const handleSend = async () => {
+    if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
+    const payload = buildPayloadV2(state);
+    if (!payload) { setFeedback({ type: 'error', message: 'Add some content before sending.' }); return; }
+    setSending(true); setFeedback(null);
+    try {
+      const res = await fetch(base + '/discord/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        let errMsg = data?.message || data?.error || `Discord error (${res.status})`;
+        if (data?.errors) errMsg += ' — ' + JSON.stringify(data.errors);
+        throw new Error(errMsg);
+      }
+      setFeedback({ type: 'success', message: 'Components v2 announcement sent!' });
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Failed to send.' });
+    } finally { setSending(false); }
+  };
+
+  const V2_ACCENT_PRESETS = [
+    '#5865f2', '#57f287', '#eb459e', '#fee75c', '#ed4245', '#00b0f4', '#ff7733', '#a855f7',
+  ];
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
+      {/* Left: editor */}
+      <div className="space-y-4">
+        <GlassCard className="p-5 space-y-4">
+          <div>
+            <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2.5">
+              <LayersThree01 className="w-5 h-5 text-indigo-400" />
+              Announcements v2
+              <span className="text-[10px] bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 px-2 py-0.5 rounded-full font-medium tracking-wide uppercase">Components v2</span>
+            </h3>
+            <p className="text-xs text-gray-500 mt-1.5">Rich Discord announcements using the new Components v2 API — sections, media galleries, separators, and more.</p>
+          </div>
+
+          {/* Bot + Channel */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Bot:</span>
+              {bot.loading ? <span className="text-xs text-yellow-400">Connecting…</span>
+                : bot.ready ? <span className="text-xs text-green-400 flex items-center gap-1"><span className="w-1.5 h-1.5 bg-green-500 rounded-full" />Ready</span>
+                : <span className="text-xs text-gray-500">Not connected</span>}
+              <button type="button" onClick={bot.fetch} disabled={bot.loading} className="text-gray-400 hover:text-gray-300 transition-colors cursor-pointer">
+                <RefreshCw01 className={`w-3 h-3 ${bot.loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer appearance-none">
+                <option value="" className="bg-[#1e1f22]">— Select channel —</option>
+                {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <hr className="border-white/5" />
+
+          {/* Container accent color */}
+          <div>
+            <label className={subLbl}>Container Accent Colour</label>
+            <div className="flex items-center gap-3 flex-wrap">
+              <input type="color" value={state.accentColor}
+                onChange={(e) => setState((s) => ({ ...s, accentColor: e.target.value }))}
+                className="w-9 h-9 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5 flex-shrink-0" />
+              <span className="text-xs text-gray-500 font-mono">{state.accentColor}</span>
+              <div className="flex gap-1.5 flex-wrap">
+                {V2_ACCENT_PRESETS.map((color) => (
+                  <button key={color} type="button" title={color}
+                    onClick={() => setState((s) => ({ ...s, accentColor: color }))}
+                    className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border-2"
+                    style={{ backgroundColor: color, borderColor: state.accentColor === color ? 'white' : 'transparent' }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </GlassCard>
+
+        {/* Block list */}
+        <GlassCard className="p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className={lbl + ' mb-0'}>Blocks ({state.blocks.length})</label>
+            <div className="relative">
+              <button type="button" onClick={() => setAddMenuOpen(!addMenuOpen)}
+                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
+                <Plus className="w-3 h-3" /> Add Block
+              </button>
+              {addMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 bg-[#1e1f22] border border-white/10 rounded-xl shadow-2xl p-2 w-52"
+                  onMouseLeave={() => setAddMenuOpen(false)}>
+                  {V2_BLOCK_TYPES.map((bt) => (
+                    <button key={bt.kind} type="button" onClick={() => addBlock(bt.kind)}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 flex flex-col gap-0.5 transition-colors cursor-pointer">
+                      <span className="text-xs font-semibold text-gray-200">{bt.label}</span>
+                      <span className="text-[10px] text-gray-500">{bt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {state.blocks.length === 0 && (
+            <p className="text-gray-600 text-xs italic text-center py-6">No blocks yet — click "Add Block" to start</p>
+          )}
+
+          <div className="space-y-2">
+            {state.blocks.map((block, i) => (
+              <V2BlockEditor key={block.id} block={block} index={i} total={state.blocks.length}
+                onChange={(b) => updateBlock(block.id, b)} onRemove={() => removeBlock(block.id)}
+                onMoveUp={() => moveBlock(i, -1)} onMoveDown={() => moveBlock(i, 1)} />
+            ))}
+          </div>
+        </GlassCard>
+      </div>
+
+      {/* Right: preview + send */}
+      <div className="lg:sticky lg:top-28 space-y-4">
+        <GlassCard className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Live Preview</h3>
+            <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">v2 layout</span>
+          </div>
+          <div className="bg-[#36393f] rounded-lg p-4 min-h-[200px]">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">TB</div>
+              <div>
+                <span className="text-white text-sm font-semibold">TrueBeast</span>
+                <span className="ml-1.5 bg-[#5865f2] text-[10px] font-semibold text-white px-1 py-px rounded">BOT</span>
+              </div>
+            </div>
+            <V2Preview state={state} />
+          </div>
+        </GlassCard>
+
+        <GlassCard className="p-4">
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            <span className="text-indigo-400 font-semibold">Components v2</span> messages use{' '}
+            <code className="text-green-400 bg-white/5 px-1 rounded text-[10px]">flags: 32768</code>. All content lives
+            inside a Container — no embed fields, no plain content string. The left bar is the container's accent colour.
+          </p>
+        </GlassCard>
+
+        <div className="space-y-3">
+          {feedback && (
+            <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+              {feedback.message}
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <button type="button" disabled={sending}
+              onClick={() => { if (state.blocks.length === 0 || window.confirm('Clear all blocks?')) setState(emptyV2State()); }}
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 disabled:opacity-50 transition-all cursor-pointer">
+              <Trash01 className="w-4 h-4" /> Clear
+            </button>
+            <button type="button" disabled={sending || !channelId} onClick={handleSend}
+              className="flex-[2] flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-500/30 disabled:opacity-40 disabled:shadow-none transition-all cursor-pointer">
+              {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send01 className="w-4 h-4" />}
+              {sending ? 'Sending…' : 'Send v2 Announcement'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TAB_ITEMS = [
-  { id: 'announcements', label: 'Announcements' },
-  { id: 'cards', label: 'Discord Cards' },
-  { id: 'tickets', label: 'Tickets' },
-  { id: 'reviews', label: 'Reviews' },
-  { id: 'analytics', label: 'Analytics' },
-  { id: 'admin', label: 'Admin' },
+  { id: 'announcements',    label: 'Announcements',    permKey: 'discord' },
+  { id: 'announcements-v2', label: 'Announcements v2', permKey: 'discord' },
+  { id: 'cards',            label: 'Discord Cards',    permKey: 'discord' },
+  { id: 'tickets',          label: 'Tickets',          permKey: 'tickets' },
+  { id: 'reviews',          label: 'Reviews',          permKey: 'reviews' },
+  { id: 'analytics',        label: 'Analytics',        permKey: 'analytics' },
+  { id: 'admin',            label: 'Admin',            permKey: 'adminManagement' },
 ];
 
 const ADMIN_TAB_KEY = 'tb_admin_tab';
@@ -2849,11 +3416,70 @@ const ADMIN_TAB_KEY = 'tb_admin_tab';
 function AdminDashboard() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem(ADMIN_TAB_KEY) || 'announcements');
+  const [rolePerms, setRolePerms] = useState<Record<string, boolean> | null>(null);
+  const [roleLoading, setRoleLoading] = useState(true);
+
+  const isSuperAdmin = user?.email === SITE_CONFIG.email.adminEmail;
+
+  useEffect(() => {
+    if (!user) return;
+    if (isSuperAdmin) { setRolePerms(null); setRoleLoading(false); return; }
+    FirebaseDB.getAdminRole(user.email!)
+      .then((role) => setRolePerms((role?.permissions as Record<string, boolean>) ?? {}))
+      .catch(() => setRolePerms({} as Record<string, boolean>))
+      .finally(() => setRoleLoading(false));
+  }, [user, isSuperAdmin]);
+
+  const visibleTabs = TAB_ITEMS.filter((t) => {
+    if (isSuperAdmin) return true;
+    if (rolePerms === null) return false;
+    return rolePerms[t.permKey] === true;
+  });
 
   const handleTabChange = (key: any) => {
     const id = String(key);
+    if (!visibleTabs.find((t) => t.id === id)) return;
     setActiveTab(id);
     localStorage.setItem(ADMIN_TAB_KEY, id);
+  };
+
+  useEffect(() => {
+    if (visibleTabs.length && !visibleTabs.find((t) => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs.map((t) => t.id).join(',')]);
+
+  if (roleLoading) return (
+    <PageLayout gradientVariant="green" title="Admin Panel | TrueBeast">
+      <div className="min-h-[70vh] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    </PageLayout>
+  );
+
+  if (!isSuperAdmin && visibleTabs.length === 0) return (
+    <PageLayout gradientVariant="green" title="Admin Panel | TrueBeast">
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <GlassCard strong className="w-full max-w-md p-8 text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 flex items-center justify-center mx-auto">
+            <Lock01 className="w-7 h-7 text-yellow-400" />
+          </div>
+          <h2 className="text-xl font-bold font-display text-white">Pending Access</h2>
+          <p className="text-gray-400 text-sm">Your account (<span className="text-green-400">{user?.email}</span>) exists but you haven't been granted any admin permissions yet. Ask Kiernen to grant you access.</p>
+          <Button color="tertiary" size="sm" iconLeading={LogOut01} onClick={logout} className="mx-auto">Sign Out</Button>
+        </GlassCard>
+      </div>
+    </PageLayout>
+  );
+
+  const TAB_ICON: Record<string, React.ReactNode> = {
+    'announcements':    <Bell01    className="w-4 h-4 mr-1.5 inline-block" />,
+    'announcements-v2': <LayersThree01  className="w-4 h-4 mr-1.5 inline-block" />,
+    'cards':            <Image01   className="w-4 h-4 mr-1.5 inline-block" />,
+    'tickets':          <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />,
+    'reviews':          <Star01    className="w-4 h-4 mr-1.5 inline-block" />,
+    'analytics':        <BarChart01 className="w-4 h-4 mr-1.5 inline-block" />,
+    'admin':            <Users01   className="w-4 h-4 mr-1.5 inline-block" />,
   };
 
   return (
@@ -2863,30 +3489,29 @@ function AdminDashboard() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
             <div>
               <h1 className="text-3xl font-bold font-display text-white">Admin Panel</h1>
-              <p className="text-gray-400 text-sm mt-1">Signed in as <span className="text-green-400">{user?.email}</span></p>
+              <p className="text-gray-400 text-sm mt-1">
+                Signed in as <span className="text-green-400">{user?.email}</span>
+                {isSuperAdmin && <span className="ml-2 text-[10px] bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 px-2 py-0.5 rounded-full font-medium uppercase tracking-wide">Super Admin</span>}
+              </p>
             </div>
             <Button color="tertiary" size="sm" iconLeading={LogOut01} onClick={logout}>Sign Out</Button>
           </div>
           <Tabs selectedKey={activeTab} onSelectionChange={handleTabChange}>
-            <TabList items={TAB_ITEMS} type="underline" size="md" className="mb-6">
-              {TAB_ITEMS.map((tab) => (
-                <Tab key={tab.id} id={tab.id}>
-                  {tab.id === 'announcements' && <Bell01 className="w-4 h-4 mr-1.5 inline-block" />}
-                  {tab.id === 'cards' && <Image01 className="w-4 h-4 mr-1.5 inline-block" />}
-                  {tab.id === 'tickets' && <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />}
-                  {tab.id === 'reviews' && <Star01 className="w-4 h-4 mr-1.5 inline-block" />}
-                  {tab.id === 'analytics' && <BarChart01 className="w-4 h-4 mr-1.5 inline-block" />}
-                  {tab.id === 'admin' && <Users01 className="w-4 h-4 mr-1.5 inline-block" />}
-                  {tab.label}
+            <TabList items={visibleTabs} type="underline" size="md" className="mb-6">
+              {visibleTabs.map((t) => (
+                <Tab key={t.id} id={t.id}>
+                  {TAB_ICON[t.id]}
+                  {t.label}
                 </Tab>
               ))}
             </TabList>
-            <TabPanel id="announcements" className="mt-2"><AnnouncementsTab /></TabPanel>
-            <TabPanel id="cards" className="mt-2"><DiscordCardsTab /></TabPanel>
-            <TabPanel id="tickets" className="mt-2"><TicketsTab /></TabPanel>
-            <TabPanel id="reviews" className="mt-2"><ReviewsTab /></TabPanel>
-            <TabPanel id="analytics" className="mt-2"><AnalyticsTab /></TabPanel>
-            <TabPanel id="admin" className="mt-2"><AdminManagementTab /></TabPanel>
+            <TabPanel id="announcements"    className="mt-2"><AnnouncementsTab /></TabPanel>
+            <TabPanel id="announcements-v2" className="mt-2"><AnnouncementsV2Tab /></TabPanel>
+            <TabPanel id="cards"            className="mt-2"><DiscordCardsTab /></TabPanel>
+            <TabPanel id="tickets"          className="mt-2"><TicketsTab /></TabPanel>
+            <TabPanel id="reviews"          className="mt-2"><ReviewsTab /></TabPanel>
+            <TabPanel id="analytics"        className="mt-2"><AnalyticsTab /></TabPanel>
+            <TabPanel id="admin"            className="mt-2"><AdminManagementTab /></TabPanel>
           </Tabs>
         </div>
       </BotProvider>

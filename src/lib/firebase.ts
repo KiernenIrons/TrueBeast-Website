@@ -34,6 +34,7 @@ import {
 import {
   getAuth,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
   type Auth,
@@ -858,6 +859,14 @@ export const FirebaseDB = {
       );
     }
     return signInWithEmailAndPassword(_auth, email, password);
+  },
+
+  async adminRegister(email: string, password: string): Promise<UserCredential> {
+    _ensureApp();
+    if (!_isConfigured() || !_auth) {
+      throw new Error('Firebase is not configured.');
+    }
+    return createUserWithEmailAndPassword(_auth, email, password);
   },
 
   async adminSignOut(): Promise<void> {
