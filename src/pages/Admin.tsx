@@ -249,7 +249,18 @@ function formatReaction(r: string): string {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function renderDiscordMarkdown(text: string, bot: BotData): string {
-  let html = text
+  // Pre-process block-level elements line-by-line using control-char tokens
+  // so they survive the HTML escape pass below
+  const H1 = '\x01h1\x02', H2 = '\x01h2\x02', H3 = '\x01h3\x02', LI = '\x01li\x02', END = '\x03';
+  const lines = text.split('\n').map((line) => {
+    if (line.startsWith('# '))  return H1 + line.slice(2)  + END;
+    if (line.startsWith('## ')) return H2 + line.slice(3)  + END;
+    if (line.startsWith('### '))return H3 + line.slice(4)  + END;
+    if (/^[-*•] /.test(line))   return LI + line.slice(2)  + END;
+    return line;
+  });
+
+  let html = lines.join('\n')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     // Custom emoji: <:name:id> or <a:name:id>
     .replace(/&lt;(a?):(\w+):(\d+)&gt;/g, (_m, animated, name, id) => {
@@ -289,8 +300,13 @@ function renderDiscordMarkdown(text: string, bot: BotData): string {
     // Spoiler: ||text||
     .replace(/\|\|(.+?)\|\|/g, '<span class="bg-gray-600 text-gray-600 hover:text-gray-200 rounded px-0.5 transition-colors cursor-pointer">$1</span>')
     // Blockquote: > text
-    .replace(/^&gt; (.+)$/gm, '<div class="border-l-3 border-gray-500 pl-2 text-gray-400">$1</div>')
-    // Newlines
+    .replace(/^&gt; (.+)$/gm, '<div class="border-l-2 border-gray-500 pl-2 text-gray-400">$1</div>')
+    // Block tokens → HTML (must come after inline processing)
+    .replace(new RegExp(`${H1}(.+?)${END}`, 'g'), '<span class="text-white text-[17px] font-bold leading-snug block mt-1">$1</span>')
+    .replace(new RegExp(`${H2}(.+?)${END}`, 'g'), '<span class="text-white text-[15px] font-bold leading-snug block mt-1">$1</span>')
+    .replace(new RegExp(`${H3}(.+?)${END}`, 'g'), '<span class="text-white text-[13px] font-semibold leading-snug block mt-0.5">$1</span>')
+    .replace(new RegExp(`${LI}(.+?)${END}`, 'g'), '<div class="flex gap-1.5 items-baseline"><span class="text-gray-400 select-none flex-shrink-0">•</span><span>$1</span></div>')
+    // Newlines (outside block tokens)
     .replace(/\n/g, '<br>');
   return html;
 }
@@ -2880,15 +2896,17 @@ function DiscordCardsTab() {
 // Announcements v2 Tab — Discord Components v2
 // ═══════════════════════════════════════════════════════════════════════════
 
-type V2BlockKind = 'text' | 'section' | 'separator' | 'media_gallery' | 'buttons';
+type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery' | 'buttons';
 
 interface V2TextBlock     { id: string; kind: 'text';          content: string }
 interface V2SeparatorBlock{ id: string; kind: 'separator';     divider: boolean; spacing: 1 | 2 }
 interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; thumbnailUrl: string; thumbnailAlt: string }
 interface V2MediaItem     { url: string; description: string }
 interface V2MediaGalleryBlock{ id: string; kind: 'media_gallery'; items: V2MediaItem[] }
+interface V2FieldItem     { key: string; value: string }
+interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldItem[] }
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
-type V2Block = V2TextBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
+type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
 
 interface V2State { accentColor: string; blocks: V2Block[] }
 
@@ -2899,6 +2917,7 @@ function emptyV2State(): V2State {
 function newV2Block(kind: V2BlockKind): V2Block {
   switch (kind) {
     case 'text':          return { id: uid(), kind: 'text', content: '' };
+    case 'fields':        return { id: uid(), kind: 'fields', items: [{ key: '', value: '' }] };
     case 'section':       return { id: uid(), kind: 'section', texts: ['', ''], thumbnailUrl: '', thumbnailAlt: '' };
     case 'separator':     return { id: uid(), kind: 'separator', divider: true, spacing: 1 };
     case 'media_gallery': return { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '' }] };
@@ -2914,6 +2933,10 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
     if (block.kind === 'text') {
       if (!block.content.trim()) continue;
       inner.push({ type: 10, content: block.content });
+    } else if (block.kind === 'fields') {
+      const lines = block.items.filter((f) => f.key.trim() || f.value.trim()).map((f) => `**${f.key}**: ${f.value}`);
+      if (!lines.length) continue;
+      inner.push({ type: 10, content: lines.join('\n') });
     } else if (block.kind === 'separator') {
       inner.push({ type: 14, divider: block.divider, spacing: block.spacing });
     } else if (block.kind === 'section') {
@@ -2953,8 +2976,9 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
 }
 
 const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
-  { kind: 'text',          label: 'Text Display',  desc: 'Markdown text block' },
-  { kind: 'section',       label: 'Section',        desc: 'Text + optional thumbnail' },
+  { kind: 'text',          label: 'Text Display',  desc: 'Markdown text — headers, bold, lists' },
+  { kind: 'fields',        label: 'Fields',         desc: 'Key: Value info rows (auto-bold keys)' },
+  { kind: 'section',       label: 'Section',        desc: 'Text + optional thumbnail on the right' },
   { kind: 'separator',     label: 'Separator',      desc: 'Visual divider / spacer' },
   { kind: 'media_gallery', label: 'Media Gallery',  desc: 'Image grid (up to 4)' },
   { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link buttons' },
@@ -2968,7 +2992,7 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMo
   const [open, setOpen] = useState(true);
   const typeInfo = V2_BLOCK_TYPES.find((t) => t.kind === block.kind)!;
 
-  const kindLabel: Record<V2BlockKind, string> = { text: 'T', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡' };
+  const kindLabel: Record<V2BlockKind, string> = { text: 'T', fields: '≡', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡' };
 
   return (
     <div className="border border-white/5 rounded-xl overflow-hidden">
@@ -3002,7 +3026,36 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMo
         <div className="p-3 border-t border-white/5 space-y-3">
           {block.kind === 'text' && (
             <RichTextarea value={block.content} onChange={(v) => onChange({ ...block, content: v })}
-              label="Content (Discord markdown)" placeholder="## Heading&#10;**Bold**, *italic*, > quote, `code`..." rows={4} />
+              label="Content (supports ## headers, **bold**, - lists)" placeholder="## Section Title&#10;**Key**: Value&#10;- Bullet item" rows={4} />
+          )}
+
+          {block.kind === 'fields' && (
+            <div>
+              <label className={subLbl}>Info Fields — rendered as <code className="text-[10px] text-green-400 bg-white/5 px-1 rounded">**Key**: Value</code> rows</label>
+              <div className="space-y-1.5">
+                {block.items.map((item, fi) => (
+                  <div key={fi} className="flex gap-2 items-center">
+                    <input type="text" value={item.key} placeholder="Field name"
+                      onChange={(e) => { const items = [...block.items]; items[fi] = { ...items[fi], key: e.target.value }; onChange({ ...block, items }); }}
+                      className="w-[38%] flex-shrink-0 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 font-semibold placeholder:font-normal placeholder:text-gray-600" />
+                    <span className="text-gray-500 text-xs flex-shrink-0">:</span>
+                    <input type="text" value={item.value} placeholder="Value"
+                      onChange={(e) => { const items = [...block.items]; items[fi] = { ...items[fi], value: e.target.value }; onChange({ ...block, items }); }}
+                      className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
+                    {block.items.length > 1 && (
+                      <button type="button" onClick={() => onChange({ ...block, items: block.items.filter((_, i) => i !== fi) })}
+                        className="text-gray-600 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0">
+                        <XClose className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={() => onChange({ ...block, items: [...block.items, { key: '', value: '' }] })}
+                className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
+                <Plus className="w-3 h-3" /> Add field
+              </button>
+            </div>
           )}
 
           {block.kind === 'section' && (
@@ -3113,6 +3166,7 @@ function V2Preview({ state }: { state: V2State }) {
   const bot = useContext(BotCtx);
   const hasContent = state.blocks.some((b) => {
     if (b.kind === 'text') return b.content.trim().length > 0;
+    if (b.kind === 'fields') return b.items.some((f) => f.key.trim() || f.value.trim());
     if (b.kind === 'section') return b.texts.some((t) => t.trim());
     if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
     if (b.kind === 'buttons') return b.row.some((btn) => btn.url.trim() && (btn.label.trim() || btn.emoji));
@@ -3131,6 +3185,20 @@ function V2Preview({ state }: { state: V2State }) {
             return (
               <div key={block.id} className="text-gray-200 text-sm leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(block.content, bot) }} />
+            );
+          }
+          if (block.kind === 'fields') {
+            const rows = block.items.filter((f) => f.key.trim() || f.value.trim());
+            if (!rows.length) return null;
+            return (
+              <div key={block.id} className="text-sm leading-relaxed space-y-0.5">
+                {rows.map((f, fi) => (
+                  <div key={fi} className="text-gray-200">
+                    <span className="font-bold text-white">{f.key}</span>
+                    {f.key && f.value ? ': ' : ''}{f.value}
+                  </div>
+                ))}
+              </div>
             );
           }
           if (block.kind === 'separator') {
@@ -3205,6 +3273,63 @@ function V2Preview({ state }: { state: V2State }) {
   );
 }
 
+const V2_TEMPLATES: { id: string; label: string; desc: string; emoji: string; accentColor: string; make: () => V2Block[] }[] = [
+  {
+    id: 'quest', label: 'Quest / Event', desc: 'Hero image, info fields, tasks, rewards with icon', emoji: '⚔️',
+    accentColor: '#5865f2',
+    make: () => [
+      { id: uid(), kind: 'text',    content: '## New Quest — **Title Here**' },
+      { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '' }] },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'text',    content: '## Quest Info' },
+      { id: uid(), kind: 'fields',  items: [{ key: 'Duration', value: 'MM/DD/YYYY – MM/DD/YYYY' }, { key: 'Platform', value: 'Cross Platform' }, { key: 'Game', value: '' }, { key: 'Features', value: '' }] },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'text',    content: '## Tasks\nUser must complete any of the following tasks\n- Play on desktop (15 minutes)\n- Play on console (15 minutes)' },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'section', texts: ['## Rewards\n**Reward Type**: Virtual Currency\n**Name**: 700 Orbs\n**Amount**: 700'], thumbnailUrl: '', thumbnailAlt: 'Reward icon' },
+    ],
+  },
+  {
+    id: 'giveaway', label: 'Giveaway', desc: 'Prize info, rules, and entry button', emoji: '🎁',
+    accentColor: '#57f287',
+    make: () => [
+      { id: uid(), kind: 'text',    content: '## 🎁 Giveaway — **Prize Name**' },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'fields',  items: [{ key: 'Prize', value: '' }, { key: 'Winners', value: '1' }, { key: 'Ends', value: 'MM/DD/YYYY' }, { key: 'Hosted by', value: '@TrueBeast' }] },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'text',    content: '## How to Enter\n- Follow the instructions below\n- Complete any required tasks\n- Good luck!' },
+      { id: uid(), kind: 'buttons', row: [{ ...newButton(), label: 'Enter Giveaway', url: '' }] },
+    ],
+  },
+  {
+    id: 'update', label: 'Server Update', desc: 'Simple update with text sections', emoji: '📢',
+    accentColor: '#ed4245',
+    make: () => [
+      { id: uid(), kind: 'text',    content: '## Server Update' },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'text',    content: '### What\'s New\nWrite your update content here. Supports **bold**, *italic*, and other Discord markdown.' },
+      { id: uid(), kind: 'separator', divider: false, spacing: 2 },
+      { id: uid(), kind: 'text',    content: '### Changes\n- Change one\n- Change two\n- Change three' },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'buttons', row: [{ ...newButton(), label: 'Learn More', url: '' }] },
+    ],
+  },
+  {
+    id: 'news', label: 'News / Patch Notes', desc: 'Hero image + multi-section article layout', emoji: '📰',
+    accentColor: '#fee75c',
+    make: () => [
+      { id: uid(), kind: 'text',    content: '## News Title' },
+      { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '' }] },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'text',    content: '### Overview\nIntroductory paragraph goes here.' },
+      { id: uid(), kind: 'separator', divider: false, spacing: 2 },
+      { id: uid(), kind: 'text',    content: '### Details\n- Point one\n- Point two\n- Point three' },
+      { id: uid(), kind: 'separator', divider: true, spacing: 1 },
+      { id: uid(), kind: 'buttons', row: [{ ...newButton(), label: 'Read More', url: '' }] },
+    ],
+  },
+];
+
 function AnnouncementsV2Tab() {
   const bot = useContext(BotCtx);
   const [channelId, setChannelId] = useState(() => localStorage.getItem(CHANNEL_KEY) ?? '');
@@ -3212,9 +3337,16 @@ function AnnouncementsV2Tab() {
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
 
   useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
   useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
+
+  const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
+    if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
+    setState({ accentColor: tpl.accentColor, blocks: tpl.make() });
+    setTemplateMenuOpen(false);
+  };
 
   const updateBlock = (id: string, b: V2Block) => setState((s) => ({ ...s, blocks: s.blocks.map((x) => x.id === id ? b : x) }));
   const removeBlock = (id: string) => setState((s) => ({ ...s, blocks: s.blocks.filter((x) => x.id !== id) }));
@@ -3262,12 +3394,41 @@ function AnnouncementsV2Tab() {
       <div className="space-y-4">
         <GlassCard className="p-5 space-y-4">
           <div>
-            <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2.5">
-              <LayersThree01 className="w-5 h-5 text-indigo-400" />
-              Announcements v2
-              <span className="text-[10px] bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 px-2 py-0.5 rounded-full font-medium tracking-wide uppercase">Components v2</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-1.5">Rich Discord announcements using the new Components v2 API — sections, media galleries, separators, and more.</p>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2.5">
+                  <LayersThree01 className="w-5 h-5 text-indigo-400" />
+                  Announcements v2
+                  <span className="text-[10px] bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 px-2 py-0.5 rounded-full font-medium tracking-wide uppercase">Components v2</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-1.5">Rich Discord announcements — headers, fields, images, sections, buttons. Uses the new Components v2 API.</p>
+              </div>
+              <div className="relative flex-shrink-0">
+                <button type="button" onClick={() => setTemplateMenuOpen(!templateMenuOpen)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors cursor-pointer whitespace-nowrap">
+                  <Save01 className="w-3 h-3" /> Load Template
+                </button>
+                {templateMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-[#1a1b1e] border border-white/10 rounded-xl shadow-2xl p-2 w-64"
+                    onMouseLeave={() => setTemplateMenuOpen(false)}>
+                    <p className="text-[10px] text-gray-500 px-2 py-1 uppercase tracking-wider font-semibold">Quick-start templates</p>
+                    {V2_TEMPLATES.map((tpl) => (
+                      <button key={tpl.id} type="button" onClick={() => loadTemplate(tpl)}
+                        className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 flex items-start gap-3 transition-colors cursor-pointer group">
+                        <span className="text-xl flex-shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-200 group-hover:text-white">{tpl.label}</span>
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tpl.accentColor }} />
+                          </div>
+                          <span className="text-[10px] text-gray-500 leading-tight block">{tpl.desc}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Bot + Channel */}
