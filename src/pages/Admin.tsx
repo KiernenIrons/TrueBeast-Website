@@ -2908,10 +2908,10 @@ interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldIte
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
 type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
 
-interface V2State { accentColor: string; blocks: V2Block[] }
+interface V2State { accentColor: string; showAccent: boolean; blocks: V2Block[] }
 
 function emptyV2State(): V2State {
-  return { accentColor: '#5865f2', blocks: [{ id: uid(), kind: 'text', content: '' }] };
+  return { accentColor: '#5865f2', showAccent: true, blocks: [{ id: uid(), kind: 'text', content: '' }] };
 }
 
 function newV2Block(kind: V2BlockKind): V2Block {
@@ -2972,7 +2972,9 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
   }
 
   if (!inner.length) return null;
-  return { flags: 32768, components: [{ type: 17, accent_color: accentInt, components: inner }] };
+  const container: Record<string, unknown> = { type: 17, components: inner };
+  if (state.showAccent) container.accent_color = accentInt;
+  return { flags: 32768, components: [container] };
 }
 
 const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
@@ -3177,8 +3179,8 @@ function V2Preview({ state }: { state: V2State }) {
 
   return (
     <div className="flex rounded overflow-hidden">
-      <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: state.accentColor }} />
-      <div className="bg-[#2f3136] rounded-r p-3 flex-1 min-w-0 space-y-2">
+      {state.showAccent && <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: state.accentColor }} />}
+      <div className={`bg-[#2f3136] ${state.showAccent ? 'rounded-r' : 'rounded'} p-3 flex-1 min-w-0 space-y-2`}>
         {state.blocks.map((block) => {
           if (block.kind === 'text') {
             if (!block.content.trim()) return null;
@@ -3344,7 +3346,7 @@ function AnnouncementsV2Tab() {
 
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState({ accentColor: tpl.accentColor, blocks: tpl.make() });
+    setState({ accentColor: tpl.accentColor, showAccent: true, blocks: tpl.make() });
     setTemplateMenuOpen(false);
   };
 
@@ -3455,21 +3457,33 @@ function AnnouncementsV2Tab() {
 
           {/* Container accent color */}
           <div>
-            <label className={subLbl}>Container Accent Colour</label>
-            <div className="flex items-center gap-3 flex-wrap">
-              <input type="color" value={state.accentColor}
-                onChange={(e) => setState((s) => ({ ...s, accentColor: e.target.value }))}
-                className="w-9 h-9 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5 flex-shrink-0" />
-              <span className="text-xs text-gray-500 font-mono">{state.accentColor}</span>
-              <div className="flex gap-1.5 flex-wrap">
-                {V2_ACCENT_PRESETS.map((color) => (
-                  <button key={color} type="button" title={color}
-                    onClick={() => setState((s) => ({ ...s, accentColor: color }))}
-                    className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border-2"
-                    style={{ backgroundColor: color, borderColor: state.accentColor === color ? 'white' : 'transparent' }} />
-                ))}
-              </div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={subLbl + ' mb-0'}>Container Accent Bar</label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className="text-xs text-gray-500">{state.showAccent ? 'On' : 'Off'}</span>
+                <button type="button" role="switch" aria-checked={state.showAccent}
+                  onClick={() => setState((s) => ({ ...s, showAccent: !s.showAccent }))}
+                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${state.showAccent ? 'bg-indigo-500' : 'bg-white/10'}`}>
+                  <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.showAccent ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </label>
             </div>
+            {state.showAccent && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <input type="color" value={state.accentColor}
+                  onChange={(e) => setState((s) => ({ ...s, accentColor: e.target.value }))}
+                  className="w-9 h-9 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5 flex-shrink-0" />
+                <span className="text-xs text-gray-500 font-mono">{state.accentColor}</span>
+                <div className="flex gap-1.5 flex-wrap">
+                  {V2_ACCENT_PRESETS.map((color) => (
+                    <button key={color} type="button" title={color}
+                      onClick={() => setState((s) => ({ ...s, accentColor: color }))}
+                      className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border-2"
+                      style={{ backgroundColor: color, borderColor: state.accentColor === color ? 'white' : 'transparent' }} />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </GlassCard>
 
