@@ -1158,7 +1158,7 @@ function AnnouncementsTab() {
       const reactionErrors = data._reactionErrors;
       const ch = bot.channels.find((c) => c.id === channelId);
       const entry: HistEntryV1 = { id: uid(), ts: Date.now(), channelId, channelName: ch?.name || channelId, state: JSON.parse(JSON.stringify(state)) };
-      FirebaseDB.saveAnnouncementHistoryEntry('v1', entry as unknown as AnnouncementHistoryRecord).catch(() => {});
+      FirebaseDB.saveAnnouncementHistoryEntry('v1', entry as unknown as AnnouncementHistoryRecord).catch((err) => console.error('Failed to sync history to Firestore:', err));
       setHistEntries((prev) => [entry, ...prev].slice(0, MAX_HIST));
       setFeedback({
         type: 'success',
@@ -3539,7 +3539,10 @@ function AnnouncementsV2Tab() {
 
   const deleteCustomTemplate = (id: string) => {
     setCustomTpls((tpls) => tpls.filter((t) => t.id !== id));
-    FirebaseDB.deleteAnnouncementTemplate(id).catch(() => {});
+    FirebaseDB.deleteAnnouncementTemplate(id).catch((err) => {
+      console.error('Failed to delete template from Firestore:', err);
+      setFeedback({ type: 'error', message: `Template deleted locally but sync failed: ${err?.message || err}` });
+    });
   };
 
   const handleSaveTemplate = () => {
@@ -3550,7 +3553,10 @@ function AnnouncementsV2Tab() {
       blocks: JSON.parse(JSON.stringify(state.blocks)), createdAt: new Date().toISOString(),
     };
     setCustomTpls((tpls) => [...tpls, tpl]);
-    FirebaseDB.saveAnnouncementTemplate(tpl as unknown as AnnouncementTemplateRecord).catch(() => {});
+    FirebaseDB.saveAnnouncementTemplate(tpl as unknown as AnnouncementTemplateRecord).catch((err) => {
+      console.error('Failed to save template to Firestore:', err);
+      setFeedback({ type: 'error', message: `Template saved locally but sync failed: ${err?.message || err}` });
+    });
     setSaveModalOpen(false);
     setSaveName(''); setSaveDesc(''); setSaveEmoji('📋');
   };
@@ -3589,7 +3595,7 @@ function AnnouncementsV2Tab() {
       const ch2 = bot.channels.find((c) => c.id === channelId);
       const reactionErrors = data._reactionErrors;
       const entry2: HistEntryV2 = { id: uid(), ts: Date.now(), channelId, channelName: ch2?.name || channelId, messageId: data.id, state: JSON.parse(JSON.stringify(state)) };
-      FirebaseDB.saveAnnouncementHistoryEntry('v2', entry2 as unknown as AnnouncementHistoryRecord).catch(() => {});
+      FirebaseDB.saveAnnouncementHistoryEntry('v2', entry2 as unknown as AnnouncementHistoryRecord).catch((err) => console.error('Failed to sync history to Firestore:', err));
       setHistEntries2((prev) => [entry2, ...prev].slice(0, MAX_HIST));
       setFeedback({
         type: 'success',
