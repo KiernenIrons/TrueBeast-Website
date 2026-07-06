@@ -3038,6 +3038,19 @@ type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock |
 
 interface V2State { accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[] }
 
+interface CustomTemplate {
+  id: string; label: string; desc: string; emoji: string;
+  accentColor: string; showAccent: boolean; spoilerContainer: boolean;
+  blocks: V2Block[];
+}
+const CUSTOM_TPLS_KEY = 'tb_v2_custom_tpls';
+function loadCustomTpls(): CustomTemplate[] {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_TPLS_KEY) || '[]'); } catch { return []; }
+}
+function saveCustomTpls(tpls: CustomTemplate[]) {
+  try { localStorage.setItem(CUSTOM_TPLS_KEY, JSON.stringify(tpls)); } catch { }
+}
+
 function emptyV2State(): V2State {
   return { accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }] };
 }
@@ -3505,6 +3518,11 @@ function AnnouncementsV2Tab() {
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const [showHistory2, setShowHistory2] = useState(false);
   const [histEntries2, setHistEntries2] = useState<HistEntryV2[]>(() => histLoad<HistEntryV2>(HIST_V2));
+  const [customTpls, setCustomTpls] = useState<CustomTemplate[]>(loadCustomTpls);
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveDesc, setSaveDesc] = useState('');
+  const [saveEmoji, setSaveEmoji] = useState('📋');
 
   useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
   useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
@@ -3513,6 +3531,32 @@ function AnnouncementsV2Tab() {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
     setState({ accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make() });
     setTemplateMenuOpen(false);
+  };
+
+  const loadCustomTemplate = (tpl: CustomTemplate) => {
+    if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
+    setState({ accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)) });
+    setTemplateMenuOpen(false);
+  };
+
+  const deleteCustomTemplate = (id: string) => {
+    const updated = customTpls.filter((t) => t.id !== id);
+    saveCustomTpls(updated);
+    setCustomTpls(updated);
+  };
+
+  const handleSaveTemplate = () => {
+    if (!saveName.trim()) return;
+    const tpl: CustomTemplate = {
+      id: uid(), label: saveName.trim(), desc: saveDesc.trim(), emoji: saveEmoji || '📋',
+      accentColor: state.accentColor, showAccent: state.showAccent, spoilerContainer: state.spoilerContainer,
+      blocks: JSON.parse(JSON.stringify(state.blocks)),
+    };
+    const updated = [...customTpls, tpl];
+    saveCustomTpls(updated);
+    setCustomTpls(updated);
+    setSaveModalOpen(false);
+    setSaveName(''); setSaveDesc(''); setSaveEmoji('📋');
   };
 
   const updateBlock = (id: string, b: V2Block) => setState((s) => ({ ...s, blocks: s.blocks.map((x) => x.id === id ? b : x) }));
@@ -3561,6 +3605,47 @@ function AnnouncementsV2Tab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
+      {saveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSaveModalOpen(false)}>
+          <div className="bg-[#1a1b1e] border border-white/10 rounded-2xl shadow-2xl p-6 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-white">Save as Template</h3>
+              <button type="button" onClick={() => setSaveModalOpen(false)} className="text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"><XClose className="w-4 h-4" /></button>
+            </div>
+            <div className="flex gap-3 items-start">
+              <div className="flex-shrink-0">
+                <label className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Emoji</label>
+                <input type="text" value={saveEmoji} onChange={(e) => setSaveEmoji(e.target.value.slice(-2) || e.target.value)}
+                  className="w-14 h-10 bg-white/5 border border-white/10 rounded-xl text-center text-xl focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-text" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <label className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Name *</label>
+                <input type="text" value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="My Template"
+                  autoFocus className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Description (optional)</label>
+              <input type="text" value={saveDesc} onChange={(e) => setSaveDesc(e.target.value)} placeholder="Short description of what this template is for"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: state.accentColor }} />
+              <span>Saves current accent colour, {state.blocks.length} block{state.blocks.length !== 1 ? 's' : ''}, and all settings</span>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={() => setSaveModalOpen(false)}
+                className="flex-1 py-2 rounded-xl text-sm border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-colors cursor-pointer">
+                Cancel
+              </button>
+              <button type="button" onClick={handleSaveTemplate} disabled={!saveName.trim()}
+                className="flex-[2] py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-colors cursor-pointer">
+                Save Template
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showHistory2 && (
         <HistoryPanel<HistEntryV2>
           histKey={HIST_V2} entries={histEntries2}
@@ -3596,9 +3681,9 @@ function AnnouncementsV2Tab() {
                     <Save01 className="w-3 h-3" /> Load Template
                   </button>
                   {templateMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1 z-50 bg-[#1a1b1e] border border-white/10 rounded-xl shadow-2xl p-2 w-64"
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-[#1a1b1e] border border-white/10 rounded-xl shadow-2xl p-2 w-72 max-h-[70vh] overflow-y-auto"
                       onMouseLeave={() => setTemplateMenuOpen(false)}>
-                      <p className="text-[10px] text-gray-500 px-2 py-1 uppercase tracking-wider font-semibold">Quick-start templates</p>
+                      <p className="text-[10px] text-gray-500 px-2 py-1 uppercase tracking-wider font-semibold">Built-in</p>
                       {V2_TEMPLATES.map((tpl) => (
                         <button key={tpl.id} type="button" onClick={() => loadTemplate(tpl)}
                           className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 flex items-start gap-3 transition-colors cursor-pointer group">
@@ -3612,6 +3697,36 @@ function AnnouncementsV2Tab() {
                           </div>
                         </button>
                       ))}
+                      {customTpls.length > 0 && (
+                        <>
+                          <hr className="border-white/10 my-1.5" />
+                          <p className="text-[10px] text-gray-500 px-2 py-1 uppercase tracking-wider font-semibold">Your templates</p>
+                          {customTpls.map((tpl) => (
+                            <div key={tpl.id} className="flex items-start gap-1 group/row">
+                              <button type="button" onClick={() => loadCustomTemplate(tpl)}
+                                className="flex-1 text-left px-3 py-2.5 rounded-lg hover:bg-white/10 flex items-start gap-3 transition-colors cursor-pointer group min-w-0">
+                                <span className="text-xl flex-shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold text-gray-200 group-hover:text-white">{tpl.label}</span>
+                                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tpl.accentColor }} />
+                                  </div>
+                                  {tpl.desc && <span className="text-[10px] text-gray-500 leading-tight block">{tpl.desc}</span>}
+                                </div>
+                              </button>
+                              <button type="button" onClick={() => deleteCustomTemplate(tpl.id)}
+                                className="mt-2.5 mr-1 p-1 text-gray-600 hover:text-red-400 opacity-0 group-hover/row:opacity-100 transition-all cursor-pointer flex-shrink-0" title="Delete template">
+                                <XClose className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                      <hr className="border-white/10 my-1.5" />
+                      <button type="button" onClick={() => { setTemplateMenuOpen(false); setSaveModalOpen(true); }}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 flex items-center gap-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer">
+                        <Plus className="w-3.5 h-3.5" /> Save current as template…
+                      </button>
                     </div>
                   )}
                 </div>
