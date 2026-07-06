@@ -3650,7 +3650,7 @@ function AnnouncementsV2Tab() {
                 <button type="button" role="switch" aria-checked={state.showAccent}
                   onClick={() => setState((s) => ({ ...s, showAccent: !s.showAccent }))}
                   className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${state.showAccent ? 'bg-indigo-500' : 'bg-white/10'}`}>
-                  <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.showAccent ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.showAccent ? 'translate-x-4' : 'translate-x-0'}`} />
                 </button>
               </label>
             </div>
@@ -3677,7 +3677,7 @@ function AnnouncementsV2Tab() {
                 <button type="button" role="switch" aria-checked={state.spoilerContainer}
                   onClick={() => setState((s) => ({ ...s, spoilerContainer: !s.spoilerContainer }))}
                   className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${state.spoilerContainer ? 'bg-yellow-500' : 'bg-white/10'}`}>
-                  <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.spoilerContainer ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.spoilerContainer ? 'translate-x-4' : 'translate-x-0'}`} />
                 </button>
               </label>
             </div>
