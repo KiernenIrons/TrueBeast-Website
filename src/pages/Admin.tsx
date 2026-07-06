@@ -48,7 +48,7 @@ interface EmbedData {
   description: string; author: EmbedAuthor; fields: EmbedField[];
   image: string; thumbnail: string; footer: EmbedFooter;
 }
-interface ButtonData { label: string; url: string; emoji: string }
+interface ButtonData { label: string; url: string; emoji: string; disabled?: boolean }
 interface ComposerState {
   content: string; embeds: EmbedData[]; components: ButtonData[][];
   reactions: string[];
@@ -175,13 +175,44 @@ const UNICODE_EMOJI: { name: string; emojis: string[] }[] = [
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
+// ─── Announcement History (localStorage) ────────────────────────────────────
+const HIST_V1 = 'tb_hist_v1';
+const HIST_V2 = 'tb_hist_v2';
+const MAX_HIST = 20;
+
+interface HistEntryBase { id: string; ts: number; channelId: string; channelName: string }
+interface HistEntryV1 extends HistEntryBase { state: ComposerState }
+interface HistEntryV2 extends HistEntryBase { state: V2State }
+
+function histPush<T>(key: string, entry: T) {
+  try {
+    const prev: T[] = JSON.parse(localStorage.getItem(key) || '[]');
+    localStorage.setItem(key, JSON.stringify([entry, ...prev].slice(0, MAX_HIST)));
+  } catch { }
+}
+function histLoad<T>(key: string): T[] {
+  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+}
+function histDelete(key: string, id: string) {
+  try {
+    const prev = JSON.parse(localStorage.getItem(key) || '[]');
+    localStorage.setItem(key, JSON.stringify(prev.filter((e: any) => e.id !== id)));
+  } catch { }
+}
+function histClear(key: string) { try { localStorage.removeItem(key); } catch { } }
+
+function fmtTs(ts: number) {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
 function newEmbed(): EmbedData {
   return { _id: uid(), _open: true, color: DEFAULT_COLOR, title: '', url: '', description: '',
     author: { name: '', icon_url: '', url: '' }, fields: [], image: '', thumbnail: '',
     footer: { text: '', icon_url: '', timestamp: '' } };
 }
 
-function newButton(): ButtonData { return { label: '', url: '', emoji: '' }; }
+function newButton(): ButtonData { return { label: '', url: '', emoji: '', disabled: false }; }
 
 function emptyState(): ComposerState {
   return { content: '', embeds: [newEmbed()], components: [], reactions: [] };
@@ -217,6 +248,7 @@ function buildPayload(state: ComposerState) {
     const btns = row.filter((b) => b.url.trim() && (b.label.trim() || b.emoji)).map((b) => {
       const btn: any = { type: 2, style: 5, url: b.url };
       if (b.label.trim()) btn.label = b.label;
+      if (b.disabled) btn.disabled = true;
       if (b.emoji) {
         // Custom emoji: "name:id" or bare numeric ID (legacy)
         const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
@@ -822,7 +854,7 @@ function EmbedEditor({ embed, index, total, onChange, onRemove, onToggle }: {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function ButtonRowEditor({ row, rowIndex, onChange, onRemoveRow }: { row: ButtonData[]; rowIndex: number; onChange: (u: ButtonData[]) => void; onRemoveRow: () => void }) {
-  const setBtn = (bi: number, key: keyof ButtonData, val: string) => { const u = [...row]; u[bi] = { ...u[bi], [key]: val }; onChange(u); };
+  const setBtn = (bi: number, upd: Partial<ButtonData>) => { const u = [...row]; u[bi] = { ...u[bi], ...upd }; onChange(u); };
   const addBtn = () => { if (row.length < MAX_BUTTONS_PER_ROW) onChange([...row, newButton()]); };
   const removeBtn = (bi: number) => { const u = row.filter((_, i) => i !== bi); if (!u.length) onRemoveRow(); else onChange(u); };
 
@@ -835,18 +867,17 @@ function ButtonRowEditor({ row, rowIndex, onChange, onRemoveRow }: { row: Button
           <button type="button" onClick={onRemoveRow} className="text-xs text-gray-500 hover:text-red-400 transition-colors cursor-pointer"><XClose className="w-3.5 h-3.5" /></button>
         </div>
       </div>
-      {row.map((btn, bi) => <SingleButtonEditor key={bi} btn={btn} onChange={(k, v) => setBtn(bi, k, v)} onRemove={() => removeBtn(bi)} />)}
+      {row.map((btn, bi) => <SingleButtonEditor key={bi} btn={btn} onChange={(upd) => setBtn(bi, upd)} onRemove={() => removeBtn(bi)} />)}
     </div>
   );
 }
 
-function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onChange: (k: keyof ButtonData, v: string) => void; onRemove: () => void }) {
+function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onChange: (upd: Partial<ButtonData>) => void; onRemove: () => void }) {
   const bot = useContext(BotCtx);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const renderBtnEmoji = () => {
     if (!btn.emoji) return <FaceSmile className="w-4 h-4 text-gray-500" />;
-    // Custom emoji: name:id OR just a numeric ID (legacy)
     const m = btn.emoji.match(/(?:(.+):)?(\d{15,})$/);
     if (m) {
       const eid = m[2];
@@ -858,17 +889,24 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
   };
 
   return (
-    <div className="flex gap-2 items-center">
-      <div className="relative flex-shrink-0">
-        <button type="button" onClick={() => setPickerOpen(!pickerOpen)} className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer overflow-hidden" title="Pick emoji">
-          {renderBtnEmoji()}
-        </button>
-        {btn.emoji && <button type="button" onClick={() => onChange('emoji', '')} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center cursor-pointer"><XClose className="w-2 h-2" /></button>}
-        {pickerOpen && <EmojiPicker onPick={(em) => onChange('emoji', em)} onClose={() => setPickerOpen(false)} />}
+    <div className="space-y-1.5">
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-shrink-0">
+          <button type="button" onClick={() => setPickerOpen(!pickerOpen)} className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer overflow-hidden" title="Pick emoji">
+            {renderBtnEmoji()}
+          </button>
+          {btn.emoji && <button type="button" onClick={() => onChange({ emoji: '' })} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center cursor-pointer"><XClose className="w-2 h-2" /></button>}
+          {pickerOpen && <EmojiPicker onPick={(em) => { onChange({ emoji: em }); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />}
+        </div>
+        <input type="text" placeholder="Label" value={btn.label} onChange={(e) => onChange({ label: e.target.value })} className={inpSm + ' !w-32'} />
+        <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange({ url: e.target.value })} className={inpSm} />
+        <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"><Minus className="w-4 h-4" /></button>
       </div>
-      <input type="text" placeholder="Label" value={btn.label} onChange={(e) => onChange('label', e.target.value)} className={inpSm + ' !w-32'} />
-      <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange('url', e.target.value)} className={inpSm} />
-      <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"><Minus className="w-4 h-4" /></button>
+      <label className="flex items-center gap-2 cursor-pointer select-none ml-11">
+        <input type="checkbox" checked={!!btn.disabled} onChange={(e) => onChange({ disabled: e.target.checked })}
+          className="w-3.5 h-3.5 rounded accent-gray-500 cursor-pointer" />
+        <span className="text-[11px] text-gray-500">Disabled (greyed out, not clickable)</span>
+      </label>
     </div>
   );
 }
@@ -988,6 +1026,76 @@ function PresetManager({ state, onLoad }: { state: ComposerState; onLoad: (s: Co
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── History Panel ───────────────────────────────────────────────────────────
+
+function HistoryPanel<T extends HistEntryBase>({
+  histKey, entries, onRestore, onClose,
+  renderPreview,
+}: {
+  histKey: string;
+  entries: T[];
+  onRestore: (e: T) => void;
+  onClose: () => void;
+  renderPreview: (e: T) => React.ReactNode;
+}) {
+  const [list, setList] = useState<T[]>(entries);
+  const remove = (id: string) => { histDelete(histKey, id); setList((l) => l.filter((e) => e.id !== id)); };
+  const clearAll = () => { if (window.confirm('Clear all history?')) { histClear(histKey); setList([]); } };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div className="w-full max-w-md h-full bg-[#111213] border-l border-white/10 shadow-2xl flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 flex-shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-white">Send History</h2>
+            <p className="text-xs text-gray-500 mt-0.5">{list.length} / {MAX_HIST} entries</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {list.length > 0 && <button type="button" onClick={clearAll} className="text-xs text-gray-500 hover:text-red-400 transition-colors cursor-pointer">Clear all</button>}
+            <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors cursor-pointer"><XClose className="w-5 h-5" /></button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {list.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-600">
+              <RefreshCw01 className="w-8 h-8 opacity-30" />
+              <p className="text-sm">No history yet — send an announcement to start</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/5">
+              {list.map((entry) => (
+                <div key={entry.id} className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[11px] text-gray-500 font-mono">{fmtTs(entry.ts)}</span>
+                        <span className="text-[11px] bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">#{entry.channelName || entry.channelId}</span>
+                      </div>
+                      <div className="text-xs text-gray-300 leading-relaxed line-clamp-3">{renderPreview(entry)}</div>
+                    </div>
+                    <div className="flex flex-col gap-1.5 flex-shrink-0">
+                      <button type="button" onClick={() => { onRestore(entry); onClose(); }}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer">
+                        Restore
+                      </button>
+                      <button type="button" onClick={() => remove(entry.id)}
+                        className="text-xs text-gray-600 hover:text-red-400 transition-colors cursor-pointer text-center">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Announcements Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -997,6 +1105,8 @@ function AnnouncementsTab() {
   const [state, setState] = useState<ComposerState>(emptyState);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [histEntries, setHistEntries] = useState<HistEntryV1[]>(() => histLoad<HistEntryV1>(HIST_V1));
 
   useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
   useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
@@ -1057,6 +1167,10 @@ function AnnouncementsTab() {
       } catch { console.warn('Firestore save failed'); }
 
       const reactionErrors = data._reactionErrors;
+      const ch = bot.channels.find((c) => c.id === channelId);
+      const entry: HistEntryV1 = { id: uid(), ts: Date.now(), channelId, channelName: ch?.name || channelId, state: JSON.parse(JSON.stringify(state)) };
+      histPush(HIST_V1, entry);
+      setHistEntries(histLoad<HistEntryV1>(HIST_V1));
       setFeedback({
         type: 'success',
         message: reactionErrors?.length
@@ -1070,11 +1184,25 @@ function AnnouncementsTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
+      {showHistory && (
+        <HistoryPanel<HistEntryV1>
+          histKey={HIST_V1} entries={histEntries}
+          onRestore={(e) => { setState(e.state); setChannelId(e.channelId); }}
+          onClose={() => setShowHistory(false)}
+          renderPreview={(e) => e.state.embeds[0]?.title || e.state.content.slice(0, 80) || '(no content)'}
+        />
+      )}
       <div className="space-y-4">
         <GlassCard className="p-5 space-y-4">
-          <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2">
-            <Bell01 className="w-5 h-5 text-green-400" /> Compose Announcement
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold font-display text-white flex items-center gap-2">
+              <Bell01 className="w-5 h-5 text-green-400" /> Compose Announcement
+            </h3>
+            <button type="button" onClick={() => setShowHistory(true)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer">
+              <RefreshCw01 className="w-3 h-3" /> History {histEntries.length > 0 && <span className="bg-white/10 text-gray-300 text-[10px] px-1.5 py-0.5 rounded-full">{histEntries.length}</span>}
+            </button>
+          </div>
 
           {/* Bot status + Channel picker */}
           <div className="flex items-center gap-3 flex-wrap">
@@ -2900,18 +3028,18 @@ type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery'
 
 interface V2TextBlock     { id: string; kind: 'text';          content: string }
 interface V2SeparatorBlock{ id: string; kind: 'separator';     divider: boolean; spacing: 1 | 2 }
-interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; thumbnailUrl: string; thumbnailAlt: string }
-interface V2MediaItem     { url: string; description: string }
+interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; thumbnailUrl: string; thumbnailAlt: string; thumbnailSpoiler?: boolean }
+interface V2MediaItem     { url: string; description: string; spoiler?: boolean }
 interface V2MediaGalleryBlock{ id: string; kind: 'media_gallery'; items: V2MediaItem[] }
 interface V2FieldItem     { key: string; value: string }
 interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldItem[] }
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
 type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
 
-interface V2State { accentColor: string; showAccent: boolean; blocks: V2Block[] }
+interface V2State { accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[] }
 
 function emptyV2State(): V2State {
-  return { accentColor: '#5865f2', showAccent: true, blocks: [{ id: uid(), kind: 'text', content: '' }] };
+  return { accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }] };
 }
 
 function newV2Block(kind: V2BlockKind): V2Block {
@@ -2944,13 +3072,19 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
       if (!textComps.length) continue;
       const section: Record<string, unknown> = { type: 9, components: textComps };
       if (block.thumbnailUrl.trim()) {
-        section.accessory = { type: 11, media: { url: block.thumbnailUrl }, ...(block.thumbnailAlt ? { description: block.thumbnailAlt } : {}) };
+        const acc: Record<string, unknown> = { type: 11, media: { url: block.thumbnailUrl } };
+        if (block.thumbnailAlt) acc.description = block.thumbnailAlt;
+        if (block.thumbnailSpoiler) acc.spoiler = true;
+        section.accessory = acc;
       }
       inner.push(section);
     } else if (block.kind === 'media_gallery') {
-      const items = block.items.filter((i) => i.url.trim()).map((i) => ({
-        media: { url: i.url }, ...(i.description.trim() ? { description: i.description } : {}),
-      }));
+      const items = block.items.filter((i) => i.url.trim()).map((i) => {
+        const item: Record<string, unknown> = { media: { url: i.url } };
+        if (i.description.trim()) item.description = i.description;
+        if (i.spoiler) item.spoiler = true;
+        return item;
+      });
       if (!items.length) continue;
       inner.push({ type: 12, items });
     } else if (block.kind === 'buttons') {
@@ -2959,6 +3093,7 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
         .map((b) => {
           const btn: Record<string, unknown> = { type: 2, style: 5, url: b.url };
           if (b.label.trim()) btn.label = b.label;
+          if (b.disabled) btn.disabled = true;
           if (b.emoji) {
             const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
             if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
@@ -2974,6 +3109,7 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
   if (!inner.length) return null;
   const container: Record<string, unknown> = { type: 17, components: inner };
   if (state.showAccent) container.accent_color = accentInt;
+  if (state.spoilerContainer) container.spoiler = true;
   return { flags: 32768, components: [container] };
 }
 
@@ -2986,9 +3122,9 @@ const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
   { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link buttons' },
 ];
 
-function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMoveDown }: {
+function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMoveUp, onMoveDown }: {
   block: V2Block; index: number; total: number;
-  onChange: (b: V2Block) => void; onRemove: () => void;
+  onChange: (b: V2Block) => void; onRemove: () => void; onCopy: () => void;
   onMoveUp: () => void; onMoveDown: () => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -3014,6 +3150,10 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMo
           <button type="button" onClick={onMoveDown} disabled={index === total - 1}
             className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors cursor-pointer">
             <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={onCopy} title="Duplicate block"
+            className="p-1 text-gray-600 hover:text-indigo-400 transition-colors cursor-pointer">
+            <Copy01 className="w-3.5 h-3.5" />
           </button>
           <button type="button" onClick={onRemove} className="p-1 text-gray-600 hover:text-red-400 transition-colors cursor-pointer">
             <XClose className="w-3.5 h-3.5" />
@@ -3093,9 +3233,17 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMo
                   onChange={(e) => onChange({ ...block, thumbnailUrl: e.target.value })}
                   placeholder="https://... image URL" className={inpSm} />
                 {block.thumbnailUrl && (
-                  <input type="text" value={block.thumbnailAlt}
-                    onChange={(e) => onChange({ ...block, thumbnailAlt: e.target.value })}
-                    placeholder="Alt text (optional)" className={inpSm + ' mt-1'} />
+                  <>
+                    <input type="text" value={block.thumbnailAlt}
+                      onChange={(e) => onChange({ ...block, thumbnailAlt: e.target.value })}
+                      placeholder="Alt text (optional)" className={inpSm + ' mt-1'} />
+                    <label className="flex items-center gap-2 mt-1.5 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!block.thumbnailSpoiler}
+                        onChange={(e) => onChange({ ...block, thumbnailSpoiler: e.target.checked })}
+                        className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+                      <span className="text-[11px] text-gray-500">Spoiler (hidden until clicked)</span>
+                    </label>
+                  </>
                 )}
               </div>
             </>
@@ -3132,6 +3280,12 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onMoveUp, onMo
                     <input type="text" value={item.description}
                       onChange={(e) => { const items = [...block.items]; items[ii] = { ...items[ii], description: e.target.value }; onChange({ ...block, items }); }}
                       placeholder="Description (optional)" className={inpSm} />
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!item.spoiler}
+                        onChange={(e) => { const items = [...block.items]; items[ii] = { ...items[ii], spoiler: e.target.checked }; onChange({ ...block, items }); }}
+                        className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+                      <span className="text-[11px] text-gray-500">Spoiler</span>
+                    </label>
                   </div>
                   {block.items.length > 1 && (
                     <button type="button" onClick={() => onChange({ ...block, items: block.items.filter((_, i) => i !== ii) })}
@@ -3178,9 +3332,9 @@ function V2Preview({ state }: { state: V2State }) {
   if (!hasContent) return <div className="text-gray-500 text-sm italic text-center py-8">Add some blocks to see a preview…</div>;
 
   return (
-    <div className="flex rounded overflow-hidden">
+    <div className={`flex rounded overflow-hidden relative ${state.spoilerContainer ? 'cursor-pointer' : ''}`}>
       {state.showAccent && <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: state.accentColor }} />}
-      <div className={`bg-[#2f3136] ${state.showAccent ? 'rounded-r' : 'rounded'} p-3 flex-1 min-w-0 space-y-2`}>
+      <div className={`bg-[#2f3136] ${state.showAccent ? 'rounded-r' : 'rounded'} p-3 flex-1 min-w-0 space-y-2 ${state.spoilerContainer ? 'blur-sm select-none pointer-events-none' : ''}`}>
         {state.blocks.map((block) => {
           if (block.kind === 'text') {
             if (!block.content.trim()) return null;
@@ -3222,8 +3376,11 @@ function V2Preview({ state }: { state: V2State }) {
                   ))}
                 </div>
                 {block.thumbnailUrl.trim() && (
-                  <img src={block.thumbnailUrl} alt={block.thumbnailAlt || ''} className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                    onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                  <div className="relative w-16 h-16 flex-shrink-0">
+                    <img src={block.thumbnailUrl} alt={block.thumbnailAlt || ''} className={`w-16 h-16 rounded-lg object-cover ${block.thumbnailSpoiler ? 'blur-md' : ''}`}
+                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                    {block.thumbnailSpoiler && <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30"><span className="text-white text-[9px] font-bold">SPOILER</span></div>}
+                  </div>
                 )}
               </div>
             );
@@ -3236,9 +3393,10 @@ function V2Preview({ state }: { state: V2State }) {
                 {images.map((img, i) => (
                   <div key={i} className="relative rounded overflow-hidden bg-white/5"
                     style={{ aspectRatio: images.length === 1 ? '16/9' : '1/1' }}>
-                    <img src={img.url} alt={img.description || ''} className="w-full h-full object-cover"
+                    <img src={img.url} alt={img.description || ''} className={`w-full h-full object-cover ${img.spoiler ? 'blur-md' : ''}`}
                       onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
-                    {img.description && (
+                    {img.spoiler && <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] font-semibold bg-black/50 px-2 py-0.5 rounded">SPOILER</span></div>}
+                    {img.description && !img.spoiler && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-0.5">
                         <p className="text-white text-[10px] truncate">{img.description}</p>
                       </div>
@@ -3258,10 +3416,10 @@ function V2Preview({ state }: { state: V2State }) {
                   const eid = m?.[2];
                   const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
                   return (
-                    <span key={bi} className="inline-flex items-center gap-1.5 bg-[#4f545c] text-white text-xs font-medium px-3 py-1.5 rounded cursor-default">
+                    <span key={bi} className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded cursor-default ${b.disabled ? 'bg-[#4f545c]/50 text-white/40' : 'bg-[#4f545c] text-white'}`}>
                       {eid ? <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt="" className="w-4 h-4" /> : b.emoji ? <span>{b.emoji}</span> : null}
                       {b.label && <span>{b.label}</span>}
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>
+                      {!b.disabled && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>}
                     </span>
                   );
                 })}
@@ -3271,6 +3429,11 @@ function V2Preview({ state }: { state: V2State }) {
           return null;
         })}
       </div>
+      {state.spoilerContainer && (
+        <div className="absolute inset-0 flex items-center justify-center rounded bg-black/20 backdrop-blur-[1px]">
+          <span className="text-white text-xs font-semibold bg-black/60 px-3 py-1 rounded-full">SPOILER — click to reveal</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -3340,13 +3503,15 @@ function AnnouncementsV2Tab() {
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [showHistory2, setShowHistory2] = useState(false);
+  const [histEntries2, setHistEntries2] = useState<HistEntryV2[]>(() => histLoad<HistEntryV2>(HIST_V2));
 
   useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
   useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
 
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState({ accentColor: tpl.accentColor, showAccent: true, blocks: tpl.make() });
+    setState({ accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make() });
     setTemplateMenuOpen(false);
   };
 
@@ -3380,6 +3545,10 @@ function AnnouncementsV2Tab() {
         if (data?.errors) errMsg += ' — ' + JSON.stringify(data.errors);
         throw new Error(errMsg);
       }
+      const ch2 = bot.channels.find((c) => c.id === channelId);
+      const entry2: HistEntryV2 = { id: uid(), ts: Date.now(), channelId, channelName: ch2?.name || channelId, state: JSON.parse(JSON.stringify(state)) };
+      histPush(HIST_V2, entry2);
+      setHistEntries2(histLoad<HistEntryV2>(HIST_V2));
       setFeedback({ type: 'success', message: 'Components v2 announcement sent!' });
     } catch (err: any) {
       setFeedback({ type: 'error', message: err?.message ?? 'Failed to send.' });
@@ -3392,6 +3561,17 @@ function AnnouncementsV2Tab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
+      {showHistory2 && (
+        <HistoryPanel<HistEntryV2>
+          histKey={HIST_V2} entries={histEntries2}
+          onRestore={(e) => { setState(e.state); setChannelId(e.channelId); }}
+          onClose={() => setShowHistory2(false)}
+          renderPreview={(e) => {
+            const first = e.state.blocks.find((b) => b.kind === 'text');
+            return first && first.kind === 'text' ? first.content.slice(0, 80) : `${e.state.blocks.length} blocks`;
+          }}
+        />
+      )}
       {/* Left: editor */}
       <div className="space-y-4">
         <GlassCard className="p-5 space-y-4">
@@ -3405,30 +3585,36 @@ function AnnouncementsV2Tab() {
                 </h3>
                 <p className="text-xs text-gray-500 mt-1.5">Rich Discord announcements — headers, fields, images, sections, buttons. Uses the new Components v2 API.</p>
               </div>
-              <div className="relative flex-shrink-0">
-                <button type="button" onClick={() => setTemplateMenuOpen(!templateMenuOpen)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors cursor-pointer whitespace-nowrap">
-                  <Save01 className="w-3 h-3" /> Load Template
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button type="button" onClick={() => setShowHistory2(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap">
+                  <RefreshCw01 className="w-3 h-3" /> History{histEntries2.length > 0 && <span className="ml-1 bg-white/10 text-gray-300 text-[10px] px-1.5 py-0.5 rounded-full">{histEntries2.length}</span>}
                 </button>
-                {templateMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-50 bg-[#1a1b1e] border border-white/10 rounded-xl shadow-2xl p-2 w-64"
-                    onMouseLeave={() => setTemplateMenuOpen(false)}>
-                    <p className="text-[10px] text-gray-500 px-2 py-1 uppercase tracking-wider font-semibold">Quick-start templates</p>
-                    {V2_TEMPLATES.map((tpl) => (
-                      <button key={tpl.id} type="button" onClick={() => loadTemplate(tpl)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 flex items-start gap-3 transition-colors cursor-pointer group">
-                        <span className="text-xl flex-shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-gray-200 group-hover:text-white">{tpl.label}</span>
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tpl.accentColor }} />
+                <div className="relative">
+                  <button type="button" onClick={() => setTemplateMenuOpen(!templateMenuOpen)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors cursor-pointer whitespace-nowrap">
+                    <Save01 className="w-3 h-3" /> Load Template
+                  </button>
+                  {templateMenuOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-[#1a1b1e] border border-white/10 rounded-xl shadow-2xl p-2 w-64"
+                      onMouseLeave={() => setTemplateMenuOpen(false)}>
+                      <p className="text-[10px] text-gray-500 px-2 py-1 uppercase tracking-wider font-semibold">Quick-start templates</p>
+                      {V2_TEMPLATES.map((tpl) => (
+                        <button key={tpl.id} type="button" onClick={() => loadTemplate(tpl)}
+                          className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-white/10 flex items-start gap-3 transition-colors cursor-pointer group">
+                          <span className="text-xl flex-shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-gray-200 group-hover:text-white">{tpl.label}</span>
+                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tpl.accentColor }} />
+                            </div>
+                            <span className="text-[10px] text-gray-500 leading-tight block">{tpl.desc}</span>
                           </div>
-                          <span className="text-[10px] text-gray-500 leading-tight block">{tpl.desc}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -3484,6 +3670,17 @@ function AnnouncementsV2Tab() {
                 </div>
               </div>
             )}
+            <div className="flex items-center justify-between pt-1">
+              <label className={subLbl + ' mb-0'}>Container Spoiler</label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className="text-xs text-gray-500">{state.spoilerContainer ? 'On' : 'Off'}</span>
+                <button type="button" role="switch" aria-checked={state.spoilerContainer}
+                  onClick={() => setState((s) => ({ ...s, spoilerContainer: !s.spoilerContainer }))}
+                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${state.spoilerContainer ? 'bg-yellow-500' : 'bg-white/10'}`}>
+                  <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.spoilerContainer ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+              </label>
+            </div>
           </div>
         </GlassCard>
 
@@ -3519,6 +3716,7 @@ function AnnouncementsV2Tab() {
             {state.blocks.map((block, i) => (
               <V2BlockEditor key={block.id} block={block} index={i} total={state.blocks.length}
                 onChange={(b) => updateBlock(block.id, b)} onRemove={() => removeBlock(block.id)}
+                onCopy={() => setState((s) => { const blocks = [...s.blocks]; blocks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(block)), id: uid() }); return { ...s, blocks }; })}
                 onMoveUp={() => moveBlock(i, -1)} onMoveDown={() => moveBlock(i, 1)} />
             ))}
           </div>
