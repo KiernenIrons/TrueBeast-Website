@@ -3463,6 +3463,14 @@ const V2_TEMPLATES: { id: string; label: string; desc: string; emoji: string; ac
     ],
   },
   {
+    id: 'quest-card', label: 'Quest Card', desc: 'Compact card — title + description, image on the right, button below', emoji: '🎯',
+    accentColor: '#5865f2',
+    make: () => [
+      { id: uid(), kind: 'section', texts: ['## Quest Title Here', 'Short description of the quest goes here — what to do and what you get for it.'], thumbnailUrl: '', thumbnailAlt: 'Quest icon' },
+      { id: uid(), kind: 'buttons', row: [{ ...newButton(), label: 'View Quest', url: '' }] },
+    ],
+  },
+  {
     id: 'giveaway', label: 'Giveaway', desc: 'Prize info, rules, and entry button', emoji: '🎁',
     accentColor: '#57f287',
     make: () => [
