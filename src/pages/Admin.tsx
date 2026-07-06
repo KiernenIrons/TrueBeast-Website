@@ -3043,7 +3043,7 @@ interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldIte
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
 type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
 
-interface V2State { accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[]; reactions: string[] }
+interface V2State { content: string; accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[]; reactions: string[] }
 
 interface CustomTemplate {
   id: string; label: string; desc: string; emoji: string;
@@ -3059,7 +3059,7 @@ function saveCustomTpls(tpls: CustomTemplate[]) {
 }
 
 function emptyV2State(): V2State {
-  return { accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }], reactions: [] };
+  return { content: '', accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }], reactions: [] };
 }
 
 function newV2Block(kind: V2BlockKind): V2Block {
@@ -3126,11 +3126,16 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
     }
   }
 
-  if (!inner.length) return null;
-  const container: Record<string, unknown> = { type: 17, components: inner };
-  if (state.showAccent) container.accent_color = accentInt;
-  if (state.spoilerContainer) container.spoiler = true;
-  return { flags: 32768, components: [container] };
+  if (!inner.length && !state.content.trim()) return null;
+  const topLevel: unknown[] = [];
+  if (state.content.trim()) topLevel.push({ type: 10, content: state.content });
+  if (inner.length) {
+    const container: Record<string, unknown> = { type: 17, components: inner };
+    if (state.showAccent) container.accent_color = accentInt;
+    if (state.spoilerContainer) container.spoiler = true;
+    topLevel.push(container);
+  }
+  return { flags: 32768, components: topLevel };
 }
 
 const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
@@ -3349,9 +3354,14 @@ function V2Preview({ state }: { state: V2State }) {
     return true;
   });
 
-  if (!hasContent) return <div className="text-gray-500 text-sm italic text-center py-8">Add some blocks to see a preview…</div>;
+  if (!hasContent && !state.content.trim()) return <div className="text-gray-500 text-sm italic text-center py-8">Add some blocks to see a preview…</div>;
 
   return (
+    <div className="space-y-2">
+      {state.content.trim() && (
+        <div className="text-gray-200 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(state.content, bot) }} />
+      )}
+      {hasContent && (
     <div className={`flex rounded overflow-hidden relative ${state.spoilerContainer ? 'cursor-pointer' : ''}`}>
       {state.showAccent && <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: state.accentColor }} />}
       <div className={`bg-[#2f3136] ${state.showAccent ? 'rounded-r' : 'rounded'} p-3 flex-1 min-w-0 space-y-2 ${state.spoilerContainer ? 'blur-sm select-none pointer-events-none' : ''}`}>
@@ -3456,6 +3466,8 @@ function V2Preview({ state }: { state: V2State }) {
         </div>
       )}
     </div>
+      )}
+    </div>
   );
 }
 
@@ -3538,13 +3550,13 @@ function AnnouncementsV2Tab() {
 
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState({ accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make(), reactions: [] });
+    setState((s) => ({ content: s.content, accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make(), reactions: [] }));
     setTemplateMenuOpen(false);
   };
 
   const loadCustomTemplate = (tpl: CustomTemplate) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState({ accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)), reactions: [] });
+    setState((s) => ({ content: s.content, accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)), reactions: [] }));
     setTemplateMenuOpen(false);
   };
 
@@ -3687,8 +3699,8 @@ function AnnouncementsV2Tab() {
       {showHistory2 && (
         <HistoryPanel<HistEntryV2>
           histKey={HIST_V2} entries={histEntries2}
-          onRestore={(e) => { setState({ ...e.state, reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
-          onEdit={(e) => { setEditingEntry(e); setState({ ...e.state, reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
+          onRestore={(e) => { setState({ ...e.state, content: e.state.content || '', reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
+          onEdit={(e) => { setEditingEntry(e); setState({ ...e.state, content: e.state.content || '', reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
           onClose={() => setShowHistory2(false)}
           renderPreview={(e) => {
             const first = e.state.blocks.find((b) => b.kind === 'text');
@@ -3792,6 +3804,12 @@ function AnnouncementsV2Tab() {
               </select>
             </div>
           </div>
+
+          <hr className="border-white/5" />
+
+          {/* Ping / message content (renders above the container, outside the accent bar) */}
+          <RichTextarea value={state.content} onChange={(content) => setState((s) => ({ ...s, content }))}
+            label="Message Content (optional)" placeholder="Text above the container — great for @role pings..." rows={2} />
 
           <hr className="border-white/5" />
 
