@@ -3402,11 +3402,12 @@ function V2Preview({ state }: { state: V2State }) {
             const images = block.items.filter((i) => i.url.trim());
             if (!images.length) return null;
             return (
-              <div key={block.id} className={`grid gap-1 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              <div key={block.id} className={`-mx-3 grid gap-0.5 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {images.map((img, i) => (
                   <div key={i} className="relative rounded overflow-hidden bg-white/5"
-                    style={{ aspectRatio: images.length === 1 ? '16/9' : '1/1' }}>
-                    <img src={img.url} alt={img.description || ''} className={`w-full h-full object-cover ${img.spoiler ? 'blur-md' : ''}`}
+                    style={images.length > 1 ? { aspectRatio: '1/1' } : undefined}>
+                    <img src={img.url} alt={img.description || ''}
+                      className={`${images.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${img.spoiler ? 'blur-md' : ''}`}
                       onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
                     {img.spoiler && <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] font-semibold bg-black/50 px-2 py-0.5 rounded">SPOILER</span></div>}
                     {img.description && !img.spoiler && (
