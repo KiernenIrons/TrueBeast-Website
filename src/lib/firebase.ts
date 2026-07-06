@@ -148,6 +148,29 @@ export interface GiveawayEntry {
   enteredAt: string;    // ISO timestamp
 }
 
+export interface AnnouncementHistoryRecord {
+  id: string;
+  ts: number;
+  channelId: string;
+  channelName: string;
+  messageId?: string;
+  state: unknown;
+  [key: string]: unknown;
+}
+
+export interface AnnouncementTemplateRecord {
+  id: string;
+  label: string;
+  desc: string;
+  emoji: string;
+  accentColor: string;
+  showAccent: boolean;
+  spoilerContainer: boolean;
+  blocks: unknown[];
+  createdAt: string;
+  [key: string]: unknown;
+}
+
 export interface DiscordCard {
   id: string;
   title: string;
@@ -598,6 +621,73 @@ export const FirebaseDB = {
     _ensureApp();
     if (!_isConfigured() || !_db) return;
     await _withTimeout(deleteDoc(doc(_db, 'cardSaves', id)));
+  },
+
+  // -----------------------------------------------------------------------
+  // Announcement History & Custom Templates (Admin — shared across browsers)
+  // -----------------------------------------------------------------------
+
+  async saveAnnouncementHistoryEntry(kind: 'v1' | 'v2', entry: AnnouncementHistoryRecord): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    const col = kind === 'v1' ? 'announcementHistoryV1' : 'announcementHistoryV2';
+    const document = JSON.parse(JSON.stringify(entry));
+    await _withTimeout(setDoc(doc(_db, col, entry.id), document));
+  },
+
+  async getAnnouncementHistory(kind: 'v1' | 'v2'): Promise<AnnouncementHistoryRecord[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return [];
+    try {
+      const col = kind === 'v1' ? 'announcementHistoryV1' : 'announcementHistoryV2';
+      const q = query(collection(_db, col), orderBy('ts', 'desc'), limit(20));
+      const snap = await _withTimeout(getDocs(q));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AnnouncementHistoryRecord);
+    } catch (err) {
+      console.warn('FirebaseDB.getAnnouncementHistory error:', (err as Error).message);
+      return [];
+    }
+  },
+
+  async deleteAnnouncementHistoryEntry(kind: 'v1' | 'v2', id: string): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    const col = kind === 'v1' ? 'announcementHistoryV1' : 'announcementHistoryV2';
+    await _withTimeout(deleteDoc(doc(_db, col, id)));
+  },
+
+  async clearAnnouncementHistory(kind: 'v1' | 'v2'): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    const col = kind === 'v1' ? 'announcementHistoryV1' : 'announcementHistoryV2';
+    const snap = await _withTimeout(getDocs(collection(_db, col)));
+    await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  },
+
+  async saveAnnouncementTemplate(tpl: AnnouncementTemplateRecord): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    const document = JSON.parse(JSON.stringify(tpl));
+    await _withTimeout(setDoc(doc(_db, 'announcementTemplatesV2', tpl.id), document));
+  },
+
+  async getAnnouncementTemplates(): Promise<AnnouncementTemplateRecord[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return [];
+    try {
+      const q = query(collection(_db, 'announcementTemplatesV2'), orderBy('createdAt', 'asc'));
+      const snap = await _withTimeout(getDocs(q));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AnnouncementTemplateRecord);
+    } catch (err) {
+      console.warn('FirebaseDB.getAnnouncementTemplates error:', (err as Error).message);
+      return [];
+    }
+  },
+
+  async deleteAnnouncementTemplate(id: string): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    await _withTimeout(deleteDoc(doc(_db, 'announcementTemplatesV2', id)));
   },
 
   // -----------------------------------------------------------------------

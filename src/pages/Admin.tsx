@@ -33,7 +33,7 @@ import { Button } from '@/components/base/buttons/button';
 import { GlassCard } from '@/components/shared/GlassCard';
 import PageLayout from '@/components/layout/PageLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { FirebaseDB, type CardSaveRecord } from '@/lib/firebase';
+import { FirebaseDB, type CardSaveRecord, type AnnouncementHistoryRecord, type AnnouncementTemplateRecord } from '@/lib/firebase';
 import { SITE_CONFIG } from '@/config';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -175,31 +175,12 @@ const UNICODE_EMOJI: { name: string; emojis: string[] }[] = [
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
-// ─── Announcement History (localStorage) ────────────────────────────────────
-const HIST_V1 = 'tb_hist_v1';
-const HIST_V2 = 'tb_hist_v2';
+// ─── Announcement History (Firestore — shared across browsers) ─────────────
 const MAX_HIST = 20;
 
 interface HistEntryBase { id: string; ts: number; channelId: string; channelName: string; messageId?: string }
 interface HistEntryV1 extends HistEntryBase { state: ComposerState }
 interface HistEntryV2 extends HistEntryBase { state: V2State }
-
-function histPush<T>(key: string, entry: T) {
-  try {
-    const prev: T[] = JSON.parse(localStorage.getItem(key) || '[]');
-    localStorage.setItem(key, JSON.stringify([entry, ...prev].slice(0, MAX_HIST)));
-  } catch { }
-}
-function histLoad<T>(key: string): T[] {
-  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
-}
-function histDelete(key: string, id: string) {
-  try {
-    const prev = JSON.parse(localStorage.getItem(key) || '[]');
-    localStorage.setItem(key, JSON.stringify(prev.filter((e: any) => e.id !== id)));
-  } catch { }
-}
-function histClear(key: string) { try { localStorage.removeItem(key); } catch { } }
 
 function fmtTs(ts: number) {
   const d = new Date(ts);
@@ -1029,10 +1010,10 @@ function PresetManager({ state, onLoad }: { state: ComposerState; onLoad: (s: Co
 // ─── History Panel ───────────────────────────────────────────────────────────
 
 function HistoryPanel<T extends HistEntryBase>({
-  histKey, entries, onRestore, onClose, onEdit,
+  kind, entries, onRestore, onClose, onEdit,
   renderPreview,
 }: {
-  histKey: string;
+  kind: 'v1' | 'v2';
   entries: T[];
   onRestore: (e: T) => void;
   onClose: () => void;
@@ -1040,8 +1021,8 @@ function HistoryPanel<T extends HistEntryBase>({
   renderPreview: (e: T) => React.ReactNode;
 }) {
   const [list, setList] = useState<T[]>(entries);
-  const remove = (id: string) => { histDelete(histKey, id); setList((l) => l.filter((e) => e.id !== id)); };
-  const clearAll = () => { if (window.confirm('Clear all history?')) { histClear(histKey); setList([]); } };
+  const remove = (id: string) => { setList((l) => l.filter((e) => e.id !== id)); FirebaseDB.deleteAnnouncementHistoryEntry(kind, id).catch(() => {}); };
+  const clearAll = () => { if (window.confirm('Clear all history?')) { setList([]); FirebaseDB.clearAnnouncementHistory(kind).catch(() => {}); } };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
@@ -1113,10 +1094,11 @@ function AnnouncementsTab() {
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [histEntries, setHistEntries] = useState<HistEntryV1[]>(() => histLoad<HistEntryV1>(HIST_V1));
+  const [histEntries, setHistEntries] = useState<HistEntryV1[]>([]);
 
   useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
   useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
+  useEffect(() => { FirebaseDB.getAnnouncementHistory('v1').then((entries) => setHistEntries(entries as unknown as HistEntryV1[])).catch(() => {}); }, []);
 
   const setContent = (content: string) => setState((s) => ({ ...s, content }));
   const updateEmbed = (i: number, e: EmbedData) => setState((s) => ({ ...s, embeds: s.embeds.map((x, idx) => idx === i ? e : x) }));
@@ -1176,8 +1158,8 @@ function AnnouncementsTab() {
       const reactionErrors = data._reactionErrors;
       const ch = bot.channels.find((c) => c.id === channelId);
       const entry: HistEntryV1 = { id: uid(), ts: Date.now(), channelId, channelName: ch?.name || channelId, state: JSON.parse(JSON.stringify(state)) };
-      histPush(HIST_V1, entry);
-      setHistEntries(histLoad<HistEntryV1>(HIST_V1));
+      FirebaseDB.saveAnnouncementHistoryEntry('v1', entry as unknown as AnnouncementHistoryRecord).catch(() => {});
+      setHistEntries((prev) => [entry, ...prev].slice(0, MAX_HIST));
       setFeedback({
         type: 'success',
         message: reactionErrors?.length
@@ -1193,7 +1175,7 @@ function AnnouncementsTab() {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_0.82fr] gap-6 items-start">
       {showHistory && (
         <HistoryPanel<HistEntryV1>
-          histKey={HIST_V1} entries={histEntries}
+          kind="v1" entries={histEntries}
           onRestore={(e) => { setState(e.state); setChannelId(e.channelId); }}
           onClose={() => setShowHistory(false)}
           renderPreview={(e) => e.state.embeds[0]?.title || e.state.content.slice(0, 80) || '(no content)'}
@@ -3048,14 +3030,7 @@ interface V2State { content: string; accentColor: string; showAccent: boolean; s
 interface CustomTemplate {
   id: string; label: string; desc: string; emoji: string;
   accentColor: string; showAccent: boolean; spoilerContainer: boolean;
-  blocks: V2Block[];
-}
-const CUSTOM_TPLS_KEY = 'tb_v2_custom_tpls';
-function loadCustomTpls(): CustomTemplate[] {
-  try { return JSON.parse(localStorage.getItem(CUSTOM_TPLS_KEY) || '[]'); } catch { return []; }
-}
-function saveCustomTpls(tpls: CustomTemplate[]) {
-  try { localStorage.setItem(CUSTOM_TPLS_KEY, JSON.stringify(tpls)); } catch { }
+  blocks: V2Block[]; createdAt: string;
 }
 
 function emptyV2State(): V2State {
@@ -3537,8 +3512,8 @@ function AnnouncementsV2Tab() {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const [showHistory2, setShowHistory2] = useState(false);
-  const [histEntries2, setHistEntries2] = useState<HistEntryV2[]>(() => histLoad<HistEntryV2>(HIST_V2));
-  const [customTpls, setCustomTpls] = useState<CustomTemplate[]>(loadCustomTpls);
+  const [histEntries2, setHistEntries2] = useState<HistEntryV2[]>([]);
+  const [customTpls, setCustomTpls] = useState<CustomTemplate[]>([]);
   const [editingEntry, setEditingEntry] = useState<HistEntryV2 | null>(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
@@ -3547,6 +3522,8 @@ function AnnouncementsV2Tab() {
 
   useEffect(() => { if (channelId) localStorage.setItem(CHANNEL_KEY, channelId); }, [channelId]);
   useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 5000); return () => clearTimeout(t); }, [feedback]);
+  useEffect(() => { FirebaseDB.getAnnouncementHistory('v2').then((entries) => setHistEntries2(entries as unknown as HistEntryV2[])).catch(() => {}); }, []);
+  useEffect(() => { FirebaseDB.getAnnouncementTemplates().then((tpls) => setCustomTpls(tpls as unknown as CustomTemplate[])).catch(() => {}); }, []);
 
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
@@ -3561,9 +3538,8 @@ function AnnouncementsV2Tab() {
   };
 
   const deleteCustomTemplate = (id: string) => {
-    const updated = customTpls.filter((t) => t.id !== id);
-    saveCustomTpls(updated);
-    setCustomTpls(updated);
+    setCustomTpls((tpls) => tpls.filter((t) => t.id !== id));
+    FirebaseDB.deleteAnnouncementTemplate(id).catch(() => {});
   };
 
   const handleSaveTemplate = () => {
@@ -3571,11 +3547,10 @@ function AnnouncementsV2Tab() {
     const tpl: CustomTemplate = {
       id: uid(), label: saveName.trim(), desc: saveDesc.trim(), emoji: saveEmoji || '📋',
       accentColor: state.accentColor, showAccent: state.showAccent, spoilerContainer: state.spoilerContainer,
-      blocks: JSON.parse(JSON.stringify(state.blocks)),
+      blocks: JSON.parse(JSON.stringify(state.blocks)), createdAt: new Date().toISOString(),
     };
-    const updated = [...customTpls, tpl];
-    saveCustomTpls(updated);
-    setCustomTpls(updated);
+    setCustomTpls((tpls) => [...tpls, tpl]);
+    FirebaseDB.saveAnnouncementTemplate(tpl as unknown as AnnouncementTemplateRecord).catch(() => {});
     setSaveModalOpen(false);
     setSaveName(''); setSaveDesc(''); setSaveEmoji('📋');
   };
@@ -3614,8 +3589,8 @@ function AnnouncementsV2Tab() {
       const ch2 = bot.channels.find((c) => c.id === channelId);
       const reactionErrors = data._reactionErrors;
       const entry2: HistEntryV2 = { id: uid(), ts: Date.now(), channelId, channelName: ch2?.name || channelId, messageId: data.id, state: JSON.parse(JSON.stringify(state)) };
-      histPush(HIST_V2, entry2);
-      setHistEntries2(histLoad<HistEntryV2>(HIST_V2));
+      FirebaseDB.saveAnnouncementHistoryEntry('v2', entry2 as unknown as AnnouncementHistoryRecord).catch(() => {});
+      setHistEntries2((prev) => [entry2, ...prev].slice(0, MAX_HIST));
       setFeedback({
         type: 'success',
         message: reactionErrors?.length ? `Sent! (${reactionErrors.length} reaction(s) failed)` : 'Components v2 announcement sent!',
@@ -3698,7 +3673,7 @@ function AnnouncementsV2Tab() {
       )}
       {showHistory2 && (
         <HistoryPanel<HistEntryV2>
-          histKey={HIST_V2} entries={histEntries2}
+          kind="v2" entries={histEntries2}
           onRestore={(e) => { setState({ ...e.state, content: e.state.content || '', reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
           onEdit={(e) => { setEditingEntry(e); setState({ ...e.state, content: e.state.content || '', reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
           onClose={() => setShowHistory2(false)}
