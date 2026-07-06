@@ -180,7 +180,7 @@ const HIST_V1 = 'tb_hist_v1';
 const HIST_V2 = 'tb_hist_v2';
 const MAX_HIST = 20;
 
-interface HistEntryBase { id: string; ts: number; channelId: string; channelName: string }
+interface HistEntryBase { id: string; ts: number; channelId: string; channelName: string; messageId?: string }
 interface HistEntryV1 extends HistEntryBase { state: ComposerState }
 interface HistEntryV2 extends HistEntryBase { state: V2State }
 
@@ -1029,13 +1029,14 @@ function PresetManager({ state, onLoad }: { state: ComposerState; onLoad: (s: Co
 // ─── History Panel ───────────────────────────────────────────────────────────
 
 function HistoryPanel<T extends HistEntryBase>({
-  histKey, entries, onRestore, onClose,
+  histKey, entries, onRestore, onClose, onEdit,
   renderPreview,
 }: {
   histKey: string;
   entries: T[];
   onRestore: (e: T) => void;
   onClose: () => void;
+  onEdit?: (e: T) => void;
   renderPreview: (e: T) => React.ReactNode;
 }) {
   const [list, setList] = useState<T[]>(entries);
@@ -1075,6 +1076,12 @@ function HistoryPanel<T extends HistEntryBase>({
                       <div className="text-xs text-gray-300 leading-relaxed line-clamp-3">{renderPreview(entry)}</div>
                     </div>
                     <div className="flex flex-col gap-1.5 flex-shrink-0">
+                      {onEdit && entry.messageId && (
+                        <button type="button" onClick={() => { onEdit(entry); onClose(); }}
+                          className="text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer">
+                          Edit
+                        </button>
+                      )}
                       <button type="button" onClick={() => { onRestore(entry); onClose(); }}
                         className="text-xs text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer">
                         Restore
@@ -3036,7 +3043,7 @@ interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldIte
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
 type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
 
-interface V2State { accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[] }
+interface V2State { accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[]; reactions: string[] }
 
 interface CustomTemplate {
   id: string; label: string; desc: string; emoji: string;
@@ -3052,7 +3059,7 @@ function saveCustomTpls(tpls: CustomTemplate[]) {
 }
 
 function emptyV2State(): V2State {
-  return { accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }] };
+  return { accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }], reactions: [] };
 }
 
 function newV2Block(kind: V2BlockKind): V2Block {
@@ -3520,6 +3527,7 @@ function AnnouncementsV2Tab() {
   const [showHistory2, setShowHistory2] = useState(false);
   const [histEntries2, setHistEntries2] = useState<HistEntryV2[]>(() => histLoad<HistEntryV2>(HIST_V2));
   const [customTpls, setCustomTpls] = useState<CustomTemplate[]>(loadCustomTpls);
+  const [editingEntry, setEditingEntry] = useState<HistEntryV2 | null>(null);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [saveDesc, setSaveDesc] = useState('');
@@ -3530,13 +3538,13 @@ function AnnouncementsV2Tab() {
 
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState({ accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make() });
+    setState({ accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make(), reactions: [] });
     setTemplateMenuOpen(false);
   };
 
   const loadCustomTemplate = (tpl: CustomTemplate) => {
     if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState({ accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)) });
+    setState({ accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)), reactions: [] });
     setTemplateMenuOpen(false);
   };
 
@@ -3579,10 +3587,11 @@ function AnnouncementsV2Tab() {
     if (!payload) { setFeedback({ type: 'error', message: 'Add some content before sending.' }); return; }
     setSending(true); setFeedback(null);
     try {
+      const reactions = state.reactions.map(formatReaction);
       const res = await fetch(base + '/discord/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId, payload }),
+        body: JSON.stringify({ channelId, payload, reactions }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -3591,12 +3600,40 @@ function AnnouncementsV2Tab() {
         throw new Error(errMsg);
       }
       const ch2 = bot.channels.find((c) => c.id === channelId);
-      const entry2: HistEntryV2 = { id: uid(), ts: Date.now(), channelId, channelName: ch2?.name || channelId, state: JSON.parse(JSON.stringify(state)) };
+      const reactionErrors = data._reactionErrors;
+      const entry2: HistEntryV2 = { id: uid(), ts: Date.now(), channelId, channelName: ch2?.name || channelId, messageId: data.id, state: JSON.parse(JSON.stringify(state)) };
       histPush(HIST_V2, entry2);
       setHistEntries2(histLoad<HistEntryV2>(HIST_V2));
-      setFeedback({ type: 'success', message: 'Components v2 announcement sent!' });
+      setFeedback({
+        type: 'success',
+        message: reactionErrors?.length ? `Sent! (${reactionErrors.length} reaction(s) failed)` : 'Components v2 announcement sent!',
+      });
     } catch (err: any) {
       setFeedback({ type: 'error', message: err?.message ?? 'Failed to send.' });
+    } finally { setSending(false); }
+  };
+
+  const handleEdit = async () => {
+    if (!editingEntry?.messageId) return;
+    const payload = buildPayloadV2(state);
+    if (!payload) { setFeedback({ type: 'error', message: 'Add some content before updating.' }); return; }
+    setSending(true); setFeedback(null);
+    try {
+      const res = await fetch(base + '/discord/edit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: editingEntry.channelId, messageId: editingEntry.messageId, payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        let errMsg = data?.message || data?.error || `Discord error (${res.status})`;
+        if (data?.errors) errMsg += ' — ' + JSON.stringify(data.errors);
+        throw new Error(errMsg);
+      }
+      setFeedback({ type: 'success', message: 'Message updated!' });
+      setEditingEntry(null);
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Failed to update.' });
     } finally { setSending(false); }
   };
 
@@ -3650,7 +3687,8 @@ function AnnouncementsV2Tab() {
       {showHistory2 && (
         <HistoryPanel<HistEntryV2>
           histKey={HIST_V2} entries={histEntries2}
-          onRestore={(e) => { setState(e.state); setChannelId(e.channelId); }}
+          onRestore={(e) => { setState({ ...e.state, reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
+          onEdit={(e) => { setEditingEntry(e); setState({ ...e.state, reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
           onClose={() => setShowHistory2(false)}
           renderPreview={(e) => {
             const first = e.state.blocks.find((b) => b.kind === 'text');
@@ -3858,6 +3896,10 @@ function AnnouncementsV2Tab() {
           </div>
         </GlassCard>
 
+        <GlassCard className="p-5">
+          <ReactionsEditor reactions={state.reactions} onChange={(r) => setState((s) => ({ ...s, reactions: r }))} />
+        </GlassCard>
+
         <GlassCard className="p-4">
           <p className="text-[11px] text-gray-500 leading-relaxed">
             <span className="text-indigo-400 font-semibold">Components v2</span> messages use{' '}
@@ -3867,6 +3909,12 @@ function AnnouncementsV2Tab() {
         </GlassCard>
 
         <div className="space-y-3">
+          {editingEntry && (
+            <div className="rounded-xl px-4 py-3 text-sm bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-between gap-3">
+              <span>Editing message in <span className="font-semibold">#{editingEntry.channelName || editingEntry.channelId}</span> — reactions won't be changed</span>
+              <button type="button" onClick={() => setEditingEntry(null)} className="text-xs text-amber-400/60 hover:text-amber-300 transition-colors cursor-pointer flex-shrink-0">Cancel edit</button>
+            </div>
+          )}
           {feedback && (
             <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
               {feedback.message}
@@ -3874,15 +3922,23 @@ function AnnouncementsV2Tab() {
           )}
           <div className="flex items-center gap-3">
             <button type="button" disabled={sending}
-              onClick={() => { if (state.blocks.length === 0 || window.confirm('Clear all blocks?')) setState(emptyV2State()); }}
+              onClick={() => { if (state.blocks.length === 0 || window.confirm('Clear all blocks?')) { setState(emptyV2State()); setEditingEntry(null); } }}
               className="flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 disabled:opacity-50 transition-all cursor-pointer">
               <Trash01 className="w-4 h-4" /> Clear
             </button>
-            <button type="button" disabled={sending || !channelId} onClick={handleSend}
-              className="flex-[2] flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-500/30 disabled:opacity-40 disabled:shadow-none transition-all cursor-pointer">
-              {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send01 className="w-4 h-4" />}
-              {sending ? 'Sending…' : 'Send v2 Announcement'}
-            </button>
+            {editingEntry ? (
+              <button type="button" disabled={sending} onClick={handleEdit}
+                className="flex-[2] flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/20 hover:shadow-amber-500/30 disabled:opacity-40 disabled:shadow-none transition-all cursor-pointer">
+                {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Edit03 className="w-4 h-4" />}
+                {sending ? 'Updating…' : 'Update Message'}
+              </button>
+            ) : (
+              <button type="button" disabled={sending || !channelId} onClick={handleSend}
+                className="flex-[2] flex items-center justify-center gap-2 py-3 px-6 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 hover:shadow-indigo-500/30 disabled:opacity-40 disabled:shadow-none transition-all cursor-pointer">
+                {sending ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send01 className="w-4 h-4" />}
+                {sending ? 'Sending…' : 'Send v2 Announcement'}
+              </button>
+            )}
           </div>
         </div>
       </div>

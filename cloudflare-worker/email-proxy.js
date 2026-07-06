@@ -18,6 +18,7 @@
  *   GET  /discord/emojis    — returns custom emojis for the configured guild
  *   GET  /discord/roles     — returns roles for the configured guild
  *   POST /discord/send      — sends a message to a channel  { channelId, payload, reactions? }
+ *   PATCH /discord/edit     — edits an existing message      { channelId, messageId, payload }
  *
  * Firebase Auth routes:
  *   GET  /firebase/users    — lists all Firebase Auth users (requires FIREBASE_SERVICE_ACCOUNT_EMAIL + FIREBASE_SERVICE_ACCOUNT_KEY)
@@ -175,6 +176,25 @@ async function handleDiscordSend(request, env, corsHeaders) {
         _reactionErrors: reactionErrors.length ? reactionErrors : undefined,
     });
     return jsonResponse(responseData, res.status, corsHeaders);
+}
+
+async function handleDiscordEdit(request, env, corsHeaders) {
+    if (!env.DISCORD_BOT_TOKEN) {
+        return jsonResponse({ error: 'DISCORD_BOT_TOKEN not set in Worker secrets' }, 500, corsHeaders);
+    }
+    let body;
+    try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders); }
+    const { channelId, messageId, payload } = body;
+    if (!channelId || !messageId || !payload) {
+        return jsonResponse({ error: 'channelId, messageId, and payload are required' }, 400, corsHeaders);
+    }
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+        body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    return jsonResponse(data, res.status, corsHeaders);
 }
 
 // ── Firebase Auth Management ──────────────────────────────────────────────
@@ -571,6 +591,9 @@ export default {
         }
         if (path === '/discord/send' && request.method === 'POST') {
             return handleDiscordSend(request, env, corsHeaders);
+        }
+        if (path === '/discord/edit' && request.method === 'PATCH') {
+            return handleDiscordEdit(request, env, corsHeaders);
         }
 
         // ── Firebase Auth routes ──────────────────────────────────────────────
