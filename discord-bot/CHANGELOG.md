@@ -1,5 +1,18 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Unscramble: expert mode, weekly leaderboard, word list expansion, backup improvements
+
+- `UNSCRAMBLE_WORDS` expanded from ~780 to 1,400+ curated 4–6 letter words
+- New `UNSCRAMBLE_EXPERT_WORDS` array: 300+ words at 7–10 letters
+- `postUnscramblePuzzle` now posts both a regular and expert word in one embed; each scored independently
+- `handleUnscrambleMessage` checks both words, awards to separate all-time + weekly maps, fires `checkUnscrambleBothSolved`
+- Added `unscrambleExpertScores`, `unscrambleWeeklyScores`, `unscrambleExpertWeeklyScores`, `_unscrambleWeekKey`, `unscramblerOfWeekId`, `UNSCRAMBLER_ROLE_ID`
+- `checkUnscrambleWeeklyReset(guild)`: posts weekly results, reassigns Unscrambler of the Week role (1524483752984842573), clears weekly maps
+- `saveUnscrambleExpertScores` + `saveUnscrambleWeekly`: persist to Firestore
+- Startup restores expert scores, weekly scores, and runs `checkUnscrambleWeeklyReset`; hourly interval added
+- `buildFullBackup` + `applyBackupToMemory` now include `bumpData`, `unscrambleExpertScores`, and `unscrambleWeekly`
+- `/unscramble-leaderboard` redesigned: two embeds (weekly + all-time) with inline fields for regular and expert
+
 ## [2026-07-08] — Duel: fix race condition + ping
 
 - Challenge reply now includes `content: <@opponentId>` so the opponent is actually notified

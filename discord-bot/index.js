@@ -40,134 +40,266 @@ const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handle
 // Curated common English words for the Unscramble game (4–6 letters, universally known)
 const UNSCRAMBLE_WORDS = [
     // 4-letter words
-    'able','army','away','baby','back','ball','band','bank','base','bath',
-    'bear','beat','bell','bird','blow','blue','boat','body','bolt','bone',
-    'book','born','call','calm','came','camp','card','care','case','cave',
-    'chip','city','coal','coat','code','coin','cold','come','cook','cool',
-    'cord','corn','cost','crew','crop','cute','dark','date','dawn','dead',
-    'deal','dear','deep','deer','deny','desk','diet','dish','disk','door',
-    'dose','down','drop','drug','drum','dust','duty','each','earn','east',
-    'edge','even','ever','evil','face','fact','fall','farm','fate','feed',
-    'feel','feet','fell','file','fill','film','find','fire','firm','fish',
-    'fist','five','flag','flat','flew','flip','flow','foam','fold','food',
-    'fool','foot','form','fort','four','free','fuel','full','fund','gain',
-    'game','gate','gave','gear','gene','girl','give','glad','glow','goal',
-    'gold','golf','good','gray','grew','grow','gulf','half','hall','hang',
-    'hard','harm','hate','have','head','heal','heat','heel','help','herb',
-    'hide','high','hike','hill','hint','hire','hold','hole','home','hook',
-    'hope','horn','host','hour','huge','hunt','hurt','icon','idea','inch',
-    'iron','jump','just','keen','keep','kick','kind','king','knee','know',
-    'lack','lake','lamp','lane','last','late','lead','lean','lend','lens',
-    'less','life','like','limb','line','link','lion','load','loan','lock',
-    'lone','look','loop','lord','loss','lost','loud','love','luck','lung',
-    'mail','main','make','many','mark','mate','math','mean','meet','melt',
-    'milk','mill','mind','mine','mint','miss','mist','mode','mood','more',
-    'most','much','nail','near','neck','need','nice','nine','none','noon',
-    'norm','nose','note','noun','once','only','open','oven','over','pace',
-    'pack','page','pain','palm','path','peak','pick','pine','pink','pity',
-    'plan','plot','poem','pole','poll','pond','pool','poor','port','pose',
-    'post','pour','prey','pump','pure','push','race','rage','raid','rail',
-    'rake','rank','rare','rate','real','reel','rent','rest','rice','rich',
-    'ride','riot','rise','risk','road','roar','rock','role','roof','root',
-    'rope','rose','ruby','ruin','rule','rush','rust','safe','sake','sale',
-    'salt','same','sand','sang','seal','seat','seed','seek','self','shed',
-    'shop','shot','shut','sick','side','sign','silk','sink','site','size',
-    'slam','slim','slip','slow','snap','snow','soap','soar','sock','soft',
-    'soil','sold','sore','sort','soul','spin','spot','spur','stem','step',
-    'stop','suit','surf','tail','tale','tank','tape','task','tell','tent',
-    'text','tide','tile','time','tiny','tire','toad','told','toll','tone',
-    'took','tool','tore','torn','toss','tour','town','trap','tree','trip',
-    'true','tube','tune','turf','turn','twig','twin','type','very','vest',
-    'view','vine','void','vote','wade','wake','ward','warn','wave','weak',
-    'well','went','west','what','when','wide','wife','wild','will','wine',
-    'wing','wise','wish','wolf','wood','wool','word','wore','work','worn',
-    'wrap','yell','zero','zone','zoom',
+    'able','acid','arch','army','away','baby','back','bail','bake','bald',
+    'ball','band','bane','bank','bark','barn','base','bash','bass','bath',
+    'bead','beak','bean','bear','beat','beer','belt','bend','best','bile',
+    'bell','bird','bite','blob','blot','blow','blue','blur','boat','body',
+    'bold','bolt','bomb','bone','boon','book','bore','born','boss','brag',
+    'brat','brew','brim','brow','bull','bunk','buoy','burn','bush','bust',
+    'buzz','cafe','cage','calf','call','calm','came','camp','cane','cape',
+    'card','care','case','cast','cave','chef','chin','chip','chop','city',
+    'clad','clam','clan','clap','claw','clay','clue','coal','coat','code',
+    'coin','cold','come','cone','cook','cool','cope','cord','core','corn',
+    'cove','cost','cozy','crab','cram','crew','crib','crop','curl','cute',
+    'damp','dark','date','dawn','daze','dead','deal','dear','deep','deer',
+    'deft','dent','deny','desk','dice','diet','dine','dish','disk','dive',
+    'dock','door','dose','dote','dove','down','drop','drug','drum','dusk',
+    'dust','duty','each','earn','east','echo','edge','even','ever','evil',
+    'face','fact','fade','fail','fake','fall','fame','fang','fare','farm',
+    'fate','fawn','faze','fern','feed','feel','feet','fell','file','fill',
+    'film','find','fire','firm','fish','fist','five','flag','flat','flaw',
+    'flea','fled','flew','flex','flip','flit','flow','foam','fold','folk',
+    'food','fool','foot','fore','fork','form','fort','foul','four','foxy',
+    'fray','free','fret','frog','fuel','full','fund','fume','funk','fury',
+    'fuzz','gait','gain','game','gash','gate','gasp','gave','gawk','gaze',
+    'gear','glee','glum','gnaw','gene','girl','give','glad','glow','goal',
+    'gold','golf','good','gray','grew','grow','gulf','gust','hack','hail',
+    'hair','hale','half','hall','halt','hang','hank','hard','hare','harm',
+    'harp','hate','have','haze','head','heal','heat','heed','heel','heir',
+    'help','herd','herb','hide','high','hike','hill','hint','hiss','hire',
+    'hive','hold','hole','home','hook','hope','horn','hops','host','hour',
+    'howl','huff','hulk','huge','hunt','hurl','hurt','hype','icon','idle',
+    'idea','idol','inch','itch','iron','jump','just','keen','keep','kick',
+    'kind','king','knee','know','lace','lack','lain','lair','lake','lamp',
+    'lane','lash','last','late','laud','lava','laze','lead','lean','leaf',
+    'leer','lend','lens','less','lick','life','like','limb','line','link',
+    'lion','load','loan','lock','loft','loin','lone','look','loop','lord',
+    'loss','lost','loud','love','luck','lurk','lure','lung','lust','mace',
+    'mail','main','make','many','mark','mast','mate','math','maze','mean',
+    'meek','meet','melt','mesh','milk','mill','mind','mine','mint','mire',
+    'miss','mist','moat','mock','mode','mood','mope','more','most','much',
+    'mull','muse','mutt','myth','nail','nape','near','neck','need','nice',
+    'nine','none','noon','norm','nose','note','noun','nuke','oath','odor',
+    'ogre','omen','once','only','open','ooze','oven','over','pace','pact',
+    'pack','page','pain','palm','path','pawn','peak','peal','peel','peer',
+    'pick','pine','pink','pier','pity','plan','plot','plod','plow','plug',
+    'plum','poem','pole','poll','pond','pool','poor','port','pose','post',
+    'pour','prod','prey','pump','pure','push','quip','race','rage','raft',
+    'raid','rail','rake','ramp','rank','rasp','rare','rate','rave','real',
+    'reed','reel','reek','rend','rent','rest','rice','rich','ride','rife',
+    'rift','riot','rise','risk','road','roam','roar','robe','rock','role',
+    'roof','root','rope','rose','ruby','ruin','rule','rung','ruse','rush',
+    'rust','safe','sage','sake','sale','salt','same','sand','sang','seal',
+    'seat','seed','seek','self','shed','shin','shop','shot','shut','sick',
+    'side','sign','silk','slab','slam','slap','slim','slip','sled','slew',
+    'slob','slog','slow','slug','slum','slur','snap','snob','snow','soap',
+    'soar','sock','soft','soil','sold','sore','sort','soul','span','spin',
+    'spit','spot','spur','stem','step','stop','suit','surf','stab','stew',
+    'stir','stun','swam','swat','sway','swim','tack','tail','tale','tame',
+    'tang','tank','tape','tarp','task','taut','tell','tent','text','thud',
+    'thug','tick','tide','tier','tilt','tile','time','tiny','tire','toad',
+    'told','toll','tone','took','tool','tore','torn','toss','tour','town',
+    'trap','tree','trim','trio','trod','tube','tuft','tune','turf','turn',
+    'tusk','twig','twin','type','ulna','urge','vain','vale','vase','vast',
+    'veal','veer','veil','vend','verb','vest','vial','vibe','vice','vile',
+    'view','vine','void','vote','wade','wail','wake','wane','ward','warn',
+    'wary','wave','weak','weld','well','welt','went','west','what','when',
+    'wide','wife','wick','wild','will','wilt','wine','wing','wimp','wise',
+    'wish','woke','wolf','womb','wood','wool','word','wore','work','worn',
+    'wren','wrap','writ','yawn','yell','yelp','yoga','zeal','zero','zest',
+    'zone','zoom',
     // 5-letter words
     'about','above','abuse','admit','adult','after','again','agent','agree',
     'ahead','alarm','album','alert','alive','alley','allow','alone','along',
     'angel','anger','angle','ankle','apple','apply','arena','arise','aside',
-    'avoid','award','awful','badly','beach','began','begin','black','blade',
-    'blame','blank','blast','blend','block','blood','bloom','blown','board',
-    'bound','brain','brave','break','breed','brief','bring','broad','broke',
-    'brook','brown','brush','build','built','burst','candy','carry','catch',
-    'cause','chain','chair','charm','cheap','check','chess','chest','chief',
-    'child','choir','civil','claim','class','clean','clear','climb','close',
-    'cloud','coach','coast','color','comet','coral','count','court','cover',
-    'craft','crane','crash','cream','crime','cross','crowd','crown','cruel',
-    'crush','curve','daily','dance','death','delay','depth','dirty','doubt',
-    'draft','drain','drama','drawn','dress','drive','drove','drunk','eagle',
-    'early','earth','eight','empty','entry','equal','error','event','exact',
-    'extra','faint','faith','false','fancy','feast','field','fight','final',
-    'first','fixed','flame','flash','flesh','float','flood','floor','flour',
-    'flute','force','forge','forth','forty','found','frame','frank','fresh',
-    'frost','front','fruit','funny','ghost','given','glass','globe','glory',
-    'going','grace','grade','grain','grand','grant','grape','grass','grave',
-    'great','green','greet','grief','groan','group','grown','guard','guess',
-    'guest','guide','guilt','happy','harsh','heart','heavy','herbs','hurry',
-    'ideal','image','inner','input','issue','joint','judge','juice','known',
-    'label','large','later','laugh','layer','learn','least','leave','legal',
-    'level','light','limit','loose','lower','lucky','lunch','lying','magic',
-    'major','maple','march','match','merit','might','minor','model','money',
-    'month','moral','mouse','mouth','movie','music','nerve','never','night',
-    'noble','noise','north','noted','novel','nurse','occur','offer','often',
-    'other','outer','paint','panel','paper','party','pause','peace','peach',
-    'penny','phone','photo','piece','pilot','place','plain','plane','plant',
-    'plate','polar','power','press','price','pride','prime','print','prior',
-    'prize','proof','proud','prove','pupil','queen','quest','quick','quiet',
-    'quite','quote','radar','radio','raise','range','rapid','reach','ready',
-    'realm','rebel','refer','relax','reply','rider','right','risky','rival',
-    'river','rocky','rough','round','route','royal','rural','saint','sandy',
-    'sauce','scale','scene','score','scout','sense','serve','shake','shall',
-    'shame','shape','share','sharp','shelf','shell','shift','shine','shirt',
-    'shock','short','shout','sight','silly','since','skill','sleep','slice',
-    'slide','slope','small','smart','smile','smoke','snake','solar','solid',
-    'solve','sorry','sound','south','space','spare','spark','speak','speed',
-    'spend','spite','split','spoon','spray','stack','stage','stake','stand',
-    'start','state','steal','steam','steel','stern','stick','still','stock',
-    'stone','stood','store','storm','story','strip','stuck','study','stuff',
-    'style','sugar','surge','swear','sweep','sweet','swift','table','taken',
-    'taste','teach','tense','terms','thank','thick','think','third','thorn',
-    'those','three','threw','throw','tight','title','token','total','touch',
-    'tough','tower','trace','track','trade','trail','train','trash','trial',
-    'tribe','trick','tried','truck','truly','trust','truth','twice','twist',
+    'atlas','attic','audit','avoid','award','awful','badly','baker','beach',
+    'began','begin','black','blade','blame','blank','blast','blend','block',
+    'blood','bloom','blown','board','bonus','bound','boxer','brain','brave',
+    'break','breed','brief','bring','broad','broke','brook','brown','brush',
+    'build','built','burst','buyer','cabin','candy','carry','catch','cause',
+    'chain','chair','chant','charm','cheap','check','chess','chest','chief',
+    'child','choir','civil','claim','class','clean','clear','cliff','climb',
+    'close','cloud','coach','coast','color','comet','coral','couch','count',
+    'court','cover','craft','crane','crash','cream','crime','crook','cross',
+    'crowd','crown','cruel','crush','curve','daily','dance','death','debut',
+    'delay','delta','depth','derby','dirty','doubt','draft','drain','drama',
+    'drawn','dream','dress','drift','drink','drive','drove','drunk','dryer',
+    'eagle','early','earth','eight','elite','empty','entry','equal','error',
+    'event','exact','extra','faint','faith','false','fancy','feast','fiery',
+    'field','fight','final','first','fixed','flame','flash','flesh','float',
+    'flood','floor','flour','flute','focus','force','forge','forth','forty',
+    'found','frame','frank','fresh','frost','front','fruit','funny','ghost',
+    'given','glass','globe','glory','going','grace','grade','grain','grand',
+    'grant','grape','grass','grave','great','green','greet','grief','groan',
+    'group','grown','grump','guard','guess','guest','guide','guilt','happy',
+    'harsh','heart','heavy','herbs','hinge','honor','horde','hurry','ideal',
+    'image','imply','inner','input','irony','issue','joint','joker','judge',
+    'juice','known','label','lance','large','laser','later','laugh','layer',
+    'learn','least','leave','legal','level','light','limit','liner','loose',
+    'lower','lucky','lunch','lying','magic','major','manor','maple','march',
+    'match','mayor','merit','might','minor','model','money','month','moral',
+    'mount','mouse','mouth','movie','mural','music','nerve','never','night',
+    'noble','noise','north','noted','novel','nurse','nymph','occur','offer',
+    'often','other','outer','oxide','paint','panel','paper','party','pause',
+    'peace','peach','penny','perch','phone','photo','piece','pilot','pixel',
+    'place','plain','plane','plant','plate','plaza','polar','poker','power',
+    'press','price','pride','prime','print','prior','prize','proof','proud',
+    'prove','proxy','pupil','queen','quest','quick','quiet','quite','quote',
+    'radar','radio','raise','range','rapid','reach','ready','realm','rebel',
+    'refer','relay','relax','remix','reply','rider','right','risky','rival',
+    'river','rocky','rough','round','route','royal','rugby','ruler','rural',
+    'saint','sandy','sauce','scale','scene','score','scout','sense','serve',
+    'setup','shake','shall','shame','shape','share','sharp','shelf','shell',
+    'shift','shine','shirt','shock','shore','short','shout','sight','silly',
+    'since','skill','skull','sleep','slice','slide','slope','slump','small',
+    'smart','smile','smoke','snake','snare','sneak','solar','solid','solve',
+    'sorry','sound','south','space','spare','spark','spawn','speak','speed',
+    'spend','spite','split','spoon','spray','squad','stack','stage','stake',
+    'stall','stand','start','state','steal','steam','steel','stern','stick',
+    'still','stock','stone','stood','store','storm','story','strap','strip',
+    'stuck','study','stuff','style','sugar','surge','swear','sweep','sweet',
+    'swift','swirl','syrup','table','taken','taste','teach','tense','terms',
+    'thank','thick','think','third','thorn','those','three','threw','throw',
+    'tiger','tight','title','toast','token','total','touch','tough','tower',
+    'trace','track','trade','trail','train','trash','trial','tribe','trick',
+    'tried','troop','truck','truly','trust','truth','twice','twist','ultra',
     'uncle','under','union','until','upset','urban','usual','valid','value',
-    'vapor','vital','voice','voter','wagon','watch','waste','water','weary',
-    'weave','weird','where','while','which','white','whole','whose','witch',
-    'woman','women','world','worry','worse','worst','worth','would','write',
-    'wrote','yacht','yield','young','youth','zebra',
+    'vapor','venom','viral','vital','voice','voter','wagon','watch','waste',
+    'water','weary','weave','weird','where','while','which','white','whole',
+    'whose','witch','woman','women','world','worry','worse','worst','worth',
+    'would','write','wrote','yacht','yield','young','youth','zebra',
     // 6-letter words
     'absent','accept','access','action','advice','affect','afford','afraid',
     'agency','almost','amount','animal','answer','around','arrive','artist',
-    'aspect','attach','attack','attend','bakery','battle','beauty','became',
-    'become','before','behind','belief','belong','beside','better','beyond',
-    'bitter','border','bounce','bridge','bright','broken','bronze','bucket',
-    'budget','bullet','burden','button','camera','castle','caught','center',
-    'change','charge','choose','chosen','church','clever','combat','coming',
-    'corner','couple','create','danger','debate','decide','defend','degree',
-    'demand','design','detail','differ','direct','divide','dollar','driven',
-    'driver','during','either','emerge','empire','enable','energy','engine',
-    'enough','ensure','entire','escape','estate','except','excuse','expand',
-    'extend','factor','fallen','family','famous','farmer','father','fellow',
-    'female','fierce','finger','finish','flight','flower','follow','forest',
-    'forget','formal','foster','fourth','freely','frozen','future','gentle',
-    'global','happen','health','height','hidden','higher','honest','hunter',
-    'impact','insect','inside','island','jacket','jungle','keeper','kitten',
-    'knight','launch','leader','letter','listen','little','losing','matter',
-    'member','mental','method','middle','minute','mirror','mother','motion',
-    'murder','muscle','mutual','narrow','nation','nature','nearby','needle',
-    'normal','notice','object','office','oppose','option','palace','parent',
-    'player','please','pocket','police','powder','pretty','prison','proper',
-    'public','purple','puzzle','rather','reason','recent','record','remain',
-    'remove','repair','repeat','result','return','reveal','ribbon','riding',
-    'rising','rocket','saddle','safely','sailor','sample','school','screen',
+    'aspect','assure','attach','attack','attend','bakery','ballot','battle',
+    'beauty','became','become','before','behind','belief','belong','beside',
+    'better','beyond','bitter','border','bounce','bounty','bridge','bright',
+    'broken','bronze','bruise','bucket','budget','bullet','burden','button',
+    'camera','castle','caught','center','chance','change','charge','choose',
+    'chosen','church','clever','cobalt','combat','comedy','coming','commit',
+    'corner','couple','covert','create','custom','danger','debate','decide',
+    'defend','degree','demand','design','detail','differ','direct','divide',
+    'dollar','driven','driver','during','either','emerge','empire','enable',
+    'energy','engine','enough','ensure','entire','escape','estate','except',
+    'excuse','expand','extend','factor','fallen','family','famous','farmer',
+    'father','fellow','female','fierce','finger','finish','flight','flower',
+    'follow','forest','forget','formal','foster','fourth','freely','frozen',
+    'future','galaxy','gentle','global','golden','happen','harbor','health',
+    'height','hidden','higher','honest','hunter','impact','insect','inside',
+    'island','jacket','jigsaw','jungle','keeper','kitten','knight','launch',
+    'leader','letter','listen','little','losing','matter','member','mental',
+    'method','middle','minute','mirror','mortal','mother','motion','murder',
+    'muscle','mutual','narrow','nation','nature','nearby','needle','normal',
+    'notice','object','office','oppose','option','oracle','palace','parent',
+    'parrot','patrol','pillar','pirate','player','please','pocket','police',
+    'portal','powder','pretty','prison','proper','public','purple','puzzle',
+    'rather','reason','recent','record','refuge','remain','remove','repair',
+    'repeat','rescue','result','return','reveal','ribbon','riding','rising',
+    'rocket','saddle','safely','sailor','sample','savage','school','screen',
     'search','second','secret','sector','select','settle','should','signal',
     'silver','simple','sister','sketch','smooth','social','source','speech',
-    'spider','spirit','strong','struck','submit','suffer','summer','supply',
-    'surely','switch','symbol','system','talent','target','temple','tender',
-    'terror','things','though','threat','ticket','timber','tissue','tongue',
-    'travel','turtle','unable','unique','united','unless','unlike','update',
+    'spider','spirit','spring','sprint','stable','statue','storm','strong',
+    'struck','submit','suffer','summer','supply','surely','switch','symbol',
+    'system','talent','target','temple','tender','terror','things','though',
+    'threat','ticket','timber','tissue','tongue','treaty','travel','tribal',
+    'trophy','turtle','unable','unique','united','unless','unlike','update',
     'useful','valley','virtue','vision','wallet','wander','wealth','weapon',
     'winter','wonder','worker','yellow','zipper',
+];
+
+const UNSCRAMBLE_EXPERT_WORDS = [
+    // 7-letter words
+    'abandon','ability','absence','account','achieve','acquire','address',
+    'advance','alcohol','already','ancient','another','anxiety','anybody',
+    'anymore','applied','approve','arrange','article','athlete','balance',
+    'because','between','cabinet','captain','capture','century','certain',
+    'chapter','charity','charter','chicken','collect','combine','comfort',
+    'command','comment','compete','concept','concern','confirm','contain',
+    'content','contest','control','convert','correct','country','courage',
+    'current','cushion','custody','declare','defense','deliver','depends',
+    'deserve','develop','digital','discuss','display','distant','drawing',
+    'economy','edition','educate','element','emotion','endless','enhance',
+    'episode','essence','examine','example','excited','exhaust','explain',
+    'explore','failure','fashion','feature','federal','feeling','finance',
+    'fitness','forward','freedom','general','harvest','healthy','hearing',
+    'history','holiday','hunting','husband','imagine','improve','include',
+    'invalid','involve','journey','justice','knowing','largely','leading',
+    'leather','library','liberty','machine','million','minimum','missing',
+    'mission','monster','morning','mystery','natural','network','nothing',
+    'nuclear','observe','obvious','opening','opinion','outside','package',
+    'passion','pattern','pension','perfect','perhaps','picture','plastic',
+    'popular','possess','present','prevent','private','problem','product',
+    'program','project','promise','protect','provide','publish','qualify',
+    'quality','quickly','reading','reality','receive','recover','request',
+    'reserve','resolve','respect','respond','reverse','routine','sailing',
+    'science','section','service','setting','sharing','shelter','silence',
+    'similar','singing','society','somehow','someone','stadium','station',
+    'storage','strange','subject','suggest','surface','survive','tension',
+    'tonight','trading','trouble','typical','usually','village','violent',
+    'waiting','website','welcome','whether','windows','working','writing',
+    // 8-letter words
+    'absolute','accident','accurate','advanced','affected','although',
+    'approach','artistic','assembly','assuming','attached','attitude',
+    'audience','birthday','boundary','building','business','capacity',
+    'category','cleaning','clearing','climbing','collapse','complete',
+    'compound','constant','continue','creating','criminal','critical',
+    'crossing','customer','daughter','deadline','decision','decrease',
+    'defender','delivery','designed','discover','distance','document',
+    'dominant','dramatic','educated','election','elevated','emerging',
+    'employee','enormous','entirely','entrance','evaluate','evidence',
+    'exercise','familiar','frequent','function','generate','generous',
+    'graduate','grateful','greatest','guidance','hospital','identify',
+    'included','increase','industry','informed','internal','involved',
+    'isolated','judgment','language','learning','location','maintain',
+    'managing','material','measured','medicine','memorial','military',
+    'moderate','momentum','mountain','movement','musician','national',
+    'negative','northern','observer','official','operated','opposite',
+    'organize','original','painting','peaceful','personal','planning',
+    'platform','pleasure','politics','positive','possible','powerful',
+    'practice','pressure','previous','probably','produced','progress',
+    'property','proposed','reaching','recently','reformed','religion',
+    'remember','removing','replaced','reported','required','research',
+    'resulted','returned','revealed','romantic','seasonal','security',
+    'sentence','sequence','shoulder','situated','software','southern',
+    'speaking','standing','starting','straight','strategy','strength',
+    'struggle','studying','suburban','supplies','supposed','survival',
+    'teaching','thousand','together','tomorrow','transfer','ultimate',
+    'valuable','violence','watching','whatever','youngest',
+    // 9-letter words
+    'abandoned','abilities','according','adventure','afternoon','agreement',
+    'alongside','apartment','beautiful','beginning','boulevard','calculate',
+    'carefully','character','childhood','classical','community','companion',
+    'completed','connected','contacted','continued','corporate','countless',
+    'dangerous','delicious','different','direction','discovery','education',
+    'effective','emergency','emphasize','encounter','enjoyment','equipment',
+    'establish','executive','following','framework','frequency','generally',
+    'geography','graduated','happiness','household','important','impressed',
+    'improving','including','influence','involving','knowledge','landscape',
+    'listening','marketing','memorable','motivated','mountains','narrative',
+    'necessary','neighbors','northeast','northwest','organized','ownership',
+    'paragraph','permanent','permitted','political','potential','prevented',
+    'principle','procedure','professor','published','purchased','realistic',
+    'recommend','recording','reflected','remaining','respected','residents',
+    'revealing','satisfied','situation','sometimes','somewhere','spiritual',
+    'statement','structure','submitted','substance','supported','sustained',
+    'symbolize','temporary','territory','translate','treatment','universal',
+    'unlimited','voluntary','wonderful','yesterday',
+    // 10-letter words
+    'absolutely','accomplish','attractive','automobile','basketball',
+    'calculator','celebrated','characters','classrooms','collective',
+    'complicated','conclusion','conducting','connection','consistent',
+    'contribute','creativity','definition','distribute','earthquake',
+    'elementary','employment','enthusiasm','especially','everything',
+    'everywhere','excellence','experience','frequently','friendship',
+    'government','guidelines','historical','illustrate','impossible',
+    'impressive','individual','investment','leadership','legitimate',
+    'mainstream','management','motorcycle','mysterious','neighborhood',
+    'officially','operations','overlooked','partnership','photograph',
+    'population','productive','profession','publishing','reasonable',
+    'recognized','refreshment','regulations','relatively','remarkable',
+    'repeatedly','reputation','resilience','restricted','skateboard',
+    'successful','technology','thoroughly','tournament','transition',
+    'underwater','university','vocabulary','widespread','worthwhile',
 ];
 // libsodium-wrappers must be initialized before any voice encryption operations
 sodium.ready.then(() => console.log('[BeastBot] ✅ libsodium-wrappers ready')).catch(e => console.error('[BeastBot] ❌ libsodium-wrappers init failed:', e.message));
@@ -210,9 +342,11 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '⚔️ 1v1 Unscramble Duels', value: 'Use /unscramble-duel @user in #unscramble to challenge someone to a head-to-head duel! First to unscramble the chosen number of words wins. Pick 2–15 words (default 5).' },
-    { name: '🔔 Duel challenge now pings you', value: 'The challenge message now pings the opponent outside the embed so they actually get a notification.' },
-    { name: '🐛 Fix: simultaneous correct answers', value: 'If both players typed the right answer at the same moment, both got a point and the game skipped a round or broke the win condition. Only the first answer in now counts.' },
+    { name: '📚 Massively Expanded Word List', value: 'The regular unscramble word pool grew from ~780 to 1,400+ words, so repeats should be far less frequent.' },
+    { name: '🔴 Expert Mode', value: 'Every puzzle now includes a bonus Expert word (7–10 letters) alongside the regular one. Solve it for a point on the separate Expert leaderboard!' },
+    { name: '📅 Weekly Leaderboard + Role', value: 'Unscramble now tracks weekly solves (regular + expert separately). At the end of each week results are posted and the top regular solver earns the Unscrambler of the Week role.' },
+    { name: '📊 /unscramble-leaderboard redesigned', value: 'The command now shows two embeds — this week\'s standings and the all-time totals — with separate columns for regular and expert solves.' },
+    { name: '💾 Backup improvements', value: 'Bump counts and all unscramble data (expert scores, weekly scores) are now included in the full backup and restore chain.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -235,8 +369,15 @@ const UNSCRAMBLE_CHANNEL_ID = '1522112363090673684';
 const unscrambleScores = new Map(); // userId → all-time points
 let   _unscrambleLoaded = false;    // true once restored from backup, guards save
 let   unscramblePuzzle  = null;     // { word, scrambled, messageId, startedAt } or null
-let   unscrambleTimer   = null;     // setTimeout handle for next puzzle post
-const unscrambleDuels  = new Map(); // duelId → { id, challengerId, opponentId, target, challengerSolves, opponentSolves, threadId, currentWord, status, wordTimer }
+let   unscrambleTimer         = null;     // setTimeout handle for next puzzle post
+const unscrambleDuels        = new Map(); // duelId → duel state
+const unscrambleExpertScores = new Map(); // userId → all-time expert solves
+let   _unscrambleExpertLoaded = false;
+const unscrambleWeeklyScores      = new Map(); // userId → this-week regular solves
+const unscrambleExpertWeeklyScores = new Map(); // userId → this-week expert solves
+let   _unscrambleWeekKey     = null;      // ISO week for weekly reset tracking
+let   unscramblerOfWeekId    = null;      // current role holder
+const UNSCRAMBLER_ROLE_ID    = '1524483752984842573';
 
 // ── Imposter Game ─────────────────────────────────────────────────────────────
 const IMPOSTER_CHANNEL_ID  = '1498354389356904628';
@@ -2510,6 +2651,26 @@ function buildFullBackup() {
             for (const [uid, score] of unscrambleScores) if (score > 0) us[uid] = score;
             return us;
         })(),
+        unscrambleExpertScores: (() => {
+            const us = {};
+            for (const [uid, score] of unscrambleExpertScores) if (score > 0) us[uid] = score;
+            return us;
+        })(),
+        unscrambleWeekly: (() => {
+            const reg = {}, exp = {};
+            for (const [uid, s] of unscrambleWeeklyScores) reg[uid] = s;
+            for (const [uid, s] of unscrambleExpertWeeklyScores) exp[uid] = s;
+            return { weekKey: _unscrambleWeekKey, regular: reg, expert: exp, roleHolderId: unscramblerOfWeekId ?? null };
+        })(),
+        bumpData: (() => {
+            const weekKey = getISOWeekKey();
+            const weeks = {}, allTime = {};
+            for (const [uid, d] of bumpCounts) {
+                if (d.weeks[weekKey]) weeks[uid] = d.weeks[weekKey];
+                if (d.allTime) allTime[uid] = d.allTime;
+            }
+            return { weekKey, weekCounts: weeks, allTimeCounts: allTime, kingUserId: bumpKingUserId ?? null };
+        })(),
     };
 }
 
@@ -2837,13 +2998,48 @@ function applyBackupToMemory(data) {
     for (const [uid, d] of Object.entries(data.quarantine || {})) {
         if (!d.responded) quarantinedUsers.set(uid, { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: false, roles: d.roles || [] });
     }
-    // Unscramble scores
+    // Unscramble all-time scores
     unscrambleScores.clear();
     for (const [uid, score] of Object.entries(data.unscrambleScores || {})) {
         const n = Number(score);
         if (n > 0) unscrambleScores.set(uid, n);
     }
     if (unscrambleScores.size > 0) _unscrambleLoaded = true;
+
+    // Unscramble expert all-time scores
+    unscrambleExpertScores.clear();
+    for (const [uid, score] of Object.entries(data.unscrambleExpertScores || {})) {
+        const n = Number(score);
+        if (n > 0) unscrambleExpertScores.set(uid, n);
+    }
+    if (unscrambleExpertScores.size > 0) _unscrambleExpertLoaded = true;
+
+    // Unscramble weekly scores
+    const uw = data.unscrambleWeekly || {};
+    const currentWeekNow = getISOWeekKey();
+    if (uw.weekKey && uw.weekKey === currentWeekNow) {
+        unscrambleWeeklyScores.clear();
+        for (const [uid, s] of Object.entries(uw.regular || {})) unscrambleWeeklyScores.set(uid, Number(s));
+        unscrambleExpertWeeklyScores.clear();
+        for (const [uid, s] of Object.entries(uw.expert || {})) unscrambleExpertWeeklyScores.set(uid, Number(s));
+        unscramblerOfWeekId = uw.roleHolderId || null;
+    }
+    _unscrambleWeekKey = uw.weekKey || null;
+
+    // Bump counts
+    const bd = data.bumpData;
+    if (bd && bd.weekKey) {
+        const weekKey = getISOWeekKey();
+        const activeWeek = bd.weekKey === weekKey ? (bd.weekCounts || {}) : {};
+        const allUsers = new Set([...Object.keys(activeWeek), ...Object.keys(bd.allTimeCounts || {})]);
+        for (const uid of allUsers) {
+            const existing = bumpCounts.get(uid) || { weeks: {}, allTime: 0 };
+            if (activeWeek[uid]) existing.weeks[weekKey] = Number(activeWeek[uid]);
+            if (bd.allTimeCounts?.[uid]) existing.allTime = Number(bd.allTimeCounts[uid]);
+            bumpCounts.set(uid, existing);
+        }
+        if (!bumpKingUserId && bd.kingUserId) bumpKingUserId = bd.kingUserId;
+    }
 
     const voiceTotal = [...voiceMinutes.values()].reduce((s, v) => s + v.total, 0);
     console.log(`[BeastBot] ✅ State loaded: ${voiceMinutes.size} voice, ${messageDays.size} msg, ${rankAchievements.size} rank, ${reactionDays.size} reaction users (${voiceTotal} total voice mins), ${afkUsers.size} AFK, ${quarantinedUsers.size} quarantined`);
@@ -5530,6 +5726,7 @@ client.once('clientReady', async () => {
         })).then(() => console.log('[BeastBot] Emoji image cache warmed'));
         setInterval(() => checkMonthlyReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkWeeklyBumpReset(guild).catch(() => {}), 60 * 60 * 1000);
+        setInterval(() => checkUnscrambleWeeklyReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkQuarantineExpiry().catch(() => {}), 5 * 60 * 1000); // check every 5 min
         pushDiscordWidget().catch(() => {});
         setInterval(() => pushDiscordWidget().catch(() => {}), 15 * 60 * 1000);
@@ -6164,6 +6361,38 @@ client.once('clientReady', async () => {
     } catch (e) {
         console.error('[BeastBot] Failed to restore unscramble scores:', e.message);
     }
+    try {
+        const ueData = await firestoreGet('botConfig', 'unscrambleExpertScores');
+        if (ueData && ueData.scores) {
+            const obj = JSON.parse(ueData.scores);
+            for (const [uid, score] of Object.entries(obj)) {
+                const n = Number(score);
+                if (n > 0) unscrambleExpertScores.set(uid, n);
+            }
+            _unscrambleExpertLoaded = true;
+            console.log(`[BeastBot] 🔤 Unscramble expert scores restored — ${unscrambleExpertScores.size} players`);
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to restore unscramble expert scores:', e.message);
+    }
+    try {
+        const uwData = await firestoreGet('botConfig', 'unscrambleWeekly');
+        if (uwData && uwData.weekKey) {
+            const currentWeek = getISOWeekKey();
+            _unscrambleWeekKey = uwData.weekKey;
+            unscramblerOfWeekId = uwData.roleHolderId || null;
+            if (uwData.weekKey === currentWeek) {
+                const reg = JSON.parse(uwData.regular || '{}');
+                const exp = JSON.parse(uwData.expert  || '{}');
+                for (const [uid, s] of Object.entries(reg)) unscrambleWeeklyScores.set(uid, Number(s));
+                for (const [uid, s] of Object.entries(exp)) unscrambleExpertWeeklyScores.set(uid, Number(s));
+            }
+            console.log(`[BeastBot] 🔤 Unscramble weekly restored — week: ${uwData.weekKey}, reg: ${unscrambleWeeklyScores.size}, exp: ${unscrambleExpertWeeklyScores.size}`);
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to restore unscramble weekly:', e.message);
+    }
+    await checkUnscrambleWeeklyReset(client.guilds.cache.first()).catch(() => {});
     // Restore any active duels that were running before restart
     await restoreUnscrambleDuels().catch(e => console.error('[BeastBot] Duel restore error:', e.message));
 
@@ -6226,6 +6455,10 @@ function pickRandomWord() {
     return UNSCRAMBLE_WORDS[Math.floor(Math.random() * UNSCRAMBLE_WORDS.length)];
 }
 
+function pickRandomExpertWord() {
+    return UNSCRAMBLE_EXPERT_WORDS[Math.floor(Math.random() * UNSCRAMBLE_EXPERT_WORDS.length)];
+}
+
 function scrambleWord(word) {
     const arr = word.split('');
     let tries = 30;
@@ -6248,64 +6481,230 @@ async function saveUnscrambleScores() {
     });
 }
 
+async function saveUnscrambleExpertScores() {
+    if (!_unscrambleExpertLoaded) return;
+    const obj = {};
+    for (const [uid, score] of unscrambleExpertScores) obj[uid] = score;
+    await firestoreSet('botConfig', 'unscrambleExpertScores', {
+        scores:  JSON.stringify(obj),
+        savedAt: new Date().toISOString(),
+    });
+}
+
+async function saveUnscrambleWeekly() {
+    const weekKey = _unscrambleWeekKey || getISOWeekKey();
+    const reg = {};
+    for (const [uid, s] of unscrambleWeeklyScores) reg[uid] = s;
+    const exp = {};
+    for (const [uid, s] of unscrambleExpertWeeklyScores) exp[uid] = s;
+    await firestoreSet('botConfig', 'unscrambleWeekly', {
+        weekKey,
+        regular:        JSON.stringify(reg),
+        expert:         JSON.stringify(exp),
+        roleHolderId:   unscramblerOfWeekId ?? '',
+        savedAt:        new Date().toISOString(),
+    });
+}
+
+async function checkUnscrambleWeeklyReset(guild) {
+    const currentWeek = getISOWeekKey();
+    if (_unscrambleWeekKey === currentWeek) return;
+
+    const oldWeek = _unscrambleWeekKey;
+    _unscrambleWeekKey = currentWeek;
+
+    if (!oldWeek) {
+        await saveUnscrambleWeekly().catch(() => {});
+        return;
+    }
+
+    // Gather last week's regular + expert entries
+    const regEntries = [...unscrambleWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+    const expEntries = [...unscrambleExpertWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+    const topReg = regEntries[0] ?? null;
+
+    // Post weekly results in #unscramble
+    try {
+        const channel = await client.channels.fetch(UNSCRAMBLE_CHANNEL_ID).catch(() => null);
+        if (channel && (regEntries.length > 0 || expEntries.length > 0)) {
+            const medals  = ['🥇', '🥈', '🥉'];
+            const monday  = weekKeyToMonday(oldWeek);
+            const weekLabel = monday
+                ? monday.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                : oldWeek;
+
+            const regLines = regEntries.slice(0, 5).map(([uid, s], i) =>
+                `${medals[i] || `**${i + 1}.**`} <@${uid}> — **${s}** word${s === 1 ? '' : 's'}`);
+            const expLines = expEntries.slice(0, 5).map(([uid, s], i) =>
+                `${medals[i] || `**${i + 1}.**`} <@${uid}> — **${s}** word${s === 1 ? '' : 's'}`);
+
+            const crownLine = topReg ? `\n👑 <@${topReg[0]}> is this week's **Unscrambler of the Week!**` : '';
+
+            await channel.send({
+                content: topReg ? `<@${topReg[0]}>` : null,
+                embeds: [{
+                    color: 0xff9900,
+                    title: '🏆 Weekly Unscramble Results',
+                    description: crownLine,
+                    fields: [
+                        { name: '🟠 Regular', value: regLines.join('\n') || '*No solves this week*', inline: true },
+                        { name: '🔴 Expert', value: expLines.join('\n') || '*No solves this week*', inline: true },
+                    ],
+                    footer: { text: `Week of ${weekLabel} · New week starting now!` },
+                    timestamp: new Date().toISOString(),
+                }],
+            });
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to post unscramble weekly results:', e.message);
+    }
+
+    // Reassign Unscrambler of the Week role
+    if (UNSCRAMBLER_ROLE_ID && guild) {
+        if (unscramblerOfWeekId && unscramblerOfWeekId !== topReg?.[0]) {
+            try {
+                const old = await guild.members.fetch(unscramblerOfWeekId);
+                await old.roles.remove(UNSCRAMBLER_ROLE_ID);
+            } catch (_) {}
+        }
+        if (topReg?.[0]) {
+            try {
+                const winner = await guild.members.fetch(topReg[0]);
+                await winner.roles.add(UNSCRAMBLER_ROLE_ID);
+            } catch (_) {}
+        }
+        unscramblerOfWeekId = topReg?.[0] ?? null;
+    }
+
+    // Clear weekly maps for the new week
+    unscrambleWeeklyScores.clear();
+    unscrambleExpertWeeklyScores.clear();
+    await saveUnscrambleWeekly().catch(() => {});
+    console.log(`[BeastBot] 🔤 Unscramble weekly reset for ${oldWeek} → ${currentWeek}`);
+}
+
+function scheduleNextUnscramblePuzzle(bothSolved = false) {
+    if (unscrambleTimer) clearTimeout(unscrambleTimer);
+    const delay = bothSolved
+        ? (3 + Math.floor(Math.random() * 5)) * 60 * 1000   // 3–8 min after both solved
+        : (8 + Math.floor(Math.random() * 12)) * 60 * 1000; // 8–20 min auto-advance
+    unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
+}
+
 async function postUnscramblePuzzle() {
     if (!botFeatures.unscrambleGame) return;
     const channel = await client.channels.fetch(UNSCRAMBLE_CHANNEL_ID).catch(() => null);
     if (!channel) return;
 
-    const word      = pickRandomWord();
-    const scrambled = scrambleWord(word);
+    const word         = pickRandomWord();
+    const scrambled    = scrambleWord(word);
+    const expertWord   = pickRandomExpertWord();
+    const expertScr    = scrambleWord(expertWord);
 
     const msg = await channel.send({ embeds: [{
         color: 0xff9900,
-        title: '🔤 Unscramble the Word!',
-        description: `## \`${scrambled.toUpperCase()}\`\n\nType your answer in this channel — first correct guess wins a point!`,
-        footer: { text: `${word.length} letters` },
+        title: '🔤 Unscramble the Words!',
+        description: [
+            `🟠 **Regular** — ${word.length} letters`,
+            `## \`${scrambled.toUpperCase()}\``,
+            ``,
+            `🔴 **Expert** — ${expertWord.length} letters`,
+            `## \`${expertScr.toUpperCase()}\``,
+            ``,
+            `Type your answer in chat — first correct guess for each wins a point on its leaderboard!`,
+        ].join('\n'),
+        footer: { text: 'Regular (4–6 letters) • Expert (7–10 letters) • 8–20 min per round' },
         timestamp: new Date().toISOString(),
     }] }).catch(() => null);
 
-    unscramblePuzzle = { word, scrambled, messageId: msg?.id ?? null, startedAt: Date.now() };
-    console.log(`[BeastBot] 🔤 Unscramble: posted "${scrambled}" (answer: ${word})`);
+    unscramblePuzzle = {
+        word, scrambled,
+        expertWord, expertScrambled: expertScr,
+        messageId: msg?.id ?? null,
+        startedAt: Date.now(),
+        regularSolvedBy: null,
+        expertSolvedBy:  null,
+    };
+
+    scheduleNextUnscramblePuzzle(false);
+    console.log(`[BeastBot] 🔤 Unscramble: "${scrambled}"(${word}) + expert "${expertScr}"(${expertWord})`);
 }
 
 async function handleUnscrambleMessage(message) {
     if (message.author.bot) return;
     if (!botFeatures.unscrambleGame) return;
-
-    const trimmed = message.content.trim();
-
-    // Let multi-word messages through so people can chat normally
-    if (/\s/.test(trimmed)) return;
-
-    // No active puzzle — single-word messages are fine too
+    if (/\s/.test(message.content.trim())) return;
     if (!unscramblePuzzle) return;
 
-    const guess = trimmed.toLowerCase();
+    const guess = message.content.trim().toLowerCase();
+    const uid   = message.author.id;
+    let hit     = false;
 
-    if (guess === unscramblePuzzle.word) {
-        const uid      = message.author.id;
-        const newScore = (unscrambleScores.get(uid) || 0) + 1;
-        unscrambleScores.set(uid, newScore);
+    // ── Regular word ─────────────────────────────────────────────────────────
+    if (!unscramblePuzzle.regularSolvedBy && guess === unscramblePuzzle.word) {
+        const solvedWord = unscramblePuzzle.word;
+        unscramblePuzzle.regularSolvedBy = uid;
+
+        const allTime = (unscrambleScores.get(uid) || 0) + 1;
+        unscrambleScores.set(uid, allTime);
         _unscrambleLoaded = true;
 
-        const solved = unscramblePuzzle;
-        unscramblePuzzle = null;
+        const weekly = (unscrambleWeeklyScores.get(uid) || 0) + 1;
+        unscrambleWeeklyScores.set(uid, weekly);
 
         await message.react('✅').catch(() => {});
+        const expertStillOpen = !unscramblePuzzle?.expertSolvedBy;
         await message.channel.send({ embeds: [{
             color: 0x00cc44,
-            title: '🎉 Correct!',
-            description: `<@${uid}> solved it! The word was **${solved.word}**.\nThey now have **${newScore}** point${newScore === 1 ? '' : 's'} on the leaderboard!`,
-            footer: { text: 'Next puzzle coming soon...' },
+            title: '🟠 Regular — Correct!',
+            description: `<@${uid}> solved the regular word! It was **${solvedWord}**.\nThey have **${allTime}** all-time solve${allTime === 1 ? '' : 's'} and **${weekly}** this week.`,
+            footer: { text: expertStillOpen ? '🔴 Expert word still open!' : '✅ Both words solved!' },
             timestamp: new Date().toISOString(),
         }] }).catch(() => {});
 
         saveUnscrambleScores().catch(() => {});
+        saveUnscrambleWeekly().catch(() => {});
 
-        // Post next puzzle after a short break
-        const delay = (5 + Math.floor(Math.random() * 10)) * 60 * 1000; // 5–15 min
-        unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
-    } else {
+        if (unscramblePuzzle?.expertSolvedBy) {
+            unscramblePuzzle = null;
+            scheduleNextUnscramblePuzzle(true);
+        }
+        hit = true;
+    }
+
+    // ── Expert word ──────────────────────────────────────────────────────────
+    if (!unscramblePuzzle?.expertSolvedBy && unscramblePuzzle && guess === unscramblePuzzle.expertWord) {
+        const solvedWord = unscramblePuzzle.expertWord;
+        unscramblePuzzle.expertSolvedBy = uid;
+
+        const allTime = (unscrambleExpertScores.get(uid) || 0) + 1;
+        unscrambleExpertScores.set(uid, allTime);
+        _unscrambleExpertLoaded = true;
+
+        const weekly = (unscrambleExpertWeeklyScores.get(uid) || 0) + 1;
+        unscrambleExpertWeeklyScores.set(uid, weekly);
+
+        await message.react('✅').catch(() => {});
+        const regularStillOpen = !unscramblePuzzle?.regularSolvedBy;
+        await message.channel.send({ embeds: [{
+            color: 0x9b59b6,
+            title: '🔴 Expert — Correct!',
+            description: `<@${uid}> solved the expert word! It was **${solvedWord}**.\nThey have **${allTime}** expert solve${allTime === 1 ? '' : 's'} and **${weekly}** this week.`,
+            footer: { text: regularStillOpen ? '🟠 Regular word still open!' : '✅ Both words solved!' },
+            timestamp: new Date().toISOString(),
+        }] }).catch(() => {});
+
+        saveUnscrambleExpertScores().catch(() => {});
+        saveUnscrambleWeekly().catch(() => {});
+
+        if (unscramblePuzzle?.regularSolvedBy) {
+            unscramblePuzzle = null;
+            scheduleNextUnscramblePuzzle(true);
+        }
+        hit = true;
+    }
+
+    if (!hit) {
         await message.react('❌').catch(() => {});
     }
 }
@@ -11290,33 +11689,53 @@ client.on('interactionCreate', async (interaction) => {
 
         // ── /unscramble-leaderboard ───────────────────────────────────────────
         if (interaction.commandName === 'unscramble-leaderboard') {
-            const entries = [...unscrambleScores.entries()]
-                .filter(([, s]) => s > 0)
-                .sort(([, a], [, b]) => b - a)
-                .slice(0, 10);
+            const medals  = ['🥇', '🥈', '🥉'];
+            const weekKey = getISOWeekKey();
+            const monday  = weekKeyToMonday(weekKey);
+            const sunday  = monday ? new Date(monday.getTime() + 6 * 86400000) : null;
+            const weekRange = monday && sunday
+                ? `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : weekKey;
 
-            if (entries.length === 0) {
-                await interaction.reply({ content: `📋 No unscramble scores yet! Check <#${UNSCRAMBLE_CHANNEL_ID}> to play.`, ephemeral: true });
-                return;
-            }
+            const fmtLines = (entries, label) => entries.length
+                ? entries.slice(0, 8).map(([uid, s], i) => `${medals[i] || `**${i + 1}.**`} <@${uid}> — **${s}** ${label}${s === 1 ? '' : 's'}`).join('\n')
+                : '*No scores yet*';
 
-            const medals = ['🥇', '🥈', '🥉'];
-            const lines  = entries.map(([uid, score], i) => {
-                const prefix = medals[i] || `**${i + 1}.**`;
-                return `${prefix} <@${uid}> — **${score}** point${score === 1 ? '' : 's'}`;
-            });
+            // Weekly
+            const weekRegEntries = [...unscrambleWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+            const weekExpEntries = [...unscrambleExpertWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+            // All-time
+            const allRegEntries  = [...unscrambleScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+            const allExpEntries  = [...unscrambleExpertScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
 
-            const currentInfo = unscramblePuzzle
-                ? `\n\n🔤 **Active puzzle:** \`${unscramblePuzzle.scrambled.toUpperCase()}\` — go guess it!`
+            const activePuzzleText = unscramblePuzzle
+                ? `\n🟠 \`${unscramblePuzzle.scrambled.toUpperCase()}\`  🔴 \`${unscramblePuzzle.expertScrambled.toUpperCase()}\` — go solve them!`
                 : '';
+            const roleHolderText = unscramblerOfWeekId ? `👑 Current **Unscrambler of the Week:** <@${unscramblerOfWeekId}>\n\n` : '';
 
-            await interaction.reply({ embeds: [{
-                color: 0xff9900,
-                title: '🔤 Unscramble Leaderboard',
-                description: lines.join('\n') + currentInfo,
-                footer: { text: 'All-time points' },
-                timestamp: new Date().toISOString(),
-            }] });
+            await interaction.reply({ embeds: [
+                {
+                    color: 0xff9900,
+                    title: '📅 This Week\'s Leaderboard',
+                    description: `${roleHolderText}`,
+                    fields: [
+                        { name: '🟠 Regular Solves', value: fmtLines(weekRegEntries, 'solve'), inline: true },
+                        { name: '🔴 Expert Solves',  value: fmtLines(weekExpEntries, 'solve'), inline: true },
+                    ],
+                    footer: { text: `Week: ${weekRange} · Resets Monday midnight UTC · Winner gets Unscrambler of the Week role${activePuzzleText}` },
+                    timestamp: new Date().toISOString(),
+                },
+                {
+                    color: 0x5865f2,
+                    title: '🏆 All-Time Leaderboard',
+                    fields: [
+                        { name: '🟠 Regular Solves', value: fmtLines(allRegEntries, 'solve'), inline: true },
+                        { name: '🔴 Expert Solves',  value: fmtLines(allExpEntries, 'solve'), inline: true },
+                    ],
+                    footer: { text: 'All-time totals since launch' },
+                    timestamp: new Date().toISOString(),
+                },
+            ] });
             return;
         }
 
