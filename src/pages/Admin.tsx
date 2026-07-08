@@ -1020,7 +1020,7 @@ function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: But
               )}
               {bot.channels.length > 0 && (
                 <>
-                  <div className="px-3 py-1 bg-white/[0.03] text-[10px] text-gray-500 uppercase tracking-wider sticky top-0">Channels</div>
+                  <div className="px-3 py-1 bg-[#1a1b1e] text-[10px] text-gray-500 uppercase tracking-wider sticky top-0">Channels</div>
                   {bot.channels.map((c) => {
                     const checked = (btn.formConfig!.destChannelIds ?? []).includes(c.id);
                     return (
@@ -1038,7 +1038,7 @@ function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: But
               )}
               {bot.threads.length > 0 && (
                 <>
-                  <div className="px-3 py-1 bg-white/[0.03] text-[10px] text-gray-500 uppercase tracking-wider sticky top-0">Threads</div>
+                  <div className="px-3 py-1 bg-[#1a1b1e] text-[10px] text-gray-500 uppercase tracking-wider sticky top-0">Threads</div>
                   {bot.threads.map((t) => {
                     const checked = (btn.formConfig!.destChannelIds ?? []).includes(t.id);
                     const parent = bot.channels.find((c) => c.id === (t as any).parent_id);
