@@ -49,7 +49,7 @@ interface EmbedData {
   image: string; thumbnail: string; footer: EmbedFooter;
 }
 interface FormField { id: string; label: string; placeholder: string; style: 'short' | 'paragraph'; required: boolean }
-interface FormConfig { formTitle: string; fields: FormField[]; destChannelId: string; oneTime: boolean; confirmMsg: string }
+interface FormConfig { formTitle: string; fields: FormField[]; destChannelIds: string[]; dmSubmitter: boolean; oneTime: boolean; confirmMsg: string }
 interface ButtonData {
   label: string; url: string; emoji: string; disabled?: boolean;
   type?: 'link' | 'form'; formId?: string; formConfig?: FormConfig; btnStyle?: 1 | 2 | 3 | 4;
@@ -74,14 +74,14 @@ type Feedback = { type: 'success' | 'error'; message: string } | null;
 
 interface BotData {
   ready: boolean; loading: boolean;
-  channels: DiscordChannel[]; emojis: DiscordEmoji[];
+  channels: DiscordChannel[]; threads: DiscordChannel[]; emojis: DiscordEmoji[];
   roles: DiscordRole[]; members: Record<string, string>;
   fetch: () => Promise<void>;
 }
 
 const BotCtx = createContext<BotData>({
   ready: false, loading: false,
-  channels: [], emojis: [], roles: [], members: {},
+  channels: [], threads: [], emojis: [], roles: [], members: {},
   fetch: async () => {},
 });
 
@@ -89,6 +89,7 @@ function BotProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
+  const [threads, setThreads] = useState<DiscordChannel[]>([]);
   const [emojis, setEmojis] = useState<DiscordEmoji[]>([]);
   const [roles, setRoles] = useState<DiscordRole[]>([]);
   const [members, setMembers] = useState<Record<string, string>>({});
@@ -98,11 +99,12 @@ function BotProvider({ children }: { children: React.ReactNode }) {
     if (!base) return;
     setLoading(true);
     try {
-      const [chRes, emRes, roRes, mbRes] = await Promise.all([
+      const [chRes, emRes, roRes, mbRes, thrRes] = await Promise.all([
         fetch(base + '/discord/channels').then((r) => r.json()),
         fetch(base + '/discord/emojis').then((r) => r.json()),
         fetch(base + '/discord/roles').then((r) => r.json()),
         fetch(base + '/discord/members').then((r) => r.json()),
+        fetch(base + '/discord/threads').then((r) => r.json()).catch(() => ({})),
       ]);
       if (Array.isArray(chRes)) {
         const textChannels = chRes
@@ -120,6 +122,9 @@ function BotProvider({ children }: { children: React.ReactNode }) {
         });
         setMembers(map);
       }
+      if (thrRes?.threads && Array.isArray(thrRes.threads)) {
+        setThreads(thrRes.threads.sort((a: any, b: any) => a.name.localeCompare(b.name)));
+      }
       setReady(true);
     } catch (err) {
       console.warn('Bot fetch failed:', err);
@@ -132,7 +137,7 @@ function BotProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { fetchBot(); }, [fetchBot]);
 
   return (
-    <BotCtx.Provider value={{ ready, loading, channels, emojis, roles, members, fetch: fetchBot }}>
+    <BotCtx.Provider value={{ ready, loading, channels, threads, emojis, roles, members, fetch: fetchBot }}>
       {children}
     </BotCtx.Provider>
   );
@@ -202,7 +207,7 @@ function newButton(): ButtonData { return { label: '', url: '', emoji: '', disab
 function newFormField(): FormField { return { id: uid(), label: '', placeholder: '', style: 'short', required: true }; }
 function newFormButton(): ButtonData {
   return { label: '', url: '', emoji: '', disabled: false, type: 'form', formId: uid(), btnStyle: 1,
-    formConfig: { formTitle: '', fields: [newFormField()], destChannelId: '', oneTime: false, confirmMsg: 'Your response has been submitted!' } };
+    formConfig: { formTitle: '', fields: [newFormField()], destChannelIds: [], dmSubmitter: false, oneTime: false, confirmMsg: 'Your response has been submitted!' } };
 }
 
 function emptyState(): ComposerState {
@@ -885,7 +890,7 @@ function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: But
   };
 
   const updateFormConfig = (upd: Partial<FormConfig>) =>
-    onChange({ formConfig: { ...(btn.formConfig ?? { formTitle: '', fields: [], destChannelId: '', oneTime: false, confirmMsg: '' }), ...upd } });
+    onChange({ formConfig: { ...(btn.formConfig ?? { formTitle: '', fields: [], destChannelIds: [], dmSubmitter: false, oneTime: false, confirmMsg: '' }), ...upd } });
 
   const updateFormField = (fi: number, upd: Partial<FormField>) => {
     const fields = [...(btn.formConfig?.fields ?? [])];
@@ -908,7 +913,7 @@ function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: But
           {(['link', 'form'] as const).map((t) => (
             <button key={t} type="button"
               onClick={() => {
-                if (t === 'form' && !isForm) onChange({ type: 'form', url: '', formId: btn.formId || uid(), formConfig: btn.formConfig ?? { formTitle: '', fields: [newFormField()], destChannelId: '', oneTime: false, confirmMsg: 'Your response has been submitted!' }, btnStyle: btn.btnStyle ?? 1 });
+                if (t === 'form' && !isForm) onChange({ type: 'form', url: '', formId: btn.formId || uid(), formConfig: btn.formConfig ?? { formTitle: '', fields: [newFormField()], destChannelIds: [], dmSubmitter: false, oneTime: false, confirmMsg: 'Your response has been submitted!' }, btnStyle: btn.btnStyle ?? 1 });
                 if (t === 'link' && isForm) onChange({ type: 'link', formConfig: undefined });
               }}
               className={`px-2.5 py-0.5 rounded text-[11px] font-medium border transition-colors cursor-pointer ${btn.type === t ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-white/5 text-gray-500 border-white/5 hover:bg-white/10'}`}>
@@ -970,9 +975,10 @@ function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: But
                       onChange={(e) => updateFormField(fi, { label: e.target.value })}
                       className={inpSm + ' flex-1'} />
                     <select value={field.style} onChange={(e) => updateFormField(fi, { style: e.target.value as 'short' | 'paragraph' })}
-                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none cursor-pointer flex-shrink-0">
-                      <option value="short">Short</option>
-                      <option value="paragraph">Paragraph</option>
+                      style={{ backgroundColor: '#1e1f22', color: 'white' }}
+                      className="border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:outline-none cursor-pointer flex-shrink-0">
+                      <option value="short" style={{ backgroundColor: '#1e1f22' }}>Short</option>
+                      <option value="paragraph" style={{ backgroundColor: '#1e1f22' }}>Paragraph</option>
                     </select>
                     {btn.formConfig!.fields.length > 1 && (
                       <button type="button" onClick={() => updateFormConfig({ fields: btn.formConfig!.fields.filter((_, i) => i !== fi) })}
@@ -999,15 +1005,60 @@ function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: But
             )}
           </div>
 
-          {/* Destination channel */}
+          {/* Destination(s) */}
           <div>
-            <label className={subLbl}>Send submissions to channel</label>
-            <select value={btn.formConfig.destChannelId}
-              onChange={(e) => updateFormConfig({ destChannelId: e.target.value })}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-pointer">
-              <option value="">— Select a channel —</option>
-              {bot.channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
-            </select>
+            <label className={subLbl}>Send submissions to</label>
+            <label className="flex items-center gap-2 cursor-pointer select-none mb-2">
+              <input type="checkbox" checked={!!btn.formConfig.dmSubmitter}
+                onChange={(e) => updateFormConfig({ dmSubmitter: e.target.checked })}
+                className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+              <span className="text-xs text-gray-300">DM the person who submitted</span>
+            </label>
+            <div className="border border-white/10 rounded-lg overflow-hidden max-h-44 overflow-y-auto text-xs">
+              {bot.channels.length === 0 && bot.threads.length === 0 && (
+                <p className="text-gray-600 px-3 py-2">Bot not connected — connect above</p>
+              )}
+              {bot.channels.length > 0 && (
+                <>
+                  <div className="px-3 py-1 bg-white/[0.03] text-[10px] text-gray-500 uppercase tracking-wider sticky top-0">Channels</div>
+                  {bot.channels.map((c) => {
+                    const checked = (btn.formConfig!.destChannelIds ?? []).includes(c.id);
+                    return (
+                      <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 cursor-pointer">
+                        <input type="checkbox" checked={checked} className="w-3 h-3 rounded accent-indigo-500 cursor-pointer flex-shrink-0"
+                          onChange={() => {
+                            const ids = btn.formConfig!.destChannelIds ?? [];
+                            updateFormConfig({ destChannelIds: checked ? ids.filter((id) => id !== c.id) : [...ids, c.id] });
+                          }} />
+                        <span className="text-gray-300 truncate">{c.type === 5 ? '📢' : '#'} {c.name}</span>
+                      </label>
+                    );
+                  })}
+                </>
+              )}
+              {bot.threads.length > 0 && (
+                <>
+                  <div className="px-3 py-1 bg-white/[0.03] text-[10px] text-gray-500 uppercase tracking-wider sticky top-0">Threads</div>
+                  {bot.threads.map((t) => {
+                    const checked = (btn.formConfig!.destChannelIds ?? []).includes(t.id);
+                    const parent = bot.channels.find((c) => c.id === (t as any).parent_id);
+                    return (
+                      <label key={t.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 cursor-pointer">
+                        <input type="checkbox" checked={checked} className="w-3 h-3 rounded accent-indigo-500 cursor-pointer flex-shrink-0"
+                          onChange={() => {
+                            const ids = btn.formConfig!.destChannelIds ?? [];
+                            updateFormConfig({ destChannelIds: checked ? ids.filter((id) => id !== t.id) : [...ids, t.id] });
+                          }} />
+                        <span className="text-gray-300 truncate">💬 {t.name}{parent ? <span className="text-gray-600"> (#{parent.name})</span> : null}</span>
+                      </label>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+            {(btn.formConfig.destChannelIds?.length ?? 0) > 0 && (
+              <p className="text-[10px] text-indigo-400 mt-1">{btn.formConfig.destChannelIds!.length} destination{btn.formConfig.destChannelIds!.length !== 1 ? 's' : ''} selected</p>
+            )}
           </div>
 
           {/* Confirm message */}
@@ -3281,8 +3332,8 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
   const kindLabel: Record<V2BlockKind, string> = { text: 'T', fields: '≡', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡' };
 
   return (
-    <div className="border border-white/5 rounded-xl overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2.5 bg-white/[0.02]">
+    <div className="border border-white/5 rounded-xl">
+      <div className={`flex items-center gap-2 px-3 py-2.5 bg-white/[0.02] ${open ? 'rounded-t-xl' : 'rounded-xl'}`}>
         <span className="text-gray-500 text-xs w-5 text-center font-mono select-none">{kindLabel[block.kind]}</span>
         <button type="button" onClick={() => setOpen(!open)} className="flex-1 text-left min-w-0">
           <span className="text-sm font-medium text-gray-200">{typeInfo.label}</span>
@@ -3990,18 +4041,24 @@ function AnnouncementsV2Tab() {
               </label>
             </div>
             {state.showAccent && (
-              <div className="flex items-center gap-3 flex-wrap">
-                <input type="color" value={state.accentColor}
-                  onChange={(e) => setState((s) => ({ ...s, accentColor: e.target.value }))}
-                  className="w-9 h-9 rounded-lg border border-white/10 bg-transparent cursor-pointer p-0.5 flex-shrink-0" />
-                <span className="text-xs text-gray-500 font-mono">{state.accentColor}</span>
-                <div className="flex gap-1.5 flex-wrap">
-                  {V2_ACCENT_PRESETS.map((color) => (
-                    <button key={color} type="button" title={color}
-                      onClick={() => setState((s) => ({ ...s, accentColor: color }))}
-                      className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border-2"
-                      style={{ backgroundColor: color, borderColor: state.accentColor === color ? 'white' : 'transparent' }} />
-                  ))}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-gray-500 uppercase tracking-wider w-14 flex-shrink-0">Custom</label>
+                  <input type="color" value={state.accentColor}
+                    onChange={(e) => setState((s) => ({ ...s, accentColor: e.target.value }))}
+                    className="flex-1 h-8 rounded-lg border border-white/10 cursor-pointer p-0.5" />
+                  <span className="text-xs text-gray-500 font-mono w-16 flex-shrink-0">{state.accentColor}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-gray-500 uppercase tracking-wider w-14 flex-shrink-0">Presets</label>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {V2_ACCENT_PRESETS.map((color) => (
+                      <button key={color} type="button" title={color}
+                        onClick={() => setState((s) => ({ ...s, accentColor: color }))}
+                        className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border-2"
+                        style={{ backgroundColor: color, borderColor: state.accentColor === color ? 'white' : 'transparent' }} />
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

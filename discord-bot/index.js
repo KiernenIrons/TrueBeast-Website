@@ -342,8 +342,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📋 Announcement form buttons', value: 'Announcements v2 now supports interactive form buttons. Click a button → a popup form appears → answers get posted to a chosen channel. Fully customisable from the admin panel.' },
-    { name: '🔒 One-time submission option', value: 'Form buttons can be set to one-time only — if you\'ve already submitted, clicking the button again tells you so instead of showing the form again.' },
+    { name: '📋 Announcement form buttons', value: 'Announcements v2 now supports interactive form buttons. Click a button → a popup form appears → answers get posted to your chosen channels. Fully customisable from the admin panel.' },
+    { name: '💬 Threads + DM destinations', value: 'Form responses can now be sent to multiple channels, active threads, and/or DM\'d directly to the person who submitted — all configurable from the admin panel.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -9335,9 +9335,15 @@ async function handleAnnFormModalSubmit(interaction) {
             timestamp: new Date().toISOString(),
         };
 
-        if (config.destChannelId) {
-            const destChannel = await client.channels.fetch(config.destChannelId).catch(() => null);
-            if (destChannel) await destChannel.send({ embeds: [embed] });
+        // Support both old single destChannelId and new destChannelIds array
+        const destIds = Array.isArray(config.destChannelIds) ? config.destChannelIds
+            : config.destChannelId ? [config.destChannelId] : [];
+        for (const cid of destIds) {
+            const destChannel = await client.channels.fetch(cid).catch(() => null);
+            if (destChannel) await destChannel.send({ embeds: [embed] }).catch(() => {});
+        }
+        if (config.dmSubmitter) {
+            await user.send({ embeds: [embed] }).catch(() => {});
         }
 
         if (config.oneTime) {

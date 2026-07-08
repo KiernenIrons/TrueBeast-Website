@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Form buttons: multi-destination, threads, DM submitter
+
+- `handleAnnFormModalSubmit`: replace single `config.destChannelId` with `config.destChannelIds[]` array, iterating each to post the submission embed
+- Backward compat: falls back to `config.destChannelId` string if the old field is present
+- Added DM path: if `config.dmSubmitter` is true, `user.send({ embeds: [embed] })` the submitter directly (`.catch` swallows DM-closed errors)
+- Cloudflare worker: new `GET /discord/threads` route calling `GET /guilds/{id}/threads/active`
+
 ## [2026-07-08] — Announcements v2: custom form buttons with modal submission
 
 - Added `handleAnnFormButton` — reads form config from `botConfig/annform_<id>`, builds a Discord modal with up to 5 configurable fields (short or paragraph), and shows it to the user
