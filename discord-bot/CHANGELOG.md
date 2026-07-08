@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Duel: fix race condition + ping
+
+- Challenge reply now includes `content: <@opponentId>` so the opponent is actually notified
+- Fixed race condition in `handleDuelMessage`: word is now claimed synchronously (before any `await`) so two simultaneous correct answers can't both be counted — only the first one through wins the round
+- This also fixes the double `duelPostNextWord` call that caused a round to be skipped, and the dual win condition where both players could reach the target at the same time
+
 ## [2026-07-08] — Add 1v1 Unscramble Duel mode
 
 - New `/unscramble-duel @user [words]` command — challenge anyone to a head-to-head unscramble match (2–15 words, default 5)

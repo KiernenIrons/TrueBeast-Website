@@ -211,10 +211,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
     { name: '⚔️ 1v1 Unscramble Duels', value: 'Use /unscramble-duel @user in #unscramble to challenge someone to a head-to-head duel! First to unscramble the chosen number of words wins. Pick 2–15 words (default 5).' },
-    { name: '🧵 Private Duel Threads', value: 'Each duel runs in its own private thread — only the two players can see it. Guesses go there, and when the duel ends the thread is automatically deleted.' },
-    { name: '📣 Results in #unscramble', value: 'When a duel ends, the winner and final score are posted in #unscramble for everyone to see.' },
-    { name: '🔄 Duels Survive Bot Restarts', value: 'Active duels are saved to Firestore. If the bot restarts mid-duel, it reconnects to the thread, re-announces the current word, and the game continues.' },
-    { name: '⏱️ 5-Minute Word Timer', value: 'Each word in a duel has a 5-minute time limit. If neither player guesses it in time, no point is awarded and the next word is posted automatically.' },
+    { name: '🔔 Duel challenge now pings you', value: 'The challenge message now pings the opponent outside the embed so they actually get a notification.' },
+    { name: '🐛 Fix: simultaneous correct answers', value: 'If both players typed the right answer at the same moment, both got a point and the game skipped a round or broke the win condition. Only the first answer in now counts.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -6451,16 +6449,18 @@ async function handleDuelMessage(message, duel) {
         return;
     }
 
-    await message.react('✅').catch(() => {});
+    // Claim the word synchronously before any await so a simultaneous correct
+    // guess from the other player sees null and bails out at the top-level check.
+    const solvedWord = duel.currentWord;
+    duel.currentWord = null;
+    duel.currentScrambled = null;
     if (duel.wordTimer) { clearTimeout(duel.wordTimer); duel.wordTimer = null; }
 
     const uid = message.author.id;
     if (uid === duel.challengerId) duel.challengerSolves++;
     else duel.opponentSolves++;
 
-    const solvedWord = duel.currentWord;
-    duel.currentWord = null;
-    duel.currentScrambled = null;
+    await message.react('✅').catch(() => {});
     saveUnscrambleDuels().catch(() => {});
 
     if (duel.challengerSolves >= duel.target || duel.opponentSolves >= duel.target) {
@@ -11366,6 +11366,7 @@ client.on('interactionCreate', async (interaction) => {
             unscrambleDuels.set(duelId, duel);
 
             await interaction.reply({
+                content: `<@${opponent.id}>`,
                 embeds: [{
                     color: 0xff9900,
                     title: '⚔️ Unscramble Duel Challenge!',
