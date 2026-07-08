@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Quarantine: role strip, voice kick, unquarantine button, spam tuning
+
+- When a user is quarantined (auto or manual), all non-managed roles are stripped and saved to state
+- Quarantined users are immediately disconnected from voice chat
+- Mod channel notification now includes the list of stripped roles and an "Unquarantine & Restore Roles" button
+- Clicking the button removes the quarantine role, re-adds all saved roles, disables the button, and logs to audit
+- Manual role removal (mod removes quarantine role directly in Discord) also triggers role restoration via `guildMemberUpdate`
+- Spam flood threshold raised from 8 → 15 messages per 60s
+- Spam rate filter skipped entirely for #unscramble, #counting, and #the-pond
+
 ## [2026-07-03] — Widget: combine stats into single fields per platform
 
 - Merged youtube_subs + youtube_views into one `youtube_stats` field ("120K subscribers • 52.4M views")

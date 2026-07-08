@@ -210,7 +210,10 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📊 Widget Stats', value: 'Profile widget now shows combined stats per platform: YouTube (subs • views), TikTok (followers • likes), Instagram (followers), and Discord members — all in one field each, updated every 15 minutes.' },
+    { name: '🔒 Quarantine: Role Strip + Voice Kick', value: 'When a user is quarantined, all their roles are automatically removed and saved. They\'re also disconnected from voice chat immediately.' },
+    { name: '✅ One-Click Unquarantine', value: 'Mods now get a button in the mod channel to unquarantine someone instantly — it restores all their original roles automatically.' },
+    { name: '🎮 Spam Filter Exemptions', value: 'The spam rate filter no longer applies in #unscramble, #counting, or #the-pond — fast message activity in those channels won\'t trigger quarantine.' },
+    { name: '⚙️ Spam Threshold Raised', value: 'The auto-quarantine flood threshold has been raised from 8 to 15 messages per minute, reducing false positives for active chatters.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1394,7 +1397,14 @@ const QUARANTINE_ROLE_ID    = '1522001409334313030';
 const QUARANTINE_CHANNEL_ID = '1522016873653207080'; // #quarantine — readable by quarantined users
 const QUARANTINE_BAN_MS     = 48 * 60 * 60 * 1000; // 48 hours
 
-// userId → { timestamp, guildId, reason, responded }
+// Channels exempt from the spam-rate filter (high-activity game channels)
+const SPAM_EXEMPT_CHANNEL_IDS = new Set([
+    '1522112363090673684', // #unscramble
+    '1486479498248585277', // #counting
+    '1517699652982407168', // #the-pond
+]);
+
+// userId → { timestamp, guildId, reason, responded, roles: [roleId, ...] }
 const quarantinedUsers = new Map();
 
 // userId → { msgs: [ts, ...], mentionSet: Set, mentionWindowStart: ts }
@@ -1696,6 +1706,21 @@ async function quarantineUser(guild, member, reason, moderator = null) {
     if (quarantinedUsers.has(member.id)) return;
     if (member.user.bot) return;
     try {
+        // Collect all assignable roles before stripping them
+        const rolesToSave = member.roles.cache
+            .filter(r => r.id !== guild.roles.everyone.id && r.id !== QUARANTINE_ROLE_ID && !r.managed)
+            .map(r => r.id);
+
+        // Strip all non-managed roles so quarantine fully locks the account
+        if (rolesToSave.length > 0) {
+            await member.roles.remove(rolesToSave, `Quarantine: stripping roles`).catch(() => {});
+        }
+
+        // Disconnect from voice if currently connected
+        if (member.voice?.channelId) {
+            await member.voice.disconnect('Quarantined').catch(() => {});
+        }
+
         // Only add the role when the bot is doing the quarantine; manual adds already have it
         if (!member.roles.cache.has(QUARANTINE_ROLE_ID)) {
             await member.roles.add(QUARANTINE_ROLE_ID, `Auto-quarantine: ${reason}`);
@@ -1705,20 +1730,30 @@ async function quarantineUser(guild, member, reason, moderator = null) {
             guildId:   guild.id,
             reason,
             responded: false,
+            roles:     rolesToSave,
         });
         // Tell the user in the quarantine channel (must be a channel they can still read)
         if (QUARANTINE_CHANNEL_ID) {
             const qCh = await client.channels.fetch(QUARANTINE_CHANNEL_ID).catch(() => null);
             if (qCh) await qCh.send(`Hello <@${member.id}>! Your account has been flagged for suspicious activity. Please confirm you're human.`);
         }
-        // Notify mods — include who quarantined if manual
+        // Notify mods with saved role list and one-click unquarantine button
         if (MOD_CHANNEL_ID) {
             const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
             if (modCh) {
+                const roleList = rolesToSave.length
+                    ? `\n**Stripped roles:** ${rolesToSave.map(id => `<@&${id}>`).join(', ')}`
+                    : '';
                 const modDesc = moderator
-                    ? `🚨 <@${member.id}> was **manually quarantined** by **${moderator}**\nReason: ${reason}\n\nThe 48h auto-ban countdown has started. Remove the <@&${QUARANTINE_ROLE_ID}> role to cancel it.`
-                    : `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}\n\nIf this was a mistake, remove the <@&${QUARANTINE_ROLE_ID}> role manually.`;
-                await modCh.send({ embeds: [buildLogEmbed({ color: 0xFF6B00, user: member.user, description: modDesc })] });
+                    ? `🚨 <@${member.id}> was **manually quarantined** by **${moderator}**\nReason: ${reason}${roleList}\n\nThe 48h auto-ban countdown has started.`
+                    : `🚨 <@${member.id}> was **auto-quarantined**\nReason: ${reason}${roleList}\n\nIf this was a mistake, click **Unquarantine** below — their roles will be restored automatically.`;
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`quarantine:unquarantine:${member.id}`)
+                        .setLabel('✅ Unquarantine & Restore Roles')
+                        .setStyle(ButtonStyle.Success),
+                );
+                await modCh.send({ embeds: [buildLogEmbed({ color: 0xFF6B00, user: member.user, description: modDesc })], components: [row] });
             }
         }
         await sendLog(guild, buildLogEmbed({
@@ -1731,6 +1766,38 @@ async function quarantineUser(guild, member, reason, moderator = null) {
         console.log(`[BeastBot] 🚨 Quarantined ${member.user.tag}: ${reason}${moderator ? ` (by ${moderator})` : ''}`);
     } catch (e) {
         console.error(`[BeastBot] Failed to quarantine ${member.user.tag}:`, e.message);
+    }
+}
+
+// Lifts quarantine: removes the role, restores saved roles, cleans up state.
+// modTag — display name/tag of whoever triggered the unquarantine (or null for auto/manual role removal).
+async function unquarantineUser(guild, member, modTag = null) {
+    const qData = quarantinedUsers.get(member.id);
+    quarantinedUsers.delete(member.id); // delete first to prevent re-entry from guildMemberUpdate
+
+    try {
+        if (member.roles.cache.has(QUARANTINE_ROLE_ID)) {
+            await member.roles.remove(QUARANTINE_ROLE_ID, 'Unquarantine').catch(() => {});
+        }
+
+        const restoredRoles = [];
+        for (const roleId of (qData?.roles || [])) {
+            const role = guild.roles.cache.get(roleId);
+            if (!role || role.managed) continue;
+            await member.roles.add(roleId, 'Unquarantine: restoring roles').catch(() => {});
+            restoredRoles.push(roleId);
+        }
+
+        const roleList = restoredRoles.length ? `\n**Restored roles:** ${restoredRoles.map(id => `<@&${id}>`).join(', ')}` : '';
+        const byLine   = modTag ? ` by **${modTag}**` : '';
+        await sendLog(guild, buildLogEmbed({
+            color:       0x00CC44,
+            user:        member.user,
+            description: `✅ <@${member.id}> was **unquarantined**${byLine}${roleList}`,
+        }));
+        console.log(`[BeastBot] ✅ Unquarantined ${member.user.tag}${modTag ? ` (by ${modTag})` : ''}`);
+    } catch (e) {
+        console.error(`[BeastBot] Failed to unquarantine ${member.user.tag}:`, e.message);
     }
 }
 
@@ -2392,7 +2459,7 @@ function buildFullBackup() {
     for (const [uid, d] of afkUsers) afk[uid] = { reason: d.reason, originalNickname: d.originalNickname, timestamp: d.timestamp };
 
     const quarantine = {};
-    for (const [uid, d] of quarantinedUsers) quarantine[uid] = { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: d.responded };
+    for (const [uid, d] of quarantinedUsers) quarantine[uid] = { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: d.responded, roles: d.roles || [] };
 
     return {
         savedAt: new Date().toISOString(),
@@ -2766,7 +2833,7 @@ function applyBackupToMemory(data) {
     // Quarantine state — only restore pending (not yet responded) entries
     quarantinedUsers.clear();
     for (const [uid, d] of Object.entries(data.quarantine || {})) {
-        if (!d.responded) quarantinedUsers.set(uid, { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: false });
+        if (!d.responded) quarantinedUsers.set(uid, { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: false, roles: d.roles || [] });
     }
     // Unscramble scores
     unscrambleScores.clear();
@@ -3566,6 +3633,17 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
             if (!byBot) {
                 const modName = entry?.executor?.displayName || entry?.executor?.username || 'Unknown moderator';
                 quarantineUser(newMember.guild, newMember, 'Manually quarantined by moderator', modName).catch(() => {});
+            }
+        }
+
+        // Manual unquarantine detection — someone removed the quarantine role directly in Discord
+        if (removedRoles.has(QUARANTINE_ROLE_ID) && quarantinedUsers.has(newMember.id)) {
+            const entry = await getAuditEntry(newMember.guild, AuditLogEvent.MemberRoleUpdate, newMember.id, 8000);
+            const byBot = entry?.executor?.id === client.user?.id;
+            if (!byBot) {
+                // Mod removed role manually — restore saved roles via the helper
+                const modName = entry?.executor?.displayName || entry?.executor?.username || null;
+                unquarantineUser(newMember.guild, newMember, modName).catch(() => {});
             }
         }
     }
@@ -11552,6 +11630,35 @@ client.on('interactionCreate', async (interaction) => {
 
     if (!interaction.isButton()) return;
 
+    // ── Quarantine: unquarantine button ─────────────────────────────────────
+    if (interaction.customId.startsWith('quarantine:unquarantine:')) {
+        const member = interaction.member;
+        const hasModRole = member?.roles?.cache?.has(MOD_ROLE_ID) || interaction.user.id === OWNER_DISCORD_ID;
+        if (!hasModRole) {
+            return interaction.reply({ content: 'You do not have permission to use this.', ephemeral: true });
+        }
+        const targetId = interaction.customId.slice('quarantine:unquarantine:'.length);
+        await interaction.deferReply({ ephemeral: true });
+        const guild = interaction.guild;
+        let targetMember;
+        try { targetMember = await guild.members.fetch(targetId); } catch (_) {}
+        if (!targetMember) {
+            return interaction.editReply({ content: `⚠️ Could not find that member in the server — they may have left.` });
+        }
+        const modTag = interaction.member?.displayName || interaction.user.username;
+        await unquarantineUser(guild, targetMember, modTag);
+        // Disable the button on the original message so it can't be clicked again
+        const disabledRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`quarantine:unquarantine:${targetId}`)
+                .setLabel(`✅ Unquarantined by ${modTag}`)
+                .setStyle(ButtonStyle.Success)
+                .setDisabled(true),
+        );
+        await interaction.message.edit({ components: [disabledRow] }).catch(() => {});
+        return interaction.editReply({ content: `✅ <@${targetId}> has been unquarantined and their roles have been restored.` });
+    }
+
     // ── Imposter Game buttons ────────────────────────────────────────────────
     if (interaction.customId === 'imp:join') {
         await interaction.deferReply({ ephemeral: true });
@@ -12807,8 +12914,8 @@ client.on('messageCreate', async (message) => {
                 }
                 console.log(`[BeastBot] ✅ Quarantined user ${message.author.tag} responded — auto-ban cancelled`);
             }
-        } else {
-            // Unusual in-server activity detection
+        } else if (!SPAM_EXEMPT_CHANNEL_IDS.has(message.channelId)) {
+            // Unusual in-server activity detection (skipped for high-activity game channels)
             const RATE_WINDOW_MS    = 60 * 1000;
             const MENTION_WINDOW_MS = 2 * 60 * 1000;
 
@@ -12828,8 +12935,8 @@ client.on('messageCreate', async (message) => {
 
             userActivityTrack.set(uid, track);
 
-            // Flag: rapid message flooding (8+ in 60s)
-            if (track.msgs.length >= 8) {
+            // Flag: rapid message flooding (15+ in 60s)
+            if (track.msgs.length >= 15) {
                 await quarantineUser(message.guild, message.member,
                     `Unusual DM activity: rapid message flooding (${track.msgs.length} msgs in 60s)`);
             // Flag: mass-mentioning 4+ unique users within 2 min
