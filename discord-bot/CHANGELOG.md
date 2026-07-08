@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Add 1v1 Unscramble Duel mode
+
+- New `/unscramble-duel @user [words]` command — challenge anyone to a head-to-head unscramble match (2–15 words, default 5)
+- Accept/decline embed with buttons posted in #unscramble; challenge auto-expires after 2 minutes
+- Duel runs in a private thread (only the two players); bot posts words one at a time, first correct guess wins the round
+- Results embed posted to #unscramble when the game ends; private thread is then deleted
+- 5-minute per-word timeout — if neither player guesses in time, no point is awarded and the next word posts
+- Round counter increments correctly on both solves and timeouts (was previously broken on timeout)
+- Active duels persisted to `botConfig/unscrambleDuels` in Firestore; on restart, bot reconnects to the thread, re-announces the current word, and resumes the game
+
 ## [2026-07-08] — Quarantine: raise mass-mention threshold from 4 to 6
 
 - Increased unique-mention trigger from `>= 4` to `>= 6` within a 2-minute window

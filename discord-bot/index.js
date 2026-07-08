@@ -210,13 +210,11 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '⚙️ Quarantine: Mass-mention threshold raised', value: 'Users now need to @mention 6+ unique people within 2 minutes to trigger quarantine, up from 4.' },
-    { name: '🐛 Quarantine: Fix duplicate alerts + role loss', value: 'Fixed a race condition where rapid messages could trigger multiple quarantine alerts and cause saved roles to be wiped — unquarantining now always restores roles correctly.' },
-    { name: '✅ Unquarantine Button on Response', value: 'When a quarantined user sends a message, the mod channel alert now includes a one-click Unquarantine button — no need to scroll back up to find the original alert.' },
-    { name: '🔒 Quarantine: Role Strip + Voice Kick', value: 'When a user is quarantined, all their roles are automatically removed and saved. They\'re also disconnected from voice chat immediately.' },
-    { name: '✅ One-Click Unquarantine', value: 'Mods get a button in the mod channel to unquarantine someone instantly — it restores all their original roles automatically.' },
-    { name: '🎮 Spam Filter Exemptions', value: 'The spam rate filter no longer applies in #unscramble, #counting, or #the-pond — fast message activity in those channels won\'t trigger quarantine.' },
-    { name: '⚙️ Spam Threshold Raised', value: 'The auto-quarantine flood threshold has been raised from 8 to 15 messages per minute, reducing false positives for active chatters.' },
+    { name: '⚔️ 1v1 Unscramble Duels', value: 'Use /unscramble-duel @user in #unscramble to challenge someone to a head-to-head duel! First to unscramble the chosen number of words wins. Pick 2–15 words (default 5).' },
+    { name: '🧵 Private Duel Threads', value: 'Each duel runs in its own private thread — only the two players can see it. Guesses go there, and when the duel ends the thread is automatically deleted.' },
+    { name: '📣 Results in #unscramble', value: 'When a duel ends, the winner and final score are posted in #unscramble for everyone to see.' },
+    { name: '🔄 Duels Survive Bot Restarts', value: 'Active duels are saved to Firestore. If the bot restarts mid-duel, it reconnects to the thread, re-announces the current word, and the game continues.' },
+    { name: '⏱️ 5-Minute Word Timer', value: 'Each word in a duel has a 5-minute time limit. If neither player guesses it in time, no point is awarded and the next word is posted automatically.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -240,6 +238,7 @@ const unscrambleScores = new Map(); // userId → all-time points
 let   _unscrambleLoaded = false;    // true once restored from backup, guards save
 let   unscramblePuzzle  = null;     // { word, scrambled, messageId, startedAt } or null
 let   unscrambleTimer   = null;     // setTimeout handle for next puzzle post
+const unscrambleDuels  = new Map(); // duelId → { id, challengerId, opponentId, target, challengerSolves, opponentSolves, threadId, currentWord, status, wordTimer }
 
 // ── Imposter Game ─────────────────────────────────────────────────────────────
 const IMPOSTER_CHANNEL_ID  = '1498354389356904628';
@@ -6068,6 +6067,11 @@ client.once('clientReady', async () => {
                 .setName('unscramble-leaderboard')
                 .setDescription('Show the all-time Unscramble leaderboard'),
             new SlashCommandBuilder()
+                .setName('unscramble-duel')
+                .setDescription('Challenge someone to a 1v1 Unscramble duel!')
+                .addUserOption(opt => opt.setName('opponent').setDescription('Who to challenge').setRequired(true))
+                .addIntegerOption(opt => opt.setName('words').setDescription('First to solve this many words wins (2–15, default 5)').setMinValue(2).setMaxValue(15)),
+            new SlashCommandBuilder()
                 .setName('vip')
                 .setDescription('Check your VIP status and pick perk roles'),
             new SlashCommandBuilder()
@@ -6162,6 +6166,9 @@ client.once('clientReady', async () => {
     } catch (e) {
         console.error('[BeastBot] Failed to restore unscramble scores:', e.message);
     }
+    // Restore any active duels that were running before restart
+    await restoreUnscrambleDuels().catch(e => console.error('[BeastBot] Duel restore error:', e.message));
+
     // Post first puzzle 30s after startup (gives the bot time to fully init)
     setTimeout(() => postUnscramblePuzzle().catch(() => {}), 30 * 1000);
 
@@ -6303,6 +6310,212 @@ async function handleUnscrambleMessage(message) {
     } else {
         await message.react('❌').catch(() => {});
     }
+}
+
+// ── Unscramble Duel Logic ────────────────────────────────────────────────────
+
+function genDuelId() {
+    return `duel_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
+}
+
+async function saveUnscrambleDuels() {
+    const arr = [];
+    for (const d of unscrambleDuels.values()) {
+        if (d.status !== 'active') continue;
+        arr.push({
+            id: d.id,
+            challengerId: d.challengerId,
+            opponentId: d.opponentId,
+            target: d.target,
+            challengerSolves: d.challengerSolves,
+            opponentSolves: d.opponentSolves,
+            threadId: d.threadId,
+            roundNumber: d.roundNumber,
+            currentWord: d.currentWord ?? '',
+            currentScrambled: d.currentScrambled ?? '',
+        });
+    }
+    await firestoreSet('botConfig', 'unscrambleDuels', {
+        duels:   JSON.stringify(arr),
+        savedAt: new Date().toISOString(),
+    });
+}
+
+async function restoreUnscrambleDuels() {
+    try {
+        const data = await firestoreGet('botConfig', 'unscrambleDuels');
+        if (!data || !data.duels) return;
+        const arr = JSON.parse(data.duels);
+        if (!arr.length) return;
+
+        for (const saved of arr) {
+            const duel = {
+                id: saved.id,
+                challengerId: saved.challengerId,
+                opponentId: saved.opponentId,
+                target: Number(saved.target),
+                challengerSolves: Number(saved.challengerSolves),
+                opponentSolves: Number(saved.opponentSolves),
+                threadId: saved.threadId,
+                roundNumber: Number(saved.roundNumber) || 1,
+                currentWord: saved.currentWord || null,
+                currentScrambled: saved.currentScrambled || null,
+                status: 'active',
+                wordTimer: null,
+            };
+            unscrambleDuels.set(duel.id, duel);
+
+            const thread = await client.channels.fetch(duel.threadId).catch(() => null);
+            if (!thread) {
+                console.log(`[BeastBot] ⚔️ Duel ${duel.id} — thread gone on restore, ending by score`);
+                await endDuel(duel, null, true).catch(() => {});
+                continue;
+            }
+
+            await thread.send({ embeds: [{
+                color: 0x5865f2,
+                description: `🔄 **Bot restarted** — your duel is back!\n\n**Score:** <@${duel.challengerId}> **${duel.challengerSolves}** — **${duel.opponentSolves}** <@${duel.opponentId}>`,
+            }] }).catch(() => {});
+
+            if (duel.currentWord) {
+                await thread.send({ embeds: [{
+                    color: 0xff9900,
+                    title: `🔤 Round ${duel.roundNumber} — Still Active`,
+                    description: `## \`${duel.currentScrambled.toUpperCase()}\`\n\nFirst to unscramble it gets the point!`,
+                    footer: { text: `First to ${duel.target} wins • 5 min per word` },
+                    timestamp: new Date().toISOString(),
+                }] }).catch(() => {});
+                startWordTimer(duel, duel.currentWord);
+            } else {
+                setTimeout(() => duelPostNextWord(duel).catch(() => {}), 2000);
+            }
+
+            console.log(`[BeastBot] ⚔️ Duel ${duel.id} restored — score: ${duel.challengerSolves}-${duel.opponentSolves}, round: ${duel.roundNumber}`);
+        }
+    } catch (e) {
+        console.error('[BeastBot] Failed to restore unscramble duels:', e.message);
+    }
+}
+
+function startWordTimer(duel, word) {
+    if (duel.wordTimer) clearTimeout(duel.wordTimer);
+    duel.wordTimer = setTimeout(async () => {
+        if (duel.status !== 'active' || duel.currentWord !== word) return;
+        duel.currentWord = null;
+        duel.currentScrambled = null;
+        duel.roundNumber++;
+        const t = await client.channels.fetch(duel.threadId).catch(() => null);
+        if (t) {
+            await t.send({ embeds: [{
+                color: 0x888888,
+                description: `⏱️ Time's up! The word was **${word}**. No point awarded — next word incoming...`,
+            }] }).catch(() => {});
+        }
+        saveUnscrambleDuels().catch(() => {});
+        setTimeout(() => duelPostNextWord(duel).catch(() => {}), 2000);
+    }, 5 * 60 * 1000);
+}
+
+async function duelPostNextWord(duel) {
+    const thread = await client.channels.fetch(duel.threadId).catch(() => null);
+    if (!thread) { await endDuel(duel, null, true); return; }
+
+    duel.roundNumber++;
+    const word      = pickRandomWord();
+    const scrambled = scrambleWord(word);
+    duel.currentWord      = word;
+    duel.currentScrambled = scrambled;
+
+    await thread.send({ embeds: [{
+        color: 0xff9900,
+        title: `🔤 Round ${duel.roundNumber}`,
+        description: `## \`${scrambled.toUpperCase()}\`\n\nFirst to unscramble it gets the point!\n\n**Score:** <@${duel.challengerId}> **${duel.challengerSolves}** — **${duel.opponentSolves}** <@${duel.opponentId}>`,
+        footer: { text: `First to ${duel.target} wins • 5 min per word` },
+        timestamp: new Date().toISOString(),
+    }] }).catch(() => {});
+
+    saveUnscrambleDuels().catch(() => {});
+    startWordTimer(duel, word);
+}
+
+async function handleDuelMessage(message, duel) {
+    if (message.author.bot) return;
+    if (message.author.id !== duel.challengerId && message.author.id !== duel.opponentId) return;
+    if (!duel.currentWord) return;
+
+    const guess = message.content.trim().toLowerCase();
+    if (/\s/.test(guess)) return;
+
+    if (guess !== duel.currentWord) {
+        await message.react('❌').catch(() => {});
+        return;
+    }
+
+    await message.react('✅').catch(() => {});
+    if (duel.wordTimer) { clearTimeout(duel.wordTimer); duel.wordTimer = null; }
+
+    const uid = message.author.id;
+    if (uid === duel.challengerId) duel.challengerSolves++;
+    else duel.opponentSolves++;
+
+    const solvedWord = duel.currentWord;
+    duel.currentWord = null;
+    duel.currentScrambled = null;
+    saveUnscrambleDuels().catch(() => {});
+
+    if (duel.challengerSolves >= duel.target || duel.opponentSolves >= duel.target) {
+        await message.channel.send({ embeds: [{
+            color: 0x00cc44,
+            description: `✅ <@${uid}> got it! The word was **${solvedWord}**.`,
+        }] }).catch(() => {});
+        await endDuel(duel, uid, false);
+    } else {
+        await message.channel.send({ embeds: [{
+            color: 0x00cc44,
+            description: `✅ <@${uid}> got it! The word was **${solvedWord}**.\n\n**Score:** <@${duel.challengerId}> **${duel.challengerSolves}** — **${duel.opponentSolves}** <@${duel.opponentId}>`,
+        }] }).catch(() => {});
+        setTimeout(() => duelPostNextWord(duel).catch(() => {}), 2000);
+    }
+}
+
+async function endDuel(duel, winnerId, timedOut) {
+    if (duel.status === 'done') return;
+    duel.status = 'done';
+    if (duel.wordTimer) { clearTimeout(duel.wordTimer); duel.wordTimer = null; }
+
+    const isTie = duel.challengerSolves === duel.opponentSolves && !winnerId;
+    const finalWinner = winnerId || (duel.challengerSolves > duel.opponentSolves ? duel.challengerId : duel.opponentSolves > duel.challengerSolves ? duel.opponentId : null);
+    const loserId = finalWinner === duel.challengerId ? duel.opponentId : duel.challengerId;
+
+    const thread = await client.channels.fetch(duel.threadId).catch(() => null);
+    if (thread) {
+        await thread.send({ embeds: [{
+            color: isTie ? 0x888888 : 0xffd700,
+            title: isTie ? '🤝 It\'s a Tie!' : '🏆 Game Over!',
+            description: isTie
+                ? `Dead even at **${duel.challengerSolves}**–**${duel.opponentSolves}**! Great match, both of you!`
+                : `**<@${finalWinner}> wins!** 🎉\n\n**Final Score:** <@${duel.challengerId}> **${duel.challengerSolves}** — **${duel.opponentSolves}** <@${duel.opponentId}>\n\nResults are being posted in <#${UNSCRAMBLE_CHANNEL_ID}>. This thread will be deleted shortly.`,
+        }] }).catch(() => {});
+        await new Promise(r => setTimeout(r, 5000));
+        await thread.delete().catch(() => {});
+    }
+
+    const channel = await client.channels.fetch(UNSCRAMBLE_CHANNEL_ID).catch(() => null);
+    if (channel) {
+        await channel.send({ embeds: [{
+            color: isTie ? 0x888888 : 0xffd700,
+            title: '⚔️ 1v1 Unscramble Duel — Results',
+            description: isTie
+                ? `<@${duel.challengerId}> vs <@${duel.opponentId}> — **It's a tie!** Both finished **${duel.challengerSolves}**–**${duel.opponentSolves}**. Well played!`
+                : `🏆 <@${finalWinner}> defeated <@${loserId}> in a 1v1 duel!\n\n**Final Score:** <@${duel.challengerId}> **${duel.challengerSolves}** — **${duel.opponentSolves}** <@${duel.opponentId}>`,
+            footer: { text: `First to ${duel.target} wins` },
+            timestamp: new Date().toISOString(),
+        }] }).catch(() => {});
+    }
+
+    unscrambleDuels.delete(duel.id);
+    saveUnscrambleDuels().catch(() => {});
+    console.log(`[BeastBot] ⚔️ Duel ${duel.id} ended — winner: ${finalWinner ?? 'tie'}`);
 }
 
 // ── Imposter Game Logic ───────────────────────────────────────────────────────
@@ -11107,6 +11320,77 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /unscramble-duel ─────────────────────────────────────────────────
+        if (interaction.commandName === 'unscramble-duel') {
+            if (interaction.channel.id !== UNSCRAMBLE_CHANNEL_ID) {
+                await interaction.reply({ content: `❌ Use this command in <#${UNSCRAMBLE_CHANNEL_ID}>.`, ephemeral: true });
+                return;
+            }
+            const opponent = interaction.options.getUser('opponent');
+            const target   = interaction.options.getInteger('words') ?? 5;
+
+            if (opponent.id === interaction.user.id) {
+                await interaction.reply({ content: '❌ You can\'t challenge yourself!', ephemeral: true });
+                return;
+            }
+            if (opponent.bot) {
+                await interaction.reply({ content: '❌ You can\'t challenge a bot!', ephemeral: true });
+                return;
+            }
+
+            const alreadyInDuel = [...unscrambleDuels.values()].find(d =>
+                (d.challengerId === interaction.user.id || d.opponentId === interaction.user.id ||
+                 d.challengerId === opponent.id         || d.opponentId === opponent.id) &&
+                d.status !== 'done'
+            );
+            if (alreadyInDuel) {
+                await interaction.reply({ content: '❌ One of you is already in a duel!', ephemeral: true });
+                return;
+            }
+
+            const duelId = genDuelId();
+            const duel = {
+                id: duelId,
+                challengerId: interaction.user.id,
+                opponentId: opponent.id,
+                target,
+                challengerSolves: 0,
+                opponentSolves: 0,
+                roundNumber: 0,
+                threadId: null,
+                currentWord: null,
+                currentScrambled: null,
+                status: 'pending',
+                wordTimer: null,
+            };
+            unscrambleDuels.set(duelId, duel);
+
+            await interaction.reply({
+                embeds: [{
+                    color: 0xff9900,
+                    title: '⚔️ Unscramble Duel Challenge!',
+                    description: `<@${interaction.user.id}> is challenging <@${opponent.id}> to a **1v1 Unscramble Duel**!\n\n🎯 **First to ${target} words wins!**\n\n<@${opponent.id}>, do you accept?`,
+                    footer: { text: 'Challenge expires in 2 minutes' },
+                    timestamp: new Date().toISOString(),
+                }],
+                components: [new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`duel:accept:${duelId}`).setLabel('✅ Accept').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`duel:decline:${duelId}`).setLabel('❌ Decline').setStyle(ButtonStyle.Danger),
+                )],
+            });
+
+            setTimeout(async () => {
+                if (duel.status !== 'pending') return;
+                duel.status = 'done';
+                unscrambleDuels.delete(duelId);
+                await interaction.editReply({
+                    embeds: [{ color: 0x888888, description: `⏱️ The duel challenge from <@${duel.challengerId}> to <@${duel.opponentId}> expired (no response).` }],
+                    components: [],
+                }).catch(() => {});
+            }, 2 * 60 * 1000);
+            return;
+        }
+
         // ── /vip ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'vip') {
             const member   = interaction.member;
@@ -12633,6 +12917,78 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── Unscramble duel: accept/decline buttons ──────────────────────────────
+    if (interaction.customId.startsWith('duel:accept:') || interaction.customId.startsWith('duel:decline:')) {
+        const parts  = interaction.customId.split(':');
+        const action = parts[1];
+        const duelId = parts[2];
+        const duel   = unscrambleDuels.get(duelId);
+
+        if (!duel || duel.status !== 'pending') {
+            await interaction.reply({ content: '❌ This challenge has already expired or been resolved.', ephemeral: true });
+            return;
+        }
+        if (interaction.user.id !== duel.opponentId) {
+            await interaction.reply({ content: '❌ This challenge isn\'t for you!', ephemeral: true });
+            return;
+        }
+
+        if (action === 'decline') {
+            duel.status = 'done';
+            unscrambleDuels.delete(duelId);
+            await interaction.update({
+                embeds: [{ color: 0x888888, description: `❌ <@${duel.opponentId}> declined the duel challenge from <@${duel.challengerId}>.` }],
+                components: [],
+            });
+            return;
+        }
+
+        // Accept — update the embed immediately then set up the thread
+        duel.status = 'active';
+        await interaction.update({
+            embeds: [{ color: 0x00cc44, description: `✅ <@${duel.opponentId}> accepted! Creating the duel thread...` }],
+            components: [],
+        });
+
+        const channel = await client.channels.fetch(UNSCRAMBLE_CHANNEL_ID).catch(() => null);
+        if (!channel) {
+            duel.status = 'done';
+            unscrambleDuels.delete(duelId);
+            return;
+        }
+
+        const challengerMember = await interaction.guild.members.fetch(duel.challengerId).catch(() => null);
+        const opponentMember   = await interaction.guild.members.fetch(duel.opponentId).catch(() => null);
+        const threadName = `⚔️ ${challengerMember?.displayName ?? 'Player 1'} vs ${opponentMember?.displayName ?? 'Player 2'}`;
+
+        const thread = await channel.threads.create({
+            name: threadName.slice(0, 100),
+            type: ChannelType.GuildPrivateThread,
+            invitable: false,
+        }).catch(e => { console.error('[BeastBot] Duel thread create failed:', e.message); return null; });
+
+        if (!thread) {
+            duel.status = 'done';
+            unscrambleDuels.delete(duelId);
+            await interaction.followUp({ content: '❌ Failed to create the duel thread. Please try again.', ephemeral: true }).catch(() => {});
+            return;
+        }
+
+        duel.threadId = thread.id;
+        await thread.members.add(duel.challengerId).catch(() => {});
+        await thread.members.add(duel.opponentId).catch(() => {});
+
+        await thread.send({ embeds: [{
+            color: 0xff9900,
+            title: '⚔️ 1v1 Unscramble Duel — Let\'s go!',
+            description: `<@${duel.challengerId}> vs <@${duel.opponentId}>\n\n🎯 **First to ${duel.target} correct words wins!**\n\nType your guesses here — one word at a time, first correct answer gets the point. Good luck!`,
+            timestamp: new Date().toISOString(),
+        }] }).catch(() => {});
+
+        await duelPostNextWord(duel).catch(() => {});
+        return;
+    }
+
     // ── Challenge: done button ────────────────────────────────────────────────
     if (interaction.customId.startsWith('challenge:done:')) {
         const parts       = interaction.customId.split(':');
@@ -12872,6 +13228,15 @@ client.on('messageCreate', async (message) => {
     if (message.channel.id === UNSCRAMBLE_CHANNEL_ID) {
         await handleUnscrambleMessage(message);
         return;
+    }
+
+    // Unscramble duels (private threads)
+    if (message.channel.isThread?.()) {
+        const duel = [...unscrambleDuels.values()].find(d => d.threadId === message.channel.id && d.status === 'active');
+        if (duel) {
+            await handleDuelMessage(message, duel).catch(() => {});
+            return;
+        }
     }
 
     // Detect Disboard bump success — reset the 2h reminder timer
