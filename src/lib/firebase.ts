@@ -690,6 +690,15 @@ export const FirebaseDB = {
     await _withTimeout(deleteDoc(doc(_db, 'announcementTemplatesV2', id)));
   },
 
+  async saveFormConfig(formId: string, config: unknown): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    await _withTimeout(setDoc(doc(_db, 'botConfig', `annform_${formId}`), {
+      configJson: JSON.stringify(config),
+      updatedAt: new Date().toISOString(),
+    }));
+  },
+
   // -----------------------------------------------------------------------
   // Announcements (public-read for homepage latest announcement)
   // -----------------------------------------------------------------------

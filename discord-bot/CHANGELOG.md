@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Announcements v2: custom form buttons with modal submission
+
+- Added `handleAnnFormButton` — reads form config from `botConfig/annform_<id>`, builds a Discord modal with up to 5 configurable fields (short or paragraph), and shows it to the user
+- Added `handleAnnFormModalSubmit` — collects field responses, posts a formatted embed to the configured destination channel, and replies ephemerally with a custom confirmation message
+- One-time submission support: if `config.oneTime` is set, checks `botConfig/annformsub_<formId>_<userId>` before showing the modal and writes it after submit
+- Both handlers wired into `interactionCreate` after the Pond block, dispatching on `annform_` (button) and `annform_modal:` (modal submit) prefixes
+- Form configs are saved by the website admin panel to `botConfig/annform_<id>` as a `configJson` string field, compatible with the existing flat-field Firestore REST parser
+
 ## [2026-07-08] — Quarantine: delete triggering messages on quarantine
 
 - `track.msgs` now stores `{ts, id, channelId}` instead of raw timestamps so messages can be bulk-deleted

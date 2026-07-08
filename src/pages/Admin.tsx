@@ -48,7 +48,12 @@ interface EmbedData {
   description: string; author: EmbedAuthor; fields: EmbedField[];
   image: string; thumbnail: string; footer: EmbedFooter;
 }
-interface ButtonData { label: string; url: string; emoji: string; disabled?: boolean }
+interface FormField { id: string; label: string; placeholder: string; style: 'short' | 'paragraph'; required: boolean }
+interface FormConfig { formTitle: string; fields: FormField[]; destChannelId: string; oneTime: boolean; confirmMsg: string }
+interface ButtonData {
+  label: string; url: string; emoji: string; disabled?: boolean;
+  type?: 'link' | 'form'; formId?: string; formConfig?: FormConfig; btnStyle?: 1 | 2 | 3 | 4;
+}
 interface ComposerState {
   content: string; embeds: EmbedData[]; components: ButtonData[][];
   reactions: string[];
@@ -193,7 +198,12 @@ function newEmbed(): EmbedData {
     footer: { text: '', icon_url: '', timestamp: '' } };
 }
 
-function newButton(): ButtonData { return { label: '', url: '', emoji: '', disabled: false }; }
+function newButton(): ButtonData { return { label: '', url: '', emoji: '', disabled: false, type: 'link' }; }
+function newFormField(): FormField { return { id: uid(), label: '', placeholder: '', style: 'short', required: true }; }
+function newFormButton(): ButtonData {
+  return { label: '', url: '', emoji: '', disabled: false, type: 'form', formId: uid(), btnStyle: 1,
+    formConfig: { formTitle: '', fields: [newFormField()], destChannelId: '', oneTime: false, confirmMsg: 'Your response has been submitted!' } };
+}
 
 function emptyState(): ComposerState {
   return { content: '', embeds: [newEmbed()], components: [], reactions: [] };
@@ -834,9 +844,10 @@ function EmbedEditor({ embed, index, total, onChange, onRemove, onToggle }: {
 // Button Row Editor
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ButtonRowEditor({ row, rowIndex, onChange, onRemoveRow }: { row: ButtonData[]; rowIndex: number; onChange: (u: ButtonData[]) => void; onRemoveRow: () => void }) {
+function ButtonRowEditor({ row, rowIndex, onChange, onRemoveRow, formCapable }: { row: ButtonData[]; rowIndex: number; onChange: (u: ButtonData[]) => void; onRemoveRow: () => void; formCapable?: boolean }) {
   const setBtn = (bi: number, upd: Partial<ButtonData>) => { const u = [...row]; u[bi] = { ...u[bi], ...upd }; onChange(u); };
   const addBtn = () => { if (row.length < MAX_BUTTONS_PER_ROW) onChange([...row, newButton()]); };
+  const addFormBtn = () => { if (row.length < MAX_BUTTONS_PER_ROW) onChange([...row, newFormButton()]); };
   const removeBtn = (bi: number) => { const u = row.filter((_, i) => i !== bi); if (!u.length) onRemoveRow(); else onChange(u); };
 
   return (
@@ -844,18 +855,22 @@ function ButtonRowEditor({ row, rowIndex, onChange, onRemoveRow }: { row: Button
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-gray-400">Row {rowIndex + 1}</span>
         <div className="flex items-center gap-2">
-          {row.length < MAX_BUTTONS_PER_ROW && <button type="button" onClick={addBtn} className="text-xs text-green-400 hover:text-green-300 flex items-center gap-0.5 transition-colors cursor-pointer"><Plus className="w-3 h-3" /> Button</button>}
+          {row.length < MAX_BUTTONS_PER_ROW && <>
+            <button type="button" onClick={addBtn} className="text-xs text-green-400 hover:text-green-300 flex items-center gap-0.5 transition-colors cursor-pointer"><Plus className="w-3 h-3" /> Link</button>
+            {formCapable && <button type="button" onClick={addFormBtn} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-0.5 transition-colors cursor-pointer"><Plus className="w-3 h-3" /> Form</button>}
+          </>}
           <button type="button" onClick={onRemoveRow} className="text-xs text-gray-500 hover:text-red-400 transition-colors cursor-pointer"><XClose className="w-3.5 h-3.5" /></button>
         </div>
       </div>
-      {row.map((btn, bi) => <SingleButtonEditor key={bi} btn={btn} onChange={(upd) => setBtn(bi, upd)} onRemove={() => removeBtn(bi)} />)}
+      {row.map((btn, bi) => <SingleButtonEditor key={bi} btn={btn} onChange={(upd) => setBtn(bi, upd)} onRemove={() => removeBtn(bi)} formCapable={formCapable} />)}
     </div>
   );
 }
 
-function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onChange: (upd: Partial<ButtonData>) => void; onRemove: () => void }) {
+function SingleButtonEditor({ btn, onChange, onRemove, formCapable }: { btn: ButtonData; onChange: (upd: Partial<ButtonData>) => void; onRemove: () => void; formCapable?: boolean }) {
   const bot = useContext(BotCtx);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const isForm = btn.type === 'form';
 
   const renderBtnEmoji = () => {
     if (!btn.emoji) return <FaceSmile className="w-4 h-4 text-gray-500" />;
@@ -869,8 +884,41 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
     return <span className="text-lg leading-none">{btn.emoji}</span>;
   };
 
+  const updateFormConfig = (upd: Partial<FormConfig>) =>
+    onChange({ formConfig: { ...(btn.formConfig ?? { formTitle: '', fields: [], destChannelId: '', oneTime: false, confirmMsg: '' }), ...upd } });
+
+  const updateFormField = (fi: number, upd: Partial<FormField>) => {
+    const fields = [...(btn.formConfig?.fields ?? [])];
+    fields[fi] = { ...fields[fi], ...upd };
+    updateFormConfig({ fields });
+  };
+
+  const FORM_BTN_STYLES: { value: 1 | 2 | 3 | 4; label: string; cls: string }[] = [
+    { value: 1, label: 'Blue', cls: 'bg-[#5865f2] text-white' },
+    { value: 2, label: 'Grey', cls: 'bg-[#4f545c] text-white' },
+    { value: 3, label: 'Green', cls: 'bg-[#57f287] text-[#0e0e0e]' },
+    { value: 4, label: 'Red', cls: 'bg-[#ed4245] text-white' },
+  ];
+
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
+      {/* Type toggle (form-capable context only) */}
+      {formCapable && (
+        <div className="flex items-center gap-1.5">
+          {(['link', 'form'] as const).map((t) => (
+            <button key={t} type="button"
+              onClick={() => {
+                if (t === 'form' && !isForm) onChange({ type: 'form', url: '', formId: btn.formId || uid(), formConfig: btn.formConfig ?? { formTitle: '', fields: [newFormField()], destChannelId: '', oneTime: false, confirmMsg: 'Your response has been submitted!' }, btnStyle: btn.btnStyle ?? 1 });
+                if (t === 'link' && isForm) onChange({ type: 'link', formConfig: undefined });
+              }}
+              className={`px-2.5 py-0.5 rounded text-[11px] font-medium border transition-colors cursor-pointer ${btn.type === t ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' : 'bg-white/5 text-gray-500 border-white/5 hover:bg-white/10'}`}>
+              {t === 'link' ? '🔗 Link' : '📋 Form'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Row: emoji + label + URL or colour picker + remove */}
       <div className="flex gap-2 items-center">
         <div className="relative flex-shrink-0">
           <button type="button" onClick={() => setPickerOpen(!pickerOpen)} className="w-9 h-9 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer overflow-hidden" title="Pick emoji">
@@ -880,14 +928,105 @@ function SingleButtonEditor({ btn, onChange, onRemove }: { btn: ButtonData; onCh
           {pickerOpen && <EmojiPicker onPick={(em) => { onChange({ emoji: em }); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />}
         </div>
         <input type="text" placeholder="Label" value={btn.label} onChange={(e) => onChange({ label: e.target.value })} className={inpSm + ' !w-32'} />
-        <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange({ url: e.target.value })} className={inpSm} />
+        {isForm ? (
+          <div className="flex gap-1 flex-1">
+            {FORM_BTN_STYLES.map((s) => (
+              <button key={s.value} type="button" onClick={() => onChange({ btnStyle: s.value })}
+                className={`px-2 py-1 rounded text-[11px] font-medium border transition-all cursor-pointer ${s.cls} ${btn.btnStyle === s.value ? 'ring-2 ring-white/50' : 'opacity-50 hover:opacity-80'}`}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <input type="url" placeholder="https://..." value={btn.url} onChange={(e) => onChange({ url: e.target.value })} className={inpSm} />
+        )}
         <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"><Minus className="w-4 h-4" /></button>
       </div>
+
       <label className="flex items-center gap-2 cursor-pointer select-none ml-11">
         <input type="checkbox" checked={!!btn.disabled} onChange={(e) => onChange({ disabled: e.target.checked })}
           className="w-3.5 h-3.5 rounded accent-gray-500 cursor-pointer" />
         <span className="text-[11px] text-gray-500">Disabled (greyed out, not clickable)</span>
       </label>
+
+      {/* Form config panel */}
+      {isForm && btn.formConfig && (
+        <div className="ml-2 border-l-2 border-indigo-500/20 pl-3 space-y-3 mt-1">
+          {/* Form title */}
+          <div>
+            <label className={subLbl}>Form title (shown at top of popup)</label>
+            <input type="text" placeholder="e.g. Apply for Event" value={btn.formConfig.formTitle}
+              onChange={(e) => updateFormConfig({ formTitle: e.target.value })} className={inpSm} />
+          </div>
+
+          {/* Fields */}
+          <div>
+            <label className={subLbl}>Fields ({btn.formConfig.fields.length}/5)</label>
+            <div className="space-y-2">
+              {btn.formConfig.fields.map((field, fi) => (
+                <div key={field.id} className="bg-white/[0.03] border border-white/5 rounded-lg p-2 space-y-1.5">
+                  <div className="flex gap-2 items-center">
+                    <input type="text" placeholder="Field label" value={field.label}
+                      onChange={(e) => updateFormField(fi, { label: e.target.value })}
+                      className={inpSm + ' flex-1'} />
+                    <select value={field.style} onChange={(e) => updateFormField(fi, { style: e.target.value as 'short' | 'paragraph' })}
+                      className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none cursor-pointer flex-shrink-0">
+                      <option value="short">Short</option>
+                      <option value="paragraph">Paragraph</option>
+                    </select>
+                    {btn.formConfig!.fields.length > 1 && (
+                      <button type="button" onClick={() => updateFormConfig({ fields: btn.formConfig!.fields.filter((_, i) => i !== fi) })}
+                        className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer flex-shrink-0"><XClose className="w-3.5 h-3.5" /></button>
+                    )}
+                  </div>
+                  <input type="text" placeholder="Placeholder text (optional)" value={field.placeholder}
+                    onChange={(e) => updateFormField(fi, { placeholder: e.target.value })}
+                    className={inpSm} />
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" checked={field.required}
+                      onChange={(e) => updateFormField(fi, { required: e.target.checked })}
+                      className="w-3 h-3 rounded accent-indigo-500 cursor-pointer" />
+                    <span className="text-[11px] text-gray-500">Required</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+            {btn.formConfig.fields.length < 5 && (
+              <button type="button" onClick={() => updateFormConfig({ fields: [...btn.formConfig!.fields, newFormField()] })}
+                className="mt-1.5 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
+                <Plus className="w-3 h-3" /> Add field
+              </button>
+            )}
+          </div>
+
+          {/* Destination channel */}
+          <div>
+            <label className={subLbl}>Send submissions to channel</label>
+            <select value={btn.formConfig.destChannelId}
+              onChange={(e) => updateFormConfig({ destChannelId: e.target.value })}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-pointer">
+              <option value="">— Select a channel —</option>
+              {bot.channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+            </select>
+          </div>
+
+          {/* Confirm message */}
+          <div>
+            <label className={subLbl}>Confirmation message (shown to user after submit)</label>
+            <input type="text" value={btn.formConfig.confirmMsg}
+              onChange={(e) => updateFormConfig({ confirmMsg: e.target.value })}
+              placeholder="Your response has been submitted!" className={inpSm} />
+          </div>
+
+          {/* One-time */}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={btn.formConfig.oneTime}
+              onChange={(e) => updateFormConfig({ oneTime: e.target.checked })}
+              className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+            <span className="text-[11px] text-gray-400">Disable after user submits (one-time response per person)</span>
+          </label>
+        </div>
+      )}
     </div>
   );
 }
@@ -3083,17 +3222,26 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
       if (!items.length) continue;
       inner.push({ type: 12, items });
     } else if (block.kind === 'buttons') {
+      const addEmoji = (b: ButtonData, btn: Record<string, unknown>) => {
+        if (!b.emoji) return;
+        const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
+        if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
+        else btn.emoji = { name: b.emoji };
+      };
       const buttons = block.row
-        .filter((b) => b.url.trim() && (b.label.trim() || b.emoji))
+        .filter((b) => b.type === 'form' ? !!b.formId && (b.label.trim() || b.emoji) : b.url.trim() && (b.label.trim() || b.emoji))
         .map((b) => {
+          if (b.type === 'form') {
+            const btn: Record<string, unknown> = { type: 2, style: b.btnStyle ?? 1, custom_id: `annform_${b.formId}` };
+            if (b.label.trim()) btn.label = b.label;
+            if (b.disabled) btn.disabled = true;
+            addEmoji(b, btn);
+            return btn;
+          }
           const btn: Record<string, unknown> = { type: 2, style: 5, url: b.url };
           if (b.label.trim()) btn.label = b.label;
           if (b.disabled) btn.disabled = true;
-          if (b.emoji) {
-            const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
-            if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
-            else btn.emoji = { name: b.emoji };
-          }
+          addEmoji(b, btn);
           return btn;
         });
       if (!buttons.length) continue;
@@ -3306,10 +3454,10 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
 
           {block.kind === 'buttons' && (
             <div>
-              <label className={subLbl}>Link Buttons (max 5)</label>
+              <label className={subLbl}>Buttons (max 5) — link or form</label>
               <ButtonRowEditor row={block.row} rowIndex={0}
                 onChange={(r) => onChange({ ...block, row: r })}
-                onRemoveRow={() => {}} />
+                onRemoveRow={() => {}} formCapable />
             </div>
           )}
         </div>
@@ -3325,7 +3473,7 @@ function V2Preview({ state }: { state: V2State }) {
     if (b.kind === 'fields') return b.items.some((f) => f.key.trim() || f.value.trim());
     if (b.kind === 'section') return b.texts.some((t) => t.trim());
     if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
-    if (b.kind === 'buttons') return b.row.some((btn) => btn.url.trim() && (btn.label.trim() || btn.emoji));
+    if (b.kind === 'buttons') return b.row.some((btn) => btn.type === 'form' ? !!btn.formId && (btn.label.trim() || btn.emoji) : btn.url.trim() && (btn.label.trim() || btn.emoji));
     return true;
   });
 
@@ -3413,19 +3561,25 @@ function V2Preview({ state }: { state: V2State }) {
             );
           }
           if (block.kind === 'buttons') {
-            const buttons = block.row.filter((b) => b.url.trim() && (b.label.trim() || b.emoji));
+            const buttons = block.row.filter((b) => b.type === 'form' ? !!b.formId && (b.label.trim() || b.emoji) : b.url.trim() && (b.label.trim() || b.emoji));
             if (!buttons.length) return null;
+            const FORM_BG: Record<number, string> = { 1: '#5865f2', 2: '#4f545c', 3: '#57f287', 4: '#ed4245' };
             return (
               <div key={block.id} className="flex flex-wrap gap-1.5">
                 {buttons.map((b, bi) => {
                   const m = b.emoji?.match(/(?:(.+):)?(\d{15,})$/);
                   const eid = m?.[2];
                   const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
+                  const isForm = b.type === 'form';
+                  const bgColor = isForm ? (FORM_BG[b.btnStyle ?? 1] ?? '#5865f2') : undefined;
+                  const textColor = isForm && b.btnStyle === 3 ? '#0e0e0e' : 'white';
                   return (
-                    <span key={bi} className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded cursor-default ${b.disabled ? 'bg-[#4f545c]/50 text-white/40' : 'bg-[#4f545c] text-white'}`}>
+                    <span key={bi} style={isForm ? { backgroundColor: bgColor, color: textColor, opacity: b.disabled ? 0.4 : 1 } : undefined}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded cursor-default ${!isForm ? (b.disabled ? 'bg-[#4f545c]/50 text-white/40' : 'bg-[#4f545c] text-white') : ''}`}>
                       {eid ? <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt="" className="w-4 h-4" /> : b.emoji ? <span>{b.emoji}</span> : null}
                       {b.label && <span>{b.label}</span>}
-                      {!b.disabled && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>}
+                      {!b.disabled && !isForm && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>}
+                      {isForm && !b.disabled && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-60"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 13h4M8 17h8"/></svg>}
                     </span>
                   );
                 })}
@@ -3588,6 +3742,16 @@ function AnnouncementsV2Tab() {
     if (!payload) { setFeedback({ type: 'error', message: 'Add some content before sending.' }); return; }
     setSending(true); setFeedback(null);
     try {
+      // Save form configs to Firestore so the bot can read them when buttons are clicked
+      for (const block of state.blocks) {
+        if (block.kind === 'buttons') {
+          for (const btn of block.row) {
+            if (btn.type === 'form' && btn.formId && btn.formConfig) {
+              await FirebaseDB.saveFormConfig(btn.formId, btn.formConfig).catch((err) => console.error('Failed to save form config:', err));
+            }
+          }
+        }
+      }
       const reactions = state.reactions.map(formatReaction);
       const res = await fetch(base + '/discord/send', {
         method: 'POST',

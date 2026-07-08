@@ -342,8 +342,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🗑️ Quarantine: messages auto-deleted', value: 'When someone is auto-quarantined for spamming or mass-mentioning, all their recent messages are bulk-deleted automatically. DM-bait messages are deleted too.' },
-    { name: '🐛 /unscramble-leaderboard buttons fixed', value: 'The 🏆 All-Time button now actually switches to the all-time leaderboard. The helper function was accidentally scoped where button interactions couldn\'t reach it.' },
+    { name: '📋 Announcement form buttons', value: 'Announcements v2 now supports interactive form buttons. Click a button → a popup form appears → answers get posted to a chosen channel. Fully customisable from the admin panel.' },
+    { name: '🔒 One-time submission option', value: 'Form buttons can be set to one-time only — if you\'ve already submitted, clicking the button again tells you so instead of showing the form again.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -9264,6 +9264,97 @@ function buildRolePanelComponents(panelId, buttons) {
     return rows;
 }
 
+// ── Announcement Form Buttons ─────────────────────────────────────────────────
+
+async function handleAnnFormButton(interaction) {
+    const formId = interaction.customId.slice('annform_'.length);
+    try {
+        const docData = await firestoreGet('botConfig', `annform_${formId}`);
+        if (!docData || !docData.configJson) {
+            return interaction.reply({ content: '❌ This form is no longer available.', ephemeral: true });
+        }
+        const config = JSON.parse(docData.configJson);
+
+        if (config.oneTime) {
+            const subDoc = await firestoreGet('botConfig', `annformsub_${formId}_${interaction.user.id}`);
+            if (subDoc && subDoc.submitted === 'true') {
+                return interaction.reply({ content: '✅ You\'ve already submitted this form.', ephemeral: true });
+            }
+        }
+
+        const modal = new ModalBuilder()
+            .setCustomId(`annform_modal:${formId}`)
+            .setTitle((config.formTitle || 'Form').slice(0, 45));
+
+        const rows = (config.fields || []).slice(0, 5).map((field) => {
+            const input = new TextInputBuilder()
+                .setCustomId(field.id)
+                .setLabel((field.label || 'Response').slice(0, 45))
+                .setStyle(field.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+                .setRequired(!!field.required);
+            if (field.placeholder) input.setPlaceholder(field.placeholder.slice(0, 100));
+            return new ActionRowBuilder().addComponents(input);
+        });
+
+        if (!rows.length) return interaction.reply({ content: '❌ This form has no fields configured.', ephemeral: true });
+        modal.addComponents(...rows);
+        await interaction.showModal(modal);
+    } catch (err) {
+        console.error('[BeastBot] annform button error:', err);
+        await interaction.reply({ content: '❌ An error occurred. Please try again.', ephemeral: true }).catch(() => {});
+    }
+}
+
+async function handleAnnFormModalSubmit(interaction) {
+    const formId = interaction.customId.slice('annform_modal:'.length);
+    try {
+        const docData = await firestoreGet('botConfig', `annform_${formId}`);
+        if (!docData || !docData.configJson) {
+            return interaction.reply({ content: '❌ This form is no longer available.', ephemeral: true });
+        }
+        const config = JSON.parse(docData.configJson);
+        const user   = interaction.user;
+        const member = interaction.member;
+        const display = member?.displayName || user.username;
+
+        const fieldLines = (config.fields || []).map((field) => {
+            let value = '';
+            try { value = interaction.fields.getTextInputValue(field.id).trim(); } catch {}
+            return `**${field.label || 'Response'}**\n${value || '*(empty)*'}`;
+        });
+
+        let avatarUrl;
+        try { avatarUrl = user.displayAvatarURL({ size: 64 }); } catch {}
+
+        const embed = {
+            color: 0x5865f2,
+            author: avatarUrl ? { name: display, icon_url: avatarUrl } : { name: display },
+            title: (config.formTitle || 'Form Submission').slice(0, 256),
+            description: fieldLines.join('\n\n'),
+            footer: { text: `User ID: ${user.id}` },
+            timestamp: new Date().toISOString(),
+        };
+
+        if (config.destChannelId) {
+            const destChannel = await client.channels.fetch(config.destChannelId).catch(() => null);
+            if (destChannel) await destChannel.send({ embeds: [embed] });
+        }
+
+        if (config.oneTime) {
+            await firestoreSet('botConfig', `annformsub_${formId}_${user.id}`, {
+                submitted: 'true',
+                submittedAt: new Date().toISOString(),
+            });
+        }
+
+        const confirmMsg = (config.confirmMsg || '✅ Your response has been submitted!').slice(0, 500);
+        await interaction.reply({ content: confirmMsg, ephemeral: true });
+    } catch (err) {
+        console.error('[BeastBot] annform modal submit error:', err);
+        await interaction.reply({ content: '❌ An error occurred while submitting. Please try again.', ephemeral: true }).catch(() => {});
+    }
+}
+
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
@@ -9285,6 +9376,14 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
         }
         return handlePondModalInteraction(interaction);
+    }
+
+    // ── Announcement form buttons / modal submits ─────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith('annform_')) {
+        return handleAnnFormButton(interaction);
+    }
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('annform_modal:')) {
+        return handleAnnFormModalSubmit(interaction);
     }
 
     // ── Slash commands ───────────────────────────────────────────────────────
