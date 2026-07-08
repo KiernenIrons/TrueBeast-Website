@@ -210,6 +210,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '⚙️ Quarantine: Mass-mention threshold raised', value: 'Users now need to @mention 6+ unique people within 2 minutes to trigger quarantine, up from 4.' },
     { name: '🐛 Quarantine: Fix duplicate alerts + role loss', value: 'Fixed a race condition where rapid messages could trigger multiple quarantine alerts and cause saved roles to be wiped — unquarantining now always restores roles correctly.' },
     { name: '✅ Unquarantine Button on Response', value: 'When a quarantined user sends a message, the mod channel alert now includes a one-click Unquarantine button — no need to scroll back up to find the original alert.' },
     { name: '🔒 Quarantine: Role Strip + Voice Kick', value: 'When a user is quarantined, all their roles are automatically removed and saved. They\'re also disconnected from voice chat immediately.' },
@@ -12955,7 +12956,7 @@ client.on('messageCreate', async (message) => {
                 await quarantineUser(message.guild, message.member,
                     `Unusual DM activity: rapid message flooding (${track.msgs.length} msgs in 60s)`);
             // Flag: mass-mentioning 4+ unique users within 2 min
-            } else if (track.mentionSet.size >= 4) {
+            } else if (track.mentionSet.size >= 6) {
                 await quarantineUser(message.guild, message.member,
                     `Unusual DM activity: mass-mentioning ${track.mentionSet.size} unique users within 2 minutes`);
             // Flag: DM-soliciting phrases from a new account (< 7 days old)

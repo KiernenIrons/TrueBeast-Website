@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Quarantine: raise mass-mention threshold from 4 to 6
+
+- Increased unique-mention trigger from `>= 4` to `>= 6` within a 2-minute window
+- Reduces false positives for users naturally pinging several people in conversation
+
 ## [2026-07-08] — Quarantine: fix race condition causing duplicate alerts and role loss
 
 - Moved `quarantinedUsers.set()` and role collection to before the first `await` in `quarantineUser`
