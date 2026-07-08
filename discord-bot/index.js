@@ -342,6 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🗑️ Quarantine: messages auto-deleted', value: 'When someone is auto-quarantined for spamming or mass-mentioning, all their recent messages are bulk-deleted automatically. DM-bait messages are deleted too.' },
     { name: '🐛 /unscramble-leaderboard buttons fixed', value: 'The 🏆 All-Time button now actually switches to the all-time leaderboard. The helper function was accidentally scoped where button interactions couldn\'t reach it.' },
 ];
 
@@ -13754,9 +13755,9 @@ client.on('messageCreate', async (message) => {
 
             let track = userActivityTrack.get(uid) || { msgs: [], mentionSet: new Set(), mentionWindowStart: now };
 
-            // Purge messages outside the rate window
-            track.msgs = track.msgs.filter(t => now - t < RATE_WINDOW_MS);
-            track.msgs.push(now);
+            // Purge messages outside the rate window — store {ts, id, channelId} so we can delete them
+            track.msgs = track.msgs.filter(m => now - m.ts < RATE_WINDOW_MS);
+            track.msgs.push({ ts: now, id: message.id, channelId: message.channelId });
 
             // Track unique mentions within 2-min window
             const mentionedNow = [...message.mentions.users.keys()].filter(id => id !== uid);
@@ -13768,14 +13769,35 @@ client.on('messageCreate', async (message) => {
 
             userActivityTrack.set(uid, track);
 
+            // Bulk-delete all tracked messages for this user from the relevant channels
+            const bulkDeleteTracked = async () => {
+                const byChannel = new Map();
+                for (const m of track.msgs) {
+                    if (!byChannel.has(m.channelId)) byChannel.set(m.channelId, []);
+                    byChannel.get(m.channelId).push(m.id);
+                }
+                for (const [chId, ids] of byChannel) {
+                    const ch = message.guild.channels.cache.get(chId)
+                        || await message.guild.channels.fetch(chId).catch(() => null);
+                    if (!ch?.isTextBased()) continue;
+                    if (ids.length >= 2) {
+                        await ch.bulkDelete(ids, true).catch(() => {});
+                    } else {
+                        await ch.messages.fetch(ids[0]).then(m => m.delete()).catch(() => {});
+                    }
+                }
+            };
+
             // Flag: rapid message flooding (15+ in 60s)
             if (track.msgs.length >= 15) {
                 await quarantineUser(message.guild, message.member,
                     `Unusual DM activity: rapid message flooding (${track.msgs.length} msgs in 60s)`);
-            // Flag: mass-mentioning 4+ unique users within 2 min
+                await bulkDeleteTracked();
+            // Flag: mass-mentioning 6+ unique users within 2 min
             } else if (track.mentionSet.size >= 6) {
                 await quarantineUser(message.guild, message.member,
                     `Unusual DM activity: mass-mentioning ${track.mentionSet.size} unique users within 2 minutes`);
+                await bulkDeleteTracked();
             // Flag: DM-soliciting phrases from a new account (< 7 days old)
             } else {
                 const accountAgeDays = (now - message.author.createdTimestamp) / 86400000;
@@ -13785,6 +13807,7 @@ client.on('messageCreate', async (message) => {
                     if (dmSoliciting.test(content)) {
                         await quarantineUser(message.guild, message.member,
                             `Unusual DM activity: DM-soliciting content from new account (${Math.floor(accountAgeDays * 24)}h old)`);
+                        await message.delete().catch(() => {});
                     }
                 }
             }

@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Quarantine: delete triggering messages on quarantine
+
+- `track.msgs` now stores `{ts, id, channelId}` instead of raw timestamps so messages can be bulk-deleted
+- Spam flood trigger (15+ msgs/60s): bulk-deletes all tracked messages in the window across channels
+- Mass-mention trigger (6+ unique mentions/2min): bulk-deletes all tracked messages in the window
+- DM-solicit trigger: deletes the single triggering message
+- `bulkDelete(ids, true)` used with filterOld=true to safely skip messages older than 14 days
+
 ## [2026-07-08] — Fix: unscramble leaderboard All-Time button not working
 
 - `buildUnscrambleLbPayload` was defined inside the `isChatInputCommand()` block, making it inaccessible when a button interaction fired
