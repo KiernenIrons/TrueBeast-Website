@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Quarantine: fix race condition causing duplicate alerts and role loss
+
+- Moved `quarantinedUsers.set()` and role collection to before the first `await` in `quarantineUser`
+- Prevents concurrent invocations (rapid messages hitting 15, 16, 17 in one tick) from all passing the guard and overwriting the saved role list with an empty one
+- Root cause of "roles not restored on unquarantine" — third concurrent run saw roles already stripped, saved [], then overwrote the correct entry
+
 ## [2026-07-08] — Quarantine: add unquarantine button to responded notification
 
 - When a quarantined user sends a message, the "responded" alert in mod channel now includes an Unquarantine & Restore Roles button

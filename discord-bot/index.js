@@ -210,6 +210,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🐛 Quarantine: Fix duplicate alerts + role loss', value: 'Fixed a race condition where rapid messages could trigger multiple quarantine alerts and cause saved roles to be wiped — unquarantining now always restores roles correctly.' },
     { name: '✅ Unquarantine Button on Response', value: 'When a quarantined user sends a message, the mod channel alert now includes a one-click Unquarantine button — no need to scroll back up to find the original alert.' },
     { name: '🔒 Quarantine: Role Strip + Voice Kick', value: 'When a user is quarantined, all their roles are automatically removed and saved. They\'re also disconnected from voice chat immediately.' },
     { name: '✅ One-Click Unquarantine', value: 'Mods get a button in the mod channel to unquarantine someone instantly — it restores all their original roles automatically.' },
@@ -1706,12 +1707,21 @@ function discordSignalReason(member) {
 async function quarantineUser(guild, member, reason, moderator = null) {
     if (quarantinedUsers.has(member.id)) return;
     if (member.user.bot) return;
-    try {
-        // Collect all assignable roles before stripping them
-        const rolesToSave = member.roles.cache
-            .filter(r => r.id !== guild.roles.everyone.id && r.id !== QUARANTINE_ROLE_ID && !r.managed)
-            .map(r => r.id);
 
+    // Collect roles and register synchronously before any await — prevents concurrent calls
+    // from all passing the guard and overwriting each other's saved role list.
+    const rolesToSave = member.roles.cache
+        .filter(r => r.id !== guild.roles.everyone.id && r.id !== QUARANTINE_ROLE_ID && !r.managed)
+        .map(r => r.id);
+    quarantinedUsers.set(member.id, {
+        timestamp: Date.now(),
+        guildId:   guild.id,
+        reason,
+        responded: false,
+        roles:     rolesToSave,
+    });
+
+    try {
         // Strip all non-managed roles so quarantine fully locks the account
         if (rolesToSave.length > 0) {
             await member.roles.remove(rolesToSave, `Quarantine: stripping roles`).catch(() => {});
@@ -1726,13 +1736,6 @@ async function quarantineUser(guild, member, reason, moderator = null) {
         if (!member.roles.cache.has(QUARANTINE_ROLE_ID)) {
             await member.roles.add(QUARANTINE_ROLE_ID, `Auto-quarantine: ${reason}`);
         }
-        quarantinedUsers.set(member.id, {
-            timestamp: Date.now(),
-            guildId:   guild.id,
-            reason,
-            responded: false,
-            roles:     rolesToSave,
-        });
         // Tell the user in the quarantine channel (must be a channel they can still read)
         if (QUARANTINE_CHANNEL_ID) {
             const qCh = await client.channels.fetch(QUARANTINE_CHANNEL_ID).catch(() => null);
