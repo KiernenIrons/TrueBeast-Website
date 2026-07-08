@@ -342,11 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📚 Massively Expanded Word List', value: 'The regular unscramble word pool grew from ~780 to 1,400+ words, so repeats should be far less frequent.' },
-    { name: '🔴 Expert Mode', value: 'Every puzzle now includes a bonus Expert word (7–10 letters) alongside the regular one. Solve it for a point on the separate Expert leaderboard!' },
-    { name: '📅 Weekly Leaderboard + Role', value: 'Unscramble now tracks weekly solves (regular + expert separately). At the end of each week results are posted and the top regular solver earns the Unscrambler of the Week role.' },
-    { name: '📊 /unscramble-leaderboard redesigned', value: 'The command now shows two embeds — this week\'s standings and the all-time totals — with separate columns for regular and expert solves.' },
-    { name: '💾 Backup improvements', value: 'Bump counts and all unscramble data (expert scores, weekly scores) are now included in the full backup and restore chain.' },
+    { name: '🔘 /unscramble-leaderboard now uses buttons', value: 'Instead of showing both leaderboards at once, the command now shows one embed at a time. Use the 📅 This Week and 🏆 All-Time buttons to switch between views, or ✕ Close to dismiss.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1585,6 +1581,7 @@ const MILESTONE_EMOJIS     = ['💯', '🔥', '🏆', '⭐', '💎', '👑'];
 // ── Voice time tracking ───────────────────────────────────────────────────────
 const voiceStartTimes    = new Map(); // userId → { startMs, baseTotal, baseToday }
 const leaderboardOwners  = new Map(); // messageId → userId (who invoked /leaderboard)
+const unscrambleLbOwners = new Map(); // messageId → userId (who invoked /unscramble-leaderboard)
 const voiceMinutes       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", minutes> }
 const voiceBonusXp       = new Map(); // userId → { total: number, days: Map<"YYYY-MM-DD", xp> } — camera/stream bonus
 const voiceEnhancements  = new Map(); // userId → { camera: boolean, stream: boolean, inStage: boolean }
@@ -11689,43 +11686,44 @@ client.on('interactionCreate', async (interaction) => {
 
         // ── /unscramble-leaderboard ───────────────────────────────────────────
         if (interaction.commandName === 'unscramble-leaderboard') {
-            const medals  = ['🥇', '🥈', '🥉'];
-            const weekKey = getISOWeekKey();
-            const monday  = weekKeyToMonday(weekKey);
-            const sunday  = monday ? new Date(monday.getTime() + 6 * 86400000) : null;
+            const payload = buildUnscrambleLbPayload('week');
+            const msg = await interaction.reply({ ...payload, fetchReply: true });
+            unscrambleLbOwners.set(msg.id, interaction.user.id);
+            return;
+        }
+
+        function buildUnscrambleLbPayload(view) {
+            const medals    = ['🥇', '🥈', '🥉'];
+            const weekKey   = getISOWeekKey();
+            const monday    = weekKeyToMonday(weekKey);
+            const sunday    = monday ? new Date(monday.getTime() + 6 * 86400000) : null;
             const weekRange = monday && sunday
                 ? `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                 : weekKey;
-
             const fmtLines = (entries, label) => entries.length
                 ? entries.slice(0, 8).map(([uid, s], i) => `${medals[i] || `**${i + 1}.**`} <@${uid}> — **${s}** ${label}${s === 1 ? '' : 's'}`).join('\n')
                 : '*No scores yet*';
 
-            // Weekly
             const weekRegEntries = [...unscrambleWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
             const weekExpEntries = [...unscrambleExpertWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
-            // All-time
             const allRegEntries  = [...unscrambleScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
             const allExpEntries  = [...unscrambleExpertScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
-
-            const activePuzzleText = unscramblePuzzle
-                ? `\n🟠 \`${unscramblePuzzle.scrambled.toUpperCase()}\`  🔴 \`${unscramblePuzzle.expertScrambled.toUpperCase()}\` — go solve them!`
-                : '';
             const roleHolderText = unscramblerOfWeekId ? `👑 Current **Unscrambler of the Week:** <@${unscramblerOfWeekId}>\n\n` : '';
 
-            await interaction.reply({ embeds: [
-                {
+            const isWeek = view === 'week';
+            const embed = isWeek
+                ? {
                     color: 0xff9900,
                     title: '📅 This Week\'s Leaderboard',
-                    description: `${roleHolderText}`,
+                    description: roleHolderText || undefined,
                     fields: [
                         { name: '🟠 Regular Solves', value: fmtLines(weekRegEntries, 'solve'), inline: true },
                         { name: '🔴 Expert Solves',  value: fmtLines(weekExpEntries, 'solve'), inline: true },
                     ],
-                    footer: { text: `Week: ${weekRange} · Resets Monday midnight UTC · Winner gets Unscrambler of the Week role${activePuzzleText}` },
+                    footer: { text: `Week: ${weekRange} · Resets Monday midnight UTC · Winner gets Unscrambler of the Week role` },
                     timestamp: new Date().toISOString(),
-                },
-                {
+                }
+                : {
                     color: 0x5865f2,
                     title: '🏆 All-Time Leaderboard',
                     fields: [
@@ -11734,9 +11732,23 @@ client.on('interactionCreate', async (interaction) => {
                     ],
                     footer: { text: 'All-time totals since launch' },
                     timestamp: new Date().toISOString(),
-                },
-            ] });
-            return;
+                };
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('usclb:week')
+                    .setLabel('📅 This Week')
+                    .setStyle(isWeek ? ButtonStyle.Primary : ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('usclb:alltime')
+                    .setLabel('🏆 All-Time')
+                    .setStyle(!isWeek ? ButtonStyle.Primary : ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('usclb:close')
+                    .setLabel('✕ Close')
+                    .setStyle(ButtonStyle.Danger),
+            );
+            return { embeds: [embed], components: [row] };
         }
 
         // ── /unscramble-duel ─────────────────────────────────────────────────
@@ -13334,6 +13346,25 @@ client.on('interactionCreate', async (interaction) => {
             new TextInputBuilder().setCustomId('room_limit').setLabel('Max members (0 = unlimited)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 5').setRequired(true).setMaxLength(3)
         ));
         await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Unscramble leaderboard navigation buttons (usclb:) ───────────────────
+    if (interaction.customId.startsWith('usclb:')) {
+        const view = interaction.customId.split(':')[1]; // 'week', 'alltime', or 'close'
+        if (view === 'close') {
+            await interaction.deferUpdate();
+            unscrambleLbOwners.delete(interaction.message.id);
+            await interaction.deleteReply();
+            return;
+        }
+        const ownerId = unscrambleLbOwners.get(interaction.message.id);
+        if (ownerId && interaction.user.id !== ownerId) {
+            await interaction.reply({ content: '❌ Only the person who opened this leaderboard can use these buttons.', ephemeral: true });
+            return;
+        }
+        await interaction.deferUpdate();
+        await interaction.editReply(buildUnscrambleLbPayload(view));
         return;
     }
 

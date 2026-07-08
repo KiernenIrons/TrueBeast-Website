@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Unscramble leaderboard: button navigation
+
+- `/unscramble-leaderboard` now shows a single embed with `📅 This Week` / `🏆 All-Time` / `✕ Close` buttons instead of posting two embeds at once
+- Added `buildUnscrambleLbPayload(view)` helper (function-hoisted inside `interactionCreate`) that builds the embed + button row for a given view
+- Added `unscrambleLbOwners` Map (same pattern as `leaderboardOwners`) to restrict button use to the invoker
+- Added `usclb:` button handler: switches view via `editReply`, deletes message on close, blocks non-owners
+
 ## [2026-07-08] — Unscramble: expert mode, weekly leaderboard, word list expansion, backup improvements
 
 - `UNSCRAMBLE_WORDS` expanded from ~780 to 1,400+ curated 4–6 letter words
