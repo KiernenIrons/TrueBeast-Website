@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Fix: unscramble leaderboard All-Time button not working
+
+- `buildUnscrambleLbPayload` was defined inside the `isChatInputCommand()` block, making it inaccessible when a button interaction fired
+- Moved to module level (after `endDuel`) so both the slash command handler and `usclb:` button handler can call it
+
 ## [2026-07-08] — Unscramble leaderboard: button navigation
 
 - `/unscramble-leaderboard` now shows a single embed with `📅 This Week` / `🏆 All-Time` / `✕ Close` buttons instead of posting two embeds at once

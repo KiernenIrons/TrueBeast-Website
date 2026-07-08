@@ -342,7 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔘 /unscramble-leaderboard now uses buttons', value: 'Instead of showing both leaderboards at once, the command now shows one embed at a time. Use the 📅 This Week and 🏆 All-Time buttons to switch between views, or ✕ Close to dismiss.' },
+    { name: '🐛 /unscramble-leaderboard buttons fixed', value: 'The 🏆 All-Time button now actually switches to the all-time leaderboard. The helper function was accidentally scoped where button interactions couldn\'t reach it.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -6914,6 +6914,66 @@ async function endDuel(duel, winnerId, timedOut) {
     console.log(`[BeastBot] ⚔️ Duel ${duel.id} ended — winner: ${finalWinner ?? 'tie'}`);
 }
 
+function buildUnscrambleLbPayload(view) {
+    const medals    = ['🥇', '🥈', '🥉'];
+    const weekKey   = getISOWeekKey();
+    const monday    = weekKeyToMonday(weekKey);
+    const sunday    = monday ? new Date(monday.getTime() + 6 * 86400000) : null;
+    const weekRange = monday && sunday
+        ? `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : weekKey;
+    const fmtLines = (entries, label) => entries.length
+        ? entries.slice(0, 8).map(([uid, s], i) => `${medals[i] || `**${i + 1}.**`} <@${uid}> — **${s}** ${label}${s === 1 ? '' : 's'}`).join('\n')
+        : '*No scores yet*';
+
+    const weekRegEntries = [...unscrambleWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+    const weekExpEntries = [...unscrambleExpertWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+    const allRegEntries  = [...unscrambleScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+    const allExpEntries  = [...unscrambleExpertScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
+    const roleHolderText = unscramblerOfWeekId ? `👑 Current **Unscrambler of the Week:** <@${unscramblerOfWeekId}>\n\n` : '';
+
+    const isWeek = view === 'week';
+    const embed = isWeek
+        ? {
+            color: 0xff9900,
+            title: '📅 This Week\'s Leaderboard',
+            description: roleHolderText || undefined,
+            fields: [
+                { name: '🟠 Regular Solves', value: fmtLines(weekRegEntries, 'solve'), inline: true },
+                { name: '🔴 Expert Solves',  value: fmtLines(weekExpEntries, 'solve'), inline: true },
+            ],
+            footer: { text: `Week: ${weekRange} · Resets Monday midnight UTC · Winner gets Unscrambler of the Week role` },
+            timestamp: new Date().toISOString(),
+        }
+        : {
+            color: 0x5865f2,
+            title: '🏆 All-Time Leaderboard',
+            fields: [
+                { name: '🟠 Regular Solves', value: fmtLines(allRegEntries, 'solve'), inline: true },
+                { name: '🔴 Expert Solves',  value: fmtLines(allExpEntries, 'solve'), inline: true },
+            ],
+            footer: { text: 'All-time totals since launch' },
+            timestamp: new Date().toISOString(),
+        };
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('usclb:week')
+            .setLabel('📅 This Week')
+            .setStyle(isWeek ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('usclb:alltime')
+            .setLabel('🏆 All-Time')
+            .setStyle(!isWeek ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('usclb:close')
+            .setLabel('✕ Close')
+            .setStyle(ButtonStyle.Danger),
+    );
+    return { embeds: [embed], components: [row] };
+}
+
+
 // ── Imposter Game Logic ───────────────────────────────────────────────────────
 
 function impCleanup(game) {
@@ -11690,65 +11750,6 @@ client.on('interactionCreate', async (interaction) => {
             const msg = await interaction.reply({ ...payload, fetchReply: true });
             unscrambleLbOwners.set(msg.id, interaction.user.id);
             return;
-        }
-
-        function buildUnscrambleLbPayload(view) {
-            const medals    = ['🥇', '🥈', '🥉'];
-            const weekKey   = getISOWeekKey();
-            const monday    = weekKeyToMonday(weekKey);
-            const sunday    = monday ? new Date(monday.getTime() + 6 * 86400000) : null;
-            const weekRange = monday && sunday
-                ? `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                : weekKey;
-            const fmtLines = (entries, label) => entries.length
-                ? entries.slice(0, 8).map(([uid, s], i) => `${medals[i] || `**${i + 1}.**`} <@${uid}> — **${s}** ${label}${s === 1 ? '' : 's'}`).join('\n')
-                : '*No scores yet*';
-
-            const weekRegEntries = [...unscrambleWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
-            const weekExpEntries = [...unscrambleExpertWeeklyScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
-            const allRegEntries  = [...unscrambleScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
-            const allExpEntries  = [...unscrambleExpertScores.entries()].filter(([, s]) => s > 0).sort(([, a], [, b]) => b - a);
-            const roleHolderText = unscramblerOfWeekId ? `👑 Current **Unscrambler of the Week:** <@${unscramblerOfWeekId}>\n\n` : '';
-
-            const isWeek = view === 'week';
-            const embed = isWeek
-                ? {
-                    color: 0xff9900,
-                    title: '📅 This Week\'s Leaderboard',
-                    description: roleHolderText || undefined,
-                    fields: [
-                        { name: '🟠 Regular Solves', value: fmtLines(weekRegEntries, 'solve'), inline: true },
-                        { name: '🔴 Expert Solves',  value: fmtLines(weekExpEntries, 'solve'), inline: true },
-                    ],
-                    footer: { text: `Week: ${weekRange} · Resets Monday midnight UTC · Winner gets Unscrambler of the Week role` },
-                    timestamp: new Date().toISOString(),
-                }
-                : {
-                    color: 0x5865f2,
-                    title: '🏆 All-Time Leaderboard',
-                    fields: [
-                        { name: '🟠 Regular Solves', value: fmtLines(allRegEntries, 'solve'), inline: true },
-                        { name: '🔴 Expert Solves',  value: fmtLines(allExpEntries, 'solve'), inline: true },
-                    ],
-                    footer: { text: 'All-time totals since launch' },
-                    timestamp: new Date().toISOString(),
-                };
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('usclb:week')
-                    .setLabel('📅 This Week')
-                    .setStyle(isWeek ? ButtonStyle.Primary : ButtonStyle.Secondary),
-                new ButtonBuilder()
-                    .setCustomId('usclb:alltime')
-                    .setLabel('🏆 All-Time')
-                    .setStyle(!isWeek ? ButtonStyle.Primary : ButtonStyle.Secondary),
-                new ButtonBuilder()
-                    .setCustomId('usclb:close')
-                    .setLabel('✕ Close')
-                    .setStyle(ButtonStyle.Danger),
-            );
-            return { embeds: [embed], components: [row] };
         }
 
         // ── /unscramble-duel ─────────────────────────────────────────────────
