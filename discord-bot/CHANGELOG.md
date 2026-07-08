@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-07-08] — Quarantine: add unquarantine button to responded notification
+
+- When a quarantined user sends a message, the "responded" alert in mod channel now includes an Unquarantine & Restore Roles button
+- Mods no longer need to scroll back to the original quarantine alert to unquarantine
+
 ## [2026-07-08] — Quarantine: role strip, voice kick, unquarantine button, spam tuning
 
 - When a user is quarantined (auto or manual), all non-managed roles are stripped and saved to state

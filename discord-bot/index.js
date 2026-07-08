@@ -210,8 +210,9 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '✅ Unquarantine Button on Response', value: 'When a quarantined user sends a message, the mod channel alert now includes a one-click Unquarantine button — no need to scroll back up to find the original alert.' },
     { name: '🔒 Quarantine: Role Strip + Voice Kick', value: 'When a user is quarantined, all their roles are automatically removed and saved. They\'re also disconnected from voice chat immediately.' },
-    { name: '✅ One-Click Unquarantine', value: 'Mods now get a button in the mod channel to unquarantine someone instantly — it restores all their original roles automatically.' },
+    { name: '✅ One-Click Unquarantine', value: 'Mods get a button in the mod channel to unquarantine someone instantly — it restores all their original roles automatically.' },
     { name: '🎮 Spam Filter Exemptions', value: 'The spam rate filter no longer applies in #unscramble, #counting, or #the-pond — fast message activity in those channels won\'t trigger quarantine.' },
     { name: '⚙️ Spam Threshold Raised', value: 'The auto-quarantine flood threshold has been raised from 8 to 15 messages per minute, reducing false positives for active chatters.' },
 ];
@@ -12906,11 +12907,22 @@ client.on('messageCreate', async (message) => {
                 qData.responded = true;
                 if (MOD_CHANNEL_ID) {
                     const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
-                    if (modCh) await modCh.send({ embeds: [buildLogEmbed({
-                        color:       0x00CC44,
-                        user:        message.author,
-                        description: `✅ <@${uid}> **responded** after quarantine — auto-ban cancelled.\nPlease review manually.`,
-                    })] }).catch(() => {});
+                    if (modCh) {
+                        const row = new ActionRowBuilder().addComponents(
+                            new ButtonBuilder()
+                                .setCustomId(`quarantine:unquarantine:${uid}`)
+                                .setLabel('✅ Unquarantine & Restore Roles')
+                                .setStyle(ButtonStyle.Success),
+                        );
+                        await modCh.send({
+                            embeds: [buildLogEmbed({
+                                color:       0x00CC44,
+                                user:        message.author,
+                                description: `✅ <@${uid}> **responded** after quarantine — auto-ban cancelled.\nClick below to unquarantine them and restore their roles.`,
+                            })],
+                            components: [row],
+                        }).catch(() => {});
+                    }
                 }
                 console.log(`[BeastBot] ✅ Quarantined user ${message.author.tag} responded — auto-ban cancelled`);
             }
