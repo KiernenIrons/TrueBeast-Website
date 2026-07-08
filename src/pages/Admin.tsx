@@ -3738,12 +3738,22 @@ function AnnouncementsV2Tab() {
 
   const handleSend = async () => {
     if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
-    const payload = buildPayloadV2(state);
+    // Assign fresh formIds on every send so prior submissions never block a new announcement
+    const freshState: V2State = {
+      ...state,
+      blocks: state.blocks.map((block) =>
+        block.kind === 'buttons'
+          ? { ...block, row: block.row.map((btn) => btn.type === 'form' ? { ...btn, formId: uid() } : btn) }
+          : block
+      ),
+    };
+    setState(freshState);
+    const payload = buildPayloadV2(freshState);
     if (!payload) { setFeedback({ type: 'error', message: 'Add some content before sending.' }); return; }
     setSending(true); setFeedback(null);
     try {
       // Save form configs to Firestore so the bot can read them when buttons are clicked
-      for (const block of state.blocks) {
+      for (const block of freshState.blocks) {
         if (block.kind === 'buttons') {
           for (const btn of block.row) {
             if (btn.type === 'form' && btn.formId && btn.formConfig) {
