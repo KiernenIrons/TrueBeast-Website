@@ -4358,6 +4358,66 @@ function RoleGroupEditor({ group, roles, onChange, onRemove }: {
   );
 }
 
+// ── Live preview ─────────────────────────────────────────────────────────
+
+function RolePickerPreview({ picker }: { picker: RolePicker }) {
+  const bot = useContext(BotCtx);
+  const v2State: V2State = {
+    content: picker.content,
+    accentColor: picker.accentColor,
+    showAccent: picker.showAccent,
+    spoilerContainer: picker.spoilerContainer,
+    blocks: picker.blocks,
+    reactions: [],
+  };
+
+  const hasBlocks = picker.blocks.some((b) => {
+    if (b.kind === 'text') return b.content.trim().length > 0;
+    if (b.kind === 'fields') return b.items.some((f) => f.key.trim() || f.value.trim());
+    if (b.kind === 'section') return b.texts.some((t) => t.trim());
+    if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
+    return true;
+  });
+  const hasGroups = picker.groups.some((g) => g.buttons.some((b) => b.roleId && (b.label.trim() || b.emoji)));
+  const STYLE_BG: Record<number, string> = { 1: '#5865f2', 2: '#4f545c', 3: '#57f287', 4: '#ed4245' };
+  const STYLE_TEXT: Record<number, string> = { 1: 'white', 2: 'white', 3: '#0e0e0e', 4: 'white' };
+
+  if (!hasBlocks && !picker.content.trim() && !hasGroups) {
+    return <div className="text-gray-500 text-sm italic text-center py-6">Add some content to see a preview…</div>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <V2Preview state={v2State} />
+      {picker.groups.map((group) => {
+        const buttons = group.buttons.filter((b) => b.roleId && (b.label.trim() || b.emoji));
+        if (!buttons.length) return null;
+        return (
+          <div key={group.id} className="flex flex-wrap gap-1.5 pt-0.5">
+            {buttons.map((b) => {
+              const m = b.emoji?.match(/(?:(.+):)?(\d{15,})$/);
+              const eid = m?.[2];
+              const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
+              const roleName = bot.roles.find((r) => r.id === b.roleId)?.name;
+              return (
+                <span key={b.id}
+                  style={{ backgroundColor: STYLE_BG[b.style ?? 1], color: STYLE_TEXT[b.style ?? 1] }}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded cursor-default select-none"
+                  title={roleName ? `Assigns @${roleName}` : undefined}>
+                  {eid ? (
+                    <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt="" className="w-4 h-4" />
+                  ) : b.emoji ? <span>{b.emoji}</span> : null}
+                  {b.label && <span>{b.label}</span>}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main tab ─────────────────────────────────────────────────────────────
 
 function RolePickersTab() {
@@ -4520,7 +4580,8 @@ function RolePickersTab() {
 
       {/* ── Editor ── */}
       {p ? (
-        <div className="flex-1 min-w-0 space-y-6">
+        <div className="flex-1 min-w-0 grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-6 items-start">
+        <div className="space-y-6">
           {/* Feedback */}
           {feedback && (
             <div className={`text-sm px-4 py-2 rounded-xl ${feedback.type === 'success' ? 'bg-green-500/15 text-green-300 border border-green-500/20' : 'bg-red-500/15 text-red-300 border border-red-500/20'}`}>
@@ -4654,6 +4715,26 @@ function RolePickersTab() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* Preview column */}
+        <div className="xl:sticky xl:top-28 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Live Preview</p>
+            <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">v2 layout</span>
+          </div>
+          <div className="bg-[#36393f] rounded-xl p-4 min-h-[120px]">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">TB</div>
+              <div>
+                <span className="text-white text-sm font-semibold">TrueBeast</span>
+                <span className="ml-1.5 bg-[#5865f2] text-[10px] font-semibold text-white px-1 py-px rounded">BOT</span>
+              </div>
+            </div>
+            <RolePickerPreview picker={p} />
+          </div>
+          <p className="text-[10px] text-gray-600 text-center">Hover a button to see its role</p>
+        </div>
         </div>
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center py-16 text-center text-gray-500 space-y-3">
