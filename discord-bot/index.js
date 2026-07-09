@@ -342,8 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📋 Announcement form buttons', value: 'Announcements v2 now supports interactive form buttons. Click a button → a popup form appears → answers get posted to your chosen channels. Fully customisable from the admin panel.' },
-    { name: '💬 Threads + DM destinations', value: 'Form responses can now be sent to multiple channels, active threads, and/or DM\'d directly to the person who submitted — all configurable from the admin panel.' },
+    { name: '🎭 Role picker buttons', value: 'Click a button to instantly get a role. Clicking it again removes it. Only one role per group at a time — picking a new one automatically swaps out the old one.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -9361,6 +9360,48 @@ async function handleAnnFormModalSubmit(interaction) {
     }
 }
 
+// ── Role picker button handler ────────────────────────────────────────────────
+
+async function handleRolePick(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    try {
+        // custom_id format: rolepick:<pickerId>:<groupId>:<roleId>
+        const parts = interaction.customId.split(':');
+        const pickerId = parts[1];
+        const groupId = parts[2];
+        const roleId = parts[3];
+
+        const docData = await firestoreGet('botConfig', 'rolePickers');
+        if (!docData?.configJson) {
+            return interaction.editReply({ content: '❌ Role picker config not found.' });
+        }
+        const pickers = JSON.parse(docData.configJson);
+        const picker = pickers.find((p) => p.id === pickerId);
+        if (!picker) return interaction.editReply({ content: '❌ Role picker not found.' });
+
+        const group = picker.groups.find((g) => g.id === groupId);
+        if (!group) return interaction.editReply({ content: '❌ Role group not found.' });
+
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        const allGroupRoleIds = group.buttons.map((b) => b.roleId).filter(Boolean);
+        const hasRole = member.roles.cache.has(roleId);
+        const roleName = interaction.guild.roles.cache.get(roleId)?.name || 'role';
+
+        if (hasRole) {
+            await member.roles.remove(roleId);
+            return interaction.editReply({ content: `✅ Removed the **${roleName}** role.` });
+        } else {
+            const toRemove = allGroupRoleIds.filter((id) => id !== roleId && member.roles.cache.has(id));
+            if (toRemove.length) await member.roles.remove(toRemove);
+            await member.roles.add(roleId);
+            return interaction.editReply({ content: `✅ You now have the **${roleName}** role!` });
+        }
+    } catch (err) {
+        console.error('[rolepick] error:', err);
+        return interaction.editReply({ content: '❌ Failed to update your roles. Make sure the bot has permission to manage this role.' });
+    }
+}
+
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
@@ -9390,6 +9431,11 @@ client.on('interactionCreate', async (interaction) => {
     }
     if (interaction.isModalSubmit() && interaction.customId.startsWith('annform_modal:')) {
         return handleAnnFormModalSubmit(interaction);
+    }
+
+    // ── Role picker buttons ───────────────────────────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith('rolepick:')) {
+        return handleRolePick(interaction);
     }
 
     // ── Slash commands ───────────────────────────────────────────────────────

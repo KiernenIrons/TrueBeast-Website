@@ -50,6 +50,9 @@ interface EmbedData {
 }
 interface FormField { id: string; label: string; placeholder: string; style: 'short' | 'paragraph'; required: boolean }
 interface FormConfig { formTitle: string; fields: FormField[]; destChannelIds: string[]; dmSubmitter: boolean; oneTime: boolean; confirmMsg: string }
+interface RolePickerButton { id: string; label: string; emoji: string; style: 1 | 2 | 3 | 4; roleId: string }
+interface RoleGroup { id: string; name: string; buttons: RolePickerButton[] }
+interface RolePicker { id: string; name: string; channelId: string; messageId?: string; content: string; accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[]; groups: RoleGroup[] }
 interface ButtonData {
   label: string; url: string; emoji: string; disabled?: boolean;
   type?: 'link' | 'form'; formId?: string; formConfig?: FormConfig; btnStyle?: 1 | 2 | 3 | 4;
@@ -4184,9 +4187,492 @@ function AnnouncementsV2Tab() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Role Pickers Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ROLE_BTN_STYLES: { value: 1 | 2 | 3 | 4; label: string; cls: string }[] = [
+  { value: 1, label: 'Blue',  cls: 'bg-[#5865f2] text-white' },
+  { value: 2, label: 'Grey',  cls: 'bg-[#4f545c] text-white' },
+  { value: 3, label: 'Green', cls: 'bg-[#57f287] text-[#0e0e0e]' },
+  { value: 4, label: 'Red',   cls: 'bg-[#ed4245] text-white' },
+];
+
+function buildRolePickerPayload(picker: RolePicker): Record<string, unknown> | null {
+  const v2State: V2State = {
+    content: picker.content,
+    accentColor: picker.accentColor,
+    showAccent: picker.showAccent,
+    spoilerContainer: picker.spoilerContainer,
+    blocks: picker.blocks,
+    reactions: [],
+  };
+  const base = buildPayloadV2(v2State);
+  const components: unknown[] = base ? (base.components as unknown[]).slice() : [];
+
+  for (const group of picker.groups) {
+    const buttons = group.buttons
+      .filter((b) => b.roleId && (b.label.trim() || b.emoji))
+      .slice(0, 5)
+      .map((b) => {
+        const btn: Record<string, unknown> = {
+          type: 2, style: b.style || 1,
+          custom_id: `rolepick:${picker.id}:${group.id}:${b.roleId}`,
+        };
+        if (b.label.trim()) btn.label = b.label;
+        if (b.emoji) {
+          const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
+          if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
+          else btn.emoji = { name: b.emoji };
+        }
+        return btn;
+      });
+    if (buttons.length) components.push({ type: 1, components: buttons });
+  }
+
+  if (!components.length) return null;
+  return { flags: 32768, components };
+}
+
+function newRolePickerButton(): RolePickerButton {
+  return { id: uid(), label: '', emoji: '', style: 1, roleId: '' };
+}
+
+function newRoleGroup(): RoleGroup {
+  return { id: uid(), name: 'Group', buttons: [newRolePickerButton()] };
+}
+
+function newRolePicker(): RolePicker {
+  return {
+    id: uid(), name: 'New Role Picker', channelId: '', content: '',
+    accentColor: '#5865f2', showAccent: false, spoilerContainer: false,
+    blocks: [], groups: [newRoleGroup()],
+  };
+}
+
+// ── Role group / button editor ────────────────────────────────────────────
+
+function RoleButtonEditor({ btn, roles, onChange, onRemove }: {
+  btn: RolePickerButton;
+  roles: DiscordRole[];
+  onChange: (patch: Partial<RolePickerButton>) => void;
+  onRemove: () => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const inpSm = 'bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-full';
+
+  const renderEmoji = () => {
+    if (!btn.emoji) return <FaceSmile className="w-4 h-4 text-gray-500" />;
+    const m = btn.emoji.match(/(?:.+:)?(\d{15,})$/);
+    if (m) return <img src={`https://cdn.discordapp.com/emojis/${m[1]}.webp?size=32`} className="w-5 h-5 object-contain" alt="" />;
+    return <span className="text-lg leading-none">{btn.emoji}</span>;
+  };
+
+  return (
+    <div className="flex gap-2 items-center">
+      {/* Emoji */}
+      <div className="relative flex-shrink-0">
+        <button type="button" onClick={() => setPickerOpen(!pickerOpen)}
+          className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
+          {renderEmoji()}
+        </button>
+        {btn.emoji && (
+          <button type="button" onClick={() => onChange({ emoji: '' })}
+            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center cursor-pointer">
+            <XClose className="w-2 h-2" />
+          </button>
+        )}
+        {pickerOpen && (
+          <EmojiPicker onPick={(em) => { onChange({ emoji: em }); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />
+        )}
+      </div>
+
+      {/* Label */}
+      <input type="text" placeholder="Button label" value={btn.label} onChange={(e) => onChange({ label: e.target.value })}
+        className={inpSm + ' !w-28'} />
+
+      {/* Style */}
+      <div className="flex gap-1 flex-shrink-0">
+        {ROLE_BTN_STYLES.map((s) => (
+          <button key={s.value} type="button" onClick={() => onChange({ style: s.value })}
+            className={`w-5 h-5 rounded text-[9px] font-bold border-2 transition-all cursor-pointer ${s.cls} ${btn.style === s.value ? 'border-white' : 'border-transparent opacity-50 hover:opacity-80'}`}
+            title={s.label} />
+        ))}
+      </div>
+
+      {/* Role */}
+      <select value={btn.roleId} onChange={(e) => onChange({ roleId: e.target.value })}
+        style={{ backgroundColor: '#1e1f22', color: 'white' }}
+        className="flex-1 min-w-0 border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50">
+        <option value="" style={{ backgroundColor: '#1e1f22' }}>— pick a role —</option>
+        {roles.map((r) => (
+          <option key={r.id} value={r.id} style={{ backgroundColor: '#1e1f22' }}>{r.name}</option>
+        ))}
+      </select>
+
+      {/* Remove */}
+      <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer">
+        <Minus className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
+function RoleGroupEditor({ group, roles, onChange, onRemove }: {
+  group: RoleGroup;
+  roles: DiscordRole[];
+  onChange: (g: RoleGroup) => void;
+  onRemove: () => void;
+}) {
+  const updateBtn = (id: string, patch: Partial<RolePickerButton>) =>
+    onChange({ ...group, buttons: group.buttons.map((b) => b.id === id ? { ...b, ...patch } : b) });
+  const removeBtn = (id: string) => onChange({ ...group, buttons: group.buttons.filter((b) => b.id !== id) });
+  const addBtn = () => onChange({ ...group, buttons: [...group.buttons, newRolePickerButton()] });
+
+  return (
+    <div className="border border-white/10 rounded-xl p-3 space-y-2.5 bg-white/[0.01]">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Group name</span>
+        <input type="text" value={group.name} onChange={(e) => onChange({ ...group, name: e.target.value })}
+          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
+        <button type="button" onClick={onRemove}
+          className="text-gray-600 hover:text-red-400 transition-colors cursor-pointer text-xs px-2 py-1 rounded-lg hover:bg-red-500/10">
+          Delete group
+        </button>
+      </div>
+      <p className="text-[10px] text-gray-600">Selecting one role in this group removes all others from the group.</p>
+      <div className="space-y-1.5">
+        {group.buttons.map((btn) => (
+          <RoleButtonEditor key={btn.id} btn={btn} roles={roles}
+            onChange={(patch) => updateBtn(btn.id, patch)}
+            onRemove={() => removeBtn(btn.id)} />
+        ))}
+      </div>
+      {group.buttons.length < 5 && (
+        <button type="button" onClick={addBtn}
+          className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer transition-colors">
+          <Plus className="w-3 h-3" /> Add button
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Main tab ─────────────────────────────────────────────────────────────
+
+function RolePickersTab() {
+  const bot = useContext(BotCtx);
+  const [pickers, setPickers] = useState<RolePicker[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [tabLoading, setTabLoading] = useState(true);
+  const [addBlockMenuOpen, setAddBlockMenuOpen] = useState(false);
+
+  const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
+
+  useEffect(() => {
+    FirebaseDB.loadRolePickers()
+      .then((data) => {
+        const loaded = (data || []) as RolePicker[];
+        setPickers(loaded);
+        if (loaded.length) setSelectedId(loaded[0].id);
+      })
+      .catch(() => {})
+      .finally(() => setTabLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const t = setTimeout(() => setFeedback(null), 5000);
+    return () => clearTimeout(t);
+  }, [feedback]);
+
+  const savePickers = async (updated: RolePicker[]) => {
+    setPickers(updated);
+    try {
+      await FirebaseDB.saveRolePickers(updated);
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: `Save failed: ${err?.message}` });
+    }
+  };
+
+  const createPicker = async () => {
+    const p = newRolePicker();
+    const updated = [...pickers, p];
+    await savePickers(updated);
+    setSelectedId(p.id);
+  };
+
+  const deletePicker = async (id: string) => {
+    if (!window.confirm('Delete this role picker? The Discord message will stay but buttons will stop working.')) return;
+    const updated = pickers.filter((p) => p.id !== id);
+    await savePickers(updated);
+    if (selectedId === id) setSelectedId(updated[0]?.id ?? null);
+  };
+
+  const p = pickers.find((x) => x.id === selectedId) ?? null;
+
+  const updateSelected = (patch: Partial<RolePicker>) => {
+    if (!p) return;
+    const updated = pickers.map((x) => x.id === p.id ? { ...p, ...patch } : x);
+    setPickers(updated);
+  };
+
+  const saveSelected = async () => {
+    await savePickers(pickers);
+    setFeedback({ type: 'success', message: 'Saved!' });
+  };
+
+  // Block helpers
+  const updateBlock = (blockId: string, b: V2Block) =>
+    updateSelected({ blocks: (p?.blocks ?? []).map((x) => x.id === blockId ? b : x) });
+  const removeBlock = (blockId: string) =>
+    updateSelected({ blocks: (p?.blocks ?? []).filter((x) => x.id !== blockId) });
+  const addBlock = (kind: V2BlockKind) => {
+    updateSelected({ blocks: [...(p?.blocks ?? []), newV2Block(kind)] });
+    setAddBlockMenuOpen(false);
+  };
+  const moveBlock = (index: number, dir: -1 | 1) => {
+    if (!p) return;
+    const blocks = [...p.blocks];
+    const target = index + dir;
+    if (target < 0 || target >= blocks.length) return;
+    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+    updateSelected({ blocks });
+  };
+
+  // Group helpers
+  const updateGroup = (g: RoleGroup) =>
+    updateSelected({ groups: (p?.groups ?? []).map((x) => x.id === g.id ? g : x) });
+  const removeGroup = (id: string) =>
+    updateSelected({ groups: (p?.groups ?? []).filter((x) => x.id !== id) });
+  const addGroup = () =>
+    updateSelected({ groups: [...(p?.groups ?? []), newRoleGroup()] });
+
+  const handleSend = async () => {
+    if (!p) return;
+    if (!p.channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
+    const payload = buildRolePickerPayload(p);
+    if (!payload) { setFeedback({ type: 'error', message: 'Add message content or at least one role group with a role selected.' }); return; }
+    setSending(true); setFeedback(null);
+    try {
+      // Save config first so bot can read it immediately
+      await FirebaseDB.saveRolePickers(pickers);
+
+      if (p.messageId) {
+        const res = await fetch(base + '/discord/edit', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channelId: p.channelId, messageId: p.messageId, payload }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.message || data?.error || `Discord error (${res.status})`);
+        setFeedback({ type: 'success', message: 'Role picker message updated!' });
+      } else {
+        const res = await fetch(base + '/discord/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channelId: p.channelId, payload }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.message || data?.error || `Discord error (${res.status})`);
+        const withId = { ...p, messageId: data.id };
+        const allUpdated = pickers.map((x) => x.id === withId.id ? withId : x);
+        setPickers(allUpdated);
+        await FirebaseDB.saveRolePickers(allUpdated);
+        setFeedback({ type: 'success', message: 'Role picker posted to Discord!' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Failed to send.' });
+    } finally { setSending(false); }
+  };
+
+  const inpBase = 'bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-full';
+  const secHead = 'text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2';
+
+  if (tabLoading) {
+    return <div className="text-center text-gray-500 py-12">Loading…</div>;
+  }
+
+  return (
+    <div className="flex gap-6 items-start">
+      {/* ── Sidebar: picker list ── */}
+      <div className="w-48 flex-shrink-0 space-y-1">
+        <p className={secHead + ' mb-3'}>Role Pickers</p>
+        {pickers.map((pk) => (
+          <div key={pk.id}
+            className={`flex items-center gap-1 group rounded-xl px-2 py-1.5 cursor-pointer transition-colors ${pk.id === selectedId ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
+            onClick={() => setSelectedId(pk.id)}>
+            <ShieldTick className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="text-xs flex-1 min-w-0 truncate">{pk.name}</span>
+            <button type="button" onClick={(e) => { e.stopPropagation(); deletePicker(pk.id); }}
+              className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all cursor-pointer flex-shrink-0">
+              <XClose className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
+        <button type="button" onClick={createPicker}
+          className="w-full flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 px-2 py-1.5 rounded-xl hover:bg-white/5 transition-colors cursor-pointer mt-1">
+          <Plus className="w-3.5 h-3.5" /> New picker
+        </button>
+      </div>
+
+      {/* ── Editor ── */}
+      {p ? (
+        <div className="flex-1 min-w-0 space-y-6">
+          {/* Feedback */}
+          {feedback && (
+            <div className={`text-sm px-4 py-2 rounded-xl ${feedback.type === 'success' ? 'bg-green-500/15 text-green-300 border border-green-500/20' : 'bg-red-500/15 text-red-300 border border-red-500/20'}`}>
+              {feedback.message}
+            </div>
+          )}
+
+          {/* Header: name + channel */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={secHead}>Picker name (admin only)</label>
+              <input type="text" value={p.name} onChange={(e) => updateSelected({ name: e.target.value })} className={inpBase} placeholder="e.g. Game Roles" />
+            </div>
+            <div>
+              <label className={secHead}>Post to channel</label>
+              <select value={p.channelId} onChange={(e) => updateSelected({ channelId: e.target.value })}
+                style={{ backgroundColor: '#1e1f22', color: 'white' }}
+                className="border border-white/10 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-full">
+                <option value="" style={{ backgroundColor: '#1e1f22' }}>— select channel —</option>
+                {bot.channels.map((c) => (
+                  <option key={c.id} value={c.id} style={{ backgroundColor: '#1e1f22' }}>#{c.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {p.messageId && (
+            <p className="text-[11px] text-gray-500">
+              Message ID: <span className="font-mono text-gray-400">{p.messageId}</span>
+              {' '}— clicking Send will <strong className="text-gray-300">edit</strong> the existing message.
+            </p>
+          )}
+
+          {/* Message blocks */}
+          <div>
+            <p className={secHead}>Message design</p>
+            <div className="space-y-2">
+              {/* Optional content above container */}
+              <div>
+                <label className="text-[10px] text-gray-500 block mb-1">Message content (optional, above blocks)</label>
+                <textarea value={p.content} onChange={(e) => updateSelected({ content: e.target.value })}
+                  rows={2} placeholder="Text shown above the styled container…"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm resize-y focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
+              </div>
+
+              {/* Accent + spoiler toggles */}
+              <div className="flex items-center gap-4 text-xs text-gray-400">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={p.showAccent} onChange={(e) => updateSelected({ showAccent: e.target.checked })}
+                    className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+                  Accent bar
+                </label>
+                {p.showAccent && (
+                  <input type="color" value={p.accentColor} onChange={(e) => updateSelected({ accentColor: e.target.value })}
+                    className="w-8 h-6 rounded cursor-pointer border-0 bg-transparent p-0" title="Accent colour" />
+                )}
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={p.spoilerContainer} onChange={(e) => updateSelected({ spoilerContainer: e.target.checked })}
+                    className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+                  Spoiler container
+                </label>
+              </div>
+
+              {/* Block list */}
+              {p.blocks.map((block, i) => (
+                <V2BlockEditor key={block.id} block={block} index={i} total={p.blocks.length}
+                  onChange={(b) => updateBlock(block.id, b)}
+                  onRemove={() => removeBlock(block.id)}
+                  onCopy={() => updateSelected({ blocks: [...p.blocks.slice(0, i + 1), { ...JSON.parse(JSON.stringify(block)), id: uid() }, ...p.blocks.slice(i + 1)] })}
+                  onMoveUp={() => moveBlock(i, -1)}
+                  onMoveDown={() => moveBlock(i, 1)} />
+              ))}
+
+              {/* Add block */}
+              <div className="relative">
+                <button type="button" onClick={() => setAddBlockMenuOpen(!addBlockMenuOpen)}
+                  className="w-full flex items-center justify-center gap-1.5 border border-dashed border-white/10 rounded-xl py-2 text-xs text-gray-500 hover:border-white/20 hover:text-gray-300 transition-colors cursor-pointer">
+                  <Plus className="w-3.5 h-3.5" /> Add block
+                </button>
+                {addBlockMenuOpen && (
+                  <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-[#1a1b1e] border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                    {V2_BLOCK_TYPES.map((bt) => (
+                      <button key={bt.kind} type="button" onClick={() => addBlock(bt.kind)}
+                        className="w-full flex flex-col text-left px-3 py-2 hover:bg-white/5 transition-colors cursor-pointer">
+                        <span className="text-xs font-medium text-white">{bt.label}</span>
+                        <span className="text-[10px] text-gray-500">{bt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Role groups */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className={secHead + ' mb-0.5'}>Role groups (buttons)</p>
+                <p className="text-[10px] text-gray-600">Each group = one row of buttons. Selecting a role removes all others in the same group.</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {p.groups.map((g) => (
+                <RoleGroupEditor key={g.id} group={g} roles={bot.roles}
+                  onChange={updateGroup}
+                  onRemove={() => removeGroup(g.id)} />
+              ))}
+              <button type="button" onClick={addGroup}
+                className="w-full flex items-center justify-center gap-1.5 border border-dashed border-white/10 rounded-xl py-2 text-xs text-gray-500 hover:border-white/20 hover:text-gray-300 transition-colors cursor-pointer">
+                <Plus className="w-3.5 h-3.5" /> Add group
+              </button>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 pt-2 border-t border-white/5">
+            <button type="button" onClick={saveSelected}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-gray-300 hover:bg-white/10 transition-colors cursor-pointer">
+              <Save01 className="w-3.5 h-3.5" /> Save config
+            </button>
+            <button type="button" disabled={sending || !p.channelId} onClick={handleSend}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer">
+              <Send01 className="w-3.5 h-3.5" />
+              {sending ? 'Sending…' : p.messageId ? 'Update Discord message' : 'Send to Discord'}
+            </button>
+            {p.messageId && (
+              <button type="button" onClick={() => { if (window.confirm('Clear the stored message ID? Next send will post a new message instead of editing the old one.')) updateSelected({ messageId: undefined }); }}
+                className="text-xs text-gray-600 hover:text-gray-400 transition-colors cursor-pointer">
+                Clear message ID
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center py-16 text-center text-gray-500 space-y-3">
+          <ShieldTick className="w-10 h-10 opacity-20" />
+          <p className="text-sm">No role pickers yet.</p>
+          <button type="button" onClick={createPicker}
+            className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-400 transition-colors cursor-pointer">
+            Create your first role picker
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TAB_ITEMS = [
   { id: 'announcements',    label: 'Announcements',    permKey: 'discord' },
   { id: 'announcements-v2', label: 'Announcements v2', permKey: 'discord' },
+  { id: 'role-pickers',     label: 'Role Pickers',     permKey: 'discord' },
   { id: 'cards',            label: 'Discord Cards',    permKey: 'discord' },
   { id: 'tickets',          label: 'Tickets',          permKey: 'tickets' },
   { id: 'reviews',          label: 'Reviews',          permKey: 'reviews' },
@@ -4258,6 +4744,7 @@ function AdminDashboard() {
   const TAB_ICON: Record<string, React.ReactNode> = {
     'announcements':    <Bell01    className="w-4 h-4 mr-1.5 inline-block" />,
     'announcements-v2': <LayersThree01  className="w-4 h-4 mr-1.5 inline-block" />,
+    'role-pickers':     <ShieldTick className="w-4 h-4 mr-1.5 inline-block" />,
     'cards':            <Image01   className="w-4 h-4 mr-1.5 inline-block" />,
     'tickets':          <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />,
     'reviews':          <Star01    className="w-4 h-4 mr-1.5 inline-block" />,
@@ -4290,6 +4777,7 @@ function AdminDashboard() {
             </TabList>
             <TabPanel id="announcements"    className="mt-2"><AnnouncementsTab /></TabPanel>
             <TabPanel id="announcements-v2" className="mt-2"><AnnouncementsV2Tab /></TabPanel>
+            <TabPanel id="role-pickers"     className="mt-2"><RolePickersTab /></TabPanel>
             <TabPanel id="cards"            className="mt-2"><DiscordCardsTab /></TabPanel>
             <TabPanel id="tickets"          className="mt-2"><TicketsTab /></TabPanel>
             <TabPanel id="reviews"          className="mt-2"><ReviewsTab /></TabPanel>

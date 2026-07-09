@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-09] — Role picker buttons
+
+- Added `handleRolePick` — reads `botConfig/rolePickers` from Firestore, finds the picker + group by ID encoded in the button's `custom_id`, then assigns or removes the role
+- Toggle behaviour: if the member already has the clicked role it is removed; otherwise all other roles in the same group are removed and the clicked role is added (exclusive group)
+- `custom_id` format: `rolepick:<pickerId>:<groupId>:<roleId>`
+- Wired into `interactionCreate` after the annform block, dispatching on `rolepick:` button prefix
+
 ## [2026-07-08] — Form buttons: multi-destination, threads, DM submitter
 
 - `handleAnnFormModalSubmit`: replace single `config.destChannelId` with `config.destChannelIds[]` array, iterating each to post the submission embed

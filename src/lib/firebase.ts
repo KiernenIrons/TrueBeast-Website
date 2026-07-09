@@ -699,6 +699,23 @@ export const FirebaseDB = {
     }));
   },
 
+  async saveRolePickers(pickers: unknown[]): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    await _withTimeout(setDoc(doc(_db, 'botConfig', 'rolePickers'), {
+      configJson: JSON.stringify(pickers),
+      updatedAt: new Date().toISOString(),
+    }));
+  },
+
+  async loadRolePickers(): Promise<unknown[]> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return [];
+    const snap = await _withTimeout(getDoc(doc(_db, 'botConfig', 'rolePickers')));
+    if (!snap.exists()) return [];
+    try { return JSON.parse(snap.data().configJson ?? '[]'); } catch { return []; }
+  },
+
   // -----------------------------------------------------------------------
   // Announcements (public-read for homepage latest announcement)
   // -----------------------------------------------------------------------
