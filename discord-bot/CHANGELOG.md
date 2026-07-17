@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-17] — Fix role picker cross-group role removal
+
+- Bug: `handleRolePick` built `allGroupRoleIds` from only the clicked group's buttons, so roles from other groups in the same picker were never removed when switching
+- Fix: changed to `picker.groups.flatMap(...)` so all role IDs across every group in the picker are collected before determining what to remove
+- Result: picking any role in a picker now correctly clears any previously held role from that picker, regardless of which button group it belonged to
+
 ## [2026-07-09] — Role picker buttons
 
 - Added `handleRolePick` — reads `botConfig/rolePickers` from Firestore, finds the picker + group by ID encoded in the button's `custom_id`, then assigns or removes the role

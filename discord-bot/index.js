@@ -342,7 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🎭 Role picker buttons', value: 'Click a button to instantly get a role. Clicking it again removes it. Only one role per group at a time — picking a new one automatically swaps out the old one.' },
+    { name: '🐛 Role picker fix', value: 'Fixed a bug where picking a role didn\'t remove a previously held role from the same picker if it was in a different button group. Old roles are now always cleared when you pick a new one.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -9383,7 +9383,7 @@ async function handleRolePick(interaction) {
         if (!group) return interaction.editReply({ content: '❌ Role group not found.' });
 
         const member = await interaction.guild.members.fetch(interaction.user.id);
-        const allGroupRoleIds = group.buttons.map((b) => b.roleId).filter(Boolean);
+        const allGroupRoleIds = picker.groups.flatMap((g) => g.buttons.map((b) => b.roleId)).filter(Boolean);
         const hasRole = member.roles.cache.has(roleId);
         const roleName = interaction.guild.roles.cache.get(roleId)?.name || 'role';
 
