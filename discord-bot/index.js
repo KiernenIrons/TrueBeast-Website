@@ -342,7 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '✨ Role picker confirmation', value: 'When you pick a role, the confirmation now shows your name in the channel so you can see your new colour. The message disappears automatically after 10 seconds.' },
+    { name: '✨ Role picker confirmation', value: 'When you pick a role, the private confirmation message now disappears automatically after 10 seconds so it doesn\'t build up.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -9363,7 +9363,7 @@ async function handleAnnFormModalSubmit(interaction) {
 // ── Role picker button handler ────────────────────────────────────────────────
 
 async function handleRolePick(interaction) {
-    await interaction.deferReply();
+    await interaction.deferReply({ ephemeral: true });
     const autoDelete = () => setTimeout(() => interaction.deleteReply().catch(() => {}), 10_000);
     try {
         // custom_id format: rolepick:<pickerId>:<groupId>:<roleId>
@@ -9394,16 +9394,15 @@ async function handleRolePick(interaction) {
         const allGroupRoleIds = picker.groups.flatMap((g) => g.buttons.map((b) => b.roleId)).filter(Boolean);
         const hasRole = member.roles.cache.has(roleId);
         const roleName = interaction.guild.roles.cache.get(roleId)?.name || 'role';
-        const mention = `<@${interaction.user.id}>`;
 
         if (hasRole) {
             await member.roles.remove(roleId);
-            await interaction.editReply({ content: `✅ ${mention} removed the **${roleName}** role.`, allowedMentions: { parse: [] } });
+            await interaction.editReply({ content: `✅ Removed the **${roleName}** role.` });
         } else {
             const toRemove = allGroupRoleIds.filter((id) => id !== roleId && member.roles.cache.has(id));
             if (toRemove.length) await member.roles.remove(toRemove);
             await member.roles.add(roleId);
-            await interaction.editReply({ content: `✅ ${mention} now has the **${roleName}** role!`, allowedMentions: { parse: [] } });
+            await interaction.editReply({ content: `✅ You now have the **${roleName}** role!` });
         }
         autoDelete();
     } catch (err) {
