@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-17] — Role picker: public mention reply that auto-deletes after 10s
+
+- Switched `deferReply({ ephemeral: true })` to `deferReply()` so the confirmation is visible in the channel
+- Reply now mentions the user with `allowedMentions: { parse: [] }` — renders their coloured name tag without sending a ping notification
+- All reply paths (success, error, early-return guards) call `autoDelete()` which runs `deleteReply()` after 10 seconds
+- Replaces the old "Only you can see this" ephemeral messages that couldn't be cleaned up by the bot
+
 ## [2026-07-17] — Fix role picker cross-group role removal
 
 - Bug: `handleRolePick` built `allGroupRoleIds` from only the clicked group's buttons, so roles from other groups in the same picker were never removed when switching

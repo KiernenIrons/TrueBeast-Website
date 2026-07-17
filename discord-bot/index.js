@@ -342,7 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🐛 Role picker fix', value: 'Fixed a bug where picking a role didn\'t remove a previously held role from the same picker if it was in a different button group. Old roles are now always cleared when you pick a new one.' },
+    { name: '✨ Role picker confirmation', value: 'When you pick a role, the confirmation now shows your name in the channel so you can see your new colour. The message disappears automatically after 10 seconds.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -9363,7 +9363,8 @@ async function handleAnnFormModalSubmit(interaction) {
 // ── Role picker button handler ────────────────────────────────────────────────
 
 async function handleRolePick(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply();
+    const autoDelete = () => setTimeout(() => interaction.deleteReply().catch(() => {}), 10_000);
     try {
         // custom_id format: rolepick:<pickerId>:<groupId>:<roleId>
         const parts = interaction.customId.split(':');
@@ -9373,32 +9374,42 @@ async function handleRolePick(interaction) {
 
         const docData = await firestoreGet('botConfig', 'rolePickers');
         if (!docData?.configJson) {
-            return interaction.editReply({ content: '❌ Role picker config not found.' });
+            await interaction.editReply({ content: '❌ Role picker config not found.' });
+            return autoDelete();
         }
         const pickers = JSON.parse(docData.configJson);
         const picker = pickers.find((p) => p.id === pickerId);
-        if (!picker) return interaction.editReply({ content: '❌ Role picker not found.' });
+        if (!picker) {
+            await interaction.editReply({ content: '❌ Role picker not found.' });
+            return autoDelete();
+        }
 
         const group = picker.groups.find((g) => g.id === groupId);
-        if (!group) return interaction.editReply({ content: '❌ Role group not found.' });
+        if (!group) {
+            await interaction.editReply({ content: '❌ Role group not found.' });
+            return autoDelete();
+        }
 
         const member = await interaction.guild.members.fetch(interaction.user.id);
         const allGroupRoleIds = picker.groups.flatMap((g) => g.buttons.map((b) => b.roleId)).filter(Boolean);
         const hasRole = member.roles.cache.has(roleId);
         const roleName = interaction.guild.roles.cache.get(roleId)?.name || 'role';
+        const mention = `<@${interaction.user.id}>`;
 
         if (hasRole) {
             await member.roles.remove(roleId);
-            return interaction.editReply({ content: `✅ Removed the **${roleName}** role.` });
+            await interaction.editReply({ content: `✅ ${mention} removed the **${roleName}** role.`, allowedMentions: { parse: [] } });
         } else {
             const toRemove = allGroupRoleIds.filter((id) => id !== roleId && member.roles.cache.has(id));
             if (toRemove.length) await member.roles.remove(toRemove);
             await member.roles.add(roleId);
-            return interaction.editReply({ content: `✅ You now have the **${roleName}** role!` });
+            await interaction.editReply({ content: `✅ ${mention} now has the **${roleName}** role!`, allowedMentions: { parse: [] } });
         }
+        autoDelete();
     } catch (err) {
         console.error('[rolepick] error:', err);
-        return interaction.editReply({ content: '❌ Failed to update your roles. Make sure the bot has permission to manage this role.' });
+        await interaction.editReply({ content: '❌ Failed to update your roles. Make sure the bot has permission to manage this role.' });
+        autoDelete();
     }
 }
 
