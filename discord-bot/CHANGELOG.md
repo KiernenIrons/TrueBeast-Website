@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-07-21] — Fix quarantine false alarm and temp VC tracking after restart
+
+- Fix: Discord's system "Wave to say hi!" join message was being treated as a quarantined user responding, immediately firing the mod alert; now only messages sent inside the quarantine channel (`QUARANTINE_CHANNEL_ID`) count as a response
+- Fix: on bot restart, active temp voice channels were dropped from `tempVoiceChannels` so the auto-delete leave handler couldn't track them; startup scan now re-registers non-empty temp VCs alongside deleting empty orphans
+
 ## [2026-07-17] — Role picker: ephemeral confirmation auto-deletes after 10s
 
 - Kept `deferReply({ ephemeral: true })` so confirmation remains private ("Only you can see this")

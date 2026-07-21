@@ -342,7 +342,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '✨ Role picker confirmation', value: 'When you pick a role, the private confirmation message now disappears automatically after 10 seconds so it doesn\'t build up.' },
+    { name: '🐛 Quarantine false alarm fix', value: 'Discord\'s "Wave to say hi!" join message no longer incorrectly triggers the quarantine response alert. Only real messages in the quarantine channel count.' },
+    { name: '🔊 Temp voice channel fix', value: 'Temp voice channels that were active during a bot restart are now properly tracked again, so they\'ll still auto-delete when everyone leaves.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -6397,21 +6398,28 @@ client.once('clientReady', async () => {
     setTimeout(() => postUnscramblePuzzle().catch(() => {}), 30 * 1000);
 
     // Clean up orphaned temp VCs (empty VCs in same category as trigger, left from before restart)
+    // Also re-register any non-empty temp VCs so the leave handler can delete them later.
     try {
         const trigger = await client.channels.fetch(TEMP_VC_TRIGGER_ID);
         if (trigger?.parentId) {
             const guild    = trigger.guild;
             const category = guild.channels.cache.get(trigger.parentId);
             if (category) {
-                const orphans = category.children.cache.filter(ch =>
+                const isTempVC = ch =>
                     ch.type === ChannelType.GuildVoice &&
                     ch.id !== TEMP_VC_TRIGGER_ID &&
-                    ch.members.size === 0 &&
-                    ch.name.endsWith("'s Channel")
-                );
-                for (const [, ch] of orphans) {
-                    await ch.delete('Temp VC: orphaned on restart').catch(() => {});
-                    console.log(`[BeastBot] 🔊 Deleted orphaned temp VC: ${ch.name}`);
+                    ch.name.endsWith("'s Channel");
+
+                for (const [, ch] of category.children.cache.filter(isTempVC)) {
+                    if (ch.members.size === 0) {
+                        await ch.delete('Temp VC: orphaned on restart').catch(() => {});
+                        console.log(`[BeastBot] 🔊 Deleted orphaned temp VC: ${ch.name}`);
+                    } else {
+                        // Re-register so the voiceStateUpdate leave handler can track it
+                        const ownerName = ch.name.replace(/'s Channel$/, '');
+                        tempVoiceChannels.set(ch.id, { ownerId: null, ownerName, deleteTimer: null });
+                        console.log(`[BeastBot] 🔊 Re-registered active temp VC: ${ch.name} (${ch.members.size} members)`);
+                    }
                 }
             }
         }
@@ -13883,31 +13891,33 @@ client.on('messageCreate', async (message) => {
         const uid = message.author.id;
         const now = Date.now();
 
-        // If quarantined and they just sent a message, lift the auto-ban
+        // If quarantined, only messages in the quarantine channel count as a response
         if (quarantinedUsers.has(uid)) {
-            const qData = quarantinedUsers.get(uid);
-            if (!qData.responded) {
-                qData.responded = true;
-                if (MOD_CHANNEL_ID) {
-                    const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
-                    if (modCh) {
-                        const row = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder()
-                                .setCustomId(`quarantine:unquarantine:${uid}`)
-                                .setLabel('✅ Unquarantine & Restore Roles')
-                                .setStyle(ButtonStyle.Success),
-                        );
-                        await modCh.send({
-                            embeds: [buildLogEmbed({
-                                color:       0x00CC44,
-                                user:        message.author,
-                                description: `✅ <@${uid}> **responded** after quarantine — auto-ban cancelled.\nClick below to unquarantine them and restore their roles.`,
-                            })],
-                            components: [row],
-                        }).catch(() => {});
+            if (message.channelId === QUARANTINE_CHANNEL_ID) {
+                const qData = quarantinedUsers.get(uid);
+                if (!qData.responded) {
+                    qData.responded = true;
+                    if (MOD_CHANNEL_ID) {
+                        const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
+                        if (modCh) {
+                            const row = new ActionRowBuilder().addComponents(
+                                new ButtonBuilder()
+                                    .setCustomId(`quarantine:unquarantine:${uid}`)
+                                    .setLabel('✅ Unquarantine & Restore Roles')
+                                    .setStyle(ButtonStyle.Success),
+                            );
+                            await modCh.send({
+                                embeds: [buildLogEmbed({
+                                    color:       0x00CC44,
+                                    user:        message.author,
+                                    description: `✅ <@${uid}> **responded** after quarantine — auto-ban cancelled.\nClick below to unquarantine them and restore their roles.`,
+                                })],
+                                components: [row],
+                            }).catch(() => {});
+                        }
                     }
+                    console.log(`[BeastBot] ✅ Quarantined user ${message.author.tag} responded — auto-ban cancelled`);
                 }
-                console.log(`[BeastBot] ✅ Quarantined user ${message.author.tag} responded — auto-ban cancelled`);
             }
         } else if (!SPAM_EXEMPT_CHANNEL_IDS.has(message.channelId)) {
             // Unusual in-server activity detection (skipped for high-activity game channels)
