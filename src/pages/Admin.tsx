@@ -2222,9 +2222,9 @@ function AnalyticsTab() {
 // Admin Management Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
-const PERM_KEYS = ['tickets', 'reviews', 'discord', 'analytics', 'adminManagement'] as const;
-const PERM_LABELS: Record<string, string> = { tickets: 'Tickets', reviews: 'Reviews', discord: 'Announcements', analytics: 'Analytics', adminManagement: 'Admin Mgmt' };
-const PERM_COLORS: Record<string, string> = { tickets: 'text-blue-400 bg-blue-500/10 border-blue-500/20', reviews: 'text-green-400 bg-green-500/10 border-green-500/20', discord: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', analytics: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', adminManagement: 'text-violet-400 bg-violet-500/10 border-violet-500/20' };
+const PERM_KEYS = ['announcements', 'announcementsV2', 'rolePickers', 'discordCards', 'tickets', 'reviews', 'analytics', 'adminManagement'] as const;
+const PERM_LABELS: Record<string, string> = { announcements: 'Announcements', announcementsV2: 'Announcements v2', rolePickers: 'Role Pickers', discordCards: 'Discord Cards', tickets: 'Tickets', reviews: 'Reviews', analytics: 'Analytics', adminManagement: 'Admin Mgmt' };
+const PERM_COLORS: Record<string, string> = { announcements: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', announcementsV2: 'text-purple-400 bg-purple-500/10 border-purple-500/20', rolePickers: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20', discordCards: 'text-sky-400 bg-sky-500/10 border-sky-500/20', tickets: 'text-blue-400 bg-blue-500/10 border-blue-500/20', reviews: 'text-green-400 bg-green-500/10 border-green-500/20', analytics: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', adminManagement: 'text-violet-400 bg-violet-500/10 border-violet-500/20' };
 
 function AdminManagementTab() {
   const { user } = useAuth();
@@ -3211,7 +3211,7 @@ type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery'
 interface V2TextBlock     { id: string; kind: 'text';          content: string }
 interface V2SeparatorBlock{ id: string; kind: 'separator';     divider: boolean; spacing: 1 | 2 }
 interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; thumbnailUrl: string; thumbnailAlt: string; thumbnailSpoiler?: boolean }
-interface V2MediaItem     { url: string; description: string; spoiler?: boolean }
+interface V2MediaItem     { url: string; description: string; spoiler?: boolean; mediaType?: 'image' | 'video' }
 interface V2MediaGalleryBlock{ id: string; kind: 'media_gallery'; items: V2MediaItem[] }
 interface V2FieldItem     { key: string; value: string }
 interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldItem[] }
@@ -3320,7 +3320,7 @@ const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
   { kind: 'fields',        label: 'Fields',         desc: 'Key: Value info rows (auto-bold keys)' },
   { kind: 'section',       label: 'Section',        desc: 'Text + optional thumbnail on the right' },
   { kind: 'separator',     label: 'Separator',      desc: 'Visual divider / spacer' },
-  { kind: 'media_gallery', label: 'Media Gallery',  desc: 'Image grid (up to 4)' },
+  { kind: 'media_gallery', label: 'Media Gallery',  desc: 'Image/video grid (up to 4)' },
   { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link buttons' },
 ];
 
@@ -3472,13 +3472,23 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
 
           {block.kind === 'media_gallery' && (
             <div>
-              <label className={subLbl}>Images ({block.items.length}/4)</label>
+              <label className={subLbl}>Media ({block.items.length}/4)</label>
               {block.items.map((item, ii) => (
-                <div key={ii} className="flex gap-2 items-start mb-2">
+                <div key={ii} className="flex gap-2 items-start mb-3">
                   <div className="flex-1 space-y-1">
+                    <div className="flex gap-1.5 mb-1">
+                      {(['image', 'video'] as const).map((mt) => (
+                        <button key={mt} type="button"
+                          onClick={() => { const items = [...block.items]; items[ii] = { ...items[ii], mediaType: mt }; onChange({ ...block, items }); }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer capitalize ${(item.mediaType ?? 'image') === mt ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' : 'bg-white/5 border-white/10 text-gray-500 hover:text-gray-300'}`}>
+                          {mt}
+                        </button>
+                      ))}
+                    </div>
                     <input type="url" value={item.url}
                       onChange={(e) => { const items = [...block.items]; items[ii] = { ...items[ii], url: e.target.value }; onChange({ ...block, items }); }}
-                      placeholder="https://... image URL" className={inpSm} />
+                      placeholder={(item.mediaType ?? 'image') === 'video' ? 'https://... video URL (mp4, mov…)' : 'https://... image URL'}
+                      className={inpSm} />
                     <input type="text" value={item.description}
                       onChange={(e) => { const items = [...block.items]; items[ii] = { ...items[ii], description: e.target.value }; onChange({ ...block, items }); }}
                       placeholder="Description (optional)" className={inpSm} />
@@ -3491,16 +3501,16 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
                   </div>
                   {block.items.length > 1 && (
                     <button type="button" onClick={() => onChange({ ...block, items: block.items.filter((_, i) => i !== ii) })}
-                      className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer pt-1">
+                      className="text-gray-500 hover:text-red-400 transition-colors cursor-pointer pt-7">
                       <Minus className="w-4 h-4" />
                     </button>
                   )}
                 </div>
               ))}
               {block.items.length < 4 && (
-                <button type="button" onClick={() => onChange({ ...block, items: [...block.items, { url: '', description: '' }] })}
+                <button type="button" onClick={() => onChange({ ...block, items: [...block.items, { url: '', description: '', mediaType: 'image' }] })}
                   className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
-                  <Plus className="w-3 h-3" /> Add image
+                  <Plus className="w-3 h-3" /> Add media
                 </button>
               )}
             </div>
@@ -3593,20 +3603,25 @@ function V2Preview({ state }: { state: V2State }) {
             );
           }
           if (block.kind === 'media_gallery') {
-            const images = block.items.filter((i) => i.url.trim());
-            if (!images.length) return null;
+            const items = block.items.filter((i) => i.url.trim());
+            if (!items.length) return null;
             return (
-              <div key={block.id} className={`-mx-3 grid gap-0.5 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                {images.map((img, i) => (
+              <div key={block.id} className={`-mx-3 grid gap-0.5 ${items.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                {items.map((item, i) => (
                   <div key={i} className="relative rounded overflow-hidden bg-white/5"
-                    style={images.length > 1 ? { aspectRatio: '1/1' } : undefined}>
-                    <img src={img.url} alt={img.description || ''}
-                      className={`${images.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${img.spoiler ? 'blur-md' : ''}`}
-                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
-                    {img.spoiler && <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] font-semibold bg-black/50 px-2 py-0.5 rounded">SPOILER</span></div>}
-                    {img.description && !img.spoiler && (
+                    style={items.length > 1 ? { aspectRatio: '1/1' } : undefined}>
+                    {(item.mediaType ?? 'image') === 'video' ? (
+                      <video src={item.url} controls={!item.spoiler}
+                        className={`${items.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${item.spoiler ? 'blur-md' : ''}`} />
+                    ) : (
+                      <img src={item.url} alt={item.description || ''}
+                        className={`${items.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${item.spoiler ? 'blur-md' : ''}`}
+                        onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                    )}
+                    {item.spoiler && <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] font-semibold bg-black/50 px-2 py-0.5 rounded">SPOILER</span></div>}
+                    {item.description && !item.spoiler && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-0.5">
-                        <p className="text-white text-[10px] truncate">{img.description}</p>
+                        <p className="text-white text-[10px] truncate">{item.description}</p>
                       </div>
                     )}
                   </div>
@@ -4751,10 +4766,10 @@ function RolePickersTab() {
 }
 
 const TAB_ITEMS = [
-  { id: 'announcements',    label: 'Announcements',    permKey: 'discord' },
-  { id: 'announcements-v2', label: 'Announcements v2', permKey: 'discord' },
-  { id: 'role-pickers',     label: 'Role Pickers',     permKey: 'discord' },
-  { id: 'cards',            label: 'Discord Cards',    permKey: 'discord' },
+  { id: 'announcements',    label: 'Announcements',    permKey: 'announcements' },
+  { id: 'announcements-v2', label: 'Announcements v2', permKey: 'announcementsV2' },
+  { id: 'role-pickers',     label: 'Role Pickers',     permKey: 'rolePickers' },
+  { id: 'cards',            label: 'Discord Cards',    permKey: 'discordCards' },
   { id: 'tickets',          label: 'Tickets',          permKey: 'tickets' },
   { id: 'reviews',          label: 'Reviews',          permKey: 'reviews' },
   { id: 'analytics',        label: 'Analytics',        permKey: 'analytics' },
