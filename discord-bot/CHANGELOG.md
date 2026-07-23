@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-07-23] — Instagram link previews
+
+- New: messages containing an `instagram.com/p|reel|reels|tv/<code>` link get an automatic reply with a preview embed (image, caption, likes, comments) plus "View on Instagram" / "▶️ Watch video" link buttons
+- No Meta Graph API involved — scrapes Instagram's own public embed page (`instagram.com/<type>/<code>/embed/captioned/`), which exposes a `contextJSON` blob with media/caption/stats for public posts, no auth required
+- Handles single image/video posts and carousels (`GraphSidecar`, using the first child); silently no-ops on private posts, deleted posts, or parse failures
+- Capped at 3 Instagram links processed per message; gated behind new `botFeatures.instagramPreviews` flag (default on)
+- Considered and rejected third-party "fix" domains (`ddinstagram.com` is unregistered/dead, `kkinstagram.com` has been hijacked into a malvertising redirect) in favor of hitting Instagram directly
+
 ## [2026-07-21] — Fix quarantine false alarm and temp VC tracking after restart
 
 - Fix: Discord's system "Wave to say hi!" join message was being treated as a quarantined user responding, immediately firing the mod alert; now only messages sent inside the quarantine channel (`QUARANTINE_CHANNEL_ID`) count as a response

@@ -342,8 +342,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🐛 Quarantine false alarm fix', value: 'Discord\'s "Wave to say hi!" join message no longer incorrectly triggers the quarantine response alert. Only real messages in the quarantine channel count.' },
-    { name: '🔊 Temp voice channel fix', value: 'Temp voice channels that were active during a bot restart are now properly tracked again, so they\'ll still auto-delete when everyone leaves.' },
+    { name: '📸 Instagram link previews', value: 'Post a link to an Instagram post or reel and the bot will reply with a preview — image, caption, likes/comments, and a video button when available.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -359,6 +358,7 @@ let botFeatures = {
     escapeRoomGame:      true,
     pondFrogs:           true,
     unscrambleGame:      true,
+    instagramPreviews:   true,
 };
 
 // ── Unscramble Game ───────────────────────────────────────────────────────────
@@ -1046,6 +1046,52 @@ async function fetchTikTokStats() {
         return { followers: stats.followerCount ?? 0, likes: stats.heartCount ?? 0 };
     } catch (e) {
         console.warn('[Widget] TikTok scrape failed:', e.message);
+        return null;
+    }
+}
+
+// ── Instagram link previews ───────────────────────────────────────────────────
+// No official Graph API access needed: Instagram's own public embed page
+// (used for the "Embed" widget on the web) exposes a `contextJSON` blob with
+// the post's media/caption/stats. Works for public posts only.
+const INSTAGRAM_LINK_REGEX = /https?:\/\/(?:www\.)?instagram\.com\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/gi;
+
+async function fetchInstagramPreview(type, shortcode) {
+    const pathType = type === 'reels' ? 'reel' : type;
+    try {
+        const res = await fetch(`https://www.instagram.com/${pathType}/${shortcode}/embed/captioned/`, { headers: SCRAPE_HEADERS });
+        if (!res.ok) { console.warn(`[Instagram Preview] HTTP ${res.status} for ${shortcode}`); return null; }
+        const html = await res.text();
+        const match = html.match(/contextJSON":"((?:\\.|[^"\\])*)"/);
+        if (!match) { console.warn(`[Instagram Preview] contextJSON not found for ${shortcode}`); return null; }
+
+        const context = JSON.parse(JSON.parse(`"${match[1]}"`));
+        const media = context?.gql_data?.shortcode_media;
+        if (!media) return null;
+
+        let displayUrl  = media.display_url ?? null;
+        let videoUrl    = media.is_video ? (media.video_url ?? null) : null;
+        let mediaCount  = 1;
+
+        if (media.__typename === 'GraphSidecar' && media.edge_sidecar_to_children?.edges?.length) {
+            const first = media.edge_sidecar_to_children.edges[0].node;
+            displayUrl = first.display_url ?? displayUrl;
+            videoUrl   = first.is_video ? (first.video_url ?? null) : null;
+            mediaCount = media.edge_sidecar_to_children.edges.length;
+        }
+
+        return {
+            owner:        media.owner?.username ?? null,
+            caption:      media.edge_media_to_caption?.edges?.[0]?.node?.text ?? '',
+            likeCount:    media.edge_media_preview_like?.count ?? media.edge_liked_by?.count ?? null,
+            commentCount: media.edge_media_to_comment?.count ?? null,
+            isVideo:      !!videoUrl,
+            displayUrl,
+            videoUrl,
+            mediaCount,
+        };
+    } catch (e) {
+        console.warn(`[Instagram Preview] scrape failed for ${shortcode}:`, e.message);
         return null;
     }
 }
@@ -14000,6 +14046,48 @@ client.on('messageCreate', async (message) => {
                 user: message.author,
                 description: `📨 <@${message.author.id}> **posted an invite link** in <#${message.channelId}>\n\`${inviteMatches[0]}\``,
             }));
+        }
+    }
+
+    // ── Instagram link previews ────────────────────────────────────────────────
+    if (message.guild && botFeatures.instagramPreviews) {
+        const igMatches = [...message.content.matchAll(INSTAGRAM_LINK_REGEX)].slice(0, 3);
+        for (const [, type, shortcode] of igMatches) {
+            const preview = await fetchInstagramPreview(type, shortcode);
+            if (!preview) continue;
+
+            const canonicalUrl = `https://www.instagram.com/${type === 'reels' ? 'reel' : type}/${shortcode}/`;
+            const caption = preview.caption
+                ? preview.caption.slice(0, 300) + (preview.caption.length > 300 ? '…' : '')
+                : null;
+
+            const statsParts = [];
+            if (preview.likeCount    != null) statsParts.push(`❤️ ${formatStatCount(preview.likeCount)}`);
+            if (preview.commentCount != null) statsParts.push(`💬 ${formatStatCount(preview.commentCount)}`);
+            if (preview.mediaCount > 1)       statsParts.push(`🖼️ 1/${preview.mediaCount}`);
+
+            const embed = {
+                color:       0xE1306C,
+                url:         canonicalUrl,
+                title:       preview.isVideo ? '🎬 Instagram Reel' : '📸 Instagram Post',
+                description: caption,
+                image:       preview.displayUrl ? { url: preview.displayUrl } : undefined,
+                author:      preview.owner ? { name: `@${preview.owner}`, url: `https://www.instagram.com/${preview.owner}/` } : undefined,
+                footer:      statsParts.length ? { text: statsParts.join('   ') } : undefined,
+            };
+
+            const buttons = [
+                new ButtonBuilder().setLabel('View on Instagram').setStyle(ButtonStyle.Link).setURL(canonicalUrl),
+            ];
+            if (preview.videoUrl) {
+                buttons.push(new ButtonBuilder().setLabel('▶️ Watch video').setStyle(ButtonStyle.Link).setURL(preview.videoUrl));
+            }
+
+            await message.reply({
+                embeds: [embed],
+                components: [new ActionRowBuilder().addComponents(buttons)],
+                allowedMentions: { repliedUser: false },
+            }).catch(e => console.warn('[Instagram Preview] failed to send reply:', e.message));
         }
     }
 
