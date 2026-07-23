@@ -1721,7 +1721,7 @@ const REACTION_XP_DAILY_CAP = 50; // max XP from reactions per day per user
 // function scheduleDiscadiaReminder(delayMs = DISCADIA_INTERVAL) {
 //     if (discadiaTimer) clearTimeout(discadiaTimer);
 //     const fireAt = Date.now() + delayMs;
-//     firestoreSet('botTimers', 'discadia', { fireAt, updatedAt: new Date().toISOString() });
+//     firestoreSet('botConfig', 'discadiaTimer', { fireAt, updatedAt: new Date().toISOString() });
 //     discadiaTimer = setTimeout(postDiscadiaReminder, delayMs);
 //     console.log(`[BeastBot] Discadia bump reminder scheduled for ${new Date(fireAt).toUTCString()}`);
 // }
@@ -1730,7 +1730,7 @@ function scheduleBumpReminder(bumperId) {
     if (bumperId) lastBumperID = bumperId;
     if (bumpTimer) clearTimeout(bumpTimer);
     const fireAt = Date.now() + BUMP_INTERVAL;
-    firestoreSet('botTimers', 'disboard', { fireAt, bumperId: lastBumperID ?? null, updatedAt: new Date().toISOString() });
+    firestoreSet('botConfig', 'disboardTimer', { fireAt, bumperId: lastBumperID ?? null, updatedAt: new Date().toISOString() });
     bumpTimer = setTimeout(async () => {
         if (botFeatures.bumpReminders === false) { console.log('[BeastBot] Bump Reminders disabled — skipping'); return; }
         try {
@@ -6061,8 +6061,8 @@ client.once('clientReady', async () => {
 
     // Restore bump timers from Firestore (survive restarts)
     try {
-        const disboardData = await firestoreGet('botTimers', 'disboard');
-        // const discadiaData = await firestoreGet('botTimers', 'discadia'); // DISABLED
+        const disboardData = await firestoreGet('botConfig', 'disboardTimer');
+        // const discadiaData = await firestoreGet('botConfig', 'discadiaTimer'); // DISABLED
         const now = Date.now();
 
         if (disboardData && disboardData.fireAt > now) {
