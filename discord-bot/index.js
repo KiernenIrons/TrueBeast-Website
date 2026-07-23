@@ -35,7 +35,6 @@ const { spawn } = require('child_process');
 const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
-const GifEncoder = require('gif-encoder-2');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
 // Curated common English words for the Unscramble game (4–6 letters, universally known)
 const UNSCRAMBLE_WORDS = [
@@ -342,7 +341,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📸 Instagram link previews', value: 'Post a link to an Instagram post or reel and the bot will reply with a preview — image, caption, likes/comments, and a video button when available.' },
+    { name: '🗑️ Removed stream countdown GIF', value: 'The animated stream countdown GIF and its related commands (/schedule, /post-countdown, /set-schedule, /view-schedule) have been removed.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1557,9 +1556,6 @@ const challenges   = new Map(); // challengeId → { id, title, description, sta
 
 // ── Reaction Roles ────────────────────────────────────────────────────────────
 const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
-let   scheduleGifChannelId      = null; // set via /post-countdown; null = don't auto-post
-let   scheduleGifMessageId      = null;
-let   streamSchedule            = { days: [0, 2, 4], hour: 19, minute: 0 }; // Sun/Tue/Thu 19:00 Dublin
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
 const TZ_LABELS = {
     '-12': 'UTC-12', '-11': 'UTC-11', '-10': 'Hawaii (UTC-10)', '-9': 'Alaska (UTC-9)',
@@ -5384,231 +5380,6 @@ async function updateChallengeCheckInEmbed(challenge, dateStr) {
     }
 }
 
-// ── Schedule GIF countdown ────────────────────────────────────────────────────
-
-function getNextStreamUTC() {
-    const SCHED_DAYS = new Set(streamSchedule.days);
-    const SCHED_HOUR = streamSchedule.hour;
-    const SCHED_MIN  = streamSchedule.minute;
-    const TZ = 'Europe/Dublin';
-    const now = new Date();
-    for (let d = 0; d <= 7; d++) {
-        const probe = new Date(now.getTime() + d * 86_400_000);
-        const dayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(probe);
-        const dayNum = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dayShort);
-        if (!SCHED_DAYS.has(dayNum)) continue;
-        const dateStr = new Intl.DateTimeFormat('en-CA', {
-            timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-        }).format(probe);
-        const [y, mo, dy] = dateStr.split('-').map(Number);
-        const nominalUTC = new Date(Date.UTC(y, mo - 1, dy, SCHED_HOUR, SCHED_MIN, 0));
-        const dublinHour = parseInt(
-            new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: '2-digit', hour12: false }).format(nominalUTC), 10,
-        );
-        const streamUTC = new Date(nominalUTC.getTime() - (dublinHour - SCHED_HOUR) * 3_600_000);
-        if (streamUTC > now) return streamUTC;
-    }
-    return new Date(now.getTime() + 7 * 86_400_000);
-}
-
-function renderCountdownFrame(ctx, W, H, remainingMs, nextStream) {
-    const pad2 = n => String(Math.max(0, n)).padStart(2, '0');
-    const totalSecs = Math.max(0, Math.floor(remainingMs / 1000));
-    const days    = Math.floor(totalSecs / 86400);
-    const hours   = Math.floor((totalSecs % 86400) / 3600);
-    const mins    = Math.floor((totalSecs % 3600) / 60);
-    const secs    = totalSecs % 60;
-
-    // Background
-    ctx.fillStyle = '#0b0b12';
-    ctx.fillRect(0, 0, W, H);
-
-    // Subtle frame border
-    ctx.strokeStyle = 'rgba(0,255,0,0.20)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(1, 1, W - 2, H - 2);
-
-    // Title
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('COUNTDOWN TO REALTRUEBEAST NEXT STREAM', W / 2, 32);
-
-    // ── Countdown digits ─────────────────────────────────────────
-    ctx.font = 'bold 64px monospace';
-    const pairW   = ctx.measureText('00').width;
-    const SEP_W   = 28;
-
-    const totalGroupW = 4 * pairW + 3 * SEP_W;
-    let curX = (W - totalGroupW) / 2;
-
-    const labelY = 74;
-    const numY   = 138;
-
-    const segs = [
-        { label: 'DAYS',    val: pad2(days)  },
-        { label: 'HOURS',   val: pad2(hours) },
-        { label: 'MINUTES', val: pad2(mins)  },
-        { label: 'SECONDS', val: pad2(secs)  },
-    ];
-
-    for (let i = 0; i < 4; i++) {
-        const cx = curX + pairW / 2;
-
-        // Label above digit
-        ctx.font = '11px sans-serif';
-        ctx.fillStyle = 'rgba(180,180,185,0.80)';
-        ctx.textAlign = 'center';
-        ctx.fillText(segs[i].label, cx, labelY);
-
-        // Digit pair
-        ctx.font = 'bold 64px monospace';
-        ctx.fillStyle = '#00FF00';
-        ctx.fillText(segs[i].val, cx, numY);
-
-        curX += pairW;
-
-        if (i < 3) {
-            // Colon separator — two drawn dots (avoids font glyph issues on Alpine)
-            const sepCx = curX + SEP_W / 2;
-            ctx.fillStyle = '#00FF00';
-            ctx.beginPath();
-            ctx.arc(sepCx, numY - 38, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(sepCx, numY - 16, 4, 0, Math.PI * 2);
-            ctx.fill();
-            curX += SEP_W;
-        }
-    }
-
-    // Divider
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(30, 158);
-    ctx.lineTo(W - 30, 158);
-    ctx.stroke();
-
-    // ── Day bubbles ──────────────────────────────────────────────
-    const TZ = 'Europe/Dublin';
-    const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
-    const nextDayNum   = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(nextDayShort);
-    const DAY_SHORTS   = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const schedule     = streamSchedule.days.map(d => ({ short: DAY_SHORTS[d], dayNum: d }));
-    const n            = schedule.length;
-    const bxs          = schedule.map((_, i) => W * (i + 1) / (n + 1));
-    const dotY         = 186;
-
-    const sh12      = streamSchedule.hour % 12 || 12;
-    const sampm     = streamSchedule.hour < 12 ? 'AM' : 'PM';
-    const timeLabel = streamSchedule.minute === 0
-        ? `${sh12} ${sampm}`
-        : `${sh12}:${String(streamSchedule.minute).padStart(2, '0')} ${sampm}`;
-
-    for (let i = 0; i < n; i++) {
-        const { short, dayNum } = schedule[i];
-        const isNext = dayNum === nextDayNum;
-        const x      = bxs[i];
-
-        ctx.beginPath();
-        ctx.arc(x, dotY, 6, 0, Math.PI * 2);
-        ctx.fillStyle = isNext ? '#00FF00' : 'rgba(160,160,165,0.45)';
-        ctx.fill();
-
-        ctx.font = 'bold 13px sans-serif';
-        ctx.fillStyle = isNext ? '#00FF00' : '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText(short, x, dotY + 21);
-
-        ctx.font = '12px sans-serif';
-        ctx.fillStyle = isNext ? '#00FF00' : 'rgba(160,160,165,0.75)';
-        ctx.fillText(timeLabel, x, dotY + 38);
-    }
-
-    // Footer
-    ctx.font = '11px sans-serif';
-    ctx.fillStyle = 'rgba(160,160,165,0.65)';
-    ctx.textAlign = 'center';
-    ctx.fillText('DUBLIN TIME', W / 2, H - 12);
-}
-
-async function generateCountdownGif() {
-    const W = 520, H = 264;
-    const nextStream  = getNextStreamUTC();
-    // Align start to the next whole second so frames are clock-synced
-    const alignedNow  = Math.ceil(Date.now() / 1000) * 1000;
-
-    const canvas = createCanvas(W, H);
-    const ctx    = canvas.getContext('2d');
-
-    const encoder = new GifEncoder(W, H, 'neuquant', true);
-    encoder.setDelay(1000);
-    encoder.setRepeat(0);
-    encoder.start();
-
-    for (let i = 0; i < 60; i++) {
-        const remainingMs = nextStream.getTime() - (alignedNow + i * 1000);
-        renderCountdownFrame(ctx, W, H, remainingMs, nextStream);
-        encoder.addFrame(ctx.getImageData(0, 0, W, H).data);
-    }
-
-    encoder.finish();
-    return Buffer.from(encoder.out.getData());
-}
-
-async function postOrUpdateScheduleGif() {
-    if (!scheduleGifChannelId) return;
-    try {
-        const channel = await client.channels.fetch(scheduleGifChannelId);
-        if (!channel) return;
-
-        const buf        = await generateCountdownGif();
-        const attachment = new AttachmentBuilder(buf, { name: 'schedule.gif' });
-
-        if (scheduleGifMessageId) {
-            try {
-                const msg = await channel.messages.fetch(scheduleGifMessageId);
-                await msg.edit({ content: '', files: [attachment] });
-                return;
-            } catch (_) {
-                scheduleGifMessageId = null; // message was deleted — fall through and post fresh
-            }
-        }
-
-        // Try to find an existing bot countdown message in recent history
-        const recent = await channel.messages.fetch({ limit: 20 }).catch(() => null);
-        if (recent) {
-            for (const [id, m] of recent) {
-                if (m.author.id === client.user.id && m.attachments.some(a => a.name === 'schedule.gif')) {
-                    scheduleGifMessageId = id;
-                    firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
-                    await m.edit({ content: '', files: [attachment] });
-                    return;
-                }
-            }
-        }
-
-        const sent = await channel.send({ content: '', files: [attachment] });
-        scheduleGifMessageId = sent.id;
-        firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: scheduleGifMessageId });
-    } catch (e) {
-        console.error('[ScheduleGif] Error updating countdown GIF:', e.message);
-    }
-}
-
-function startScheduleGifUpdater() {
-    // Sync to minute boundaries; only updates if /post-countdown has been used
-    const now            = new Date();
-    const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
-    setTimeout(() => {
-        postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Minute tick failed:', e.message));
-        setInterval(() => {
-            postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] Interval tick failed:', e.message));
-        }, 60_000);
-    }, msToNextMinute);
-}
-
 // ── Bot Ready ─────────────────────────────────────────────────────────────────
 
 client.once('clientReady', async () => {
@@ -5917,39 +5688,10 @@ client.once('clientReady', async () => {
     setInterval(() => checkAnniversaries(), 24 * 60 * 60 * 1000);
     setTimeout(() => checkAnniversaries(), 30000); // check 30s after startup
 
-
-    // Restore schedule GIF channel/message from Firestore so updates resume after restart
-    try {
-        const gifState = await firestoreGet('botState', 'scheduleGif');
-        if (gifState?.channelId) {
-            scheduleGifChannelId = gifState.channelId;
-            scheduleGifMessageId = gifState.messageId || null;
-            console.log(`[ScheduleGif] Restored: channel=${scheduleGifChannelId} message=${scheduleGifMessageId}`);
-        }
-    } catch (e) { console.error('[ScheduleGif] Failed to restore state:', e.message); }
-
-    // Restore stream schedule from Firestore
-    try {
-        const sched = await firestoreGet('botState', 'streamSchedule');
-        if (sched?.days) {
-            const days = String(sched.days).split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 6);
-            if (days.length) {
-                streamSchedule = { days, hour: Number(sched.hour) || 19, minute: Number(sched.minute) || 0 };
-                console.log(`[ScheduleGif] Stream schedule restored: days=[${days}] time=${streamSchedule.hour}:${String(streamSchedule.minute).padStart(2, '0')}`);
-            }
-        }
-    } catch (e) { console.error('[ScheduleGif] Failed to restore stream schedule:', e.message); }
-
-    // Start animated countdown GIF updater
-    startScheduleGifUpdater();
-
     // Register slash commands
     try {
         const rest = new REST({ version: '10' }).setToken(TOKEN);
         const commands = [
-            new SlashCommandBuilder()
-                .setName('schedule')
-                .setDescription('View the stream schedule and countdown to the next RealTrueBeast stream'),
             new SlashCommandBuilder()
                 .setName('leaderboard')
                 .setDescription('Show the top 10 most active members in the server'),
@@ -6287,18 +6029,6 @@ client.once('clientReady', async () => {
                     .setName('list')
                     .setDescription('List all current AI knowledge base entries')
                 ),
-            new SlashCommandBuilder()
-                .setName('post-countdown')
-                .setDescription('(Owner only) Post the live countdown GIF to a channel')
-                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post the countdown in').setRequired(true)),
-            new SlashCommandBuilder()
-                .setName('set-schedule')
-                .setDescription('(Owner only) Set the stream schedule days and time')
-                .addStringOption(opt => opt.setName('days').setDescription('Comma-separated stream days, e.g. sun,tue,thu').setRequired(true))
-                .addStringOption(opt => opt.setName('time').setDescription('Stream time in Dublin time, 24h format, e.g. 19:00').setRequired(true)),
-            new SlashCommandBuilder()
-                .setName('view-schedule')
-                .setDescription('View the current stream schedule and next stream time'),
             new SlashCommandBuilder()
                 .setName('bump-leaderboard')
                 .setDescription('Show who has bumped the server the most this week'),
@@ -11787,127 +11517,6 @@ client.on('interactionCreate', async (interaction) => {
                 ],
                 timestamp: new Date().toISOString(),
             }] });
-            return;
-        }
-
-        if (interaction.commandName === 'schedule') {
-            const TZ = 'Europe/Dublin';
-            const nextStream = getNextStreamUTC();
-            const unixTs = Math.floor(nextStream.getTime() / 1000);
-            const nextDayShort = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nextStream);
-
-            const scheduleLines = [
-                { short: 'Sun', label: 'Sunday'   },
-                { short: 'Tue', label: 'Tuesday'  },
-                { short: 'Thu', label: 'Thursday' },
-            ].map(({ short, label }) =>
-                `${short === nextDayShort ? '🟢' : '⚫'} **${label}** — 7:00 PM`
-            ).join('\n');
-
-            const embed = {
-                color: 0x4ade80,
-                title: '📅 RealTrueBeast Stream Schedule',
-                description: `**Next stream:** <t:${unixTs}:F>\n**Starting** <t:${unixTs}:R>`,
-                fields: [
-                    { name: '🗓️ Weekly Schedule', value: scheduleLines },
-                    { name: '🌍 Timezone', value: 'Europe/Dublin (IST/GMT)', inline: true },
-                ],
-                footer: { text: 'Times shown in your local timezone' },
-                timestamp: new Date().toISOString(),
-            };
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setLabel('View Schedule')
-                    .setURL('https://truebeast.io/schedule')
-                    .setStyle(ButtonStyle.Link),
-                new ButtonBuilder()
-                    .setLabel('Watch on Twitch')
-                    .setURL('https://twitch.tv/realtruebeast')
-                    .setStyle(ButtonStyle.Link),
-            );
-
-            await interaction.reply({ embeds: [embed], components: [row] });
-            return;
-        }
-
-        if (interaction.commandName === 'post-countdown') {
-            if (interaction.user.id !== OWNER_DISCORD_ID) {
-                await interaction.reply({ content: 'Only the server owner can use this command.', ephemeral: true });
-                return;
-            }
-            const target = interaction.options.getChannel('channel');
-            scheduleGifChannelId  = target.id;
-            scheduleGifMessageId  = null;
-            firestoreSet('botState', 'scheduleGif', { channelId: scheduleGifChannelId, messageId: '' });
-            await interaction.reply({ content: `Posting the countdown GIF to <#${target.id}>...`, ephemeral: true });
-            postOrUpdateScheduleGif().catch(e => console.error('[ScheduleGif] post-countdown failed:', e.message));
-            return;
-        }
-
-        if (interaction.commandName === 'set-schedule') {
-            if (interaction.user.id !== OWNER_DISCORD_ID) {
-                await interaction.reply({ content: 'Only the server owner can use this command.', ephemeral: true });
-                return;
-            }
-            const DAY_MAP   = { sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tuesday: 2, wed: 3, wednesday: 3, thu: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6 };
-            const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const daysInput = interaction.options.getString('days').toLowerCase();
-            const timeInput = interaction.options.getString('time');
-
-            const days = [...new Set(
-                daysInput.split(',').map(d => DAY_MAP[d.trim()]).filter(d => d !== undefined)
-            )].sort((a, b) => a - b);
-
-            if (days.length === 0) {
-                await interaction.reply({ content: '❌ Invalid days. Use names like `sun,tue,thu`.', ephemeral: true });
-                return;
-            }
-
-            const timeParts = timeInput.match(/^(\d{1,2}):(\d{2})$/);
-            if (!timeParts) {
-                await interaction.reply({ content: '❌ Invalid time format. Use 24h format like `19:00`.', ephemeral: true });
-                return;
-            }
-            const hour   = parseInt(timeParts[1], 10);
-            const minute = parseInt(timeParts[2], 10);
-            if (hour > 23 || minute > 59) {
-                await interaction.reply({ content: '❌ Invalid time. Hour must be 0–23, minute 0–59.', ephemeral: true });
-                return;
-            }
-
-            streamSchedule = { days, hour, minute };
-            firestoreSet('botState', 'streamSchedule', { days: days.join(','), hour, minute });
-
-            const dayLabel  = days.map(d => DAY_NAMES[d]).join(', ');
-            const h12       = hour % 12 || 12;
-            const ampm      = hour < 12 ? 'AM' : 'PM';
-            const timeLabel = minute === 0 ? `${h12} ${ampm}` : `${h12}:${String(minute).padStart(2, '0')} ${ampm}`;
-            await interaction.reply({ content: `✅ Schedule updated to **${dayLabel}** at **${timeLabel} Dublin time**. The GIF will update on the next minute tick.`, ephemeral: true });
-            return;
-        }
-
-        if (interaction.commandName === 'view-schedule') {
-            const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const dayLabel  = streamSchedule.days.map(d => DAY_NAMES[d]).join(', ');
-            const h12       = streamSchedule.hour % 12 || 12;
-            const ampm      = streamSchedule.hour < 12 ? 'AM' : 'PM';
-            const timeLabel = streamSchedule.minute === 0
-                ? `${h12} ${ampm}`
-                : `${h12}:${String(streamSchedule.minute).padStart(2, '0')} ${ampm}`;
-            const nextStream = getNextStreamUTC();
-            await interaction.reply({
-                embeds: [{
-                    color: 0x00ff00,
-                    title: '📅 Stream Schedule',
-                    fields: [
-                        { name: 'Days', value: dayLabel, inline: true },
-                        { name: 'Time (Dublin)', value: timeLabel, inline: true },
-                        { name: 'Next Stream', value: `<t:${Math.floor(nextStream.getTime() / 1000)}:F>`, inline: false },
-                    ],
-                }],
-                ephemeral: true,
-            });
             return;
         }
 

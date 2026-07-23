@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-07-23] — Remove stream countdown GIF system
+
+- Removed the animated countdown GIF feature entirely: `getNextStreamUTC`, `renderCountdownFrame`, `generateCountdownGif`, `postOrUpdateScheduleGif`, `startScheduleGifUpdater`, and the `scheduleGifChannelId`/`scheduleGifMessageId`/`streamSchedule` state
+- Removed all 4 related slash commands: `/schedule`, `/post-countdown`, `/set-schedule`, `/view-schedule`
+- Removed the now-unused `gif-encoder-2` dependency from `package.json`/`package-lock.json`
+- Removed startup restore logic for the `botState/scheduleGif` and `botState/streamSchedule` Firestore docs (note: `botState` isn't one of the two collection names Firestore rules actually allow, so these writes/reads were likely already silently failing)
+
 ## [2026-07-23] — Instagram link previews
 
 - New: messages containing an `instagram.com/p|reel|reels|tv/<code>` link get an automatic reply with a preview embed (image, caption, likes, comments) plus "View on Instagram" / "▶️ Watch video" link buttons

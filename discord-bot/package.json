@@ -15,7 +15,6 @@
         "@snazzah/davey": "^0.1.6",
         "discord.js": "^14.15.3",
         "dotenv": "^16.4.5",
-        "gif-encoder-2": "^1.0.5",
         "libsodium-wrappers": "^0.7.15"
     }
 }
