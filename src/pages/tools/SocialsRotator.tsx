@@ -11,6 +11,8 @@ type Effect = 'fade' | 'fadedownup' | 'slide' | 'slideup' | 'zoom' | 'flip' | 's
 type LogoSize = 'sm' | 'md' | 'lg';
 type ShadowType = 'none' | 'glow' | 'custom';
 
+type Align = 'left' | 'center' | 'right';
+
 interface RotatorConfig {
   platforms: { id: string; username: string }[];
   effect: Effect;
@@ -29,6 +31,7 @@ interface RotatorConfig {
   text3dAngle: number;
   matchLogoColor: boolean;
   transitionDuration: number; // ms per animation phase (exit + enter each use this)
+  align: Align;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +135,7 @@ const DEFAULT_CFG: RotatorConfig = {
   text3dAngle: 45,
   matchLogoColor: false,
   transitionDuration: 350,
+  align: 'left' as Align,
 };
 
 // ---------------------------------------------------------------------------
@@ -474,6 +478,84 @@ function ChipRow<T extends string>({
 // Main Page
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Recommended Resolution Calculator
+// ---------------------------------------------------------------------------
+
+function RecommendedResolution({ cfg }: { cfg: RotatorConfig }) {
+  const [dims, setDims] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    // Measure the longest username using a hidden canvas
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx || !cfg.platforms.length) { setDims(null); return; }
+
+    // Load font and measure
+    const fontStr = `600 ${cfg.size}px ${cfg.font}, sans-serif`;
+    ctx.font = fontStr;
+
+    let maxTextWidth = 0;
+    for (const p of cfg.platforms) {
+      const w = ctx.measureText(p.username || '@username').width;
+      if (w > maxTextWidth) maxTextWidth = w;
+    }
+
+    const logoPx = LOGO_SIZE_PX[cfg.logoSize] ?? 40;
+    const gap = 14; // gap between logo and text
+    const padding = 16; // horizontal padding (8px each side in rotator.html)
+
+    // Shadow/glow adds visual space
+    let shadowPad = 0;
+    if (cfg.shadowType === 'glow' && cfg.shadowOpts) {
+      shadowPad = Math.ceil((cfg.shadowOpts.glowSize || 18) * 1.9);
+    } else if (cfg.shadowType === 'custom' && cfg.shadowOpts) {
+      shadowPad = Math.ceil(cfg.shadowOpts.blur + Math.max(Math.abs(cfg.shadowOpts.x), Math.abs(cfg.shadowOpts.y)));
+    }
+
+    const contentWidth = logoPx + gap + Math.ceil(maxTextWidth);
+    const width = contentWidth + padding + shadowPad * 2;
+
+    // Height: logo or text, whichever is taller, plus padding + shadow
+    const textHeight = Math.ceil(cfg.size * 1.3); // line-height ~1.3
+    const contentHeight = Math.max(logoPx, textHeight);
+    const height = contentHeight + 12 + shadowPad * 2; // 12px vertical padding (6px top+bottom)
+
+    // Round up to nearest even number (OBS prefers even dimensions)
+    const w = Math.ceil(width / 2) * 2;
+    const h = Math.ceil(height / 2) * 2;
+
+    setDims({ width: w, height: h });
+  }, [cfg.platforms, cfg.size, cfg.font, cfg.logoSize, cfg.shadowType, cfg.shadowOpts]);
+
+  if (!dims) return null;
+
+  return (
+    <div className="bg-pink-500/10 border border-pink-500/20 rounded-xl p-4 mb-4">
+      <p className="text-sm font-semibold text-pink-400 mb-1">Recommended Resolution</p>
+      <p className="text-xs text-gray-400 mb-2">
+        Set this in OBS Browser Source to perfectly fit your longest handle:
+      </p>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Width:</span>
+          <span className="font-mono text-sm text-white font-bold">{dims.width}px</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Height:</span>
+          <span className="font-mono text-sm text-white font-bold">{dims.height}px</span>
+        </div>
+        <button
+          onClick={() => navigator.clipboard.writeText(`${dims.width}x${dims.height}`)}
+          className="ml-auto text-xs text-pink-400 hover:text-pink-300 transition-colors"
+        >
+          <Copy size={13} className="inline mr-1" />Copy
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SocialsRotator() {
   const [step, setStep] = useState(1);
   const [cfg, setCfg] = useState<RotatorConfig>(DEFAULT_CFG);
@@ -743,6 +825,19 @@ export default function SocialsRotator() {
                     </div>
 
                     <div>
+                      <label className="text-gray-300 text-sm font-medium block mb-2">Alignment</label>
+                      <ChipRow
+                        options={[
+                          { value: 'left', label: 'Left' },
+                          { value: 'center', label: 'Center' },
+                          { value: 'right', label: 'Right' },
+                        ]}
+                        value={cfg.align}
+                        onChange={(v) => set('align', v)}
+                      />
+                    </div>
+
+                    <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="text-gray-300 text-sm font-medium">Text Size</label>
                         <span className="text-pink-400 text-sm font-mono">{cfg.size}px</span>
@@ -1009,6 +1104,9 @@ export default function SocialsRotator() {
                 <div className="glass rounded-2xl p-6">
                   <StepLabel n={5} label="Your Overlay URL" />
 
+                  {/* Recommended Resolution */}
+                  <RecommendedResolution cfg={cfg} />
+
                   <div className="bg-white/5 border border-white/10 rounded-xl p-4 font-mono text-xs text-gray-400 break-all leading-relaxed mb-4">
                     {window.location.origin}{generatedUrl}
                   </div>
@@ -1036,7 +1134,7 @@ export default function SocialsRotator() {
                     <ol className="list-decimal list-inside space-y-1 text-xs">
                       <li>In OBS, click the <strong className="text-gray-200">+</strong> button in the Sources panel</li>
                       <li>Select <strong className="text-gray-200">Browser</strong></li>
-                      <li>Paste the URL above and set Width/Height to match your stream layout</li>
+                      <li>Paste the URL above and use the recommended resolution above for Width/Height</li>
                       <li>Check <strong className="text-gray-200">Shutdown source when not visible</strong> to save resources</li>
                     </ol>
                   </div>
@@ -1080,7 +1178,7 @@ export default function SocialsRotator() {
                     padding: '16px 8px',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'flex-start',
+                    justifyContent: cfg.align === 'center' ? 'center' : cfg.align === 'right' ? 'flex-end' : 'flex-start',
                     minHeight: 100,
                   }}
                 >

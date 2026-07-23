@@ -126,15 +126,23 @@
 
         const LOGO_SIZES = { sm: 28, md: 40, lg: 56 };
 
-        const ANIMS = {
-            fade:       { out: 'fadeOut 0.55s ease forwards',     in: 'fadeIn 0.55s ease forwards'     },
-            slide:      { out: 'slideOut 0.55s ease forwards',    in: 'slideIn 0.55s ease forwards'    },
-            slideup:    { out: 'slideUpOut 0.55s ease forwards',  in: 'slideUpIn 0.55s ease forwards'  },
-            fadedownup: { out: 'fadeOutUp 0.55s ease forwards',   in: 'fadeInDown 0.55s ease forwards' },
-            zoom:       { out: 'zoomOut 0.55s ease forwards',     in: 'zoomIn 0.55s ease forwards'     },
-            flip:       { out: 'flipOut 0.55s ease forwards',     in: 'flipIn 0.55s ease forwards'     },
-            spin3d:     { out: 'spin3dOut 0.55s ease forwards',   in: 'spin3dIn 0.55s ease forwards'   },
+        const ANIM_NAMES = {
+            fade:       { out: 'fadeOut',      in: 'fadeIn'      },
+            slide:      { out: 'slideOut',     in: 'slideIn'     },
+            slideup:    { out: 'slideUpOut',   in: 'slideUpIn'   },
+            fadedownup: { out: 'fadeOutUp',    in: 'fadeInDown'  },
+            zoom:       { out: 'zoomOut',      in: 'zoomIn'      },
+            flip:       { out: 'flipOut',      in: 'flipIn'      },
+            spin3d:     { out: 'spin3dOut',    in: 'spin3dIn'    },
         };
+
+        function getAnim(effect, durationMs) {
+            const names = ANIM_NAMES[effect] || ANIM_NAMES.fade;
+            return {
+                out: `${names.out} ${durationMs}ms ease forwards`,
+                in:  `${names.in} ${durationMs}ms ease forwards`,
+            };
+        }
 
         /* ── Parse config ── */
         let cfg;
@@ -159,6 +167,9 @@
             popupMode = false, popupInterval = 10,
             useLogo = false,
             textStyle = 'normal', text3dDepth = 4, text3dAngle = 45,
+            matchLogoColor = false,
+            transitionDuration = 350,
+            align = 'left',
         } = cfg;
 
         /* ── Compute text shadow ── */
@@ -215,7 +226,10 @@
         const logoEl     = document.getElementById('platform-logo');
         const usernameEl = document.getElementById('platform-username');
         const logoPx     = LOGO_SIZES[logoSize] || 40;
-        const anim       = ANIMS[effect] || ANIMS.fade;
+        const anim       = getAnim(effect, transitionDuration);
+
+        document.body.style.justifyContent =
+            align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
 
         /* ── Viewport scaling ── */
         const BASE_WIDTH   = 500;
@@ -227,7 +241,6 @@
 
         usernameEl.style.fontFamily = `'${font}', Outfit, sans-serif`;
         usernameEl.style.fontSize   = `${scaledFontPx}px`;
-        usernameEl.style.color      = color;
 
         /* ── Render a platform into the DOM ── */
         function render(idx) {
@@ -259,11 +272,18 @@
             }
 
             usernameEl.textContent = p.username;
+            usernameEl.style.color = matchLogoColor ? pClr : color;
             usernameEl.style.textShadow = computeTextShadow(shadowType, shadowOpts, pClr);
         }
 
         /* ── Simple async sleep ── */
         const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+        /* Timing derived from transitionDuration so the "animation speed" setting
+           actually affects the live overlay, not just the builder preview. */
+        const outSleep       = transitionDuration + 30;
+        const inSleep        = transitionDuration + 50;
+        const intervalExtra  = transitionDuration + 150;
 
         /* ── Rotation logic ── */
         let current = 0;
@@ -284,11 +304,11 @@
                 /* Cycle through remaining platforms */
                 for (let i = 1; i < platforms.length; i++) {
                     rotatorEl.style.animation = anim.out;
-                    await sleep(580);
+                    await sleep(outSleep);
                     current = i;
                     render(current);
                     rotatorEl.style.animation = anim.in;
-                    await sleep(600);
+                    await sleep(inSleep);
                     rotatorEl.style.animation = '';
                     await sleep(duration * 1000);
                 }
@@ -325,10 +345,10 @@
                         setTimeout(() => {
                             rotatorEl.style.animation = '';
                             busy = false;
-                        }, 600);
-                    }, 580);
+                        }, inSleep);
+                    }, outSleep);
 
-                }, duration * 1000 + 700);
+                }, duration * 1000 + intervalExtra);
             }
         }
     </script>
