@@ -156,7 +156,7 @@ export const SITE_CONFIG: SiteConfig = {
         youtube:   'https://www.youtube.com/@RealTrueBeast',
         discord:   'https://discord.gg/Nk8vekY',
         twitter:   'https://x.com/TrueBeast_YT',
-        instagram: 'https://www.instagram.com/kiernen_100/',
+        instagram: 'https://www.instagram.com/truebeasttv/',
         tiktok:    'https://www.tiktok.com/@realtruebeast',
         twitch:    'https://www.twitch.tv/realtruebeast',
     },

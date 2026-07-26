@@ -685,7 +685,7 @@ function ConnectSection() {
       ? { key: 'twitter', label: 'Twitter / X', handle: '@TrueBeast_YT', url: social.twitter, icon: <TwitterIcon size={28} />, iconColor: 'text-sky-400', bgGradient: 'from-sky-500/20 to-sky-600/20' }
       : null,
     social.instagram
-      ? { key: 'instagram', label: 'Instagram', handle: '@kiernen_100', url: social.instagram, icon: <InstagramIcon size={28} />, iconColor: 'text-pink-400', bgGradient: 'from-pink-500/20 to-pink-600/20' }
+      ? { key: 'instagram', label: 'Instagram', handle: '@truebeasttv', url: social.instagram, icon: <InstagramIcon size={28} />, iconColor: 'text-pink-400', bgGradient: 'from-pink-500/20 to-pink-600/20' }
       : null,
     social.tiktok
       ? { key: 'tiktok', label: 'TikTok', handle: '@realtruebeast', url: social.tiktok, icon: <TikTokIcon size={28} />, iconColor: 'text-cyan-400', bgGradient: 'from-cyan-500/20 to-cyan-600/20' }
