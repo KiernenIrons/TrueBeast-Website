@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-07-26] — Pond: investments, boosts, cosmetics, and legacy system
+
+- Added **Pond Investments** (`/pond invest info` / `/pond invest buy`): four passive income generators (Algae Farm, Firefly Lantern, Lily Garden, Worm Farm) each with 3 tiers; income accrues inside existing `applyDecay()` daily bucket; Worm Farm uses its own `lastWormFarmAt` sub-day timer
+- Added **Consumable Boosts** via `/pond shop buy`: Snail Shell Polish (+50% next hawk win), Firefly Magnet (2× next explore gain), Midnight Glow (+5 all firefly gains / 4 h), Warm Mud Bath (instant +15 hunger/happiness), Tadpole Tonic (−20% decay / 24 h), Lucky Clover (+15pp frog fight win / 6 h)
+- Added **Frog Cosmetics** via `/pond shop buy` + `/frog wardrobe` + `/frog equip`: 10 visual items (headwear, effects, accessories) stored as a comma-separated string (`cosmeticsStr`); drawn per-frame in `drawFrogPortrait` and `drawPondScene`
+- Added **Legacy & Prestige system**: frogs earn Legacy Points on death (based on lifespan, fireflies, investments, cosmetics, achievements) converted to Lily Tokens (÷10, floor); tokens persist on the Firestore doc and fund permanent bonuses via `/frog legacy spend`; death announcement includes token earnings and generation number
+- `normalizeFrog()` backfills all new fields (8 investment/worm fields, 5 boost flags/timestamps, 4 cosmetic equip fields, 7 legacy fields) — safe for existing frogs
+- `tickSave` updated to include all investment and worm farm fields so the hourly tick persists them correctly
+
 ## [2026-07-26] — Unscramble: no auto-advance between puzzles
 
 - Removed `scheduleNextUnscramblePuzzle(false)` call from `postUnscramblePuzzle()` — the game no longer queues the next puzzle immediately after posting

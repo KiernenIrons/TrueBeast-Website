@@ -113,6 +113,87 @@ const SHOP_ITEMS = {
     nest:  { cost: 100, label: 'Nest',  desc: 'Allows 1 extra baby (max 1 per frog)' },
 };
 
+// ── Pillar 2: Consumable Boosts ───────────────────────────────────────────────
+const BOOST_ITEMS = {
+    snail_polish:  { cost: 20, label: 'Snail Shell Polish', desc: '+50% hawk win reward on your next hawk battle' },
+    ff_magnet:     { cost: 25, label: 'Firefly Magnet',     desc: '2× fireflies from your next explore' },
+    midnight_glow: { cost: 30, label: 'Midnight Glow',      desc: '+5 fireflies on all gains for 4 hours' },
+    mud_bath:      { cost: 15, label: 'Warm Mud Bath',       desc: 'Instantly +15 hunger and +15 happiness' },
+    tadpole_tonic: { cost: 35, label: 'Tadpole Tonic',       desc: '−20% hunger & happiness decay for 24 hours' },
+    lucky_clover:  { cost: 45, label: 'Lucky Clover',        desc: '+15pp hawk battle luck for 6 hours' },
+};
+
+// ── Pillar 3: Cosmetics ───────────────────────────────────────────────────────
+const COSMETIC_ITEMS = {
+    lily_crown:     { cost: 40,  label: 'Lily Crown',       desc: 'A wreath of lily petals (accessory)', slot: 'accessory' },
+    fishing_rod:    { cost: 50,  label: 'Fishing Rod',      desc: 'A rod resting beside your frog (accessory)', slot: 'accessory' },
+    party_hat:      { cost: 60,  label: 'Party Hat',        desc: 'Colorful striped cone hat (headwear)', slot: 'hat' },
+    pond_mist:      { cost: 70,  label: 'Pond Mist',        desc: 'Soft blue glow beneath your frog (effect)', slot: 'effect' },
+    mushroom_cap:   { cost: 80,  label: 'Mushroom Cap',     desc: 'Tiny spotted mushroom on your head (headwear)', slot: 'hat' },
+    tiny_sword:     { cost: 85,  label: 'Tiny Sword',       desc: 'A little blade held proudly (accessory)', slot: 'accessory' },
+    firefly_halo:   { cost: 90,  label: 'Firefly Halo',     desc: 'Orbiting firefly dots around your frog (effect)', slot: 'effect' },
+    wizard_hat:     { cost: 120, label: 'Wizard Hat',       desc: 'A pointy star hat (headwear)', slot: 'hat' },
+    golden_shimmer: { cost: 150, label: 'Golden Shimmer',   desc: 'Gold particle shimmer over your frog (effect)', slot: 'effect' },
+    royal_crown:    { cost: 200, label: 'Royal Crown',      desc: 'Gold crown — the ultimate flex (headwear)', slot: 'hat' },
+};
+
+// ── Pillar 1: Pond Investments ────────────────────────────────────────────────
+const INVESTMENTS = {
+    algae_farm: {
+        label: 'Algae Farm',
+        desc: 'Attracts fireflies with algae',
+        tiers: [
+            { cost: 40,  income: 3 },
+            { cost: 90,  income: 7 },
+            { cost: 175, income: 14 },
+        ],
+    },
+    lantern: {
+        label: 'Firefly Lantern',
+        desc: 'A glowing lantern that draws fireflies at night',
+        tiers: [
+            { cost: 60,  income: 4 },
+            { cost: 130, income: 9 },
+            { cost: 250, income: 18 },
+        ],
+    },
+    lily_garden: {
+        label: 'Lily Garden',
+        desc: 'Extra lilypads — also boosts exploration firefly gains',
+        tiers: [
+            { cost: 50,  income: 3,  exploreBonus: 0.05 },
+            { cost: 110, income: 6,  exploreBonus: 0.10 },
+            { cost: 200, income: 11, exploreBonus: 0.15 },
+        ],
+    },
+    worm_farm: {
+        label: 'Worm Farm',
+        desc: 'Self-replenishing worms and toys on a timer',
+        tiers: [
+            { cost: 35,  intervalDays: 3, items: { worms: 1 } },
+            { cost: 75,  intervalDays: 2, items: { worms: 1 } },
+            { cost: 140, intervalDays: 1, items: { worms: 1, toys: 1 } },
+        ],
+    },
+};
+
+const INVEST_FIELD_MAP = {
+    algae_farm:  'investAlgaeFarm',
+    lantern:     'investLantern',
+    lily_garden: 'investLilyGarden',
+    worm_farm:   'investWormFarm',
+};
+
+// ── Pillar 4: Legacy & Prestige ───────────────────────────────────────────────
+const LEGACY_BONUSES = {
+    ancestral_wisdom: { cost: 5,  label: 'Ancestral Wisdom',  desc: 'Next frog starts with +10 extra 🪲 (stackable ×5)', stackable: true,  maxStack: 5 },
+    heirloom_lilypad: { cost: 8,  label: 'Heirloom Lilypad',  desc: 'Next frog starts at lilypad level 2',               stackable: false },
+    elders_memory:    { cost: 10, label: "Elder's Memory",     desc: '+1 permanent bonus to all explore 🪲 (stackable ×5)', stackable: true, maxStack: 5 },
+    gilded_egg:       { cost: 15, label: 'Gilded Egg',         desc: 'Next frog inherits your full cosmetics collection', stackable: false },
+    deep_roots:       { cost: 20, label: 'Deep Roots',         desc: 'Next frog gains +2 days of passive income from birth', stackable: false },
+    legacy_nameplate: { cost: 3,  label: 'Legacy Nameplate',   desc: 'Your status shows "Generation X" — a mark of experience', stackable: false },
+};
+
 const CAREERS = {
     fisher:    { label: 'Fisher Frog',    desc: 'Earns 3 fireflies every 12 hours' },
     hunter:    { label: 'Hunter Frog',    desc: '10% better odds against hawks' },
@@ -232,6 +313,33 @@ function normalizeFrog(frog, now = Date.now()) {
     if (frog.babyBornAt === undefined) frog.babyBornAt = null;
     if (frog.hungerDangerSince === undefined) frog.hungerDangerSince = null;
     if (frog.partnerId === undefined) frog.partnerId = null;
+    // Pillar 2 — Boosts
+    if (frog.boostHawkShell == null)    frog.boostHawkShell = false;
+    if (frog.boostExploreNext == null)  frog.boostExploreNext = false;
+    if (frog.boostMidnightGlow == null) frog.boostMidnightGlow = null;
+    if (frog.boostTadpoleTonic == null) frog.boostTadpoleTonic = null;
+    if (frog.boostLuckyClover == null)  frog.boostLuckyClover = null;
+    // Pillar 1 — Investments
+    if (frog.investAlgaeFarm == null)  frog.investAlgaeFarm = 0;
+    if (frog.investLantern == null)    frog.investLantern = 0;
+    if (frog.investLilyGarden == null) frog.investLilyGarden = 0;
+    if (frog.investWormFarm == null)   frog.investWormFarm = 0;
+    if (frog.lastWormFarmAt == null)   frog.lastWormFarmAt = now;
+    // Pillar 3 — Cosmetics
+    if (frog.cosmeticsStr == null)      frog.cosmeticsStr = '';
+    if (frog.equippedHat == null)       frog.equippedHat = null;
+    if (frog.equippedEffect == null)    frog.equippedEffect = null;
+    if (frog.equippedAccessory == null) frog.equippedAccessory = null;
+    // Pillar 4 — Legacy
+    if (frog.legacyPoints == null)             frog.legacyPoints = 0;
+    if (frog.lilyTokens == null)               frog.lilyTokens = 0;
+    if (frog.legacyGen == null)                frog.legacyGen = 0;
+    if (frog.legacyBonusFireflies == null)     frog.legacyBonusFireflies = 0;
+    if (frog.legacyBonusExplore == null)       frog.legacyBonusExplore = 0;
+    if (frog.legacyHeirloomLilypad == null)    frog.legacyHeirloomLilypad = false;
+    if (frog.legacyInheritedCosmetic == null)  frog.legacyInheritedCosmetic = null;
+    if (frog.legacyDeepRoots == null)          frog.legacyDeepRoots = false;
+    if (frog.legacyNameplate == null)          frog.legacyNameplate = false;
     return frog;
 }
 
@@ -255,6 +363,35 @@ function formatAge(ms) {
 function colorPerk(frog) { return (FROG_COLORS[frog.color] || FROG_COLORS.green).perk; }
 function shopPrice(frog, baseCost) { return colorPerk(frog) === 'shopDiscount' ? Math.ceil(baseCost * 0.9) : baseCost; }
 function mayorMult(frog) { return frog.isMayor ? (1 + MAYOR_FIREFLY_BONUS) : 1; }
+
+function getCosmetics(frog) {
+    if (!frog.cosmeticsStr) return [];
+    return frog.cosmeticsStr.split(',').filter(Boolean);
+}
+
+function isLegacyBonusMaxed(doc, key) {
+    if (key === 'ancestral_wisdom') return (doc.legacyBonusFireflies || 0) >= 50;
+    if (key === 'heirloom_lilypad') return !!doc.legacyHeirloomLilypad;
+    if (key === 'elders_memory')    return (doc.legacyBonusExplore || 0) >= 5;
+    if (key === 'gilded_egg')       return !!doc.legacyInheritedCosmetic;
+    if (key === 'deep_roots')       return !!doc.legacyDeepRoots;
+    if (key === 'legacy_nameplate') return !!doc.legacyNameplate;
+    return false;
+}
+
+function calcLegacyScore(frog) {
+    const days = frog.lifespanDays || 0;
+    const ff   = Math.floor((frog.fireflies || 0) / 10);
+    const lily = (frog.lilypadLevel - 1) * 5;
+    const invSum = (frog.investAlgaeFarm||0) + (frog.investLantern||0) + (frog.investLilyGarden||0) + (frog.investWormFarm||0);
+    const cosmeticPts = getCosmetics(frog).length * 5;
+    const career  = frog.career  ? 10 : 0;
+    const nest    = frog.hasNest  ? 5  : 0;
+    const baby    = frog.hasBaby  ? 10 : 0;
+    const partner = frog.partnerId ? 5 : 0;
+    const mayor   = frog.isMayor  ? 20 : 0;
+    return days * 2 + ff + lily + invSum * 3 + cosmeticPts + career + nest + baby + partner + mayor;
+}
 
 function die(frog, now, reason) {
     frog.alive = false; frog.diedAt = now; frog.deathReason = reason;
@@ -281,10 +418,11 @@ function applyDecay(frog, now = Date.now()) {
     }
 
     const hours = Math.max(0, (now - frog.lastTickAt) / (60 * 60 * 1000));
-    const lilypadSlow  = frog.lilypadLevel >= 8 ? 0.85 : 1;
+    const lilypadSlow   = frog.lilypadLevel >= 8 ? 0.85 : 1;
     const caretakerSlow = frog.career === 'caretaker' ? 0.875 : 1;
-    const hungerRate    = HUNGER_DECAY_PER_HOUR    * (colorPerk(frog) === 'hungerSlower'    ? 0.875 : 1) * lilypadSlow * caretakerSlow;
-    const happinessRate = HAPPINESS_DECAY_PER_HOUR * (colorPerk(frog) === 'happinessSlower' ? 0.875 : 1) * lilypadSlow * caretakerSlow;
+    const tonicSlow     = (frog.boostTadpoleTonic && now < frog.boostTadpoleTonic) ? 0.80 : 1;
+    const hungerRate    = HUNGER_DECAY_PER_HOUR    * (colorPerk(frog) === 'hungerSlower'    ? 0.875 : 1) * lilypadSlow * caretakerSlow * tonicSlow;
+    const happinessRate = HAPPINESS_DECAY_PER_HOUR * (colorPerk(frog) === 'happinessSlower' ? 0.875 : 1) * lilypadSlow * caretakerSlow * tonicSlow;
     frog.hunger    = Math.max(0, Math.min(100, frog.hunger    - hungerRate    * hours));
     frog.happiness = Math.max(0, Math.min(100, frog.happiness - happinessRate * hours));
     frog.lastTickAt = now;
@@ -302,7 +440,23 @@ function applyDecay(frog, now = Date.now()) {
         if (frog.partnerId) {
             frog.happiness = Math.min(100, frog.happiness + PARTNER_HAPPINESS_PER_DAY * daysSincePassive);
         }
+        // Investment passive income
+        if (frog.investAlgaeFarm  > 0) frog.fireflies += Math.round(INVESTMENTS.algae_farm.tiers[frog.investAlgaeFarm  - 1].income * daysSincePassive * mayorMult(frog));
+        if (frog.investLantern    > 0) frog.fireflies += Math.round(INVESTMENTS.lantern.tiers[frog.investLantern        - 1].income * daysSincePassive * mayorMult(frog));
+        if (frog.investLilyGarden > 0) frog.fireflies += Math.round(INVESTMENTS.lily_garden.tiers[frog.investLilyGarden - 1].income * daysSincePassive * mayorMult(frog));
         frog.lastPassiveAt += daysSincePassive * DAY_MS;
+    }
+
+    // Worm farm item accrual (separate per-interval timer)
+    if (frog.investWormFarm > 0) {
+        const wfTier = INVESTMENTS.worm_farm.tiers[frog.investWormFarm - 1];
+        const wfIntervalMs = wfTier.intervalDays * DAY_MS;
+        const wfIntervals = Math.floor((now - frog.lastWormFarmAt) / wfIntervalMs);
+        if (wfIntervals > 0) {
+            frog.worms = Math.min(99, frog.worms + (wfTier.items.worms || 0) * wfIntervals);
+            if (wfTier.items.toys) frog.toys = Math.min(99, frog.toys + wfTier.items.toys * wfIntervals);
+            frog.lastWormFarmAt += wfIntervals * wfIntervalMs;
+        }
     }
 
     if (frog.career === 'fisher') {
@@ -379,6 +533,7 @@ function explorationBonusMult(frog) {
     let bonus = 0;
     if (colorPerk(frog) === 'explorationBoost') bonus += 0.10;
     if (frog.career === 'explorer') bonus += 0.10;
+    if (frog.investLilyGarden > 0) bonus += INVESTMENTS.lily_garden.tiers[frog.investLilyGarden - 1].exploreBonus || 0;
     return 1 + bonus;
 }
 
@@ -405,6 +560,7 @@ function rollExploration(frog) {
     if (fireflyGain > 0) {
         fireflyGain = Math.round(fireflyGain * explorationBonusMult(frog) * mayorMult(frog));
         if (frog.lilypadLevel >= 2) fireflyGain += 2;
+        if (frog.legacyBonusExplore > 0) fireflyGain += frog.legacyBonusExplore;
     }
     return { text: outcome.text, fireflies: fireflyGain, hunger: outcome.hunger || 0, happiness: outcome.happiness || 0 };
 }
@@ -420,6 +576,7 @@ function hawkMistakeChance(frog) {
     let chance = HAWK_BASE_MISTAKE_CHANCE;
     if (frog.career === 'hunter') chance += 0.10;
     if (colorPerk(frog) === 'luckBoost') chance += 0.05;
+    if (frog.boostLuckyClover && Date.now() < frog.boostLuckyClover) chance += 0.15;
     return Math.min(0.5, chance);
 }
 
@@ -519,6 +676,99 @@ function drawFlowerCrown(ctx,cx,cy,s){
 }
 function drawSpriteImage(ctx,img,cx,cy,s){const r=img.width/img.height,w=r>=1?s:s*r,h=r>=1?s/r:s;ctx.drawImage(img,cx-w/2,cy-h/2,w,h);}
 
+// ── Cosmetic draw functions ───────────────────────────────────────────────────
+
+function drawPartyHat(ctx,cx,cy,s){
+    ctx.save();ctx.translate(cx,cy-s*0.58);
+    ctx.beginPath();ctx.moveTo(0,-s*0.32);ctx.lineTo(-s*0.12,0);ctx.lineTo(s*0.12,0);ctx.closePath();
+    ctx.fillStyle='#e74c3c';ctx.fill();
+    const stripeColors=['#f1c40f','#3498db','#2ecc71'];
+    for(let i=0;i<3;i++){const yp=-s*0.26+i*s*0.085;ctx.beginPath();ctx.moveTo(-s*(0.04+i*0.025),yp);ctx.lineTo(s*(0.04+i*0.025),yp);ctx.lineWidth=s*0.02;ctx.strokeStyle=stripeColors[i];ctx.stroke();}
+    ctx.beginPath();ctx.arc(0,-s*0.32,s*0.025,0,Math.PI*2);ctx.fillStyle='#f1c40f';ctx.fill();
+    ctx.restore();
+}
+
+function drawMushroomCap(ctx,cx,cy,s){
+    ctx.save();ctx.translate(cx,cy-s*0.58);
+    ctx.beginPath();ctx.ellipse(0,0,s*0.18,s*0.11,0,0,Math.PI,true);ctx.fillStyle='#c0392b';ctx.fill();
+    ctx.fillStyle='#ffffff';
+    for(const sp of [{x:-0.07,y:-0.04},{x:0.05,y:-0.06},{x:0.1,y:0.01}]){ctx.beginPath();ctx.arc(sp.x*s,sp.y*s,s*0.025,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle='#f5e6c8';ctx.fillRect(-s*0.04,0,s*0.08,s*0.07);
+    ctx.restore();
+}
+
+function drawWizardHat(ctx,cx,cy,s){
+    ctx.save();ctx.translate(cx,cy-s*0.58);
+    ctx.beginPath();ctx.ellipse(0,0,s*0.2,s*0.05,0,0,Math.PI*2);ctx.fillStyle='#6c3483';ctx.fill();
+    ctx.beginPath();ctx.moveTo(0,-s*0.38);ctx.lineTo(-s*0.15,0);ctx.lineTo(s*0.15,0);ctx.closePath();ctx.fillStyle='#8e44ad';ctx.fill();
+    ctx.fillStyle='#f1c40f';ctx.font=`${s*0.14}px serif`;ctx.textAlign='center';ctx.fillText('★',0,-s*0.12);
+    ctx.restore();
+}
+
+function drawRoyalCrown(ctx,cx,cy,s){
+    ctx.save();ctx.translate(cx,cy-s*0.58);
+    ctx.fillStyle='#e0b94a';ctx.fillRect(-s*0.18,-s*0.05,s*0.36,s*0.09);
+    const pts=[-0.14,-0.07,0,0.07,0.14],hs=[-0.18,-0.11,-0.22,-0.11,-0.18];
+    ctx.beginPath();ctx.moveTo(-s*0.18,-s*0.05);
+    for(let i=0;i<pts.length;i++)ctx.lineTo(pts[i]*s,hs[i]*s);
+    ctx.lineTo(s*0.18,-s*0.05);ctx.closePath();ctx.fillStyle='#e0b94a';ctx.fill();
+    ctx.strokeStyle='#b8940a';ctx.lineWidth=s*0.015;ctx.stroke();
+    ctx.fillStyle='#e74c3c';ctx.beginPath();ctx.arc(0,-s*0.14,s*0.025,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#3498db';
+    for(const ox of[-0.1,0.1]){ctx.beginPath();ctx.arc(ox*s,-s*0.02,s*0.018,0,Math.PI*2);ctx.fill();}
+    ctx.restore();
+}
+
+function drawPondMist(ctx,cx,canvasH,s){
+    const grad=ctx.createRadialGradient(cx,canvasH,0,cx,canvasH,s*0.6);
+    grad.addColorStop(0,'rgba(100,180,255,0.25)');grad.addColorStop(1,'rgba(100,180,255,0)');
+    ctx.fillStyle=grad;ctx.fillRect(cx-s,canvasH-s*0.3,s*2,s*0.3);
+}
+
+function drawFireflyHalo(ctx,cx,cy,s,frameIndex){
+    const count=4,phase=(frameIndex/ANIM_FRAMES)*Math.PI*2;
+    for(let i=0;i<count;i++){
+        const a=phase+(i/count)*Math.PI*2,r=s*0.38;
+        const fx=cx+Math.cos(a)*r,fy=(cy-s*0.1)+Math.sin(a)*r*0.45;
+        const glow=ctx.createRadialGradient(fx,fy,0,fx,fy,s*0.07);
+        glow.addColorStop(0,'rgba(255,240,80,0.4)');glow.addColorStop(1,'rgba(255,240,80,0)');
+        ctx.fillStyle=glow;ctx.beginPath();ctx.arc(fx,fy,s*0.07,0,Math.PI*2);ctx.fill();
+        ctx.beginPath();ctx.arc(fx,fy,s*0.025,0,Math.PI*2);ctx.fillStyle='rgba(255,240,100,0.9)';ctx.fill();
+    }
+}
+
+function drawGoldenShimmer(ctx,cx,cy,s,frameIndex){
+    const count=8,phase=frameIndex/ANIM_FRAMES;
+    for(let i=0;i<count;i++){
+        const t=((phase+i/count)%1);
+        const x=cx+(rs(i,3)-0.5)*s*0.6,y=(cy-s*0.3)-t*s*0.5;
+        const alpha=t<0.5?t*2:(1-t)*2;
+        ctx.beginPath();ctx.arc(x,y,s*0.018,0,Math.PI*2);ctx.fillStyle=`rgba(224,185,74,${alpha*0.8})`;ctx.fill();
+    }
+}
+
+function drawLilyCrown(ctx,cx,cy,s){
+    const ny=cy+s*0.08;
+    for(let i=0;i<6;i++){const a=(i/6)*Math.PI*2;ctx.beginPath();ctx.ellipse(cx+Math.cos(a)*s*0.22,ny+Math.sin(a)*s*0.08,s*0.07,s*0.04,a,0,Math.PI*2);ctx.fillStyle='#f0a0c0';ctx.fill();}
+    ctx.beginPath();ctx.arc(cx,ny,s*0.06,0,Math.PI*2);ctx.fillStyle='#f1c40f';ctx.fill();
+}
+
+function drawFishingRod(ctx,cx,cy,s){
+    ctx.strokeStyle='#8B4513';ctx.lineWidth=s*0.02;
+    ctx.beginPath();ctx.moveTo(cx+s*0.18,cy+s*0.1);ctx.quadraticCurveTo(cx+s*0.35,cy-s*0.45,cx+s*0.45,cy-s*0.55);ctx.stroke();
+    ctx.strokeStyle='#cccccc';ctx.lineWidth=s*0.01;
+    ctx.beginPath();ctx.moveTo(cx+s*0.45,cy-s*0.55);ctx.lineTo(cx+s*0.5,cy-s*0.25);ctx.stroke();
+    ctx.beginPath();ctx.arc(cx+s*0.53,cy-s*0.25,s*0.025,0,Math.PI);ctx.strokeStyle='#aaaaaa';ctx.stroke();
+}
+
+function drawTinySword(ctx,cx,cy,s){
+    ctx.save();ctx.translate(cx-s*0.3,cy-s*0.15);ctx.rotate(-Math.PI/6);
+    ctx.fillStyle='#c0c0c0';ctx.fillRect(-s*0.02,-s*0.25,s*0.04,s*0.25);
+    ctx.fillStyle='#e0b94a';ctx.fillRect(-s*0.08,-s*0.02,s*0.16,s*0.035);
+    ctx.fillStyle='#8B4513';ctx.fillRect(-s*0.02,0,s*0.04,s*0.1);
+    ctx.restore();
+}
+
 const PORTRAIT_SIZE=240, ANIM_FRAMES=8, ANIM_DELAY_MS=150;
 
 async function drawFrogPortrait(frog) {
@@ -532,6 +782,19 @@ async function drawFrogPortrait(frog) {
         drawSpriteImage(ctx,lilypadImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.72,PORTRAIT_SIZE*0.62);
         drawSpriteImage(ctx,frogImg,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
         if(frog.stage==='elder')drawFlowerCrown(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        // Cosmetic effects (drawn behind/around frog)
+        if(frog.equippedEffect==='pond_mist')drawPondMist(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE,PORTRAIT_SIZE*0.465);
+        if(frog.equippedEffect==='firefly_halo')drawFireflyHalo(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465,i);
+        if(frog.equippedEffect==='golden_shimmer')drawGoldenShimmer(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465,i);
+        // Cosmetic accessories
+        if(frog.equippedAccessory==='lily_crown')drawLilyCrown(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        if(frog.equippedAccessory==='fishing_rod')drawFishingRod(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        if(frog.equippedAccessory==='tiny_sword')drawTinySword(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        // Cosmetic headwear (drawn on top)
+        if(frog.equippedHat==='party_hat')drawPartyHat(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        else if(frog.equippedHat==='mushroom_cap')drawMushroomCap(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        else if(frog.equippedHat==='wizard_hat')drawWizardHat(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
+        else if(frog.equippedHat==='royal_crown')drawRoyalCrown(ctx,PORTRAIT_SIZE*0.5,PORTRAIT_SIZE*0.52+bob,PORTRAIT_SIZE*0.465);
         ctx.font='700 22px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
         ctx.fillText(frog.name,PORTRAIT_SIZE/2,30);
         enc.addFrame(ctx.getImageData(0,0,PORTRAIT_SIZE,PORTRAIT_SIZE).data);
@@ -561,6 +824,16 @@ async function drawPondScene(frogs) {
             drawSpriteImage(ctx,lilypadImg,CELL_SIZE*0.5,CELL_SIZE*0.64,CELL_SIZE*0.6);
             drawSpriteImage(ctx,frogImg,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
             if(frog.stage==='elder')drawFlowerCrown(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            if(frog.equippedEffect==='pond_mist')drawPondMist(ctx,CELL_SIZE*0.5,CELL_SIZE,CELL_SIZE*0.41);
+            if(frog.equippedEffect==='firefly_halo')drawFireflyHalo(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41,f);
+            if(frog.equippedEffect==='golden_shimmer')drawGoldenShimmer(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41,f);
+            if(frog.equippedAccessory==='lily_crown')drawLilyCrown(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            if(frog.equippedAccessory==='fishing_rod')drawFishingRod(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            if(frog.equippedAccessory==='tiny_sword')drawTinySword(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            if(frog.equippedHat==='party_hat')drawPartyHat(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            else if(frog.equippedHat==='mushroom_cap')drawMushroomCap(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            else if(frog.equippedHat==='wizard_hat')drawWizardHat(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
+            else if(frog.equippedHat==='royal_crown')drawRoyalCrown(ctx,CELL_SIZE*0.5,CELL_SIZE*0.45+bob,CELL_SIZE*0.41);
             ctx.restore();
             ctx.font='600 14px "Noto Sans", sans-serif'; ctx.fillStyle='#ffffff'; ctx.textAlign='center';
             ctx.fillText(frog.name,x+CELL_SIZE/2,y+CELL_SIZE-12);
@@ -573,8 +846,11 @@ async function drawPondScene(frogs) {
 // ── Slash command definitions ─────────────────────────────────────────────────
 
 const colorChoices    = Object.entries(FROG_COLORS).map(([v,c])=>({name:c.name,value:v}));
-const shopItemChoices = Object.entries(SHOP_ITEMS).map(([v,i])=>({name:i.label,value:v}));
+const shopItemChoices = [...Object.entries(SHOP_ITEMS),...Object.entries(BOOST_ITEMS),...Object.entries(COSMETIC_ITEMS)].map(([v,i])=>({name:i.label,value:v}));
 const careerChoices   = Object.entries(CAREERS).map(([v,c])=>({name:c.label,value:v}));
+const cosmeticChoices = Object.entries(COSMETIC_ITEMS).map(([v,i])=>({name:i.label,value:v}));
+const investChoices   = Object.entries(INVESTMENTS).map(([v,i])=>({name:i.label,value:v}));
+const legacyBonusChoices = Object.entries(LEGACY_BONUSES).map(([v,b])=>({name:b.label,value:v}));
 
 const pondCommands = [
     new SlashCommandBuilder()
@@ -621,7 +897,14 @@ const pondCommands = [
             .addSubcommand(s=>s.setName('choose').setDescription('Choose your first career (free)')
                 .addStringOption(o=>o.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices)))
             .addSubcommand(s=>s.setName('respec').setDescription('Change career (35 fireflies, Mondays only)')
-                .addStringOption(o=>o.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices)))),
+                .addStringOption(o=>o.setName('career').setDescription('Which career').setRequired(true).addChoices(...careerChoices))))
+        .addSubcommand(s=>s.setName('wardrobe').setDescription('See all cosmetics your frog owns'))
+        .addSubcommand(s=>s.setName('equip').setDescription('Equip or unequip a cosmetic')
+            .addStringOption(o=>o.setName('item').setDescription('Which cosmetic to equip/unequip').setRequired(true).addChoices(...cosmeticChoices)))
+        .addSubcommandGroup(g=>g.setName('legacy').setDescription('View and spend your Lily Tokens (earned when frogs die)')
+            .addSubcommand(s=>s.setName('info').setDescription('See your Lily Tokens, generation, and legacy bonuses'))
+            .addSubcommand(s=>s.setName('spend').setDescription('Spend Lily Tokens on a legacy bonus')
+                .addStringOption(o=>o.setName('bonus').setDescription('Which bonus').setRequired(true).addChoices(...legacyBonusChoices)))),
     new SlashCommandBuilder()
         .setName('pond').setDescription("The Pond — where everyone's frogs hang out")
         .addSubcommand(s=>s.setName('view').setDescription("See everyone's frogs together in the pond"))
@@ -637,7 +920,12 @@ const pondCommands = [
         .addSubcommandGroup(g=>g.setName('shop').setDescription('Buy supplies for your frog')
             .addSubcommand(s=>s.setName('buy').setDescription('Buy an item')
                 .addStringOption(o=>o.setName('item').setDescription('What to buy').setRequired(true).addChoices(...shopItemChoices))
-                .addIntegerOption(o=>o.setName('quantity').setDescription('How many (default 1)').setMinValue(1).setMaxValue(50)))),
+                .addIntegerOption(o=>o.setName('quantity').setDescription('How many (default 1)').setMinValue(1).setMaxValue(50))))
+        .addSubcommandGroup(g=>g.setName('invest').setDescription('Buy passive income investments for your frog')
+            .addSubcommand(s=>s.setName('info').setDescription('See your investments and upgrade costs'))
+            .addSubcommand(s=>s.setName('buy').setDescription('Buy or upgrade an investment')
+                .addStringOption(o=>o.setName('item').setDescription('Which investment').setRequired(true).addChoices(...investChoices))
+                .addIntegerOption(o=>o.setName('tier').setDescription('Which tier to buy (1-3)').setRequired(true).setMinValue(1).setMaxValue(3)))),
 ];
 
 // ── In-memory game state ──────────────────────────────────────────────────────
@@ -665,16 +953,51 @@ async function handleFrogAdopt(interaction) {
     const name = interaction.options.getString('name').trim();
     const color = interaction.options.getString('color');
     const now = Date.now();
+
+    // Carry forward legacy fields from previous frog doc
+    const legacyPoints         = existing?.legacyPoints || 0;
+    const lilyTokens           = existing?.lilyTokens || 0;
+    const legacyGen            = (existing?.legacyGen || 0) + 1;
+    const legacyBonusFireflies = existing?.legacyBonusFireflies || 0;
+    const legacyBonusExplore   = existing?.legacyBonusExplore || 0;
+    const legacyHeirloomLilypad = existing?.legacyHeirloomLilypad || false;
+    const legacyInheritedCosmetic = existing?.legacyInheritedCosmetic || null;
+    const legacyDeepRoots      = existing?.legacyDeepRoots || false;
+    const legacyNameplate      = existing?.legacyNameplate || false;
+
+    const startFireflies = 15 + legacyBonusFireflies;
+    const startLilypad   = legacyHeirloomLilypad ? 2 : 1;
+    const inheritedCosmetics = legacyInheritedCosmetic || '';
+
     const frog = normalizeFrog({
         ownerId: interaction.user.id, name, color,
         stage: 'egg', hunger: 100, happiness: 100,
         bornAt: now, lastFedAt: now, lastPlayedAt: now, lastTickAt: now,
         alive: true, diedAt: null, lifespanDays: null,
-        fireflies: 15, patchV2Granted: true,
+        fireflies: startFireflies, patchV2Granted: true,
+        lilypadLevel: startLilypad,
+        legacyPoints, lilyTokens, legacyGen,
+        legacyBonusFireflies, legacyBonusExplore,
+        legacyHeirloomLilypad, legacyInheritedCosmetic: null,
+        legacyDeepRoots, legacyNameplate,
+        cosmeticsStr: inheritedCosmetics,
     }, now);
+
+    // Deep Roots: back-date lastPassiveAt so 2 days of passive income accrue on first tick
+    if (legacyDeepRoots) frog.lastPassiveAt = now - 2 * DAY_MS;
+
     await pondFrogSet(interaction.user.id, frog);
+
+    const bonusParts = [];
+    if (legacyBonusFireflies > 0) bonusParts.push(`+${legacyBonusFireflies} starting 🪲`);
+    if (startLilypad > 1) bonusParts.push(`lilypad L2`);
+    if (inheritedCosmetics) bonusParts.push(`cosmetics inherited`);
+    if (legacyDeepRoots) bonusParts.push(`Deep Roots bonus`);
+    const bonusLine = bonusParts.length ? `\n🌿 **Legacy bonus:** ${bonusParts.join(', ')}` : '';
+    const genLine = legacyGen > 1 ? ` *(Generation ${legacyGen})*` : '';
+
     await interaction.reply({
-        content: `🐣 Welcome **${name}** to the pond! You start with **15 🪲 fireflies**. Keep them happy with \`/frog feed\` and \`/frog play\` — check in twice a day!`,
+        content: `🐣 Welcome **${name}**${genLine} to the pond! You start with **${startFireflies} 🪲 fireflies**. Keep them happy with \`/frog feed\` and \`/frog play\` — check in twice a day!${bonusLine}`,
         files: [new AttachmentBuilder(await drawFrogPortrait(frog), { name: 'frog.gif' })],
     });
 }
@@ -752,12 +1075,25 @@ async function handleFrogStatus(interaction) {
     if(frog.depressed)flags.push('😔 depressed — `/frog soothe`');
     if(frog.isMayor)flags.push('👑 Frog Mayor');
     const careerLine=frog.career?` · 💼 ${CAREERS[frog.career].label}`:'';
+    // Boosts
+    const t=Date.now(), activeBoosts=[];
+    if(frog.boostHawkShell)activeBoosts.push('🐚 Shell Polish');
+    if(frog.boostExploreNext)activeBoosts.push('🧲 FF Magnet');
+    if(frog.boostMidnightGlow&&t<frog.boostMidnightGlow)activeBoosts.push(`🌙 Glow(${Math.ceil((frog.boostMidnightGlow-t)/60000)}m)`);
+    if(frog.boostTadpoleTonic&&t<frog.boostTadpoleTonic)activeBoosts.push(`🧪 Tonic(${Math.ceil((frog.boostTadpoleTonic-t)/3600000)}h)`);
+    if(frog.boostLuckyClover&&t<frog.boostLuckyClover)activeBoosts.push(`🍀 Clover(${Math.ceil((frog.boostLuckyClover-t)/3600000)}h)`);
+    const boostLine=activeBoosts.length?`\n⚡ Boosts: ${activeBoosts.join(' · ')}`:''  ;
+    // Cosmetics
+    const wearing=[frog.equippedHat,frog.equippedEffect,frog.equippedAccessory].filter(Boolean);
+    const cosmeticLine=wearing.length?`\n✨ Wearing: ${wearing.map(k=>COSMETIC_ITEMS[k]?.label||k).join(', ')}` :'';
+    // Legacy nameplate
+    const legacyLine=frog.legacyNameplate&&frog.legacyGen>0?`\n🌿 Generation ${frog.legacyGen}`:'';
     await interaction.reply({
         content:`🐸 **${frog.name}** — ${frog.stage}, ${age} old\n`
             +`Hunger: ${Math.round(frog.hunger)}/100 · Happiness: ${Math.round(frog.happiness)}/100\n`
             +`🪲 Fireflies: ${frog.fireflies} · 🍃 Lilypad: level ${frog.lilypadLevel}${careerLine}\n`
             +`🎨 ${ci.name} — ${PERK_DESCRIPTIONS[ci.perk]}`
-            +(flags.length?`\n${flags.join(' · ')}`:``),
+            +(flags.length?`\n${flags.join(' · ')}`:``)+boostLine+cosmeticLine+legacyLine,
         files:[new AttachmentBuilder(await drawFrogPortrait(frog),{name:'frog.gif'})],
     });
 }
@@ -791,17 +1127,52 @@ async function handleFrogLilypadUpgrade(interaction) {
 async function handlePondShopBuy(interaction) {
     const frog=await getLiveFrog(interaction.user.id);
     if(!requireLiveFrog(frog,interaction))return;
-    const itemKey=interaction.options.getString('item'), item=SHOP_ITEMS[itemKey];
-    const quantity=itemKey==='nest'?1:(interaction.options.getInteger('quantity')||1);
-    if(itemKey==='nest'&&frog.hasNest){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪺 **${frog.name}** already has a nest.`,ephemeral:true});}
+    const itemKey=interaction.options.getString('item');
+    const baseItem=SHOP_ITEMS[itemKey], boostItem=BOOST_ITEMS[itemKey], cosmeticItem=COSMETIC_ITEMS[itemKey];
+    const item=baseItem||boostItem||cosmeticItem;
+    if(!item){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:'❌ Unknown item.',ephemeral:true});}
+
+    // Quantity: only base consumables (worms/toys) and mud_bath support qty > 1
+    const supportsQty=itemKey==='worms'||itemKey==='toys'||itemKey==='mud_bath';
+    const quantity=supportsQty?(interaction.options.getInteger('quantity')||1):1;
     const totalCost=shopPrice(frog,item.cost)*quantity;
-    if(frog.fireflies<totalCost){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 You need ${totalCost} fireflies for ${quantity}x ${item.label}, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
+
+    // One-time-purchase checks
+    if(itemKey==='nest'&&frog.hasNest){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪺 **${frog.name}** already has a nest.`,ephemeral:true});}
+    if(cosmeticItem&&getCosmetics(frog).includes(itemKey)){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`✨ **${frog.name}** already owns **${cosmeticItem.label}**.`,ephemeral:true});}
+
+    if(frog.fireflies<totalCost){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 You need ${totalCost} 🪲 for ${quantity > 1 ? `${quantity}x ` : ''}**${item.label}**, but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
     frog.fireflies-=totalCost;
-    if(itemKey==='worms')frog.worms+=quantity;
-    else if(itemKey==='toys')frog.toys+=quantity;
-    else if(itemKey==='nest')frog.hasNest=true;
+
+    let resultMsg='';
+    if(itemKey==='worms'){frog.worms+=quantity;resultMsg=`Got ${quantity}x worm(s)! ${item.desc}`;}
+    else if(itemKey==='toys'){frog.toys+=quantity;resultMsg=`Got ${quantity}x toy(s)! ${item.desc}`;}
+    else if(itemKey==='nest'){frog.hasNest=true;resultMsg=item.desc;}
+    else if(itemKey==='snail_polish'){frog.boostHawkShell=true;resultMsg=item.desc;}
+    else if(itemKey==='ff_magnet'){frog.boostExploreNext=true;resultMsg=item.desc;}
+    else if(itemKey==='midnight_glow'){
+        const dur=4*60*60*1000;
+        frog.boostMidnightGlow=(frog.boostMidnightGlow&&Date.now()<frog.boostMidnightGlow?frog.boostMidnightGlow:Date.now())+dur;
+        resultMsg=`${item.desc} (~${Math.ceil((frog.boostMidnightGlow-Date.now())/60000)}m remaining)`;
+    } else if(itemKey==='mud_bath'){
+        frog.hunger=Math.min(100,frog.hunger+15*quantity);
+        frog.happiness=Math.min(100,frog.happiness+15*quantity);
+        resultMsg=`**${frog.name}** soaks in the warm mud! +${15*quantity} hunger & happiness`;
+    } else if(itemKey==='tadpole_tonic'){
+        frog.boostTadpoleTonic=Date.now()+24*60*60*1000;
+        resultMsg=item.desc;
+    } else if(itemKey==='lucky_clover'){
+        frog.boostLuckyClover=Date.now()+6*60*60*1000;
+        resultMsg=item.desc;
+    } else if(cosmeticItem){
+        const owned=getCosmetics(frog);
+        owned.push(itemKey);
+        frog.cosmeticsStr=owned.join(',');
+        resultMsg=`✨ **${frog.name}** now owns **${cosmeticItem.label}**! Equip with \`/frog equip item:${itemKey}\`.`;
+    }
+
     await pondFrogSet(interaction.user.id,frog);
-    await interaction.reply({content:`🛒 Bought ${quantity}x **${item.label}** for ${totalCost} fireflies! ${item.desc}`});
+    await interaction.reply({content:`🛒 **${item.label}** purchased for ${totalCost} 🪲! ${resultMsg}`});
 }
 
 async function handleFrogLeaderboard(interaction) {
@@ -828,8 +1199,14 @@ async function handleFrogExplore(interaction) {
     const result=rollExploration(frog);
     // Mysterious Frog event: double exploration firefly rewards
     const eMeta=await pondFirestoreGet(POND_META_DOC_ID)||{};
-    const exploreBoost=(eMeta.activeEventType==='mysterious_frog'&&eMeta.activeEventUntil>Date.now())?2:1;
-    if(result.fireflies>0)result.fireflies=Math.round(result.fireflies*exploreBoost);
+    const now2=Date.now();
+    const exploreBoost=(eMeta.activeEventType==='mysterious_frog'&&eMeta.activeEventUntil>now2)?2:1;
+    const boostParts=[];
+    if(result.fireflies>0){
+        result.fireflies=Math.round(result.fireflies*exploreBoost);
+        if(frog.boostExploreNext){result.fireflies=Math.round(result.fireflies*2);frog.boostExploreNext=false;boostParts.push('🧲 Magnet (2×)');}
+        if(frog.boostMidnightGlow&&now2<frog.boostMidnightGlow){result.fireflies+=5;boostParts.push('🌙 Glow (+5)');}
+    }
     frog.exploresToday+=1;
     frog.fireflies=Math.max(0,frog.fireflies+result.fireflies);
     if(result.hunger)frog.hunger=Math.min(100,frog.hunger+result.hunger);
@@ -840,6 +1217,7 @@ async function handleFrogExplore(interaction) {
     if(result.fireflies)parts.push(`${result.fireflies>0?'+':''}${result.fireflies} 🪲`);
     if(result.hunger)parts.push(`+${result.hunger} hunger`);
     if(result.happiness)parts.push(`+${result.happiness} happiness`);
+    if(boostParts.length)parts.push(`*(${boostParts.join(', ')})*`);
     parts.push(`*(${frog.exploresToday}/${limit} explores today)*`);
     await interaction.reply({content:parts.join(' ')});
 }
@@ -1010,8 +1388,12 @@ async function finishHawkGame(interaction, state, msg, resultText, fireflyDelta)
         const hMeta=await pondFirestoreGet(POND_META_DOC_ID)||{};
         const hawkBoost=(hMeta.activeEventType==='hawk_season'&&hMeta.activeEventUntil>Date.now())?2:1;
         if(fireflyDelta>0){
-            const gain=Math.round(fireflyDelta*mayorMult(frog)*hawkBoost);
-            frog.fireflies+=gain; content+=` +${gain} 🪲${hawkBoost>1?' (🦅 Hawk Season x2!)':''}`;
+            let gain=Math.round(fireflyDelta*mayorMult(frog)*hawkBoost);
+            const usedShell=!!frog.boostHawkShell;
+            if(usedShell){gain=Math.round(gain*1.5);frog.boostHawkShell=false;}
+            const midnightBonus=(frog.boostMidnightGlow&&Date.now()<frog.boostMidnightGlow)?5:0;
+            gain+=midnightBonus;
+            frog.fireflies+=gain; content+=` +${gain} 🪲${hawkBoost>1?' (🦅 Hawk Season x2!)':''}${usedShell?' 🐚 Shell Polish (+50%)!':''}${midnightBonus?' 🌙 Midnight Glow (+5)!':''}`;
         } else if(fireflyDelta<0){
             const rate=Math.abs(fireflyDelta)*(typeof fireflyDelta==='number'&&fireflyDelta<-1?1:hawkBoost);
             const loss=Math.floor(frog.fireflies*rate);
@@ -1728,12 +2110,160 @@ async function announceDeath(client, frog) {
         const ch = await client.channels.fetch(POND_CHANNEL_ID);
         let ownerName = null;
         try { const m = await ch.guild.members.fetch(frog.ownerId); ownerName = m.displayName; } catch(_){}
-        const msg = ownerName
+        const baseMsg = ownerName
             ? deathMessage(frog).replace(`**${frog.name}**`, `**${frog.name}** (${ownerName})`)
             : deathMessage(frog);
-        await ch.send({ content: msg, allowedMentions: { parse: [] } });
+
+        // Legacy score calculation
+        const legacyScore  = calcLegacyScore(frog);
+        const tokensEarned = Math.floor(legacyScore / 10);
+        const newLegacyPoints = (frog.legacyPoints || 0) + legacyScore;
+        const newLilyTokens   = (frog.lilyTokens   || 0) + tokensEarned;
+        if (legacyScore > 0) {
+            await pondFrogSet(frog.ownerId, { legacyPoints: newLegacyPoints, lilyTokens: newLilyTokens });
+        }
+        const genNum = frog.legacyGen || 0;
+        const legacyLine = tokensEarned > 0
+            ? `\n🌿 **${frog.name}** earned **${tokensEarned} Lily Token${tokensEarned!==1?'s':''}** for their time in the pond${genNum>0?` (Generation ${genNum})`:''}. Next frog: \`/frog legacy info\``
+            : '';
+
+        await ch.send({ content: baseMsg + legacyLine, allowedMentions: { parse: [] } });
     }
     catch(e){console.error('[Pond] announceDeath failed:',e.message);}
+}
+
+// ── Pond Invest handlers ──────────────────────────────────────────────────────
+
+async function handlePondInvestInfo(interaction) {
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    await pondFrogSet(interaction.user.id,frog);
+    const lines=[`💰 **${frog.name}**'s Investments\n`];
+    for(const[key,inv]of Object.entries(INVESTMENTS)){
+        const fieldKey=INVEST_FIELD_MAP[key];
+        const cur=frog[fieldKey]||0;
+        const nextTier=inv.tiers[cur];
+        if(cur===0){
+            lines.push(`**${inv.label}** — *Not owned* (${inv.desc})`);
+            if(key==='worm_farm') lines.push(`  Tier 1: 1 free worm every ${nextTier.intervalDays} days — ${shopPrice(frog,nextTier.cost)} 🪲`);
+            else lines.push(`  Tier 1: +${nextTier.income} 🪲/day — ${shopPrice(frog,nextTier.cost)} 🪲`);
+        } else {
+            const curData=inv.tiers[cur-1];
+            if(key==='worm_farm') lines.push(`**${inv.label}** — Tier ${cur}/3: 1 free worm${curData.items?.toys?' + toy':''} every ${curData.intervalDays} day(s)`);
+            else {
+                let eff=`+${curData.income} 🪲/day`;
+                if(key==='lily_garden')eff+=` · +${Math.round((curData.exploreBonus||0)*100)}% explore 🪲`;
+                lines.push(`**${inv.label}** — Tier ${cur}/3: ${eff}`);
+            }
+            if(nextTier){
+                const upCost=shopPrice(frog,nextTier.cost);
+                const upEff=key==='worm_farm'?`1 free worm${nextTier.items?.toys?' + toy':''} every ${nextTier.intervalDays} day(s)`:`+${nextTier.income} 🪲/day`;
+                lines.push(`  → Upgrade to Tier ${cur+1}: ${upCost} 🪲 (${upEff})`);
+            } else { lines.push(`  → Max tier!`); }
+        }
+        lines.push('');
+    }
+    lines.push('Use `/pond invest buy item:<name> tier:<1-3>` to purchase.');
+    await interaction.reply({content:lines.join('\n'),ephemeral:true});
+}
+
+async function handlePondInvestBuy(interaction) {
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    const itemKey=interaction.options.getString('item');
+    const tier=interaction.options.getInteger('tier');
+    const inv=INVESTMENTS[itemKey];
+    if(!inv){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:'❌ Unknown investment.',ephemeral:true});}
+    const fieldKey=INVEST_FIELD_MAP[itemKey];
+    const cur=frog[fieldKey]||0;
+    if(tier!==cur+1){
+        await pondFrogSet(interaction.user.id,frog);
+        return interaction.reply({content:cur===0?`💰 Buy Tier 1 of **${inv.label}** first.`:tier<=cur?`💰 You already own Tier ${cur} of **${inv.label}**.`:`💰 Upgrade to Tier ${cur+1} first.`,ephemeral:true});
+    }
+    if(tier>inv.tiers.length){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`💰 **${inv.label}** only has ${inv.tiers.length} tiers.`,ephemeral:true});}
+    const tierData=inv.tiers[tier-1];
+    const cost=shopPrice(frog,tierData.cost);
+    if(frog.fireflies<cost){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`🪲 Need ${cost} 🪲 but **${frog.name}** only has ${frog.fireflies}.`,ephemeral:true});}
+    frog.fireflies-=cost;
+    frog[fieldKey]=tier;
+    await pondFrogSet(interaction.user.id,frog);
+    let eff=itemKey==='worm_farm'?`1 free worm${tierData.items?.toys?' + toy':''} every ${tierData.intervalDays} day(s)`:`+${tierData.income} 🪲/day${itemKey==='lily_garden'?` · +${Math.round((tierData.exploreBonus||0)*100)}% explore 🪲`:''}`;
+    await interaction.reply({content:`💰 **${inv.label}** upgraded to Tier ${tier}! (-${cost} 🪲)\nEffect: ${eff}`});
+}
+
+// ── Cosmetic wardrobe & equip handlers ────────────────────────────────────────
+
+async function handleFrogWardrobe(interaction) {
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    await pondFrogSet(interaction.user.id,frog);
+    const owned=getCosmetics(frog);
+    if(!owned.length) return interaction.reply({content:`👒 **${frog.name}** doesn't own any cosmetics yet. Buy from \`/pond shop buy\`!`,ephemeral:true});
+    const wearing=[frog.equippedHat,frog.equippedEffect,frog.equippedAccessory].filter(Boolean);
+    const wearLine=wearing.length?`Currently wearing: ${wearing.map(k=>COSMETIC_ITEMS[k]?.label||k).join(', ')}\n`:'';
+    const lines=owned.map(k=>{
+        const c=COSMETIC_ITEMS[k]||{label:k,slot:'?',desc:''};
+        const on=(c.slot==='hat'&&frog.equippedHat===k)||(c.slot==='effect'&&frog.equippedEffect===k)||(c.slot==='accessory'&&frog.equippedAccessory===k);
+        return `${on?'✅':'⬜'} **${c.label}** (${c.slot}) — ${c.desc}`;
+    });
+    await interaction.reply({content:`👒 **${frog.name}**'s Wardrobe\n${wearLine}${lines.join('\n')}\n\nUse \`/frog equip item:<name>\` to equip/unequip.`,ephemeral:true});
+}
+
+async function handleFrogEquip(interaction) {
+    const frog=await getLiveFrog(interaction.user.id);
+    if(!requireLiveFrog(frog,interaction))return;
+    const itemKey=interaction.options.getString('item');
+    const c=COSMETIC_ITEMS[itemKey];
+    if(!c){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:'❌ Unknown cosmetic.',ephemeral:true});}
+    if(!getCosmetics(frog).includes(itemKey)){await pondFrogSet(interaction.user.id,frog);return interaction.reply({content:`👒 **${frog.name}** doesn't own **${c.label}**. Buy it first: \`/pond shop buy item:${itemKey}\`.`,ephemeral:true});}
+    const slotField=c.slot==='hat'?'equippedHat':c.slot==='effect'?'equippedEffect':'equippedAccessory';
+    const alreadyOn=frog[slotField]===itemKey;
+    frog[slotField]=alreadyOn?null:itemKey;
+    await pondFrogSet(interaction.user.id,{[slotField]:frog[slotField]});
+    const verb=alreadyOn?`removed **${c.label}**`:`equipped **${c.label}**`;
+    await interaction.reply({content:`👒 **${frog.name}** ${verb}!`,files:[new AttachmentBuilder(await drawFrogPortrait(frog),{name:'frog.gif'})]});
+}
+
+// ── Legacy handlers ───────────────────────────────────────────────────────────
+
+async function handleFrogLegacyInfo(interaction) {
+    const doc=await pondFrogGet(interaction.user.id);
+    if(!doc) return interaction.reply({content:"🐸 No frog found yet. Adopt one with `/frog adopt`!",ephemeral:true});
+    normalizeFrog(doc);
+    const bonuses=[];
+    if(doc.legacyBonusFireflies>0) bonuses.push(`Ancestral Wisdom ×${doc.legacyBonusFireflies/10} → next frog +${doc.legacyBonusFireflies} 🪲`);
+    if(doc.legacyBonusExplore>0)   bonuses.push(`Elder's Memory ×${doc.legacyBonusExplore} → +${doc.legacyBonusExplore} explore 🪲`);
+    if(doc.legacyHeirloomLilypad)  bonuses.push('Heirloom Lilypad → next frog starts at L2');
+    if(doc.legacyInheritedCosmetic) bonuses.push(`Gilded Egg → cosmetics ready to inherit`);
+    if(doc.legacyDeepRoots)         bonuses.push('Deep Roots → +2 days passive at birth');
+    if(doc.legacyNameplate)         bonuses.push('Legacy Nameplate → active');
+    const bonusLine=bonuses.length?`**Active bonuses:**\n${bonuses.map(b=>`• ${b}`).join('\n')}`:'No legacy bonuses yet.';
+    const shopLines=Object.entries(LEGACY_BONUSES).map(([k,b])=>{
+        const maxed=isLegacyBonusMaxed(doc,k);
+        return `• **${b.label}** — ${b.cost} 🌿${maxed?' *(maxed)*':''}: ${b.desc}`;
+    });
+    await interaction.reply({content:`🌿 **Legacy**\nLily Tokens: **${doc.lilyTokens}** 🌿 · Total earned: ${doc.legacyPoints} pts · Generation **${doc.legacyGen}**\n\n${bonusLine}\n\n**Spend tokens** with \`/frog legacy spend\`:\n${shopLines.join('\n')}`,ephemeral:true});
+}
+
+async function handleFrogLegacySpend(interaction) {
+    const doc=await pondFrogGet(interaction.user.id);
+    if(!doc) return interaction.reply({content:"🐸 No frog found.",ephemeral:true});
+    normalizeFrog(doc);
+    const bonusKey=interaction.options.getString('bonus');
+    const bonus=LEGACY_BONUSES[bonusKey];
+    if(!bonus) return interaction.reply({content:'❌ Unknown legacy bonus.',ephemeral:true});
+    if(isLegacyBonusMaxed(doc,bonusKey)) return interaction.reply({content:`🌿 **${bonus.label}** is already at max.`,ephemeral:true});
+    if((doc.lilyTokens||0)<bonus.cost) return interaction.reply({content:`🌿 Need ${bonus.cost} Lily Tokens but you only have ${doc.lilyTokens||0}.`,ephemeral:true});
+    if(bonusKey==='gilded_egg'&&!getCosmetics(doc).length) return interaction.reply({content:`🌿 **Gilded Egg** requires owning at least one cosmetic. Buy from \`/pond shop buy\`.`,ephemeral:true});
+    doc.lilyTokens-=bonus.cost;
+    if(bonusKey==='ancestral_wisdom') doc.legacyBonusFireflies=(doc.legacyBonusFireflies||0)+10;
+    else if(bonusKey==='heirloom_lilypad') doc.legacyHeirloomLilypad=true;
+    else if(bonusKey==='elders_memory')  doc.legacyBonusExplore=(doc.legacyBonusExplore||0)+1;
+    else if(bonusKey==='gilded_egg')     doc.legacyInheritedCosmetic=doc.cosmeticsStr;
+    else if(bonusKey==='deep_roots')     doc.legacyDeepRoots=true;
+    else if(bonusKey==='legacy_nameplate') doc.legacyNameplate=true;
+    await pondFrogSet(interaction.user.id,{lilyTokens:doc.lilyTokens,legacyBonusFireflies:doc.legacyBonusFireflies,legacyBonusExplore:doc.legacyBonusExplore,legacyHeirloomLilypad:doc.legacyHeirloomLilypad,legacyInheritedCosmetic:doc.legacyInheritedCosmetic,legacyDeepRoots:doc.legacyDeepRoots,legacyNameplate:doc.legacyNameplate});
+    await interaction.reply({content:`🌿 Purchased **${bonus.label}** for ${bonus.cost} Lily Tokens! (${doc.lilyTokens} remaining)\n${bonus.desc}`,ephemeral:true});
 }
 
 // ── Interaction router ────────────────────────────────────────────────────────
@@ -1767,6 +2297,12 @@ async function handlePondInteraction(interaction) {
                 if(sub==='choose')return await handleFrogCareerSet(interaction,false);
                 if(sub==='respec')return await handleFrogCareerSet(interaction,true);
             }
+            if(group==='legacy'){
+                if(sub==='info')return await handleFrogLegacyInfo(interaction);
+                if(sub==='spend')return await handleFrogLegacySpend(interaction);
+            }
+            if(sub==='wardrobe')return await handleFrogWardrobe(interaction);
+            if(sub==='equip')return await handleFrogEquip(interaction);
             if(sub==='adopt')return await handleFrogAdopt(interaction);
             if(sub==='feed')return await handleFrogCare(interaction,'feed');
             if(sub==='play')return await handleFrogCare(interaction,'play');
@@ -1784,6 +2320,10 @@ async function handlePondInteraction(interaction) {
             const group=interaction.options.getSubcommandGroup(false), sub=interaction.options.getSubcommand();
             if(group==='shop'&&sub==='buy')return await handlePondShopBuy(interaction);
             if(group==='admin'&&(sub==='give'||sub==='remove'))return await handlePondAdminFireflies(interaction);
+            if(group==='invest'){
+                if(sub==='info')return await handlePondInvestInfo(interaction);
+                if(sub==='buy')return await handlePondInvestBuy(interaction);
+            }
             if(sub==='view')return await handlePondView(interaction);
             if(sub==='memorial')return await handlePondMemorial(interaction);
             if(sub==='rules')return await handlePondRules(interaction);
@@ -1915,6 +2455,9 @@ async function runPondTick(client) {
                 hasBaby:frog.hasBaby, babyBornAt:frog.babyBornAt, hungerDangerSince:frog.hungerDangerSince,
                 partnerId:frog.partnerId,
                 bornAt:frog.bornAt, lastFedAt:frog.lastFedAt, lastPlayedAt:frog.lastPlayedAt,
+                investAlgaeFarm:frog.investAlgaeFarm, investLantern:frog.investLantern,
+                investLilyGarden:frog.investLilyGarden, investWormFarm:frog.investWormFarm,
+                lastWormFarmAt:frog.lastWormFarmAt,
             };
             if(!frog.alive){
                 tickSave.alive=false; tickSave.diedAt=frog.diedAt;
