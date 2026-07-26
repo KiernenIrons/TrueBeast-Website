@@ -341,7 +341,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🗑️ Removed stream countdown GIF', value: 'The animated stream countdown GIF and its related commands (/schedule, /post-countdown, /set-schedule, /view-schedule) have been removed.' },
+    { name: '🔤 Unscramble — no more skipped puzzles', value: 'The game no longer auto-posts a new puzzle on a timer. A new round only starts once both the Regular and Expert words have been solved.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -6364,11 +6364,9 @@ async function checkUnscrambleWeeklyReset(guild) {
     console.log(`[BeastBot] 🔤 Unscramble weekly reset for ${oldWeek} → ${currentWeek}`);
 }
 
-function scheduleNextUnscramblePuzzle(bothSolved = false) {
+function scheduleNextUnscramblePuzzle() {
     if (unscrambleTimer) clearTimeout(unscrambleTimer);
-    const delay = bothSolved
-        ? (3 + Math.floor(Math.random() * 5)) * 60 * 1000   // 3–8 min after both solved
-        : (8 + Math.floor(Math.random() * 12)) * 60 * 1000; // 8–20 min auto-advance
+    const delay = (3 + Math.floor(Math.random() * 5)) * 60 * 1000; // 3–8 min after both solved
     unscrambleTimer = setTimeout(() => postUnscramblePuzzle().catch(() => {}), delay);
 }
 
@@ -6407,7 +6405,6 @@ async function postUnscramblePuzzle() {
         expertSolvedBy:  null,
     };
 
-    scheduleNextUnscramblePuzzle(false);
     console.log(`[BeastBot] 🔤 Unscramble: "${scrambled}"(${word}) + expert "${expertScr}"(${expertWord})`);
 }
 
@@ -6448,7 +6445,7 @@ async function handleUnscrambleMessage(message) {
 
         if (unscramblePuzzle?.expertSolvedBy) {
             unscramblePuzzle = null;
-            scheduleNextUnscramblePuzzle(true);
+            scheduleNextUnscramblePuzzle();
         }
         hit = true;
     }
@@ -6480,7 +6477,7 @@ async function handleUnscrambleMessage(message) {
 
         if (unscramblePuzzle?.regularSolvedBy) {
             unscramblePuzzle = null;
-            scheduleNextUnscramblePuzzle(true);
+            scheduleNextUnscramblePuzzle();
         }
         hit = true;
     }

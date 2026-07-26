@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-07-26] — Unscramble: no auto-advance between puzzles
+
+- Removed `scheduleNextUnscramblePuzzle(false)` call from `postUnscramblePuzzle()` — the game no longer queues the next puzzle immediately after posting
+- A new puzzle is now only scheduled once both the Regular and Expert words have been solved by players
+- Simplified `scheduleNextUnscramblePuzzle()`: dropped the `bothSolved` parameter and the 8–20 min auto-advance delay branch; only the 3–8 min post-solve delay remains
+
 ## [2026-07-23] — Remove stream countdown GIF system
 
 - Removed the animated countdown GIF feature entirely: `getNextStreamUTC`, `renderCountdownFrame`, `generateCountdownGif`, `postOrUpdateScheduleGif`, `startScheduleGifUpdater`, and the `scheduleGifChannelId`/`scheduleGifMessageId`/`streamSchedule` state
