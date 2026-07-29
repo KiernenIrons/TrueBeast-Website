@@ -101,8 +101,11 @@ export async function getUserCollectionByLogin(login: string): Promise<UserColle
 // for every other admin-editable collection, no new auth plumbing needed.
 //
 // Falls back to card-sets/starter/cards.json (this instance's bundled
-// starter set) if the live collection is empty or unreachable, so a fresh
-// fork of this repo still works before anyone's touched the Card Maker.
+// starter set) ONLY when the live collection is unreachable (Firebase not
+// configured, or a genuine read error) -- NOT when it's merely empty. An
+// admin who deliberately retires/removes every card sees a truly empty
+// catalog, not the starter set reappearing out from under them; use the
+// Card Maker's "Import Starter Set" button to repopulate on purpose.
 // ---------------------------------------------------------------------------
 
 type CatalogCard = CardDef & { order?: number };
@@ -116,7 +119,6 @@ export async function getCardCatalog(): Promise<CardDef[]> {
   if (!db) return fallbackCatalog();
   try {
     const snap = await getDocs(collection(db, CARD_CATALOG_COL));
-    if (snap.empty) return fallbackCatalog();
     const cards = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as CatalogCard);
     cards.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
     return cards;

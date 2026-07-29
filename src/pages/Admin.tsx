@@ -2772,11 +2772,27 @@ function CardMakerTab() {
     }
   };
 
-  const handleDelete = async (card: CardDef) => {
-    if (!window.confirm(`Delete "${card.name}"? Viewers who already own it keep their copies -- this only removes it from future packs.`)) return;
+  // Retiring (not deleting) is the primary removal action -- it stops the
+  // card from being drawn in future packs while keeping its full definition
+  // around, so anyone who already pulled it still sees it properly in their
+  // collection instead of it silently disappearing.
+  const handleToggleActive = async (card: CardDef) => {
+    const nowActive = card.active === false;
+    try {
+      await upsertCatalogCard({ ...card, active: nowActive });
+      setFeedback({ type: 'success', message: nowActive ? `"${card.name}" is active again` : `"${card.name}" retired -- won't appear in new packs` });
+      refresh();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Update failed' });
+    }
+  };
+
+  const handleHardDelete = async (card: CardDef) => {
+    if (!window.confirm(`PERMANENTLY delete "${card.name}"? This erases its name/art entirely -- anyone who already owns it will see a blank/unknown card instead. Retiring (the other button) is almost always what you want instead. This cannot be undone.`)) return;
     try {
       await deleteCatalogCard(card.id);
-      setFeedback({ type: 'success', message: `Deleted "${card.name}"` });
+      setFeedback({ type: 'success', message: `Permanently deleted "${card.name}"` });
+      setModalOpen(false);
       refresh();
     } catch (err: any) {
       setFeedback({ type: 'error', message: err?.message ?? 'Delete failed' });
@@ -2843,21 +2859,30 @@ function CardMakerTab() {
         </GlassCard>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {cards.map((card) => (
+          {cards.map((card) => {
+            const retired = card.active === false;
+            return (
             <div key={card.id} className="relative group w-fit mx-auto">
-              <CardFace card={card} size="sm" />
+              <div style={{ opacity: retired ? 0.4 : 1, filter: retired ? 'grayscale(1)' : 'none' }}>
+                <CardFace card={card} size="sm" />
+              </div>
+              {retired && (
+                <div className="absolute top-1 left-1 bg-black/70 text-[9px] font-bold uppercase tracking-wide text-gray-300 px-2 py-0.5 rounded-full pointer-events-none">
+                  Retired
+                </div>
+              )}
               <div className="absolute inset-0 rounded-2xl bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                <button type="button" onClick={() => openEdit(card)}
+                <button type="button" onClick={() => openEdit(card)} title="Edit"
                   className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer">
                   <Edit03 className="w-4 h-4" />
                 </button>
-                <button type="button" onClick={() => handleDelete(card)}
-                  className="p-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 cursor-pointer">
-                  <Trash01 className="w-4 h-4" />
+                <button type="button" onClick={() => handleToggleActive(card)} title={retired ? 'Reactivate' : 'Retire (stop drawing in new packs)'}
+                  className={`p-2 rounded-lg cursor-pointer ${retired ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300' : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300'}`}>
+                  {retired ? <RefreshCw01 className="w-4 h-4" /> : <Lock01 className="w-4 h-4" />}
                 </button>
               </div>
             </div>
-          ))}
+          );})}
         </div>
       )}
 
@@ -2938,15 +2963,23 @@ function CardMakerTab() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 mt-6">
-              <button type="button" onClick={() => setModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-400 hover:text-white transition-colors cursor-pointer">
-                Cancel
-              </button>
-              <button type="button" onClick={handleSave} disabled={saving}
-                className="px-5 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
-                {saving ? 'Saving...' : 'Save Card'}
-              </button>
+            <div className="flex items-center justify-between gap-3 mt-6">
+              {editingId ? (
+                <button type="button" onClick={() => { const c = cards.find((x) => x.id === editingId); if (c) handleHardDelete(c); }}
+                  className="text-[11px] text-gray-600 hover:text-red-400 transition-colors cursor-pointer">
+                  Permanently delete (rarely needed -- use Retire instead)
+                </button>
+              ) : <span />}
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-400 hover:text-white transition-colors cursor-pointer">
+                  Cancel
+                </button>
+                <button type="button" onClick={handleSave} disabled={saving}
+                  className="px-5 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
+                  {saving ? 'Saving...' : 'Save Card'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

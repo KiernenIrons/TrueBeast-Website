@@ -136,11 +136,19 @@ async function fetchLiveCardCatalog() {
     const data = await res.json();
     const docs = data.documents || [];
     if (docs.length === 0) return CARD_SET;
-    const catalog = docs.map((d) => {
-      const id = d.name.split('/').pop();
-      const rarity = firestoreValueToJs(d.fields?.rarity) || 'common';
-      return { id, rarity };
-    });
+    // Retired cards (active === false, set via the Card Maker's "Retire"
+    // button) keep their Firestore doc -- and thus stay visible on anyone's
+    // existing collection page -- but are excluded here so new packs never
+    // draw them again.
+    const catalog = docs
+      .map((d) => {
+        const id = d.name.split('/').pop();
+        const rarity = firestoreValueToJs(d.fields?.rarity) || 'common';
+        const active = d.fields?.active === undefined ? true : firestoreValueToJs(d.fields.active);
+        return { id, rarity, active };
+      })
+      .filter((c) => c.active !== false);
+    if (catalog.length === 0) return CARD_SET;
     cachedCatalog = catalog;
     cachedCatalogAt = now;
     return catalog;

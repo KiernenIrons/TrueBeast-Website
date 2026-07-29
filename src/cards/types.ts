@@ -27,6 +27,14 @@ export interface CardDef {
   gradientFrom: string;
   gradientTo: string;
   flavorText: string;
+  /**
+   * Retired cards are excluded from future pack draws but keep their full
+   * definition around so anyone who already owns one still sees it properly
+   * in their collection -- retiring is the only removal path exposed in the
+   * Card Maker precisely so past pulls are never orphaned. Absent/undefined
+   * means active (true), same as every pre-existing card.
+   */
+  active?: boolean;
 }
 
 /** A card-set is just the list of cards a streamer has authored or picked from a template. */

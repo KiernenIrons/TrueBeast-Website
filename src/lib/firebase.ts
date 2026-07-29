@@ -932,8 +932,12 @@ export const FirebaseDB = {
     if (!_isConfigured() || !_storage) throw new Error('Firebase not configured');
     const fileName = path || `admin-uploads/${Date.now()}-${file.name}`;
     const storageRef = ref(_storage, fileName);
-    await uploadBytes(storageRef, file);
-    return getDownloadURL(storageRef);
+    // Longer timeout than the default (uploads legitimately take longer than
+    // a Firestore read/write) but still bounded -- without this, a misconfigured
+    // or not-yet-enabled Storage bucket hangs the calling UI forever instead
+    // of surfacing a catchable error.
+    await _withTimeout(uploadBytes(storageRef, file), 30000);
+    return _withTimeout(getDownloadURL(storageRef), 30000);
   },
 
   async listImages(folder?: string): Promise<{ name: string; url: string; fullPath: string }[]> {
