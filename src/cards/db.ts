@@ -130,7 +130,11 @@ export async function upsertCatalogCard(card: CatalogCard): Promise<void> {
   const db = getFirestoreDb();
   if (!db) throw new Error('Firebase not configured');
   const { id, ...rest } = card;
-  await setDoc(doc(db, CARD_CATALOG_COL, id), rest, { merge: true });
+  // JSON round-trip strips `undefined` values at any depth -- Firestore's
+  // setDoc rejects them outright (e.g. `order: undefined` when editing an
+  // existing card rather than creating a new one).
+  const payload = JSON.parse(JSON.stringify(rest));
+  await setDoc(doc(db, CARD_CATALOG_COL, id), payload, { merge: true });
 }
 
 export async function deleteCatalogCard(id: string): Promise<void> {

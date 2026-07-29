@@ -2703,7 +2703,7 @@ function drawMdLineUI(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 // so edits here go live immediately, no redeploy needed.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const EMPTY_CARD_FORM = { id: '', name: '', rarity: 'common' as RarityId, emoji: '', gradientFrom: '#22c55e', gradientTo: '#052e16', flavorText: '' };
+const EMPTY_CARD_FORM = { id: '', name: '', rarity: 'common' as RarityId, emoji: '', imageUrl: '', gradientFrom: '#22c55e', gradientTo: '#052e16', flavorText: '' };
 
 function CardMakerTab() {
   const [cards, setCards] = useState<CardDef[]>([]);
@@ -2713,6 +2713,19 @@ function CardMakerTab() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_CARD_FORM);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const handleImageUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const url = await FirebaseDB.uploadImage(file, `card-art/${Date.now()}-${file.name}`);
+      setForm((f) => ({ ...f, imageUrl: url }));
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Image upload failed' });
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -2728,6 +2741,7 @@ function CardMakerTab() {
     setEditingId(card.id);
     setForm({
       id: card.id, name: card.name, rarity: card.rarity, emoji: card.emoji,
+      imageUrl: card.imageUrl || '',
       gradientFrom: card.gradientFrom, gradientTo: card.gradientTo, flavorText: card.flavorText,
     });
     setModalOpen(true);
@@ -2743,6 +2757,7 @@ function CardMakerTab() {
     try {
       await upsertCatalogCard({
         id, name, rarity: form.rarity, emoji: form.emoji.trim() || '❓',
+        imageUrl: form.imageUrl.trim(),
         gradientFrom: form.gradientFrom, gradientTo: form.gradientTo,
         flavorText: form.flavorText.trim(),
         order: editingId ? undefined : cards.length,
@@ -2787,6 +2802,7 @@ function CardMakerTab() {
     name: form.name || 'Card Name',
     rarity: form.rarity,
     emoji: form.emoji || '❓',
+    imageUrl: form.imageUrl || undefined,
     gradientFrom: form.gradientFrom,
     gradientTo: form.gradientTo,
     flavorText: form.flavorText,
@@ -2828,7 +2844,7 @@ function CardMakerTab() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {cards.map((card) => (
-            <div key={card.id} className="relative group">
+            <div key={card.id} className="relative group w-fit mx-auto">
               <CardFace card={card} size="sm" />
               <div className="absolute inset-0 rounded-2xl bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                 <button type="button" onClick={() => openEdit(card)}
@@ -2875,9 +2891,27 @@ function CardMakerTab() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Emoji (placeholder art until real artwork is added)</label>
+                  <label className="text-xs text-gray-400 mb-1 block">Emoji (used as placeholder art if no image is set below)</label>
                   <input value={form.emoji} onChange={(e) => setForm((f) => ({ ...f, emoji: e.target.value }))}
                     className="w-full glass rounded-xl px-3 py-2 text-sm text-white" placeholder="🐺" maxLength={4} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Card Art (optional -- overrides the emoji above)</label>
+                  <div className="flex items-center gap-2">
+                    <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
+                      className="flex-1 glass rounded-xl px-3 py-2 text-sm text-white" placeholder="https://... or upload a file" />
+                    <label className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${uploading ? 'bg-white/5 text-gray-500' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>
+                      {uploading ? 'Uploading...' : 'Upload'}
+                      <input type="file" accept="image/*" className="hidden" disabled={uploading}
+                        onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageUpload(file); e.target.value = ''; }} />
+                    </label>
+                  </div>
+                  {form.imageUrl && (
+                    <button type="button" onClick={() => setForm((f) => ({ ...f, imageUrl: '' }))}
+                      className="text-[10px] text-gray-500 hover:text-red-400 mt-1 cursor-pointer">
+                      Remove image, use emoji instead
+                    </button>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
