@@ -9,13 +9,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
 import gsap from 'gsap';
 import { CARDS_CONFIG } from '@/cards/config';
-import { subscribeToPackEvents } from '@/cards/db';
+import { subscribeToPackEvents, getCardCatalog } from '@/cards/db';
 import type { PackEvent, CardDef } from '@/cards/types';
 import CardFace from '@/cards/CardFace';
 
 export default function CardsOverlay() {
   const [currentEvent, setCurrentEvent] = useState<PackEvent | null>(null);
   const [label, setLabel] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<CardDef[]>([]);
 
   const queueRef = useRef<PackEvent[]>([]);
   const playingRef = useRef(false);
@@ -36,6 +37,10 @@ export default function CardsOverlay() {
     setCurrentEvent(next);
   }, []);
 
+  useEffect(() => {
+    getCardCatalog().then(setCatalog);
+  }, []);
+
   // Subscribe to new pack events (only ones created after this overlay loaded).
   useEffect(() => {
     const sinceIso = new Date().toISOString();
@@ -50,7 +55,7 @@ export default function CardsOverlay() {
   useEffect(() => {
     if (!currentEvent) return;
     const cards: CardDef[] = currentEvent.cardIds
-      .map((id) => CARDS_CONFIG.activeCardSet.cards.find((c) => c.id === id))
+      .map((id) => catalog.find((c) => c.id === id))
       .filter((c): c is CardDef => !!c);
     if (cards.length === 0) {
       playNext();
@@ -92,11 +97,11 @@ export default function CardsOverlay() {
       tl.kill();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentEvent, playNext]);
+  }, [currentEvent, catalog, playNext]);
 
   const cards: CardDef[] = currentEvent
     ? currentEvent.cardIds
-        .map((id) => CARDS_CONFIG.activeCardSet.cards.find((c) => c.id === id))
+        .map((id) => catalog.find((c) => c.id === id))
         .filter((c): c is CardDef => !!c)
     : [];
 

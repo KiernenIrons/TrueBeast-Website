@@ -36,6 +36,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { FirebaseDB, type CardSaveRecord, type AnnouncementHistoryRecord, type AnnouncementTemplateRecord } from '@/lib/firebase';
 import { SITE_CONFIG } from '@/config';
 import { UNICODE_EMOJI, emojiMatchesSearch } from '@/data/emojis';
+import CardFace from '@/cards/CardFace';
+import { RARITIES } from '@/cards/config';
+import type { CardDef, RarityId } from '@/cards/types';
+import { getCardCatalog, upsertCatalogCard, deleteCatalogCard, seedStarterCatalog } from '@/cards/db';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -2214,9 +2218,9 @@ function AnalyticsTab() {
 // Admin Management Tab
 // ═══════════════════════════════════════════════════════════════════════════
 
-const PERM_KEYS = ['announcements', 'announcementsV2', 'rolePickers', 'discordCards', 'tickets', 'reviews', 'analytics', 'adminManagement'] as const;
-const PERM_LABELS: Record<string, string> = { announcements: 'Announcements', announcementsV2: 'Announcements v2', rolePickers: 'Role Pickers', discordCards: 'Discord Cards', tickets: 'Tickets', reviews: 'Reviews', analytics: 'Analytics', adminManagement: 'Admin Mgmt' };
-const PERM_COLORS: Record<string, string> = { announcements: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', announcementsV2: 'text-purple-400 bg-purple-500/10 border-purple-500/20', rolePickers: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20', discordCards: 'text-sky-400 bg-sky-500/10 border-sky-500/20', tickets: 'text-blue-400 bg-blue-500/10 border-blue-500/20', reviews: 'text-green-400 bg-green-500/10 border-green-500/20', analytics: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', adminManagement: 'text-violet-400 bg-violet-500/10 border-violet-500/20' };
+const PERM_KEYS = ['announcements', 'announcementsV2', 'rolePickers', 'discordCards', 'cardMaker', 'tickets', 'reviews', 'analytics', 'adminManagement'] as const;
+const PERM_LABELS: Record<string, string> = { announcements: 'Announcements', announcementsV2: 'Announcements v2', rolePickers: 'Role Pickers', discordCards: 'Discord Cards', cardMaker: 'Card Maker', tickets: 'Tickets', reviews: 'Reviews', analytics: 'Analytics', adminManagement: 'Admin Mgmt' };
+const PERM_COLORS: Record<string, string> = { announcements: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20', announcementsV2: 'text-purple-400 bg-purple-500/10 border-purple-500/20', rolePickers: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20', discordCards: 'text-sky-400 bg-sky-500/10 border-sky-500/20', cardMaker: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', tickets: 'text-blue-400 bg-blue-500/10 border-blue-500/20', reviews: 'text-green-400 bg-green-500/10 border-green-500/20', analytics: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', adminManagement: 'text-violet-400 bg-violet-500/10 border-violet-500/20' };
 
 function AdminManagementTab() {
   const { user } = useAuth();
@@ -2690,6 +2694,231 @@ function drawMdLineUI(ctx: CanvasRenderingContext2D, text: string, x: number, y:
     dx += metrics[idx];
   });
   ctx.textAlign = savedAlign;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Card Maker -- live-edits the trading card game's card catalog
+// (Firestore collection `cardCatalog`, this project -- see src/cards/db.ts).
+// The website, overlay, and Cloudflare Worker all read this same collection,
+// so edits here go live immediately, no redeploy needed.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const EMPTY_CARD_FORM = { id: '', name: '', rarity: 'common' as RarityId, emoji: '', gradientFrom: '#22c55e', gradientTo: '#052e16', flavorText: '' };
+
+function CardMakerTab() {
+  const [cards, setCards] = useState<CardDef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_CARD_FORM);
+  const [saving, setSaving] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try { setCards(await getCardCatalog()); } catch { /* */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { if (!feedback) return; const t = setTimeout(() => setFeedback(null), 4000); return () => clearTimeout(t); }, [feedback]);
+
+  const openAdd = () => { setEditingId(null); setForm(EMPTY_CARD_FORM); setModalOpen(true); };
+  const openEdit = (card: CardDef) => {
+    setEditingId(card.id);
+    setForm({
+      id: card.id, name: card.name, rarity: card.rarity, emoji: card.emoji,
+      gradientFrom: card.gradientFrom, gradientTo: card.gradientTo, flavorText: card.flavorText,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    const id = form.id.trim();
+    const name = form.name.trim();
+    if (!id || !name) { setFeedback({ type: 'error', message: 'Card ID and Name are required' }); return; }
+    if (!editingId && cards.some((c) => c.id === id)) { setFeedback({ type: 'error', message: `A card with ID "${id}" already exists` }); return; }
+
+    setSaving(true);
+    try {
+      await upsertCatalogCard({
+        id, name, rarity: form.rarity, emoji: form.emoji.trim() || '❓',
+        gradientFrom: form.gradientFrom, gradientTo: form.gradientTo,
+        flavorText: form.flavorText.trim(),
+        order: editingId ? undefined : cards.length,
+      });
+      setFeedback({ type: 'success', message: `Saved "${name}"` });
+      setModalOpen(false);
+      refresh();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Save failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (card: CardDef) => {
+    if (!window.confirm(`Delete "${card.name}"? Viewers who already own it keep their copies -- this only removes it from future packs.`)) return;
+    try {
+      await deleteCatalogCard(card.id);
+      setFeedback({ type: 'success', message: `Deleted "${card.name}"` });
+      refresh();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Delete failed' });
+    }
+  };
+
+  const handleSeed = async () => {
+    try {
+      const count = await seedStarterCatalog();
+      setFeedback(
+        count > 0
+          ? { type: 'success', message: `Imported ${count} starter cards` }
+          : { type: 'error', message: 'Catalog already has cards -- nothing imported' },
+      );
+      refresh();
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: err?.message ?? 'Import failed' });
+    }
+  };
+
+  const previewCard: CardDef = {
+    id: form.id || 'preview',
+    name: form.name || 'Card Name',
+    rarity: form.rarity,
+    emoji: form.emoji || '❓',
+    gradientFrom: form.gradientFrom,
+    gradientTo: form.gradientTo,
+    flavorText: form.flavorText,
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-lg font-bold font-display text-white flex items-center gap-2">
+            <Image01 className="w-5 h-5 text-emerald-400" /> Card Maker
+          </h3>
+          <p className="text-xs text-gray-500 mt-1">Edits here go live on truebeast.io/cards and the stream overlay immediately.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={handleSeed}
+            className="px-3 py-2 rounded-lg text-xs font-semibold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer">
+            Import Starter Set
+          </button>
+          <button type="button" onClick={openAdd}
+            className="flex items-center gap-2 py-2.5 px-5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all cursor-pointer">
+            <Plus className="w-4 h-4" /> Add Card
+          </button>
+        </div>
+      </div>
+
+      {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
+
+      {loading ? (
+        <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading cards...</p></GlassCard>
+      ) : cards.length === 0 ? (
+        <GlassCard className="p-12 text-center space-y-3">
+          <p className="text-gray-500">No cards in the catalog yet.</p>
+          <button type="button" onClick={handleSeed}
+            className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 transition-colors cursor-pointer">
+            Import Starter Set to get going
+          </button>
+        </GlassCard>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          {cards.map((card) => (
+            <div key={card.id} className="relative group">
+              <CardFace card={card} size="sm" />
+              <div className="absolute inset-0 rounded-2xl bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <button type="button" onClick={() => openEdit(card)}
+                  className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer">
+                  <Edit03 className="w-4 h-4" />
+                </button>
+                <button type="button" onClick={() => handleDelete(card)}
+                  className="p-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 cursor-pointer">
+                  <Trash01 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-[200] bg-black/75 flex items-center justify-center p-4" onClick={() => setModalOpen(false)}>
+          <div className="bg-[#0f0f16] border border-white/10 rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h4 className="text-lg font-bold text-white">{editingId ? 'Edit Card' : 'Add Card'}</h4>
+              <button type="button" onClick={() => setModalOpen(false)} className="text-gray-500 hover:text-white cursor-pointer">
+                <XClose className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-6">
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Card ID (unique, no spaces -- can't change after creating)</label>
+                  <input value={form.id} disabled={!!editingId} onChange={(e) => setForm((f) => ({ ...f, id: e.target.value.trim().toLowerCase().replace(/\s+/g, '-') }))}
+                    className="w-full glass rounded-xl px-3 py-2 text-sm text-white disabled:opacity-50" placeholder="s-wolf" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Name</label>
+                  <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    className="w-full glass rounded-xl px-3 py-2 text-sm text-white" placeholder="Ember Wolf" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Rarity</label>
+                  <select value={form.rarity} onChange={(e) => setForm((f) => ({ ...f, rarity: e.target.value as RarityId }))}
+                    className="w-full glass rounded-xl px-3 py-2 text-sm text-white bg-transparent">
+                    {RARITIES.map((r) => <option key={r.id} value={r.id} className="bg-[#0f0f16]">{r.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Emoji (placeholder art until real artwork is added)</label>
+                  <input value={form.emoji} onChange={(e) => setForm((f) => ({ ...f, emoji: e.target.value }))}
+                    className="w-full glass rounded-xl px-3 py-2 text-sm text-white" placeholder="🐺" maxLength={4} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Gradient From</label>
+                    <input type="color" value={form.gradientFrom} onChange={(e) => setForm((f) => ({ ...f, gradientFrom: e.target.value }))}
+                      className="w-full h-10 rounded-xl bg-transparent cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Gradient To</label>
+                    <input type="color" value={form.gradientTo} onChange={(e) => setForm((f) => ({ ...f, gradientTo: e.target.value }))}
+                      className="w-full h-10 rounded-xl bg-transparent cursor-pointer" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Flavor Text</label>
+                  <textarea value={form.flavorText} onChange={(e) => setForm((f) => ({ ...f, flavorText: e.target.value }))}
+                    className="w-full glass rounded-xl px-3 py-2 text-sm text-white resize-none" rows={3} placeholder="Runs with the pack, howls alone." />
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Live Preview</span>
+                <CardFace card={previewCard} size="md" />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button type="button" onClick={() => setModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-400 hover:text-white transition-colors cursor-pointer">
+                Cancel
+              </button>
+              <button type="button" onClick={handleSave} disabled={saving}
+                className="px-5 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
+                {saving ? 'Saving...' : 'Save Card'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DiscordCardsTab() {
@@ -4800,6 +5029,7 @@ const TAB_ITEMS = [
   { id: 'announcements-v2', label: 'Announcements v2', permKey: 'announcementsV2' },
   { id: 'role-pickers',     label: 'Role Pickers',     permKey: 'rolePickers' },
   { id: 'cards',            label: 'Discord Cards',    permKey: 'discordCards' },
+  { id: 'card-maker',       label: 'Card Maker',       permKey: 'cardMaker' },
   { id: 'tickets',          label: 'Tickets',          permKey: 'tickets' },
   { id: 'reviews',          label: 'Reviews',          permKey: 'reviews' },
   { id: 'analytics',        label: 'Analytics',        permKey: 'analytics' },
@@ -4872,6 +5102,7 @@ function AdminDashboard() {
     'announcements-v2': <LayersThree01  className="w-4 h-4 mr-1.5 inline-block" />,
     'role-pickers':     <ShieldTick className="w-4 h-4 mr-1.5 inline-block" />,
     'cards':            <Image01   className="w-4 h-4 mr-1.5 inline-block" />,
+    'card-maker':       <Image01   className="w-4 h-4 mr-1.5 inline-block" />,
     'tickets':          <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />,
     'reviews':          <Star01    className="w-4 h-4 mr-1.5 inline-block" />,
     'analytics':        <BarChart01 className="w-4 h-4 mr-1.5 inline-block" />,
@@ -4905,6 +5136,7 @@ function AdminDashboard() {
             <TabPanel id="announcements-v2" className="mt-2"><AnnouncementsV2Tab /></TabPanel>
             <TabPanel id="role-pickers"     className="mt-2"><RolePickersTab /></TabPanel>
             <TabPanel id="cards"            className="mt-2"><DiscordCardsTab /></TabPanel>
+            <TabPanel id="card-maker"        className="mt-2"><CardMakerTab /></TabPanel>
             <TabPanel id="tickets"          className="mt-2"><TicketsTab /></TabPanel>
             <TabPanel id="reviews"          className="mt-2"><ReviewsTab /></TabPanel>
             <TabPanel id="analytics"        className="mt-2"><AnalyticsTab /></TabPanel>

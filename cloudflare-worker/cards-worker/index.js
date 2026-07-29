@@ -84,6 +84,11 @@ const RARITIES = [
   { id: 'legendary', weight: 1,   value: 75 },
 ];
 
+// Fallback set only -- used if the live catalog fetch below fails or is
+// empty. The real, editable card list lives in Firestore now (see
+// fetchLiveCardCatalog), managed via the website's Admin panel "Card Maker"
+// tab. Keeping this hardcoded fallback means a redemption still grants a
+// pack even if that live fetch has a transient hiccup.
 const CARD_SET = [
   { id: 's-slime',    rarity: 'common' },
   { id: 's-crab',     rarity: 'common' },
@@ -102,6 +107,49 @@ const CARD_SET = [
   { id: 's-beast',    rarity: 'legendary' },
 ];
 
+// The live card catalog lives in the MAIN site's Firebase project
+// (truebeast-support -- same one the Admin panel's "Card Maker" tab writes
+// to), not the dedicated truebeast-cards project this worker otherwise
+// talks to. Its Firestore rules allow public read, so this is a plain,
+// unauthenticated GET -- no service-account credentials needed for it.
+const CATALOG_PROJECT_ID = 'truebeast-support';
+const CATALOG_API_KEY = 'AIzaSyClA0dmz4D3TDbhwvWmUeVinW6A18NQUUU';
+const CATALOG_CACHE_MS = 60_000;
+let cachedCatalog = null;
+let cachedCatalogAt = 0;
+
+function firestoreValueToJs(v) {
+  if (!v) return null;
+  if (v.stringValue !== undefined) return v.stringValue;
+  if (v.integerValue !== undefined) return Number(v.integerValue);
+  if (v.doubleValue !== undefined) return v.doubleValue;
+  if (v.booleanValue !== undefined) return v.booleanValue;
+  return null;
+}
+
+async function fetchLiveCardCatalog() {
+  const now = Date.now();
+  if (cachedCatalog && now - cachedCatalogAt < CATALOG_CACHE_MS) return cachedCatalog;
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${CATALOG_PROJECT_ID}/databases/(default)/documents/cardCatalog?key=${CATALOG_API_KEY}&pageSize=300`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const docs = data.documents || [];
+    if (docs.length === 0) return CARD_SET;
+    const catalog = docs.map((d) => {
+      const id = d.name.split('/').pop();
+      const rarity = firestoreValueToJs(d.fields?.rarity) || 'common';
+      return { id, rarity };
+    });
+    cachedCatalog = catalog;
+    cachedCatalogAt = now;
+    return catalog;
+  } catch (err) {
+    console.warn('fetchLiveCardCatalog failed, using hardcoded fallback:', err);
+    return CARD_SET;
+  }
+}
+
 function weightedPick(items) {
   const total = items.reduce((sum, [w]) => sum + w, 0);
   let r = Math.random() * total;
@@ -116,15 +164,15 @@ function pickRarity() {
   return weightedPick(RARITIES.map((r) => [r.weight, r.id]));
 }
 
-function pickCardOfRarity(rarity) {
-  const pool = CARD_SET.filter((c) => c.rarity === rarity);
+function pickCardOfRarity(cardSet, rarity) {
+  const pool = cardSet.filter((c) => c.rarity === rarity);
   if (pool.length > 0) return pool[Math.floor(Math.random() * pool.length)];
-  return CARD_SET[Math.floor(Math.random() * CARD_SET.length)]; // fallback, shouldn't happen with the shipped set
+  return cardSet[Math.floor(Math.random() * cardSet.length)]; // fallback, shouldn't happen with a non-empty set
 }
 
-function drawPack(packSize = PACK_SIZE) {
+function drawPack(cardSet, packSize = PACK_SIZE) {
   const pack = [];
-  for (let i = 0; i < packSize; i++) pack.push(pickCardOfRarity(pickRarity()));
+  for (let i = 0; i < packSize; i++) pack.push(pickCardOfRarity(cardSet, pickRarity()));
   return pack;
 }
 
@@ -366,7 +414,8 @@ async function handleEventSub(request, env) {
       const isNew = await claimIdempotencyKey(env, token, evt.id);
       if (!isNew) return new Response('', { status: 200 }); // duplicate delivery, already processed
 
-      const cards = drawPack();
+      const liveCatalog = await fetchLiveCardCatalog();
+      const cards = drawPack(liveCatalog);
       const cardIds = cards.map((c) => c.id);
       const nowIso = new Date().toISOString();
 

@@ -9,22 +9,23 @@ import { useParams, Link } from 'react-router-dom';
 import PageLayout from '@/components/layout/PageLayout';
 import { GlassCard } from '@/components/shared/GlassCard';
 import CardFace from '@/cards/CardFace';
-import { getUserCollectionByLogin } from '@/cards/db';
-import { CARDS_CONFIG } from '@/cards/config';
-import type { UserCollection } from '@/cards/types';
+import { getUserCollectionByLogin, getCardCatalog } from '@/cards/db';
+import type { UserCollection, CardDef } from '@/cards/types';
 
 export default function CardsProfile() {
   const { login } = useParams<{ login: string }>();
   const [collection, setCollection] = useState<UserCollection | null>(null);
+  const [allCards, setAllCards] = useState<CardDef[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!login) return;
     let cancelled = false;
     setLoading(true);
-    getUserCollectionByLogin(login).then((data) => {
+    Promise.all([getUserCollectionByLogin(login), getCardCatalog()]).then(([data, catalog]) => {
       if (!cancelled) {
         setCollection(data);
+        setAllCards(catalog);
         setLoading(false);
       }
     });
@@ -34,7 +35,6 @@ export default function CardsProfile() {
   }, [login]);
 
   const owned = collection?.cards ?? {};
-  const allCards = CARDS_CONFIG.activeCardSet.cards;
   const uniqueOwned = Object.keys(owned).filter((id) => owned[id] > 0).length;
 
   return (

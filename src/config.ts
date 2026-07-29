@@ -339,6 +339,10 @@ export const SITE_CONFIG: SiteConfig = {
     //              allow list, get:     if true;                    // public read (entry count)
     //              allow update, delete: if request.auth != null;   // admin only
     //            }
+    //            match /cardCatalog/{cardId} {
+    //              allow read:          if true;                    // public -- site, overlay, Worker all read this
+    //              allow write:         if request.auth != null;     // admin only (Card Maker tab)
+    //            }
     //          }
     //        }
     //
