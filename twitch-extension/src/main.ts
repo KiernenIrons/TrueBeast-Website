@@ -68,7 +68,14 @@ const CARD_LOOKUP: Record<string, { name: string; rarity: string }> = {
   's-beast': { name: 'TrueBeast', rarity: 'legendary' },
 };
 
-const ANNOUNCEMENT_DURATION_MS = 5000;
+const ANNOUNCEMENT_DURATION_MS = 2500;
+
+interface AnnouncementItem {
+  who: string;
+  cardId: string;
+  index: number;
+  total: number;
+}
 
 const app = initializeApp(CARDS_FIREBASE_CONFIG);
 const db = getFirestore(app);
@@ -78,7 +85,7 @@ let currentSort: SortMode = 'totalValue';
 let leaderboardUnsub: Unsubscribe | null = null;
 let latestEntries: UserCollection[] = [];
 
-let announcementQueue: PackEvent[] = [];
+let announcementQueue: AnnouncementItem[] = [];
 let showingAnnouncement = false;
 
 function openProfile(login: string) {
@@ -136,26 +143,12 @@ function renderLeaderboard() {
   });
 }
 
-function bestCardFromPack(cardIds: string[]): { name: string; rarity: string } | null {
-  let best: { name: string; rarity: string } | null = null;
-  let bestRank = -1;
-  for (const id of cardIds) {
-    const card = CARD_LOOKUP[id];
-    if (!card) continue;
-    const rank = RARITY_ORDER.indexOf(card.rarity as (typeof RARITY_ORDER)[number]);
-    if (rank > bestRank) {
-      bestRank = rank;
-      best = card;
-    }
-  }
-  return best;
-}
-
-function renderAnnouncement(evt: PackEvent) {
-  const best = bestCardFromPack(evt.cardIds);
-  const who = escapeHtml(evt.twitchUserDisplayName || evt.twitchUserLogin);
-  const line = best
-    ? `<strong>${who}</strong> just pulled a<br/><span class="rarity-${best.rarity}">${RARITY_LABEL[best.rarity]}: ${escapeHtml(best.name)}</span>!`
+function renderAnnouncement(item: AnnouncementItem) {
+  const card = CARD_LOOKUP[item.cardId];
+  const who = escapeHtml(item.who);
+  const progress = item.total > 1 ? ` <span class="announcement-progress">(${item.index + 1}/${item.total})</span>` : '';
+  const line = card
+    ? `<strong>${who}</strong> pulled${progress}<br/><span class="rarity-${card.rarity}">${RARITY_LABEL[card.rarity]}: ${escapeHtml(card.name)}</span>!`
     : `<strong>${who}</strong> just opened a pack!`;
 
   appEl.innerHTML = `
@@ -206,7 +199,11 @@ function subscribeAnnouncements() {
   onSnapshot(q, (snap) => {
     for (const change of snap.docChanges()) {
       if (change.type === 'added') {
-        announcementQueue.push(change.doc.data() as PackEvent);
+        const evt = change.doc.data() as PackEvent;
+        const who = evt.twitchUserDisplayName || evt.twitchUserLogin;
+        evt.cardIds.forEach((cardId, index) => {
+          announcementQueue.push({ who, cardId, index, total: evt.cardIds.length });
+        });
       }
     }
     processAnnouncementQueue();
