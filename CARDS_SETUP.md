@@ -97,7 +97,7 @@ Same method you already use for `email-proxy.js` — no CLI needed:
    | `FIREBASE_SERVICE_ACCOUNT_KEY` | `private_key` from the service account JSON (keep the `\n`s) |
    | `WORKER_ORIGIN` | the worker's own URL from step 3 (not a secret, plain variable) |
 
-   `TWITCH_REWARD_ID` and `TWITCH_CARDS_REFRESH_TOKEN` are set in step 5, below — deploy without them first.
+   `TWITCH_REWARD_ID` is set in step 5, below — deploy without it first.
 5. Worker → **Settings → Triggers → Cron Triggers → Add** → schedule
    `0 */6 * * *` (keeps the EventSub subscription alive automatically).
 
@@ -114,13 +114,15 @@ Visit `<your-worker-url>/oauth/start` in a browser **while logged into Twitch as
 the broadcaster** and approve the request. Only the broadcaster can authorize
 this specific event type — that's a Twitch platform rule, not a bug here.
 
-The callback page shows you two things:
-1. A **refresh token** — save it as the `TWITCH_CARDS_REFRESH_TOKEN` secret.
-2. A **list of your custom rewards with their IDs** — find "Open a Card Pack"
-   in the list and save its `id` as the `TWITCH_REWARD_ID` secret.
+The callback page shows a **list of your custom rewards with their IDs** —
+find "Open a Card Pack" in the list and save its `id` as the `TWITCH_REWARD_ID`
+secret. (Nothing else from this page needs saving — the actual EventSub
+subscription is created using an app access token, not anything from this
+consent step; the consent just needs to happen once so Twitch has this scope
+on file for the broadcaster + Client ID.)
 
-Once both of those secrets are saved, visit `/oauth/start` **one more time** —
-now that both exist, the callback page automatically creates the EventSub
+Once `TWITCH_REWARD_ID` is saved, visit `/oauth/start` **one more time** — now
+that it exists, the callback page automatically creates the EventSub
 subscription and shows you the result.
 
 (The cron trigger in `wrangler.toml` re-checks this subscription every 6 hours

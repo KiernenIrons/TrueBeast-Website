@@ -13,9 +13,9 @@
  *   GET  /health           — uptime check
  *
  * Scheduled (Cron Trigger, see wrangler.toml):
- *   Re-checks the EventSub subscription is still `enabled`; recreates it via the
- *   stored refresh token if Twitch ever revoked it (e.g. broadcaster password
- *   change, app re-authorization, etc).
+ *   Re-checks the EventSub subscription is still `enabled`; recreates it (using
+ *   an app access token -- see createEventSubSubscription) if Twitch ever
+ *   revoked it.
  *
  * Required secrets/variables (set via the Cloudflare dashboard: Worker →
  * Settings → Variables and Secrets — the same place email-proxy.js's are set):
@@ -29,8 +29,6 @@
  *   TWITCH_REWARD_ID           — the Custom Reward ID for "Open a Card Pack"
  *                                (create the reward on your dashboard first,
  *                                then look up its ID — see CARDS_SETUP.md)
- *   TWITCH_CARDS_REFRESH_TOKEN — broadcaster refresh token w/ channel:manage:redemptions
- *                                (obtained once via GET /oauth/start — see below)
  *   OAUTH_STATE_SECRET         — any long random string; signs the OAuth state param
  *   FIREBASE_PROJECT_ID        — the NEW dedicated project id (e.g. "truebeast-cards")
  *   FIREBASE_SERVICE_ACCOUNT_EMAIL — service account email (Firebase Console →
@@ -41,6 +39,12 @@
  *                                (used by the cron job, which has no incoming
  *                                `request` to read an origin from)
  *
+ * Note: the EventSub subscription itself is created with an APP access token
+ * (Twitch requires this for webhook-transport subscriptions), never a user
+ * token. The /oauth/start consent flow below exists purely so Twitch records
+ * that the broadcaster approved channel:manage:redemptions for this Client ID
+ * -- nothing from that flow is stored or reused afterward.
+ *
  * This file is intentionally a single self-contained script with no imports
  * from the rest of the repo (see PACK_SIZE/RARITIES/CARD_SET below) so it can
  * be deployed the exact same way as email-proxy.js: paste it directly into
@@ -48,15 +52,15 @@
  *
  * The one-time setup flow:
  *   1. Deploy this worker, note its URL (e.g. https://truebeast-cards.<sub>.workers.dev)
- *   2. Set all secrets above EXCEPT TWITCH_CARDS_REFRESH_TOKEN and TWITCH_REWARD_ID
- *      (create the "Open a Card Pack" reward on your dashboard first, but you
- *      don't need its ID yet -- the next step shows it to you)
+ *   2. Set all secrets above EXCEPT TWITCH_REWARD_ID (create the "Open a Card
+ *      Pack" reward on your dashboard first, but you don't need its ID yet --
+ *      the next step shows it to you)
  *   3. Visit <worker-url>/oauth/start in a browser while logged in as the broadcaster
- *   4. Approve the requested scope — the callback page shows you a refresh token
- *      AND your list of custom rewards with their IDs (no separate API call needed)
- *   5. Save both as Worker secrets: TWITCH_CARDS_REFRESH_TOKEN and TWITCH_REWARD_ID
- *   6. Visit <worker-url>/oauth/start ONE MORE TIME — now that both secrets exist,
- *      the callback also auto-creates the EventSub subscription immediately
+ *   4. Approve the requested scope — the callback page lists your custom
+ *      rewards with their IDs (no separate API call needed)
+ *   5. Save TWITCH_REWARD_ID as a Worker secret
+ *   6. Visit <worker-url>/oauth/start ONE MORE TIME — now that it's set, the
+ *      callback also creates the EventSub subscription immediately
  */
 
 // ── Card config (self-contained on purpose — see note below) ────────────────
@@ -277,27 +281,16 @@ async function getTwitchAppToken(env) {
   return data.access_token;
 }
 
-async function refreshTwitchUserToken(env) {
-  const res = await fetch('https://id.twitch.tv/oauth2/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: env.TWITCH_CARDS_REFRESH_TOKEN,
-      client_id: env.TWITCH_CLIENT_ID,
-      client_secret: env.TWITCH_CLIENT_SECRET,
-    }),
-  });
-  const data = await res.json();
-  if (!data.access_token) throw new Error('Twitch refresh failed: ' + JSON.stringify(data));
-  return data;
-}
-
-async function createEventSubSubscription(env, workerOrigin, userAccessToken) {
+// Twitch requires the CREATE call itself to be authenticated with an app
+// access token, not the user token from the OAuth consent screen -- that
+// consent step only exists to get Twitch to record that the broadcaster
+// approved this scope for this Client ID; it isn't passed to this call.
+async function createEventSubSubscription(env, workerOrigin) {
+  const appToken = await getTwitchAppToken(env);
   const res = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${userAccessToken}`,
+      Authorization: `Bearer ${appToken}`,
       'Client-Id': env.TWITCH_CLIENT_ID,
       'Content-Type': 'application/json',
     },
@@ -450,14 +443,6 @@ async function handleOAuthCallback(request, env) {
     return htmlResponse('Auth Error', `<pre>${JSON.stringify(tokenData, null, 2)}</pre>`, false);
   }
 
-  let subscriptionResult = null;
-  if (env.TWITCH_REWARD_ID && env.TWITCH_EVENTSUB_SECRET) {
-    subscriptionResult = await createEventSubSubscription(env, new URL(request.url).origin, tokenData.access_token).catch((e) => ({
-      ok: false,
-      body: { error: String(e) },
-    }));
-  }
-
   // This access token already has the right scope to list custom rewards --
   // show them now so there's no separate lookup step for TWITCH_REWARD_ID.
   const rewards = await listCustomRewards(env, tokenData.access_token).catch(() => []);
@@ -466,14 +451,23 @@ async function handleOAuthCallback(request, env) {
        <pre>${rewards.map((r) => `${r.title}\n  id: ${r.id}`).join('\n\n')}</pre>`
     : '<p>(Could not list custom rewards with this token — make sure "Open a Card Pack" is created on your dashboard first.)</p>';
 
+  // The subscription itself is created with an app access token (see
+  // createEventSubSubscription) -- this consent step just needed to happen
+  // once so Twitch has this scope on file for the broadcaster + Client ID.
+  let subscriptionResult = null;
+  if (env.TWITCH_REWARD_ID && env.TWITCH_EVENTSUB_SECRET) {
+    subscriptionResult = await createEventSubSubscription(env, new URL(request.url).origin).catch((e) => ({
+      ok: false,
+      body: { error: String(e) },
+    }));
+  }
+
   return htmlResponse(
     'Authorized',
-    `<p>Save this as the <code>TWITCH_CARDS_REFRESH_TOKEN</code> Worker secret:</p>
-     <pre>${tokenData.refresh_token}</pre>
-     ${rewardsHtml}
-     <p>Once <code>TWITCH_REWARD_ID</code> and <code>TWITCH_CARDS_REFRESH_TOKEN</code> are both saved, visit
-        <code>/oauth/start</code> one more time so the EventSub subscription gets created.</p>
-     ${subscriptionResult ? `<p>EventSub subscription attempt (using the token from just now, before you've saved the secrets above):</p><pre>${JSON.stringify(subscriptionResult.body || subscriptionResult, null, 2)}</pre>` : ''}`,
+    `${rewardsHtml}
+     <p>Once <code>TWITCH_REWARD_ID</code> is saved, visit <code>/oauth/start</code> one more time so the
+        EventSub subscription gets created (no need to save anything from this "authorized" step itself).</p>
+     ${subscriptionResult ? `<p>EventSub subscription attempt:</p><pre>${JSON.stringify(subscriptionResult.body || subscriptionResult, null, 2)}</pre>` : ''}`,
     true,
   );
 }
@@ -494,13 +488,7 @@ export default {
         try {
           const active = await findActiveSubscription(env);
           if (active) return;
-          if (!env.TWITCH_CARDS_REFRESH_TOKEN) {
-            console.warn('No active EventSub subscription and no refresh token stored — run /oauth/start.');
-            return;
-          }
-          const refreshed = await refreshTwitchUserToken(env);
-          const workerOrigin = env.WORKER_ORIGIN || '';
-          const result = await createEventSubSubscription(env, workerOrigin, refreshed.access_token);
+          const result = await createEventSubSubscription(env, env.WORKER_ORIGIN || '');
           console.log('Recreated EventSub subscription:', JSON.stringify(result));
         } catch (err) {
           console.error('Subscription-keeper cron failed:', err);
