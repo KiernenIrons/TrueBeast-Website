@@ -52,7 +52,7 @@ interface EmbedData {
 interface FormField { id: string; label: string; placeholder: string; style: 'short' | 'paragraph'; required: boolean }
 interface FormConfig { formTitle: string; fields: FormField[]; destChannelIds: string[]; dmSubmitter: boolean; oneTime: boolean; confirmMsg: string }
 interface RolePickerButton { id: string; label: string; emoji: string; style: 1 | 2 | 3 | 4; roleId: string }
-interface RoleGroup { id: string; name: string; buttons: RolePickerButton[] }
+interface RoleGroup { id: string; name: string; buttons: RolePickerButton[]; row: number }
 interface RolePicker { id: string; name: string; channelId: string; messageId?: string; content: string; accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[]; groups: RoleGroup[] }
 interface ButtonData {
   label: string; url: string; emoji: string; disabled?: boolean;
@@ -4217,10 +4217,12 @@ function buildRolePickerPayload(picker: RolePicker): Record<string, unknown> | n
   const base = buildPayloadV2(v2State);
   const components: unknown[] = base ? (base.components as unknown[]).slice() : [];
 
+  // Merge groups that share a row number into one action row (Discord caps at
+  // 5 buttons/row and 5 rows/message), then emit rows in ascending row order.
+  const byRow = new Map<number, Record<string, unknown>[]>();
   for (const group of picker.groups) {
     const buttons = group.buttons
       .filter((b) => b.roleId && (b.label.trim() || b.emoji))
-      .slice(0, 5)
       .map((b) => {
         const btn: Record<string, unknown> = {
           type: 2, style: b.style || 1,
@@ -4234,7 +4236,12 @@ function buildRolePickerPayload(picker: RolePicker): Record<string, unknown> | n
         }
         return btn;
       });
-    if (buttons.length) components.push({ type: 1, components: buttons });
+    if (!buttons.length) continue;
+    const existing = byRow.get(group.row) ?? [];
+    byRow.set(group.row, [...existing, ...buttons].slice(0, 5));
+  }
+  for (const row of [...byRow.keys()].sort((a, b) => a - b)) {
+    components.push({ type: 1, components: byRow.get(row) });
   }
 
   if (!components.length) return null;
@@ -4245,8 +4252,8 @@ function newRolePickerButton(): RolePickerButton {
   return { id: uid(), label: '', emoji: '', style: 1, roleId: '' };
 }
 
-function newRoleGroup(): RoleGroup {
-  return { id: uid(), name: 'Group', buttons: [newRolePickerButton()] };
+function newRoleGroup(row = 1): RoleGroup {
+  return { id: uid(), name: 'Group', buttons: [newRolePickerButton()], row };
 }
 
 function newRolePicker(): RolePicker {
@@ -4325,9 +4332,10 @@ function RoleButtonEditor({ btn, roles, onChange, onRemove }: {
   );
 }
 
-function RoleGroupEditor({ group, roles, onChange, onRemove }: {
+function RoleGroupEditor({ group, roles, allGroups, onChange, onRemove }: {
   group: RoleGroup;
   roles: DiscordRole[];
+  allGroups: RoleGroup[];
   onChange: (g: RoleGroup) => void;
   onRemove: () => void;
 }) {
@@ -4336,18 +4344,35 @@ function RoleGroupEditor({ group, roles, onChange, onRemove }: {
   const removeBtn = (id: string) => onChange({ ...group, buttons: group.buttons.filter((b) => b.id !== id) });
   const addBtn = () => onChange({ ...group, buttons: [...group.buttons, newRolePickerButton()] });
 
+  const rowButtonCount = allGroups
+    .filter((g) => g.row === group.row)
+    .reduce((sum, g) => sum + g.buttons.length, 0);
+  const rowFull = rowButtonCount >= 5;
+  const rowOverflow = rowButtonCount > 5;
+
   return (
-    <div className="border border-white/10 rounded-xl p-3 space-y-2.5 bg-white/[0.01]">
+    <div className={`border rounded-xl p-3 space-y-2.5 bg-white/[0.01] ${rowOverflow ? 'border-red-500/40' : 'border-white/10'}`}>
       <div className="flex items-center gap-2">
         <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Group name</span>
         <input type="text" value={group.name} onChange={(e) => onChange({ ...group, name: e.target.value })}
           className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
+        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium flex-shrink-0">Line</span>
+        <select value={group.row} onChange={(e) => onChange({ ...group, row: Number(e.target.value) })}
+          style={{ backgroundColor: '#1e1f22', color: 'white' }}
+          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500/50 flex-shrink-0">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <option key={n} value={n} style={{ backgroundColor: '#1e1f22' }}>{n}</option>
+          ))}
+        </select>
         <button type="button" onClick={onRemove}
           className="text-gray-600 hover:text-red-400 transition-colors cursor-pointer text-xs px-2 py-1 rounded-lg hover:bg-red-500/10">
           Delete group
         </button>
       </div>
-      <p className="text-[10px] text-gray-600">Selecting one role in this group removes all others from the group.</p>
+      <p className="text-[10px] text-gray-600">Selecting one role in this group removes all others from the group. Groups on the same line share one row of buttons — Discord allows at most 5 per line.</p>
+      {rowOverflow && (
+        <p className="text-[10px] text-red-400">Line {group.row} has {rowButtonCount} buttons — Discord only allows 5 per line. Move some to another line before sending.</p>
+      )}
       <div className="space-y-1.5">
         {group.buttons.map((btn) => (
           <RoleButtonEditor key={btn.id} btn={btn} roles={roles}
@@ -4357,8 +4382,8 @@ function RoleGroupEditor({ group, roles, onChange, onRemove }: {
       </div>
       {group.buttons.length < 5 && (
         <button type="button" onClick={addBtn}
-          className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer transition-colors">
-          <Plus className="w-3 h-3" /> Add button
+          className={`text-xs flex items-center gap-1 cursor-pointer transition-colors ${rowFull ? 'text-amber-400 hover:text-amber-300' : 'text-indigo-400 hover:text-indigo-300'}`}>
+          <Plus className="w-3 h-3" /> Add button{rowFull ? ' (line full)' : ''}
         </button>
       )}
     </div>
@@ -4441,7 +4466,13 @@ function RolePickersTab() {
   useEffect(() => {
     FirebaseDB.loadRolePickers()
       .then((data) => {
-        const loaded = (data || []) as RolePicker[];
+        const raw = (data || []) as RolePicker[];
+        // Back-compat: older saved pickers predate the per-group "line" field —
+        // default each group to its own line (1-5), matching the old one-row-per-group layout.
+        const loaded = raw.map((pk) => ({
+          ...pk,
+          groups: pk.groups.map((g, i) => ({ ...g, row: g.row ?? Math.min(i + 1, 5) })),
+        }));
         setPickers(loaded);
         if (loaded.length) setSelectedId(loaded[0].id);
       })
@@ -4514,8 +4545,15 @@ function RolePickersTab() {
     updateSelected({ groups: (p?.groups ?? []).map((x) => x.id === g.id ? g : x) });
   const removeGroup = (id: string) =>
     updateSelected({ groups: (p?.groups ?? []).filter((x) => x.id !== id) });
-  const addGroup = () =>
-    updateSelected({ groups: [...(p?.groups ?? []), newRoleGroup()] });
+  const addGroup = () => {
+    const groups = p?.groups ?? [];
+    const counts = new Map<number, number>();
+    for (const g of groups) counts.set(g.row, (counts.get(g.row) ?? 0) + g.buttons.length);
+    let row = 1;
+    while (row <= 5 && (counts.get(row) ?? 0) >= 5) row++;
+    if (row > 5) row = 5;
+    updateSelected({ groups: [...groups, newRoleGroup(row)] });
+  };
 
   const handleSend = async () => {
     if (!p) return;
@@ -4688,12 +4726,12 @@ function RolePickersTab() {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className={secHead + ' mb-0.5'}>Role groups (buttons)</p>
-                <p className="text-[10px] text-gray-600">Each group = one row of buttons. Selecting a role removes all others in the same group.</p>
+                <p className="text-[10px] text-gray-600">Set each group's line — groups sharing a line combine into one row (max 5 buttons/line, 5 lines). Selecting a role removes all others in the same group.</p>
               </div>
             </div>
             <div className="space-y-3">
               {p.groups.map((g) => (
-                <RoleGroupEditor key={g.id} group={g} roles={bot.roles}
+                <RoleGroupEditor key={g.id} group={g} roles={bot.roles} allGroups={p.groups}
                   onChange={updateGroup}
                   onRemove={() => removeGroup(g.id)} />
               ))}
