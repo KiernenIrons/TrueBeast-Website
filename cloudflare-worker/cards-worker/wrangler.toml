@@ -1,3 +1,8 @@
+# Optional — only needed if you prefer the `wrangler` CLI over the Cloudflare
+# dashboard's "paste the file in" editor (which is how email-proxy.js is
+# deployed today, and works just as well for this worker — see CARDS_SETUP.md).
+# If using the dashboard instead, add the cron trigger under
+# Worker → Settings → Triggers → Cron Triggers (schedule: 0 */6 * * *).
 name = "truebeast-cards"
 main = "index.js"
 compatibility_date = "2024-11-01"

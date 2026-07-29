@@ -78,29 +78,37 @@ Client ID/Secret — no need to register a second app. Otherwise:
 
 ## 4. Deploy the Cloudflare Worker
 
-```bash
-cd cloudflare-worker/cards-worker
-wrangler deploy
-```
+Same method you already use for `email-proxy.js` — no CLI needed:
 
-Then set every secret (`wrangler secret put NAME`, paste the value when prompted):
+1. Cloudflare dashboard → **Workers & Pages → Create → Create Worker**, name it
+   `truebeast-cards`, deploy the default template.
+2. Open it → **Edit code** → delete the placeholder → paste in the entire
+   contents of `cloudflare-worker/cards-worker/index.js` → **Deploy**.
+3. Note the URL it gives you (e.g. `https://truebeast-cards.your-subdomain.workers.dev`).
+4. Worker → **Settings → Variables and Secrets → Add** — add each of these
+   (mark everything **except** `WORKER_ORIGIN` as "Encrypt"/secret, same as
+   your other worker's secrets):
 
-| Secret | Value |
-|---|---|
-| `TWITCH_CLIENT_ID` | from step 1 |
-| `TWITCH_CLIENT_SECRET` | from step 1 |
-| `TWITCH_EVENTSUB_SECRET` | any long random string you invent |
-| `TWITCH_REWARD_ID` | from step 3 |
-| `OAUTH_STATE_SECRET` | any long random string you invent |
-| `FIREBASE_PROJECT_ID` | your `truebeast-cards` project ID |
-| `FIREBASE_SERVICE_ACCOUNT_EMAIL` | `client_email` from the service account JSON |
-| `FIREBASE_SERVICE_ACCOUNT_KEY` | `private_key` from the service account JSON (keep the `\n`s) |
+   | Name | Value |
+   |---|---|
+   | `TWITCH_CLIENT_ID` | from step 1 |
+   | `TWITCH_CLIENT_SECRET` | from step 1 |
+   | `TWITCH_BROADCASTER_ID` | same value already set on your `email-proxy` worker for VIP checks |
+   | `TWITCH_EVENTSUB_SECRET` | any long random string you invent |
+   | `TWITCH_REWARD_ID` | from step 3 |
+   | `OAUTH_STATE_SECRET` | any long random string you invent |
+   | `FIREBASE_PROJECT_ID` | your `truebeast-cards` project ID |
+   | `FIREBASE_SERVICE_ACCOUNT_EMAIL` | `client_email` from the service account JSON |
+   | `FIREBASE_SERVICE_ACCOUNT_KEY` | `private_key` from the service account JSON (keep the `\n`s) |
+   | `WORKER_ORIGIN` | the worker's own URL from step 3 (not a secret, plain variable) |
 
-`TWITCH_CARDS_REFRESH_TOKEN` is set in step 5, below — deploy without it first.
+   `TWITCH_CARDS_REFRESH_TOKEN` is set in step 5, below — deploy without it first.
+5. Worker → **Settings → Triggers → Cron Triggers → Add** → schedule
+   `0 */6 * * *` (keeps the EventSub subscription alive automatically).
 
-After the first `wrangler deploy`, note the worker's URL (shown in the deploy
-output, e.g. `https://truebeast-cards.your-subdomain.workers.dev`). Put it in
-`wrangler.toml`'s `[vars] WORKER_ORIGIN` and redeploy.
+(If you'd rather use the `wrangler` CLI instead of the dashboard, `wrangler.toml`
+in that same folder works too — `wrangler deploy` then `wrangler secret put NAME`
+for each row above. Either method produces the same result.)
 
 Also set that same URL + `/oauth/callback` as an **OAuth Redirect URL** on your
 Twitch app (dev console → your app → Manage → OAuth Redirect URLs).

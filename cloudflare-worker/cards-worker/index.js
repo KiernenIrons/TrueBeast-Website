@@ -17,10 +17,13 @@
  *   stored refresh token if Twitch ever revoked it (e.g. broadcaster password
  *   change, app re-authorization, etc).
  *
- * Required secrets (wrangler secret put <NAME>):
+ * Required secrets/variables (set via the Cloudflare dashboard: Worker →
+ * Settings → Variables and Secrets — the same place email-proxy.js's are set):
  *   TWITCH_CLIENT_ID           — same Client ID already used by the main site's
  *                                email-proxy worker (Twitch Developer Console)
  *   TWITCH_CLIENT_SECRET       — its Client Secret
+ *   TWITCH_BROADCASTER_ID      — same value already used by email-proxy.js's
+ *                                VIP feature (Kiernen's numeric Twitch user ID)
  *   TWITCH_EVENTSUB_SECRET     — any long random string (Twitch signs webhook
  *                                payloads with it; you invent this value)
  *   TWITCH_REWARD_ID           — the Custom Reward ID for "Open a Card Pack"
@@ -33,10 +36,15 @@
  *   FIREBASE_SERVICE_ACCOUNT_EMAIL — service account email (Firebase Console →
  *                                Project Settings → Service Accounts → Generate key)
  *   FIREBASE_SERVICE_ACCOUNT_KEY   — service account private key (PEM)
+ *   WORKER_ORIGIN              — this worker's own https URL, e.g.
+ *                                https://truebeast-cards.<subdomain>.workers.dev
+ *                                (used by the cron job, which has no incoming
+ *                                `request` to read an origin from)
  *
- * Required plain variable (wrangler.toml [vars], not a secret):
- *   WORKER_ORIGIN — this worker's own https URL (used by the cron job, which
- *                   has no incoming `request` to read an origin from)
+ * This file is intentionally a single self-contained script with no imports
+ * from the rest of the repo (see PACK_SIZE/RARITIES/CARD_SET below) so it can
+ * be deployed the exact same way as email-proxy.js: paste it directly into
+ * the Cloudflare dashboard's Worker editor. No Node/wrangler CLI required.
  *
  * The one-time setup flow:
  *   1. Deploy this worker, note its URL (e.g. https://truebeast-cards.<sub>.workers.dev)
@@ -49,8 +57,74 @@
  *      the EventSub subscription immediately
  */
 
-import { CARDS_CONFIG } from '../../src/cards/config.ts';
-import { drawPack, cardValue } from '../../src/cards/engine.ts';
+// ── Card config (self-contained on purpose — see note below) ────────────────
+//
+// This worker is deployed by pasting this single file into the Cloudflare
+// dashboard's Worker editor (the same way cloudflare-worker/email-proxy.js
+// already is), so it deliberately has NO imports from the rest of the repo.
+//
+// PACK_SIZE, RARITIES, and CARD_SET below are mirrors of the values in
+// src/cards/config.ts / card-sets/starter/cards.json. If you change pack
+// size, rarity odds, or the active card set there, copy the same change here
+// and redeploy this worker (paste the updated file into the dashboard again).
+
+const PACK_SIZE = 3;
+
+const RARITIES = [
+  { id: 'common',    weight: 100, value: 1 },
+  { id: 'uncommon',  weight: 45,  value: 3 },
+  { id: 'rare',      weight: 18,  value: 8 },
+  { id: 'epic',      weight: 6,   value: 20 },
+  { id: 'legendary', weight: 1,   value: 75 },
+];
+
+const CARD_SET = [
+  { id: 's-slime',    rarity: 'common' },
+  { id: 's-crab',     rarity: 'common' },
+  { id: 's-bat',      rarity: 'common' },
+  { id: 's-mushroom', rarity: 'common' },
+  { id: 's-fish',     rarity: 'common' },
+  { id: 's-wolf',     rarity: 'uncommon' },
+  { id: 's-owl',      rarity: 'uncommon' },
+  { id: 's-spider',   rarity: 'uncommon' },
+  { id: 's-turtle',   rarity: 'uncommon' },
+  { id: 's-fox',      rarity: 'rare' },
+  { id: 's-shark',    rarity: 'rare' },
+  { id: 's-eagle',    rarity: 'rare' },
+  { id: 's-dragon',   rarity: 'epic' },
+  { id: 's-phoenix',  rarity: 'epic' },
+  { id: 's-beast',    rarity: 'legendary' },
+];
+
+function weightedPick(items) {
+  const total = items.reduce((sum, [w]) => sum + w, 0);
+  let r = Math.random() * total;
+  for (const [w, v] of items) {
+    r -= w;
+    if (r <= 0) return v;
+  }
+  return items[items.length - 1][1];
+}
+
+function pickRarity() {
+  return weightedPick(RARITIES.map((r) => [r.weight, r.id]));
+}
+
+function pickCardOfRarity(rarity) {
+  const pool = CARD_SET.filter((c) => c.rarity === rarity);
+  if (pool.length > 0) return pool[Math.floor(Math.random() * pool.length)];
+  return CARD_SET[Math.floor(Math.random() * CARD_SET.length)]; // fallback, shouldn't happen with the shipped set
+}
+
+function drawPack(packSize = PACK_SIZE) {
+  const pack = [];
+  for (let i = 0; i < packSize; i++) pack.push(pickCardOfRarity(pickRarity()));
+  return pack;
+}
+
+function cardValue(card) {
+  return RARITIES.find((r) => r.id === card.rarity)?.value ?? 0;
+}
 
 const REDEMPTION_TYPE = 'channel.channel_points_custom_reward_redemption.add';
 
@@ -222,7 +296,7 @@ async function createEventSubSubscription(env, workerOrigin, userAccessToken) {
     body: JSON.stringify({
       type: REDEMPTION_TYPE,
       version: '1',
-      condition: { broadcaster_user_id: CARDS_CONFIG.channelId, reward_id: env.TWITCH_REWARD_ID },
+      condition: { broadcaster_user_id: env.TWITCH_BROADCASTER_ID, reward_id: env.TWITCH_REWARD_ID },
       transport: { method: 'webhook', callback: `${workerOrigin}/eventsub`, secret: env.TWITCH_EVENTSUB_SECRET },
     }),
   });
@@ -237,7 +311,7 @@ async function findActiveSubscription(env) {
   const data = await res.json();
   const list = data.data || [];
   return list.find(
-    (s) => s.condition?.broadcaster_user_id === CARDS_CONFIG.channelId && s.condition?.reward_id === env.TWITCH_REWARD_ID && s.status === 'enabled',
+    (s) => s.condition?.broadcaster_user_id === env.TWITCH_BROADCASTER_ID && s.condition?.reward_id === env.TWITCH_REWARD_ID && s.status === 'enabled',
   );
 }
 
@@ -283,12 +357,12 @@ async function handleEventSub(request, env) {
       const isNew = await claimIdempotencyKey(env, token, evt.id);
       if (!isNew) return new Response('', { status: 200 }); // duplicate delivery, already processed
 
-      const cards = drawPack(CARDS_CONFIG.activeCardSet, CARDS_CONFIG.packSize);
+      const cards = drawPack();
       const cardIds = cards.map((c) => c.id);
       const nowIso = new Date().toISOString();
 
       await createPackEventDoc(env, token, {
-        channelId: CARDS_CONFIG.channelId,
+        channelId: env.TWITCH_BROADCASTER_ID,
         redemptionId: evt.id,
         twitchUserId: evt.user_id,
         twitchUserLogin: evt.user_login,
@@ -302,7 +376,7 @@ async function handleEventSub(request, env) {
       const totalValueGained = cards.reduce((sum, c) => sum + cardValue(c), 0);
 
       await incrementUserCollection(env, token, {
-        channelId: CARDS_CONFIG.channelId,
+        channelId: env.TWITCH_BROADCASTER_ID,
         twitchUserId: evt.user_id,
         twitchUserLogin: evt.user_login,
         twitchUserDisplayName: evt.user_name,
