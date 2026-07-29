@@ -1,3 +1,5 @@
+import emojiKeywords from 'emojilib';
+
 export const UNICODE_EMOJI: { name: string; emojis: string[] }[] = [
   {
     name: 'Reactions',
@@ -54,7 +56,7 @@ export const UNICODE_EMOJI: { name: string; emojis: string[] }[] = [
   {
     name: 'Clothing',
     emojis: [
-      '👒','🎩','🪖','⛑️','📿','💄','💍','💎','👜','👝','🎒','🧳',
+      '👑','👒','🎩','🪖','⛑️','📿','💄','💍','💎','👜','👝','🎒','🧳',
       '👓','🕶️','🥽','🌂','☂️','🩴','👞','👟','🥾','🥿','👠','👡','👢','🪮',
       '👗','👘','🥻','🩱','🩲','🩳','👙','👚','🩴','🩲','👕','👖',
       '🧣','🧤','🧥','🥼','🦺','👔',
@@ -220,3 +222,12 @@ export const UNICODE_EMOJI: { name: string; emojis: string[] }[] = [
     ],
   },
 ];
+
+// Matches an emoji against a search query by its keyword list (e.g. '👑' -> 'crown', 'king', 'royalty')
+// in addition to the surrounding category name, so users can search by what the emoji means, not just its glyph.
+export function emojiMatchesSearch(emoji: string, categoryName: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (categoryName.toLowerCase().includes(q)) return true;
+  return (emojiKeywords[emoji] ?? []).some((k) => k.toLowerCase().includes(q));
+}

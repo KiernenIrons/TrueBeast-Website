@@ -35,7 +35,7 @@ import PageLayout from '@/components/layout/PageLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { FirebaseDB, type CardSaveRecord, type AnnouncementHistoryRecord, type AnnouncementTemplateRecord } from '@/lib/firebase';
 import { SITE_CONFIG } from '@/config';
-import { UNICODE_EMOJI } from '@/data/emojis';
+import { UNICODE_EMOJI, emojiMatchesSearch } from '@/data/emojis';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -499,7 +499,7 @@ function RichPicker({
             )}
             {/* Unicode categories */}
             {UNICODE_EMOJI.map((cat) => {
-              const filtered = cat.emojis.filter((e) => !search || e.includes(search) || cat.name.toLowerCase().includes(search.toLowerCase()));
+              const filtered = cat.emojis.filter((e) => emojiMatchesSearch(e, cat.name, search));
               if (!filtered.length) return null;
               return (
                 <div key={cat.name} className="mb-2">
@@ -578,7 +578,7 @@ function EmojiPicker({ onPick, onClose }: { onPick: (emoji: string, isCustom?: b
           </div>
         )}
         {UNICODE_EMOJI.map((cat) => {
-          const filtered = cat.emojis.filter((e) => !search || e.includes(search) || cat.name.toLowerCase().includes(search.toLowerCase()));
+          const filtered = cat.emojis.filter((e) => emojiMatchesSearch(e, cat.name, search));
           if (!filtered.length) return null;
           return (
             <div key={cat.name} className="mb-2">
