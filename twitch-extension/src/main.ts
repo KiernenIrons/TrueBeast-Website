@@ -2,6 +2,23 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, query, where, orderBy, limit, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { CARDS_FIREBASE_CONFIG, PROFILE_URL_BASE } from './firebase-config';
 
+// Twitch injects a global `Twitch` object via the twitch-ext.min.js script
+// tag in index.html -- no npm types for it, so declare just what we use.
+declare const Twitch: {
+  ext: {
+    onContext: (callback: (context: { theme: 'light' | 'dark' }) => void) => void;
+  };
+};
+
+// Twitch tells us the active theme (viewers can be on light or dark mode);
+// default to dark until the first callback fires.
+document.documentElement.dataset.theme = 'dark';
+if (typeof Twitch !== 'undefined') {
+  Twitch.ext.onContext((context) => {
+    if (context.theme) document.documentElement.dataset.theme = context.theme;
+  });
+}
+
 interface UserCollection {
   twitchUserId: string;
   twitchUserLogin: string;
@@ -198,3 +215,13 @@ function subscribeAnnouncements() {
 
 subscribeLeaderboard();
 subscribeAnnouncements();
+
+// Safety net: if nothing has rendered after a few seconds (e.g. Firestore's
+// domain isn't allowlisted in the extension's Capabilities config yet, so
+// the connection just hangs instead of erroring), show something actionable
+// instead of "Loading leaderboard..." forever.
+setTimeout(() => {
+  if (document.getElementById('loading')) {
+    appEl.innerHTML = `<div id="error">Still loading after 8s -- check that firestore.googleapis.com is allowlisted under this extension's Capabilities tab in the Twitch dev console.</div>`;
+  }
+}, 8000);

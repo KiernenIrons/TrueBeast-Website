@@ -2,12 +2,39 @@
   box-sizing: border-box;
 }
 
+/* Twitch tells us the active theme via Twitch.ext.onContext (see main.ts),
+   which sets data-theme on <html>. Default to dark since most Twitch
+   viewers use dark mode, but every color below has a light override. */
+:root {
+  --bg: #0b0b12;
+  --text: #eee;
+  --text-dim: #999;
+  --text-dimmer: #666;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.04);
+  --row-hover: rgba(255, 255, 255, 0.06);
+  --tab-bg: rgba(255, 255, 255, 0.03);
+  --accent: #22c55e;
+}
+
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --text: #18181b;
+  --text-dim: #52525b;
+  --text-dimmer: #71717a;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-soft: rgba(0, 0, 0, 0.06);
+  --row-hover: rgba(0, 0, 0, 0.05);
+  --tab-bg: rgba(0, 0, 0, 0.04);
+  --accent: #16a34a;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
-  background: #0b0b12;
-  color: #eee;
+  background: var(--bg);
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13px;
   overflow-x: hidden;
@@ -23,7 +50,7 @@ body {
 #error {
   padding: 16px;
   text-align: center;
-  color: #888;
+  color: var(--text-dim);
 }
 
 .header {
@@ -32,8 +59,8 @@ body {
   font-size: 13px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #4ade80;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
 }
 
 .tabs {
@@ -46,9 +73,9 @@ body {
   flex: 1;
   padding: 6px 8px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.03);
-  color: #999;
+  border: 1px solid var(--border);
+  background: var(--tab-bg);
+  color: var(--text-dim);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -56,9 +83,9 @@ body {
 }
 
 .tab.active {
-  background: rgba(74, 222, 128, 0.15);
-  border-color: rgba(74, 222, 128, 0.4);
-  color: #4ade80;
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: var(--accent);
 }
 
 .list {
@@ -73,27 +100,27 @@ body {
   gap: 10px;
   padding: 8px 12px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-soft);
   background: transparent;
   transition: background-color 0.15s;
 }
 
 .row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--row-hover);
 }
 
 .rank {
   width: 18px;
   text-align: center;
   font-weight: 700;
-  color: #666;
+  color: var(--text-dimmer);
   flex-shrink: 0;
 }
 
 .name {
   flex: 1;
   font-weight: 600;
-  color: #fff;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -101,7 +128,7 @@ body {
 
 .value {
   font-weight: 700;
-  color: #4ade80;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -109,8 +136,8 @@ body {
   padding: 8px 12px;
   text-align: center;
   font-size: 10px;
-  color: #666;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-dimmer);
+  border-top: 1px solid var(--border-soft);
 }
 
 .announcement {
@@ -133,22 +160,35 @@ body {
 .announcement-text {
   font-size: 14px;
   line-height: 1.5;
-  color: #fff;
+  color: var(--text);
 }
 
 .rarity-common {
   color: #9ca3af;
 }
 .rarity-uncommon {
-  color: #34d399;
+  color: #16a34a;
 }
 .rarity-rare {
-  color: #38bdf8;
+  color: #0284c7;
 }
 .rarity-epic {
-  color: #a78bfa;
+  color: #7c3aed;
 }
 .rarity-legendary {
+  color: #b45309;
+}
+
+:root[data-theme='dark'] .rarity-uncommon {
+  color: #34d399;
+}
+:root[data-theme='dark'] .rarity-rare {
+  color: #38bdf8;
+}
+:root[data-theme='dark'] .rarity-epic {
+  color: #a78bfa;
+}
+:root[data-theme='dark'] .rarity-legendary {
   color: #facc15;
 }
 
