@@ -48,13 +48,15 @@
  *
  * The one-time setup flow:
  *   1. Deploy this worker, note its URL (e.g. https://truebeast-cards.<sub>.workers.dev)
- *   2. Set all secrets above EXCEPT TWITCH_CARDS_REFRESH_TOKEN
+ *   2. Set all secrets above EXCEPT TWITCH_CARDS_REFRESH_TOKEN and TWITCH_REWARD_ID
+ *      (create the "Open a Card Pack" reward on your dashboard first, but you
+ *      don't need its ID yet -- the next step shows it to you)
  *   3. Visit <worker-url>/oauth/start in a browser while logged in as the broadcaster
  *   4. Approve the requested scope — the callback page shows you a refresh token
- *   5. `wrangler secret put TWITCH_CARDS_REFRESH_TOKEN` and paste it in
- *   6. Visit <worker-url>/oauth/start ONE MORE TIME (or just re-run step 3's flow) —
- *      now that the refresh token secret exists, the callback also auto-creates
- *      the EventSub subscription immediately
+ *      AND your list of custom rewards with their IDs (no separate API call needed)
+ *   5. Save both as Worker secrets: TWITCH_CARDS_REFRESH_TOKEN and TWITCH_REWARD_ID
+ *   6. Visit <worker-url>/oauth/start ONE MORE TIME — now that both secrets exist,
+ *      the callback also auto-creates the EventSub subscription immediately
  */
 
 // ── Card config (self-contained on purpose — see note below) ────────────────
@@ -303,6 +305,14 @@ async function createEventSubSubscription(env, workerOrigin, userAccessToken) {
   return { ok: res.ok, status: res.status, body: await res.json() };
 }
 
+async function listCustomRewards(env, userAccessToken) {
+  const res = await fetch(`https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=${env.TWITCH_BROADCASTER_ID}`, {
+    headers: { Authorization: `Bearer ${userAccessToken}`, 'Client-Id': env.TWITCH_CLIENT_ID },
+  });
+  const data = await res.json();
+  return data.data || [];
+}
+
 async function findActiveSubscription(env) {
   const appToken = await getTwitchAppToken(env);
   const res = await fetch(`https://api.twitch.tv/helix/eventsub/subscriptions?type=${REDEMPTION_TYPE}`, {
@@ -442,12 +452,22 @@ async function handleOAuthCallback(request, env) {
     }));
   }
 
+  // This access token already has the right scope to list custom rewards --
+  // show them now so there's no separate lookup step for TWITCH_REWARD_ID.
+  const rewards = await listCustomRewards(env, tokenData.access_token).catch(() => []);
+  const rewardsHtml = rewards.length
+    ? `<p>Your custom rewards (copy the <code>id</code> of "Open a Card Pack" into the <code>TWITCH_REWARD_ID</code> secret):</p>
+       <pre>${rewards.map((r) => `${r.title}\n  id: ${r.id}`).join('\n\n')}</pre>`
+    : '<p>(Could not list custom rewards with this token — make sure "Open a Card Pack" is created on your dashboard first.)</p>';
+
   return htmlResponse(
     'Authorized',
-    `<p>Save this as a Worker secret, then re-run this flow once more so the subscription auto-creates:</p>
-     <p><code>wrangler secret put TWITCH_CARDS_REFRESH_TOKEN</code></p>
+    `<p>Save this as the <code>TWITCH_CARDS_REFRESH_TOKEN</code> Worker secret:</p>
      <pre>${tokenData.refresh_token}</pre>
-     ${subscriptionResult ? `<p>EventSub subscription attempt:</p><pre>${JSON.stringify(subscriptionResult.body || subscriptionResult, null, 2)}</pre>` : '<p>(Subscription not yet attempted — TWITCH_REWARD_ID or TWITCH_EVENTSUB_SECRET secret missing.)</p>'}`,
+     ${rewardsHtml}
+     <p>Once <code>TWITCH_REWARD_ID</code> and <code>TWITCH_CARDS_REFRESH_TOKEN</code> are both saved, visit
+        <code>/oauth/start</code> one more time so the EventSub subscription gets created.</p>
+     ${subscriptionResult ? `<p>EventSub subscription attempt (using the token from just now, before you've saved the secrets above):</p><pre>${JSON.stringify(subscriptionResult.body || subscriptionResult, null, 2)}</pre>` : ''}`,
     true,
   );
 }

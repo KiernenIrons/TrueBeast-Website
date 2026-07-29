@@ -62,19 +62,15 @@ Client ID/Secret — no need to register a second app. Otherwise:
 
 ## 3. Create the Channel Points reward
 
-1. Twitch Creator Dashboard → **Viewer Rewards → Channel Points → Manage Rewards**
-   → **Add New Custom Reward**. Title it exactly what `CARDS_CONFIG.rewardName`
-   says (default: "Open a Card Pack"), set a cost/image, save.
-2. Get its **Reward ID** (needed for the Worker's `TWITCH_REWARD_ID` secret).
-   Easiest way — with your Client ID and an app access token:
-   ```
-   curl -X POST 'https://id.twitch.tv/oauth2/token' \
-     -d 'client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET&grant_type=client_credentials'
-   # copy the access_token, then:
-   curl -H 'Authorization: Bearer APP_ACCESS_TOKEN' -H 'Client-Id: YOUR_CLIENT_ID' \
-     'https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=YOUR_BROADCASTER_ID'
-   ```
-   Find your reward in the response `data[]` and copy its `id`.
+Twitch Creator Dashboard → **Viewer Rewards → Channel Points → Manage Rewards**
+→ **Add New Custom Reward**. Title it exactly what `CARDS_CONFIG.rewardName`
+says (default: "Open a Card Pack"), set a cost/image, save.
+
+You do **not** need its Reward ID yet — getting a Custom Reward's ID requires a
+broadcaster-authorized user token (an app access token alone gets rejected with
+"Missing User OAuth Token"), and step 5 below already produces exactly that
+kind of token as part of the one-time authorization. The callback page there
+lists all your rewards with their IDs for you automatically.
 
 ## 4. Deploy the Cloudflare Worker
 
@@ -95,14 +91,13 @@ Same method you already use for `email-proxy.js` — no CLI needed:
    | `TWITCH_CLIENT_SECRET` | from step 1 |
    | `TWITCH_BROADCASTER_ID` | same value already set on your `email-proxy` worker for VIP checks |
    | `TWITCH_EVENTSUB_SECRET` | any long random string you invent |
-   | `TWITCH_REWARD_ID` | from step 3 |
    | `OAUTH_STATE_SECRET` | any long random string you invent |
    | `FIREBASE_PROJECT_ID` | your `truebeast-cards` project ID |
    | `FIREBASE_SERVICE_ACCOUNT_EMAIL` | `client_email` from the service account JSON |
    | `FIREBASE_SERVICE_ACCOUNT_KEY` | `private_key` from the service account JSON (keep the `\n`s) |
    | `WORKER_ORIGIN` | the worker's own URL from step 3 (not a secret, plain variable) |
 
-   `TWITCH_CARDS_REFRESH_TOKEN` is set in step 5, below — deploy without it first.
+   `TWITCH_REWARD_ID` and `TWITCH_CARDS_REFRESH_TOKEN` are set in step 5, below — deploy without them first.
 5. Worker → **Settings → Triggers → Cron Triggers → Add** → schedule
    `0 */6 * * *` (keeps the EventSub subscription alive automatically).
 
@@ -119,13 +114,14 @@ Visit `<your-worker-url>/oauth/start` in a browser **while logged into Twitch as
 the broadcaster** and approve the request. Only the broadcaster can authorize
 this specific event type — that's a Twitch platform rule, not a bug here.
 
-The callback page shows you a refresh token. Run:
-```bash
-wrangler secret put TWITCH_CARDS_REFRESH_TOKEN
-```
-and paste it in. Then visit `/oauth/start` **one more time** — now that the
-refresh token secret exists, the callback page also automatically creates the
-EventSub subscription and shows you the result.
+The callback page shows you two things:
+1. A **refresh token** — save it as the `TWITCH_CARDS_REFRESH_TOKEN` secret.
+2. A **list of your custom rewards with their IDs** — find "Open a Card Pack"
+   in the list and save its `id` as the `TWITCH_REWARD_ID` secret.
+
+Once both of those secrets are saved, visit `/oauth/start` **one more time** —
+now that both exist, the callback page automatically creates the EventSub
+subscription and shows you the result.
 
 (The cron trigger in `wrangler.toml` re-checks this subscription every 6 hours
 and recreates it automatically if Twitch ever revokes it, so this is truly
