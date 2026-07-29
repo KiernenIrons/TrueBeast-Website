@@ -22,7 +22,7 @@ export default function CardsLeaderboard() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getLeaderboard(sortBy, 100).then((data) => {
+    getLeaderboard(sortBy, 50).then((data) => {
       if (!cancelled) {
         setEntries(data);
         setLoading(false);

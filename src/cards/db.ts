@@ -44,13 +44,26 @@ export function subscribeToPackEvents(sinceIso: string, onEvent: (event: PackEve
 
 export type LeaderboardSort = 'totalCards' | 'totalValue';
 
+// Short in-memory cache so rapid re-renders / sort-tab toggles within the same
+// tab don't each re-spend a Firestore read quota -- this project is separate
+// from the Discord bot's Firebase project, but reads still count against this
+// project's own Spark-plan daily quota, so it's worth trimming for free.
+const CACHE_TTL_MS = 20_000;
+const leaderboardCache = new Map<string, { data: UserCollection[]; expiresAt: number }>();
+
 export async function getLeaderboard(sortBy: LeaderboardSort = 'totalValue', limitN = 50): Promise<UserCollection[]> {
+  const cacheKey = `${sortBy}:${limitN}`;
+  const cached = leaderboardCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+
   const db = getCardsDb();
   if (!db) return [];
   try {
     const q = query(collection(db, USER_COLLECTIONS_COL), orderBy(sortBy, 'desc'), limit(limitN));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => d.data() as UserCollection);
+    const data = snap.docs.map((d) => d.data() as UserCollection);
+    leaderboardCache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+    return data;
   } catch (err) {
     console.warn('[cards] getLeaderboard error:', (err as Error).message);
     return [];
