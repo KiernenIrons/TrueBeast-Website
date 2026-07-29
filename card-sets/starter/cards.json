@@ -1,0 +1,21 @@
+{
+  "id": "starter",
+  "name": "TrueBeast Starter Set",
+  "cards": [
+    { "id": "s-slime",        "name": "Sludge Pup",        "rarity": "common",    "emoji": "🟢", "gradientFrom": "#22c55e", "gradientTo": "#166534", "flavorText": "Found lurking near every spawn point." },
+    { "id": "s-crab",         "name": "Snap Crab",         "rarity": "common",    "emoji": "🦀", "gradientFrom": "#f97316", "gradientTo": "#7c2d12", "flavorText": "Pinches first, asks questions never." },
+    { "id": "s-bat",          "name": "Cave Flit",         "rarity": "common",    "emoji": "🦇", "gradientFrom": "#6b7280", "gradientTo": "#111827", "flavorText": "Startles easily. Startles you more." },
+    { "id": "s-mushroom",     "name": "Spore Walker",      "rarity": "common",    "emoji": "🍄", "gradientFrom": "#ef4444", "gradientTo": "#7f1d1d", "flavorText": "Do not touch the caps." },
+    { "id": "s-fish",         "name": "Glimmer Carp",      "rarity": "common",    "emoji": "🐟", "gradientFrom": "#38bdf8", "gradientTo": "#0c4a6e", "flavorText": "Common in every stream, apparently." },
+    { "id": "s-wolf",         "name": "Ember Wolf",        "rarity": "uncommon",  "emoji": "🐺", "gradientFrom": "#fb923c", "gradientTo": "#9a3412", "flavorText": "Runs with the pack, howls alone." },
+    { "id": "s-owl",          "name": "Nightglass Owl",    "rarity": "uncommon",  "emoji": "🦉", "gradientFrom": "#818cf8", "gradientTo": "#3730a3", "flavorText": "Sees everything. Judges everything." },
+    { "id": "s-spider",       "name": "Web Warden",        "rarity": "uncommon",  "emoji": "🕷️", "gradientFrom": "#a78bfa", "gradientTo": "#4c1d95", "flavorText": "Eight legs, zero chill." },
+    { "id": "s-turtle",       "name": "Shellback Titan",   "rarity": "uncommon",  "emoji": "🐢", "gradientFrom": "#34d399", "gradientTo": "#065f46", "flavorText": "Slow to move, impossible to knock down." },
+    { "id": "s-fox",          "name": "Prism Fox",         "rarity": "rare",      "emoji": "🦊", "gradientFrom": "#fb7185", "gradientTo": "#9f1239", "flavorText": "Its coat shifts color when it's excited." },
+    { "id": "s-shark",        "name": "Ridgefin Shark",    "rarity": "rare",      "emoji": "🦈", "gradientFrom": "#22d3ee", "gradientTo": "#155e75", "flavorText": "Apex predator, terrible tipper." },
+    { "id": "s-eagle",        "name": "Stormcrest Eagle",  "rarity": "rare",      "emoji": "🦅", "gradientFrom": "#facc15", "gradientTo": "#854d0e", "flavorText": "Rides the thunderheads for fun." },
+    { "id": "s-dragon",       "name": "Ashfall Wyrm",      "rarity": "epic",      "emoji": "🐉", "gradientFrom": "#f43f5e", "gradientTo": "#450a0a", "flavorText": "Legends say it sleeps under the map's spawn." },
+    { "id": "s-phoenix",      "name": "Solstice Phoenix",  "rarity": "epic",      "emoji": "🔥", "gradientFrom": "#fb923c", "gradientTo": "#7c2d12", "flavorText": "Burns out. Comes back better." },
+    { "id": "s-beast",        "name": "TrueBeast",         "rarity": "legendary", "emoji": "👑", "gradientFrom": "#4ade80", "gradientTo": "#052e16", "flavorText": "The one behind the camera. Extremely rare pull." }
+  ]
+}

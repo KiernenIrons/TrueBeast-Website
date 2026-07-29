@@ -1,0 +1,183 @@
+# Trading Card Game — Setup
+
+A Twitch channel-points redeem ("Open a Card Pack") that draws cards server-side,
+writes them live to Firestore, plays a pack-opening animation on an OBS overlay,
+and shows a public leaderboard/collection browser at `truebeast.io/cards`.
+
+Everything you'd tune day-to-day (pack size, reveal timing, rarity odds, which
+card set is active) lives in **`src/cards/config.ts`** — no other file needs
+touching for that. This doc is the one-time infrastructure setup.
+
+If you're a **different streamer forking this repo** to run your own TCG, skip to
+["Running your own instance"](#running-your-own-instance-other-streamers) at the bottom first.
+
+---
+
+## 1. Twitch Developer Console app
+
+If you already have a Twitch app registered (TrueBeast's does, for the VIP-role
+Twitch-sub check in `cloudflare-worker/email-proxy.js`), you can reuse the same
+Client ID/Secret — no need to register a second app. Otherwise:
+
+1. Go to https://dev.twitch.tv/console/apps → **Register Your Application**
+2. Name: anything (e.g. "TrueBeast Cards"). OAuth Redirect URL: leave blank for
+   now — you'll add the real one in step 4 once the Worker is deployed.
+3. Category: "Game Integration". Save, then copy the **Client ID** and generate
+   a **Client Secret**.
+
+## 2. Firebase project (dedicated — separate from `truebeast-support`)
+
+1. https://console.firebase.google.com → **Create a project** → name it
+   `truebeast-cards` (or similar) → disable Analytics → Create.
+2. **Build → Firestore Database → Create database** → production mode → pick a
+   region → Enable.
+3. **Rules** tab → paste:
+
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /packEvents/{eventId} {
+         allow read:  if true;   // public — overlay + library read live
+         allow write: if false;  // server-only, via Worker's service account
+       }
+       match /userCollections/{docId} {
+         allow read:  if true;   // public — leaderboard + profile pages
+         allow write: if false;  // server-only
+       }
+       match /redemptions/{redemptionId} {
+         allow read, write: if false; // idempotency markers, admin-only
+       }
+     }
+   }
+   ```
+
+   → **Publish**.
+4. **Project Settings** (gear icon) → **Your apps** → Web icon (`</>`) → register
+   an app → copy the config values into `CARDS_FIREBASE_CONFIG` in
+   `src/cards/config.ts`.
+5. **Project Settings → Service Accounts → Generate new private key** → downloads
+   a JSON file. You'll need its `client_email` and `private_key` fields for the
+   Worker secrets in step 4 below.
+
+## 3. Create the Channel Points reward
+
+1. Twitch Creator Dashboard → **Viewer Rewards → Channel Points → Manage Rewards**
+   → **Add New Custom Reward**. Title it exactly what `CARDS_CONFIG.rewardName`
+   says (default: "Open a Card Pack"), set a cost/image, save.
+2. Get its **Reward ID** (needed for the Worker's `TWITCH_REWARD_ID` secret).
+   Easiest way — with your Client ID and an app access token:
+   ```
+   curl -X POST 'https://id.twitch.tv/oauth2/token' \
+     -d 'client_id=YOUR_CLIENT_ID&client_secret=YOUR_CLIENT_SECRET&grant_type=client_credentials'
+   # copy the access_token, then:
+   curl -H 'Authorization: Bearer APP_ACCESS_TOKEN' -H 'Client-Id: YOUR_CLIENT_ID' \
+     'https://api.twitch.tv/helix/channel_points/custom_rewards?broadcaster_id=YOUR_BROADCASTER_ID'
+   ```
+   Find your reward in the response `data[]` and copy its `id`.
+
+## 4. Deploy the Cloudflare Worker
+
+```bash
+cd cloudflare-worker/cards-worker
+wrangler deploy
+```
+
+Then set every secret (`wrangler secret put NAME`, paste the value when prompted):
+
+| Secret | Value |
+|---|---|
+| `TWITCH_CLIENT_ID` | from step 1 |
+| `TWITCH_CLIENT_SECRET` | from step 1 |
+| `TWITCH_EVENTSUB_SECRET` | any long random string you invent |
+| `TWITCH_REWARD_ID` | from step 3 |
+| `OAUTH_STATE_SECRET` | any long random string you invent |
+| `FIREBASE_PROJECT_ID` | your `truebeast-cards` project ID |
+| `FIREBASE_SERVICE_ACCOUNT_EMAIL` | `client_email` from the service account JSON |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | `private_key` from the service account JSON (keep the `\n`s) |
+
+`TWITCH_CARDS_REFRESH_TOKEN` is set in step 5, below — deploy without it first.
+
+After the first `wrangler deploy`, note the worker's URL (shown in the deploy
+output, e.g. `https://truebeast-cards.your-subdomain.workers.dev`). Put it in
+`wrangler.toml`'s `[vars] WORKER_ORIGIN` and redeploy.
+
+Also set that same URL + `/oauth/callback` as an **OAuth Redirect URL** on your
+Twitch app (dev console → your app → Manage → OAuth Redirect URLs).
+
+## 5. One-time broadcaster authorization
+
+Visit `<your-worker-url>/oauth/start` in a browser **while logged into Twitch as
+the broadcaster** and approve the request. Only the broadcaster can authorize
+this specific event type — that's a Twitch platform rule, not a bug here.
+
+The callback page shows you a refresh token. Run:
+```bash
+wrangler secret put TWITCH_CARDS_REFRESH_TOKEN
+```
+and paste it in. Then visit `/oauth/start` **one more time** — now that the
+refresh token secret exists, the callback page also automatically creates the
+EventSub subscription and shows you the result.
+
+(The cron trigger in `wrangler.toml` re-checks this subscription every 6 hours
+and recreates it automatically if Twitch ever revokes it, so this is truly
+one-time.)
+
+## 6. OBS overlay
+
+Add a **Browser Source** in OBS pointing at:
+```
+https://truebeast.io/overlay/cards
+```
+Transparent background, no interaction needed — it plays automatically the
+instant someone redeems, straight from Firestore's realtime listener (no
+extra polling or websocket infra involved).
+
+## 7. Twitch Panel (ships today)
+
+Creator Dashboard → your channel page → **Edit Panels → Add Panel → Image** →
+upload any image, set the link to `https://truebeast.io/cards`. This is a
+static image + single link — Twitch doesn't support per-row click targets in a
+plain Panel. Real click-through-to-profile interactivity needs a Panel
+Extension (next section).
+
+## 8. Fast-follow: interactive Panel Extension
+
+For "click a name in the panel → jump straight to their profile," build a
+Twitch Panel Extension (a small standalone web app Twitch embeds in an iframe)
+and submit it for review — Twitch review is required before real viewers (not
+just your own whitelisted test accounts) can see it, so submit early and let
+it run in the background while everything else above is already live. Ask
+whoever picks this up next to scaffold it with the [Developer Rig](https://dev.twitch.tv/docs/extensions/getting-started/)
+and point its data reads at the same public `userCollections`/leaderboard
+Firestore query already used by `src/pages/cards/Leaderboard.tsx`.
+
+---
+
+## Customizing (no infra changes needed)
+
+All of this lives in `src/cards/config.ts`:
+- `packSize` — cards per pack
+- `revealDurationSeconds` — how long each card stays on screen during the overlay reveal
+- `RARITIES` — rarity tiers, draw-odds `weight`, and leaderboard `value`
+- `activeCardSet` — which folder under `card-sets/` this instance uses
+
+To add your own cards, copy `card-sets/starter/cards.json`'s shape into a new
+folder (e.g. `card-sets/my-set/cards.json`) and point `activeCardSet` at it.
+
+## Running your own instance (other streamers)
+
+Twitch requires every broadcaster to individually authorize EventSub for their
+own channel — there's no way around that, so there's no shared multi-tenant
+service to sign up for here. Instead:
+
+1. Fork this repo.
+2. Follow steps 1–5 above with **your own** Twitch app, Firebase project, and
+   Cloudflare account (all free tiers).
+3. Either pick one of the premade folders under `card-sets/` or author your own
+   following the same JSON shape, then point `CARDS_CONFIG.activeCardSet` at it.
+4. Deploy the site (same GitHub Pages + Cloudflare setup already documented for
+   the main `src/config.ts` Firebase section).
+
+Nothing above requires the original TrueBeast Firebase/Twitch/Cloudflare
+accounts — every streamer's instance is fully independent.

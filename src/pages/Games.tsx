@@ -13,6 +13,17 @@ const GAMES = [
     tags: ['Idle', 'Clicker', 'Leaderboard', 'Prestige'],
     features: ['15 Buildings', '180+ Upgrades', '300+ Achievements', 'Global Leaderboard'],
   },
+  {
+    id: 'cards',
+    name: 'Trading Cards',
+    emoji: '🃏',
+    description: 'Redeem "Open a Card Pack" with channel points live on stream to pull cards. Every pack lands here instantly — browse the leaderboard and everyone\'s full collection.',
+    url: '/cards',
+    gradient: 'from-emerald-600 via-teal-500 to-green-400',
+    bgGlow: 'rgba(52,211,153,0.15)',
+    tags: ['Live', 'Collectible', 'Leaderboard', 'Channel Points'],
+    features: ['Live Pack Openings', 'Public Collections', 'Rarity Tiers', 'Global Leaderboard'],
+  },
 ];
 
 export default function Games() {

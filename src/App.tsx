@@ -19,6 +19,9 @@ const SocialsRotator = lazy(() => import('./pages/tools/SocialsRotator'))
 const CloutClicker = lazy(() => import('./pages/games/CloutClicker'))
 const SubmitReview = lazy(() => import('./pages/SubmitReview'))
 const Schedule = lazy(() => import('./pages/Schedule'))
+const CardsLeaderboard = lazy(() => import('./pages/cards/Leaderboard'))
+const CardsProfile = lazy(() => import('./pages/cards/Profile'))
+const CardsOverlay = lazy(() => import('./pages/overlay/CardsOverlay'))
 
 function LoadingFallback() {
   return (
@@ -51,6 +54,9 @@ export default function App() {
         <Route path="/games/clout-clicker" element={<CloutClicker />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/schedule" element={<Schedule />} />
+        <Route path="/cards" element={<CardsLeaderboard />} />
+        <Route path="/cards/u/:login" element={<CardsProfile />} />
+        <Route path="/overlay/cards" element={<CardsOverlay />} />
       </Routes>
     </Suspense>
   )

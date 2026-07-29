@@ -1,0 +1,14 @@
+name = "truebeast-cards"
+main = "index.js"
+compatibility_date = "2024-11-01"
+
+# Re-checks the EventSub subscription every 6 hours and recreates it if Twitch
+# ever revoked it. Cheap and infrequent -- redemptions themselves are handled
+# instantly by the /eventsub webhook route, not by this cron.
+[triggers]
+crons = ["0 */6 * * *"]
+
+# Set to this worker's own deployed URL once known (e.g. after first deploy),
+# then redeploy. Plain var, not a secret -- see index.js header comment.
+[vars]
+WORKER_ORIGIN = "https://truebeast-cards.YOUR-SUBDOMAIN.workers.dev"
