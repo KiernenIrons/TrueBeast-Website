@@ -112,3 +112,63 @@ body {
   color: #666;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+.announcement {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px 16px;
+  text-align: center;
+  animation: announcement-pop 0.35s ease-out;
+}
+
+.announcement-emoji {
+  font-size: 36px;
+  animation: announcement-bob 1.2s ease-in-out infinite;
+}
+
+.announcement-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #fff;
+}
+
+.rarity-common {
+  color: #9ca3af;
+}
+.rarity-uncommon {
+  color: #34d399;
+}
+.rarity-rare {
+  color: #38bdf8;
+}
+.rarity-epic {
+  color: #a78bfa;
+}
+.rarity-legendary {
+  color: #facc15;
+}
+
+@keyframes announcement-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes announcement-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
