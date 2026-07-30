@@ -3172,12 +3172,12 @@ function CardMakerTab() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Emoji (used as placeholder art if no image is set below)</label>
+                  <label className="text-xs text-gray-400 mb-1 block">Emoji (shown centered -- on top of the image below too, if you set one)</label>
                   <input value={form.emoji} onChange={(e) => setForm((f) => ({ ...f, emoji: e.target.value }))}
                     className="w-full glass rounded-xl px-3 py-2 text-sm text-white" placeholder="🐺" maxLength={4} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Card Art (optional -- overrides the emoji above)</label>
+                  <label className="text-xs text-gray-400 mb-1 block">Card Art (optional -- layers behind the emoji above, not instead of it)</label>
                   <div className="flex items-center gap-2">
                     <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
                       className="flex-1 glass rounded-xl px-3 py-2 text-sm text-white" placeholder="https://... or upload below" />

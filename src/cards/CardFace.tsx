@@ -42,11 +42,15 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
         {rarity.name}
       </div>
 
-      <div className="flex-1 flex items-center justify-center" style={{ fontSize: dims.emoji }}>
-        {card.imageUrl ? (
-          <img src={card.imageUrl} alt={card.name} className="w-full h-full object-cover" />
-        ) : (
-          <span>{card.emoji}</span>
+      <div className="flex-1 relative flex items-center justify-center" style={{ fontSize: dims.emoji }}>
+        {card.imageUrl && <img src={card.imageUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />}
+        {card.emoji && (
+          <span
+            className="relative z-[1]"
+            style={card.imageUrl ? { textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' } : undefined}
+          >
+            {card.emoji}
+          </span>
         )}
       </div>
 
