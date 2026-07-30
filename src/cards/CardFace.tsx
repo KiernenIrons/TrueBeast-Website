@@ -28,7 +28,7 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
 
   return (
     <div
-      className="relative rounded-2xl overflow-hidden flex flex-col items-center justify-between select-none"
+      className="relative rounded-2xl overflow-hidden select-none"
       style={{
         width: dims.w,
         height: dims.h,
@@ -37,6 +37,41 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
         boxShadow: `0 0 24px ${rarity.glow}, 0 8px 24px rgba(0,0,0,0.35)`,
       }}
     >
+      {/* Art is now full-bleed (the whole card, edge to edge) instead of
+          being confined to the area above the name strip. That confined
+          area had a shorter aspect ratio than the Card Maker's crop editor
+          assumes, so object-cover was silently re-cropping whatever was
+          framed there -- usually reading as "the image sits higher than the
+          preview". Full-bleed art means the crop editor's frame (which
+          already matches the card's own aspect ratio) IS the final crop,
+          with the name shown over a scrim at the bottom instead of in its
+          own reserved strip. */}
+      {showImage && (
+        <img
+          src={card.imageUrl}
+          alt={card.name}
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={() => {
+            console.warn(`[cards] card "${card.id}" image failed to load, falling back to emoji: ${card.imageUrl}`);
+            setImgFailed(true);
+          }}
+        />
+      )}
+
+      {card.emoji ? (
+        <div className="absolute inset-0 flex items-center justify-center" style={{ fontSize: dims.emoji }}>
+          <span style={showImage ? { textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' } : undefined}>
+            {card.emoji}
+          </span>
+        </div>
+      ) : (
+        !showImage && (
+          <div className="absolute inset-0 flex items-center justify-center" style={{ fontSize: dims.emoji }}>
+            <span>❓</span>
+          </div>
+        )
+      )}
+
       {count !== undefined && count > 1 && (
         <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 text-[11px] font-bold text-white z-10">
           ×{count}
@@ -50,38 +85,10 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
         {rarity.name}
       </div>
 
-      {/* w-full is required here: the outer card uses items-center (for the
-          fixed-height header/name rows), which shrinks a flex child's cross
-          axis to its in-flow content's width -- since the emoji/text span is
-          the only in-flow content (the image is position:absolute, so it
-          doesn't count), this div would otherwise shrink to exactly the
-          emoji's width, squeezing the "w-full h-full" image into that same
-          narrow column instead of the full card. */}
-      <div className="flex-1 relative flex items-center justify-center w-full" style={{ fontSize: dims.emoji }}>
-        {card.imageUrl && !imgFailed && (
-          <img
-            src={card.imageUrl}
-            alt={card.name}
-            className="absolute inset-0 w-full h-full object-cover"
-            onError={() => {
-              console.warn(`[cards] card "${card.id}" image failed to load, falling back to emoji: ${card.imageUrl}`);
-              setImgFailed(true);
-            }}
-          />
-        )}
-        {card.emoji ? (
-          <span
-            className="relative z-[1]"
-            style={showImage ? { textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' } : undefined}
-          >
-            {card.emoji}
-          </span>
-        ) : (
-          !showImage && <span className="relative z-[1]">❓</span>
-        )}
-      </div>
-
-      <div className="w-full px-3 pb-3 text-center">
+      <div
+        className="absolute bottom-0 left-0 w-full px-3 pb-3 pt-6 text-center"
+        style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.75) 25%, transparent 100%)' }}
+      >
         <div className="font-bold text-white leading-tight" style={{ fontSize: dims.name }}>
           {card.name}
         </div>
