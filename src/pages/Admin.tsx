@@ -2784,6 +2784,41 @@ async function compressCanvasUnder(canvas: HTMLCanvasElement, maxBytes: number, 
  * preserve animation instead of collapsing it to one frame like canvas
  * export alone would.
  */
+// GIF only supports one all-or-nothing "transparent color" per frame (no
+// partial alpha channel like PNG) -- this sentinel chroma-key color is what
+// markTransparency below bakes every mostly-transparent pixel to, and what
+// the encoder is told (via its `transparent` option) to treat as see-through.
+// Kept as two representations of the same 0x00ff00 value: gif.js's type
+// signature wants the hex string form (it's parsed back to a number
+// internally via bitwise ops, which coerce a "0x..." string correctly).
+const GIF_TRANSPARENT_RGB: [number, number, number] = [0, 255, 0];
+const GIF_TRANSPARENT_HEX = '0x00ff00';
+
+/**
+ * Bakes a canvas's alpha channel down to GIF's binary transparency: any
+ * mostly-transparent pixel becomes the sentinel key color (and is later
+ * rendered see-through by the GIF encoder); everything else is forced fully
+ * opaque. Without this, a source GIF's transparency (or the padding added by
+ * zooming out below "cover") silently flattens to solid black on re-encode,
+ * since canvas alpha is otherwise dropped when quantizing to a GIF palette.
+ */
+function markTransparency(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) {
+      [data[i], data[i + 1], data[i + 2]] = GIF_TRANSPARENT_RGB;
+      data[i + 3] = 255;
+    } else {
+      data[i + 3] = 255;
+      if (data[i] === GIF_TRANSPARENT_RGB[0] && data[i + 1] === GIF_TRANSPARENT_RGB[1] && data[i + 2] === GIF_TRANSPARENT_RGB[2]) {
+        data[i + 2] = 1; // avoid false-flagging a genuinely-green opaque pixel
+      }
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
 async function buildAnimatedGifBlob(
   file: File,
   crop: { sx: number; sy: number; sW: number; sH: number },
@@ -2801,7 +2836,7 @@ async function buildAnimatedGifBlob(
   composite.height = parsed.lsd.height;
   const compositeCtx = composite.getContext('2d')!;
 
-  const encoder = new GIF({ workers: 2, quality: 10, width: targetW, height: targetH, workerScript: '/gif.worker.js' });
+  const encoder = new GIF({ workers: 2, quality: 10, width: targetW, height: targetH, workerScript: '/gif.worker.js', transparent: GIF_TRANSPARENT_HEX });
 
   for (const frame of frames) {
     const frameCanvas = document.createElement('canvas');
@@ -2816,7 +2851,9 @@ async function buildAnimatedGifBlob(
     const outCanvas = document.createElement('canvas');
     outCanvas.width = targetW;
     outCanvas.height = targetH;
-    outCanvas.getContext('2d')!.drawImage(composite, crop.sx, crop.sy, crop.sW, crop.sH, 0, 0, targetW, targetH);
+    const outCtx = outCanvas.getContext('2d')!;
+    outCtx.drawImage(composite, crop.sx, crop.sy, crop.sW, crop.sH, 0, 0, targetW, targetH);
+    markTransparency(outCtx, targetW, targetH);
     encoder.addFrame(outCanvas, { delay: Math.max(20, frame.delay * frameStride), copy: true });
 
     if (frame.disposalType === 2) {

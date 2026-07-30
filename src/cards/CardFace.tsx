@@ -50,7 +50,14 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
         {rarity.name}
       </div>
 
-      <div className="flex-1 relative flex items-center justify-center" style={{ fontSize: dims.emoji }}>
+      {/* w-full is required here: the outer card uses items-center (for the
+          fixed-height header/name rows), which shrinks a flex child's cross
+          axis to its in-flow content's width -- since the emoji/text span is
+          the only in-flow content (the image is position:absolute, so it
+          doesn't count), this div would otherwise shrink to exactly the
+          emoji's width, squeezing the "w-full h-full" image into that same
+          narrow column instead of the full card. */}
+      <div className="flex-1 relative flex items-center justify-center w-full" style={{ fontSize: dims.emoji }}>
         {card.imageUrl && !imgFailed && (
           <img
             src={card.imageUrl}
