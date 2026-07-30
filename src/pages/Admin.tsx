@@ -37,7 +37,7 @@ import { FirebaseDB, type CardSaveRecord, type AnnouncementHistoryRecord, type A
 import { SITE_CONFIG } from '@/config';
 import { UNICODE_EMOJI, emojiMatchesSearch } from '@/data/emojis';
 import CardFace from '@/cards/CardFace';
-import { RARITIES } from '@/cards/config';
+import { RARITIES, CARDS_WORKER_URL } from '@/cards/config';
 import type { CardDef, RarityId } from '@/cards/types';
 import { getCardCatalog, upsertCatalogCard, deleteCatalogCard, seedStarterCatalog } from '@/cards/db';
 
@@ -2706,6 +2706,7 @@ function drawMdLineUI(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 const EMPTY_CARD_FORM = { id: '', name: '', rarity: 'common' as RarityId, emoji: '', imageUrl: '', gradientFrom: '#22c55e', gradientTo: '#052e16', flavorText: '' };
 
 function CardMakerTab() {
+  const { user } = useAuth();
   const [cards, setCards] = useState<CardDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -2714,12 +2715,55 @@ function CardMakerTab() {
   const [form, setForm] = useState(EMPTY_CARD_FORM);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [manageLogin, setManageLogin] = useState('');
+  const [manageCardId, setManageCardId] = useState('');
+  const [manageQty, setManageQty] = useState(1);
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageResult, setManageResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleAdjustCollection = async (sign: 1 | -1) => {
+    const login = manageLogin.trim().toLowerCase();
+    const cardId = manageCardId || cards[0]?.id;
+    const qty = Math.max(1, Math.floor(manageQty) || 1);
+    if (!login || !cardId) { setManageResult({ ok: false, message: 'Enter a Twitch username and pick a card' }); return; }
+
+    setManageBusy(true);
+    setManageResult(null);
+    try {
+      const idToken = await user?.getIdToken();
+      const res = await fetch(`${CARDS_WORKER_URL}/admin/adjust-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ twitchLogin: login, cardId, delta: sign * qty }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Request failed');
+      const cardName = cards.find((c) => c.id === cardId)?.name || cardId;
+      setManageResult({
+        ok: true,
+        message: data.unchanged
+          ? `${data.twitchUserDisplayName} already has 0 of "${cardName}" -- nothing to remove`
+          : `${data.twitchUserDisplayName} now has ${data.newCount}x "${cardName}"`,
+      });
+    } catch (err: any) {
+      setManageResult({ ok: false, message: err?.message ?? 'Request failed' });
+    } finally {
+      setManageBusy(false);
+    }
+  };
 
   const handleImageUpload = async (file: File) => {
     setUploading(true);
     try {
-      const url = await FirebaseDB.uploadImage(file, `card-art/${Date.now()}-${file.name}`);
-      setForm((f) => ({ ...f, imageUrl: url }));
+      const idToken = await user?.getIdToken();
+      const res = await fetch(`${CARDS_WORKER_URL}/admin/upload-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type, Authorization: `Bearer ${idToken}` },
+        body: file,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed');
+      setForm((f) => ({ ...f, imageUrl: data.url }));
     } catch (err: any) {
       setFeedback({ type: 'error', message: err?.message ?? 'Image upload failed' });
     } finally {
@@ -2847,6 +2891,32 @@ function CardMakerTab() {
 
       {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
 
+      <GlassCard className="p-5 space-y-3">
+        <h4 className="text-sm font-bold text-white">Manage a Viewer's Cards</h4>
+        <p className="text-xs text-gray-500">Add or remove copies of a card from one viewer's collection -- for correcting mistakes. Can't go below 0.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={manageLogin} onChange={(e) => setManageLogin(e.target.value)}
+            className="glass rounded-lg px-3 py-2 text-sm text-white w-full sm:w-48" placeholder="Twitch username" />
+          <select value={manageCardId || cards[0]?.id || ''} onChange={(e) => setManageCardId(e.target.value)}
+            className="glass rounded-lg px-3 py-2 text-sm text-white bg-transparent flex-1 min-w-[140px]">
+            {cards.map((c) => <option key={c.id} value={c.id} className="bg-[#0f0f16]">{c.name}{c.active === false ? ' (retired)' : ''}</option>)}
+          </select>
+          <input type="number" min={1} value={manageQty} onChange={(e) => setManageQty(Number(e.target.value))}
+            className="glass rounded-lg px-3 py-2 text-sm text-white w-20" />
+          <button type="button" onClick={() => handleAdjustCollection(1)} disabled={manageBusy}
+            className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
+            + Add
+          </button>
+          <button type="button" onClick={() => handleAdjustCollection(-1)} disabled={manageBusy}
+            className="px-3 py-2 rounded-lg text-xs font-bold bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors cursor-pointer disabled:opacity-50">
+            − Remove
+          </button>
+        </div>
+        {manageResult && (
+          <p className={`text-xs ${manageResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>{manageResult.message}</p>
+        )}
+      </GlassCard>
+
       {loading ? (
         <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading cards...</p></GlassCard>
       ) : cards.length === 0 ? (
@@ -2924,13 +2994,14 @@ function CardMakerTab() {
                   <label className="text-xs text-gray-400 mb-1 block">Card Art (optional -- overrides the emoji above)</label>
                   <div className="flex items-center gap-2">
                     <input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-                      className="flex-1 glass rounded-xl px-3 py-2 text-sm text-white" placeholder="https://... or upload a file" />
+                      className="flex-1 glass rounded-xl px-3 py-2 text-sm text-white" placeholder="https://... or upload below" />
                     <label className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${uploading ? 'bg-white/5 text-gray-500' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>
                       {uploading ? 'Uploading...' : 'Upload'}
                       <input type="file" accept="image/*" className="hidden" disabled={uploading}
                         onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageUpload(file); e.target.value = ''; }} />
                     </label>
                   </div>
+                  <p className="text-[10px] text-gray-600 mt-1">Uploaded images are stored permanently in Cloudflare R2 -- not a link to an external site that could break.</p>
                   {form.imageUrl && (
                     <button type="button" onClick={() => setForm((f) => ({ ...f, imageUrl: '' }))}
                       className="text-[10px] text-gray-500 hover:text-red-400 mt-1 cursor-pointer">

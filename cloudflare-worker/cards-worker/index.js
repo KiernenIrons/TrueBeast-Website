@@ -7,10 +7,15 @@
  * website update live. See ../../CARDS_SETUP.md for full setup steps.
  *
  * Routes:
- *   POST /eventsub        — Twitch EventSub webhook (verification + notifications)
- *   GET  /oauth/start      — one-time broadcaster OAuth consent (channel:manage:redemptions)
- *   GET  /oauth/callback   — OAuth callback; exchanges code, creates the subscription
- *   GET  /health           — uptime check
+ *   POST /eventsub              — Twitch EventSub webhook (verification + notifications)
+ *   GET  /oauth/start           — one-time broadcaster OAuth consent (channel:manage:redemptions)
+ *   GET  /oauth/callback        — OAuth callback; exchanges code, creates the subscription
+ *   GET  /health                — uptime check
+ *   POST /admin/upload-image    — admin-only (super admin's Firebase ID token): uploads card
+ *                                art to R2, returns its public URL. Called from the website's
+ *                                Card Maker tab.
+ *   POST /admin/adjust-card     — admin-only: add/remove copies of a card from one viewer's
+ *                                collection (manual fixes). Called from the same tab.
  *
  * Scheduled (Cron Trigger, see wrangler.toml):
  *   Re-checks the EventSub subscription is still `enabled`; recreates it (using
@@ -38,6 +43,15 @@
  *                                https://truebeast-cards.<subdomain>.workers.dev
  *                                (used by the cron job, which has no incoming
  *                                `request` to read an origin from)
+ *   CARD_ART_PUBLIC_BASE_URL   — the public R2.dev URL for the CARD_ART_BUCKET
+ *                                below (e.g. "https://pub-xxxx.r2.dev"), no
+ *                                trailing slash
+ *
+ * Required binding (Worker → Settings → Bindings → Add → R2 Bucket, NOT a
+ * secret/variable -- create the bucket first under Cloudflare → R2, enable
+ * its public access there to get the CARD_ART_PUBLIC_BASE_URL above):
+ *   CARD_ART_BUCKET            — bind it to your R2 bucket, variable name
+ *                                must be exactly CARD_ART_BUCKET
  *
  * Note: the EventSub subscription itself is created with an APP access token
  * (Twitch requires this for webhook-transport subscriptions), never a user
@@ -115,6 +129,57 @@ const CARD_SET = [
 const CATALOG_PROJECT_ID = 'truebeast-support';
 const CATALOG_API_KEY = 'AIzaSyClA0dmz4D3TDbhwvWmUeVinW6A18NQUUU';
 const CATALOG_CACHE_MS = 60_000;
+
+// Only this email may use the /admin/* routes below (manual collection
+// fixes). Matches SITE_CONFIG.email.adminEmail in src/config.ts.
+const SUPER_ADMIN_EMAIL = 'kiernenyt@gmail.com';
+const FIREBASE_JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+
+function base64UrlDecode(input) {
+  return atob(input.replace(/-/g, '+').replace(/_/g, '/'));
+}
+
+/**
+ * Verifies a Firebase Auth ID token from the MAIN site's login (truebeast-support
+ * project) without needing any SDK -- just checks the RS256 signature against
+ * Google's published JWKs and validates the standard claims. This is what lets
+ * the admin-only /admin/* routes below trust "this request really came from
+ * Kiernen's authenticated browser session," even though that session belongs
+ * to a different Firebase project than the one this worker otherwise writes to.
+ */
+async function verifyFirebaseIdToken(idToken) {
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw new Error('Malformed token');
+  const [headerB64, payloadB64, sigB64] = parts;
+  const header = JSON.parse(base64UrlDecode(headerB64));
+  const payload = JSON.parse(base64UrlDecode(payloadB64));
+
+  if (payload.aud !== CATALOG_PROJECT_ID) throw new Error('Token is for the wrong Firebase project');
+  if (payload.iss !== `https://securetoken.google.com/${CATALOG_PROJECT_ID}`) throw new Error('Unexpected token issuer');
+  if (!payload.exp || payload.exp * 1000 < Date.now()) throw new Error('Token expired');
+
+  const jwkRes = await fetch(FIREBASE_JWK_URL);
+  const jwkData = await jwkRes.json();
+  const jwk = (jwkData.keys || []).find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error('Signing key not found');
+
+  const cryptoKey = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const signedData = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const signatureBytes = Uint8Array.from(base64UrlDecode(sigB64), (c) => c.charCodeAt(0));
+  const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', cryptoKey, signatureBytes, signedData);
+  if (!valid) throw new Error('Invalid token signature');
+
+  return payload;
+}
+
+async function requireSuperAdmin(request) {
+  const auth = request.headers.get('Authorization') || '';
+  const idToken = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!idToken) throw new Error('Missing Authorization header');
+  const payload = await verifyFirebaseIdToken(idToken);
+  if (payload.email !== SUPER_ADMIN_EMAIL) throw new Error('Not authorized');
+  return payload;
+}
 let cachedCatalog = null;
 let cachedCatalogAt = 0;
 
@@ -318,6 +383,55 @@ async function incrementUserCollection(env, token, { channelId, twitchUserId, tw
     body: JSON.stringify({ writes: [write] }),
   });
   if (!res.ok) throw new Error('incrementUserCollection failed: ' + (await res.text()));
+}
+
+/** Finds an existing userCollections doc for this channel + Twitch login, or null. */
+async function findUserCollectionByLogin(env, token, login) {
+  const res = await fetch(`${firestoreBaseUrl(env)}:runQuery`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: 'userCollections' }],
+        where: {
+          compositeFilter: {
+            op: 'AND',
+            filters: [
+              { fieldFilter: { field: { fieldPath: 'channelId' }, op: 'EQUAL', value: fsString(env.TWITCH_BROADCASTER_ID) } },
+              { fieldFilter: { field: { fieldPath: 'twitchUserLogin' }, op: 'EQUAL', value: fsString(login.toLowerCase()) } },
+            ],
+          },
+        },
+        limit: 1,
+      },
+    }),
+  });
+  const rows = await res.json();
+  const match = (rows || []).find((r) => r.document);
+  if (!match) return null;
+  const fields = match.document.fields || {};
+  const cards = {};
+  for (const [k, v] of Object.entries(fields.cards?.mapValue?.fields || {})) {
+    cards[k] = firestoreValueToJs(v);
+  }
+  return {
+    twitchUserId: firestoreValueToJs(fields.twitchUserId),
+    twitchUserLogin: firestoreValueToJs(fields.twitchUserLogin),
+    twitchUserDisplayName: firestoreValueToJs(fields.twitchUserDisplayName),
+    cards,
+  };
+}
+
+/** Resolves a Twitch login to its numeric user ID + display name via the Helix API (app token). */
+async function resolveTwitchUserByLogin(env, login) {
+  const appToken = await getTwitchAppToken(env);
+  const res = await fetch(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(login)}`, {
+    headers: { Authorization: `Bearer ${appToken}`, 'Client-Id': env.TWITCH_CLIENT_ID },
+  });
+  const data = await res.json();
+  const user = (data.data || [])[0];
+  if (!user) return null;
+  return { twitchUserId: user.id, twitchUserLogin: user.login, twitchUserDisplayName: user.display_name };
 }
 
 // ── Twitch helpers ───────────────────────────────────────────────────────────
@@ -529,9 +643,129 @@ async function handleOAuthCallback(request, env) {
   );
 }
 
+/** Direct doc GET (public read) so a retired card's rarity can still be looked up for value math. */
+async function fetchCardRarity(cardId) {
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${CATALOG_PROJECT_ID}/databases/(default)/documents/cardCatalog/${encodeURIComponent(cardId)}?key=${CATALOG_API_KEY}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const doc = await res.json();
+    return firestoreValueToJs(doc.fields?.rarity) || 'common';
+  } catch {
+    return null;
+  }
+}
+
+// Admin-only route (see requireSuperAdmin): manually adjust how many copies of
+// a card one viewer owns -- for fixing mistakes, since the game itself never
+// exposes a way to add/remove cards outside of a real Twitch redemption.
+async function handleAdjustCard(request, env, corsHeaders) {
+  try {
+    await requireSuperAdmin(request);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 401, corsHeaders);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+
+  const twitchLogin = (body.twitchLogin || '').trim().toLowerCase();
+  const cardId = (body.cardId || '').trim();
+  const delta = Number(body.delta);
+  if (!twitchLogin || !cardId || !Number.isInteger(delta) || delta === 0) {
+    return jsonResponse({ error: 'twitchLogin, cardId, and a non-zero integer delta are required' }, 400, corsHeaders);
+  }
+
+  const rarity = await fetchCardRarity(cardId);
+  if (!rarity) return jsonResponse({ error: `Unknown card ID "${cardId}"` }, 404, corsHeaders);
+
+  const token = await getGoogleAccessToken(env, 'https://www.googleapis.com/auth/datastore');
+
+  let target = await findUserCollectionByLogin(env, token, twitchLogin);
+  if (!target) {
+    const resolved = await resolveTwitchUserByLogin(env, twitchLogin);
+    if (!resolved) return jsonResponse({ error: `No Twitch user found for login "${twitchLogin}"` }, 404, corsHeaders);
+    target = { ...resolved, cards: {} };
+  }
+
+  const currentCount = target.cards[cardId] || 0;
+  const actualDelta = Math.max(-currentCount, delta); // never go negative
+  if (actualDelta === 0) {
+    return jsonResponse({ ok: true, unchanged: true, newCount: currentCount, twitchUserDisplayName: target.twitchUserDisplayName }, 200, corsHeaders);
+  }
+
+  const valueDelta = actualDelta * cardValue({ rarity });
+  await incrementUserCollection(env, token, {
+    channelId: env.TWITCH_BROADCASTER_ID,
+    twitchUserId: target.twitchUserId,
+    twitchUserLogin: target.twitchUserLogin,
+    twitchUserDisplayName: target.twitchUserDisplayName,
+    cardCounts: { [cardId]: actualDelta },
+    totalValueGained: valueDelta,
+  });
+
+  return jsonResponse(
+    { ok: true, newCount: currentCount + actualDelta, twitchUserDisplayName: target.twitchUserDisplayName },
+    200,
+    corsHeaders,
+  );
+}
+
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB
+
+// Admin-only route: uploads card art to R2 (Cloudflare's free-tier object
+// storage) and returns its permanent public URL. Used instead of Firebase
+// Storage, which requires the paid Blaze plan -- and instead of asking for a
+// pasted external link, which can rot if that host ever moves/deletes it.
+async function handleUploadImage(request, env, corsHeaders) {
+  try {
+    await requireSuperAdmin(request);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 401, corsHeaders);
+  }
+
+  if (!env.CARD_ART_BUCKET) return jsonResponse({ error: 'CARD_ART_BUCKET R2 binding not configured on this Worker' }, 500, corsHeaders);
+  if (!env.CARD_ART_PUBLIC_BASE_URL) return jsonResponse({ error: 'CARD_ART_PUBLIC_BASE_URL variable not set on this Worker' }, 500, corsHeaders);
+
+  const contentType = request.headers.get('Content-Type') || '';
+  if (!contentType.startsWith('image/')) return jsonResponse({ error: 'Only image uploads are allowed' }, 400, corsHeaders);
+
+  const body = await request.arrayBuffer();
+  if (body.byteLength === 0) return jsonResponse({ error: 'Empty file' }, 400, corsHeaders);
+  if (body.byteLength > MAX_UPLOAD_BYTES) return jsonResponse({ error: 'Image too large (max 5MB)' }, 400, corsHeaders);
+
+  const ext = (contentType.split('/')[1] || 'png').split(';')[0].replace(/[^a-z0-9]/gi, '') || 'png';
+  const key = `card-art/${Date.now()}-${crypto.randomUUID()}.${ext}`;
+
+  await env.CARD_ART_BUCKET.put(key, body, { httpMetadata: { contentType } });
+
+  const base = env.CARD_ART_PUBLIC_BASE_URL.replace(/\/+$/, '');
+  return jsonResponse({ ok: true, url: `${base}/${key}` }, 200, corsHeaders);
+}
+
+const ADMIN_ALLOWED_ORIGINS = ['https://truebeast.io', 'https://www.truebeast.io'];
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith('/admin/')) {
+      const origin = request.headers.get('Origin') || '';
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': ADMIN_ALLOWED_ORIGINS.includes(origin) ? origin : ADMIN_ALLOWED_ORIGINS[0],
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      };
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
+      if (url.pathname === '/admin/adjust-card' && request.method === 'POST') return handleAdjustCard(request, env, corsHeaders);
+      if (url.pathname === '/admin/upload-image' && request.method === 'POST') return handleUploadImage(request, env, corsHeaders);
+      return jsonResponse({ error: 'Not found' }, 404, corsHeaders);
+    }
+
     if (url.pathname === '/health') return jsonResponse({ ok: true });
     if (url.pathname === '/eventsub' && request.method === 'POST') return handleEventSub(request, env);
     if (url.pathname === '/oauth/start') return handleOAuthStart(request, env);

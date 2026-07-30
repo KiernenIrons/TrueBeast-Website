@@ -160,6 +160,37 @@ Firestore query already used by `src/pages/cards/Leaderboard.tsx`.
 
 ---
 
+## 9. Card Maker: image storage (Cloudflare R2)
+
+The Admin panel's Card Maker tab (`truebeast.io/admin` → Card Maker) lets you
+create/edit/retire cards and upload real card art, and lets you manually
+add/remove copies of a card from one viewer's collection (for fixing
+mistakes) — both routed through `cards-worker` so they're gated to only your
+login. Card art uploads use Cloudflare R2 (free tier, no card required) rather
+than Firebase Storage, which now requires the paid Blaze plan.
+
+1. Cloudflare dashboard → **R2 Object Storage** → **Create bucket** → name it
+   e.g. `truebeast-card-art`.
+2. Open the bucket → **Settings** → under **Public access**, enable the
+   **R2.dev subdomain** → copy the public URL it gives you (looks like
+   `https://pub-xxxxxxxxxxxx.r2.dev`).
+3. On the `truebeast-cards` Worker → **Settings → Bindings → Add → R2 Bucket**
+   → Variable name **exactly** `CARD_ART_BUCKET` → select the bucket you just made.
+4. Add one more plain (non-secret) variable on the same Worker:
+   `CARD_ART_PUBLIC_BASE_URL` = the `pub-....r2.dev` URL from step 2 (no
+   trailing slash).
+5. Also add `CARDS_WORKER_URL` in `src/cards/config.ts` if it isn't already
+   set to this Worker's URL — the Card Maker calls `/admin/upload-image` and
+   `/admin/adjust-card` on it directly from the browser.
+
+Both of those routes check that the caller is signed into the Admin panel as
+`SITE_CONFIG.email.adminEmail` (verified server-side against a real Firebase
+ID token, not just trusted from the browser) — update the hardcoded
+`SUPER_ADMIN_EMAIL` constant near the top of `cards-worker/index.js` if that
+email ever changes.
+
+---
+
 ## Customizing (no infra changes needed)
 
 All of this lives in `src/cards/config.ts`:

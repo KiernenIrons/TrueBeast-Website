@@ -69,3 +69,12 @@ export const CARDS_FIREBASE_CONFIG = {
 export function isCardsFirebaseConfigured(): boolean {
   return CARDS_FIREBASE_CONFIG.apiKey !== 'PASTE_YOUR_FIREBASE_API_KEY' && !!CARDS_FIREBASE_CONFIG.apiKey;
 }
+
+// ---------------------------------------------------------------------------
+// Cloudflare Worker URL -- the same one from CARDS_SETUP.md that receives
+// Twitch EventSub redemptions. The Admin panel's Card Maker also calls it
+// (with an admin-only, ID-token-verified route) to upload card art to R2
+// storage and to manually adjust a viewer's owned cards.
+// ---------------------------------------------------------------------------
+
+export const CARDS_WORKER_URL = 'https://truebeast-cards.kiernens-account.workers.dev';
