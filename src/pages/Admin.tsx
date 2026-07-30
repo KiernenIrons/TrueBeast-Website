@@ -40,6 +40,8 @@ import CardFace from '@/cards/CardFace';
 import { RARITIES, CARDS_WORKER_URL } from '@/cards/config';
 import type { CardDef, RarityId } from '@/cards/types';
 import { getCardCatalog, upsertCatalogCard, deleteCatalogCard, seedStarterCatalog } from '@/cards/db';
+import GIF from 'gif.js';
+import { parseGIF, decompressFrames } from 'gifuct-js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -2738,11 +2740,71 @@ async function compressCanvasUnder(canvas: HTMLCanvasElement, maxBytes: number):
 }
 
 /**
- * Simple in-browser crop/zoom/pan editor -- no external library. The image
- * is displayed "cover"-fit inside a fixed-aspect viewport; a zoom slider and
- * drag-to-pan adjust which part shows, then "Use This Image" bakes the
- * visible crop onto a canvas and auto-compresses it under CARD_ART_MAX_BYTES
- * before handing back a Blob.
+ * Decodes every frame of an animated GIF, composites them (handling the
+ * common "restore to background" disposal method; the rarer "restore to
+ * previous" method isn't handled -- an acceptable gap for short clip-style
+ * GIFs), applies the same crop rectangle to each, and re-encodes as a new
+ * animated GIF at the target size -- this is what lets cropping/resizing
+ * preserve animation instead of collapsing it to one frame like canvas
+ * export alone would.
+ */
+async function buildAnimatedGifBlob(
+  file: File,
+  crop: { sx: number; sy: number; sW: number; sH: number },
+  targetW: number,
+  targetH: number,
+  frameStride: number,
+): Promise<Blob> {
+  const buffer = await file.arrayBuffer();
+  const parsed = parseGIF(buffer);
+  const allFrames = decompressFrames(parsed, true);
+  const frames = allFrames.filter((_, i) => i % frameStride === 0);
+
+  const composite = document.createElement('canvas');
+  composite.width = parsed.lsd.width;
+  composite.height = parsed.lsd.height;
+  const compositeCtx = composite.getContext('2d')!;
+
+  const encoder = new GIF({ workers: 2, quality: 10, width: targetW, height: targetH, workerScript: '/gif.worker.js' });
+
+  for (const frame of frames) {
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = frame.dims.width;
+    frameCanvas.height = frame.dims.height;
+    const frameCtx = frameCanvas.getContext('2d')!;
+    const imageData = frameCtx.createImageData(frame.dims.width, frame.dims.height);
+    imageData.data.set(frame.patch);
+    frameCtx.putImageData(imageData, 0, 0);
+    compositeCtx.drawImage(frameCanvas, frame.dims.left, frame.dims.top);
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = targetW;
+    outCanvas.height = targetH;
+    outCanvas.getContext('2d')!.drawImage(composite, crop.sx, crop.sy, crop.sW, crop.sH, 0, 0, targetW, targetH);
+    encoder.addFrame(outCanvas, { delay: Math.max(20, frame.delay * frameStride), copy: true });
+
+    if (frame.disposalType === 2) {
+      compositeCtx.clearRect(frame.dims.left, frame.dims.top, frame.dims.width, frame.dims.height);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    encoder.on('finished', (blob: Blob) => resolve(blob));
+    try {
+      encoder.render();
+    } catch (err) {
+      reject(err as Error);
+    }
+  });
+}
+
+/**
+ * Simple in-browser crop/zoom/pan editor -- no external library for static
+ * images. The image is displayed "cover"-fit inside a fixed-aspect viewport;
+ * a zoom slider and drag-to-pan adjust which part shows, then "Use This
+ * Image" bakes the visible crop onto a canvas and auto-compresses it under
+ * CARD_ART_MAX_BYTES before handing back a Blob. Animated GIFs go through
+ * buildAnimatedGifBlob above instead, to preserve their animation.
  */
 function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: () => void; onConfirm: (blob: Blob) => void }) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
@@ -2804,16 +2866,30 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
     if (!el || natSize.w === 0) return;
     setProcessing(true);
     try {
+      const sx = -offset.x / scale;
+      const sy = -offset.y / scale;
+      const sW = CROP_VIEWPORT_W / scale;
+      const sH = CROP_VIEWPORT_H / scale;
+
+      if (file.type === 'image/gif') {
+        const targetW = 400; // smaller default than static images -- animated GIFs cost far more bytes per pixel
+        const targetH = Math.round(targetW / CARD_ART_ASPECT);
+        let blob = await buildAnimatedGifBlob(file, { sx, sy, sW, sH }, targetW, targetH, 1);
+        if (blob.size > CARD_ART_MAX_BYTES) {
+          // One retry: smaller frame + every other frame, before giving up and
+          // handing back whatever we got (the server enforces the hard cap).
+          blob = await buildAnimatedGifBlob(file, { sx, sy, sW, sH }, Math.round(targetW * 0.6), Math.round(targetH * 0.6), 2);
+        }
+        onConfirm(blob);
+        return;
+      }
+
       const targetW = 600;
       const targetH = Math.round(targetW / CARD_ART_ASPECT);
       const canvas = document.createElement('canvas');
       canvas.width = targetW;
       canvas.height = targetH;
       const ctx = canvas.getContext('2d')!;
-      const sx = -offset.x / scale;
-      const sy = -offset.y / scale;
-      const sW = CROP_VIEWPORT_W / scale;
-      const sH = CROP_VIEWPORT_H / scale;
       ctx.drawImage(el, sx, sy, sW, sH, 0, 0, targetW, targetH);
       const blob = await compressCanvasUnder(canvas, CARD_ART_MAX_BYTES);
       onConfirm(blob);
@@ -2826,7 +2902,7 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
     <div className="fixed inset-0 z-[210] bg-black/80 flex items-center justify-center p-4">
       <div className="bg-[#0f0f16] border border-white/10 rounded-2xl p-6 w-full max-w-sm">
         <h4 className="text-sm font-bold text-white mb-1">Crop Card Art</h4>
-        <p className="text-[11px] text-gray-500 mb-3">Drag to reposition, use the slider to zoom. Auto-compressed to fit under 2MB.</p>
+        <p className="text-[11px] text-gray-500 mb-3">Drag to reposition, use the slider to zoom. Auto-compressed to fit under 2MB{file.type === 'image/gif' ? ' -- animation is preserved' : ''}.</p>
 
         <div
           className="relative mx-auto rounded-xl overflow-hidden bg-black/40 touch-none cursor-grab active:cursor-grabbing"
@@ -2943,17 +3019,6 @@ function CardMakerTab() {
   };
 
   const handleFileSelected = (file: File) => {
-    // Animated GIFs can't go through the canvas-based crop/compress pipeline
-    // without losing their animation (canvas only ever captures one frame),
-    // so upload those as-is instead of opening the crop editor.
-    if (file.type === 'image/gif') {
-      if (file.size > CARD_ART_MAX_BYTES) {
-        setFeedback({ type: 'error', message: `GIF is ${(file.size / 1024 / 1024).toFixed(1)}MB -- must be under 2MB (GIFs aren't auto-compressed, since that would break the animation). Try a shorter/smaller GIF.` });
-        return;
-      }
-      handleImageUpload(file);
-      return;
-    }
     setPendingImageFile(file);
   };
 
@@ -2986,7 +3051,7 @@ function CardMakerTab() {
     setSaving(true);
     try {
       await upsertCatalogCard({
-        id, name, rarity: form.rarity, emoji: form.emoji.trim() || '❓',
+        id, name, rarity: form.rarity, emoji: form.emoji.trim(),
         imageUrl: form.imageUrl.trim(),
         gradientFrom: form.gradientFrom, gradientTo: form.gradientTo,
         flavorText: form.flavorText.trim(),
@@ -3047,7 +3112,7 @@ function CardMakerTab() {
     id: form.id || 'preview',
     name: form.name || 'Card Name',
     rarity: form.rarity,
-    emoji: form.emoji || '❓',
+    emoji: form.emoji,
     imageUrl: form.imageUrl || undefined,
     gradientFrom: form.gradientFrom,
     gradientTo: form.gradientTo,
@@ -3187,7 +3252,7 @@ function CardMakerTab() {
                         onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileSelected(file); e.target.value = ''; }} />
                     </label>
                   </div>
-                  <p className="text-[10px] text-gray-600 mt-1">Stored permanently in Cloudflare R2, not an external link that could break. GIFs upload as-is (under 2MB) to keep their animation; other formats get the crop editor.</p>
+                  <p className="text-[10px] text-gray-600 mt-1">Stored permanently in Cloudflare R2, not an external link that could break. GIFs can be cropped/resized too -- animation is preserved.</p>
                   {form.imageUrl && (
                     <button type="button" onClick={() => setForm((f) => ({ ...f, imageUrl: '' }))}
                       className="text-[10px] text-gray-500 hover:text-red-400 mt-1 cursor-pointer">

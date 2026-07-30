@@ -18,6 +18,8 @@
     "chart.js": "^4.5.1",
     "emojilib": "^4.0.3",
     "firebase": "^12.11.0",
+    "gif.js": "^0.2.0",
+    "gifuct-js": "^2.1.2",
     "gsap": "^3.14.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
+    "@types/gif.js": "^0.2.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

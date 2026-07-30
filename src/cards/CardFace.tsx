@@ -44,13 +44,15 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
 
       <div className="flex-1 relative flex items-center justify-center" style={{ fontSize: dims.emoji }}>
         {card.imageUrl && <img src={card.imageUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />}
-        {card.emoji && (
+        {card.emoji ? (
           <span
             className="relative z-[1]"
             style={card.imageUrl ? { textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' } : undefined}
           >
             {card.emoji}
           </span>
+        ) : (
+          !card.imageUrl && <span className="relative z-[1]">❓</span>
         )}
       </div>
 
