@@ -2714,19 +2714,51 @@ const CARD_ART_MAX_BYTES = 2 * 1024 * 1024; // 2MB -- keeps R2 usage tiny and up
 const CROP_VIEWPORT_W = 260;
 const CROP_VIEWPORT_H = Math.round(CROP_VIEWPORT_W / CARD_ART_ASPECT);
 
-function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+/**
+ * Clamps a pan offset on one axis. If the displayed image is larger than the
+ * viewport (the normal "cover" case), it clamps so the image always fully
+ * covers the viewport with no gaps. If the image is smaller (zoomed out
+ * below "cover"), there's nothing to pan -- it centers instead.
+ */
+function clampAxis(dispSize: number, viewportSize: number, desired: number): number {
+  if (dispSize <= viewportSize) return (viewportSize - dispSize) / 2;
+  return Math.min(0, Math.max(viewportSize - dispSize, desired));
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, format: 'image/jpeg' | 'image/png', quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Canvas export failed'))), 'image/jpeg', quality);
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Canvas export failed'))), format, quality);
   });
 }
 
-/** Compresses (and if needed, downsamples) a canvas until it fits under maxBytes. */
-async function compressCanvasUnder(canvas: HTMLCanvasElement, maxBytes: number): Promise<Blob> {
+/**
+ * Compresses (and if needed, downsamples) a canvas until it fits under
+ * maxBytes. Zooming out below "cover" leaves transparent padding around the
+ * image (so the card's gradient shows through) -- JPEG has no alpha channel,
+ * so that case exports as PNG instead, at the cost of PNG's weaker
+ * compression (mitigated by downsampling if it doesn't fit).
+ */
+async function compressCanvasUnder(canvas: HTMLCanvasElement, maxBytes: number, needsTransparency: boolean): Promise<Blob> {
+  if (needsTransparency) {
+    let current = canvas;
+    let blob = await canvasToBlob(current, 'image/png');
+    while (blob.size > maxBytes && current.width > 80) {
+      const scale = Math.max(0.5, Math.sqrt(maxBytes / blob.size) * 0.92);
+      const smaller = document.createElement('canvas');
+      smaller.width = Math.max(80, Math.round(current.width * scale));
+      smaller.height = Math.max(80, Math.round(current.height * scale));
+      smaller.getContext('2d')!.drawImage(current, 0, 0, smaller.width, smaller.height);
+      current = smaller;
+      blob = await canvasToBlob(current, 'image/png');
+    }
+    return blob;
+  }
+
   let quality = 0.92;
-  let blob = await canvasToBlob(canvas, quality);
+  let blob = await canvasToBlob(canvas, 'image/jpeg', quality);
   while (blob.size > maxBytes && quality > 0.4) {
     quality -= 0.12;
-    blob = await canvasToBlob(canvas, quality);
+    blob = await canvasToBlob(canvas, 'image/jpeg', quality);
   }
   if (blob.size > maxBytes) {
     const scale = Math.max(0.3, Math.sqrt(maxBytes / blob.size) * 0.92);
@@ -2734,7 +2766,7 @@ async function compressCanvasUnder(canvas: HTMLCanvasElement, maxBytes: number):
     smaller.width = Math.max(80, Math.round(canvas.width * scale));
     smaller.height = Math.max(80, Math.round(canvas.height * scale));
     smaller.getContext('2d')!.drawImage(canvas, 0, 0, smaller.width, smaller.height);
-    blob = await canvasToBlob(smaller, 0.75);
+    blob = await canvasToBlob(smaller, 'image/jpeg', 0.75);
   }
   return blob;
 }
@@ -2812,6 +2844,7 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; startOffX: number; startOffY: number } | null>(null);
   const imgElRef = useRef<HTMLImageElement | null>(null);
 
@@ -2821,14 +2854,17 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  // "Cover" fit -- the zoom level at which the image exactly fills the
+  // viewport with no gaps. Zooming below 1 goes smaller than this, letting
+  // the image be framed with the card's background showing around it.
   const baseScale = natSize.w > 0 ? Math.max(CROP_VIEWPORT_W / natSize.w, CROP_VIEWPORT_H / natSize.h) : 1;
   const scale = baseScale * zoom;
   const dispW = natSize.w * scale;
   const dispH = natSize.h * scale;
 
   const clamp = (x: number, y: number) => ({
-    x: Math.min(0, Math.max(CROP_VIEWPORT_W - dispW, x)),
-    y: Math.min(0, Math.max(CROP_VIEWPORT_H - dispH, y)),
+    x: clampAxis(dispW, CROP_VIEWPORT_W, x),
+    y: clampAxis(dispH, CROP_VIEWPORT_H, y),
   });
 
   const onImgLoad = () => {
@@ -2855,30 +2891,37 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
     const nextScale = baseScale * next;
     const nextDispW = natSize.w * nextScale;
     const nextDispH = natSize.h * nextScale;
-    setOffset((o) => ({
-      x: Math.min(0, Math.max(CROP_VIEWPORT_W - nextDispW, o.x)),
-      y: Math.min(0, Math.max(CROP_VIEWPORT_H - nextDispH, o.y)),
-    }));
+    setOffset((o) => ({ x: clampAxis(nextDispW, CROP_VIEWPORT_W, o.x), y: clampAxis(nextDispH, CROP_VIEWPORT_H, o.y) }));
   };
 
   const handleConfirm = async () => {
     const el = imgElRef.current;
     if (!el || natSize.w === 0) return;
     setProcessing(true);
+    setError(null);
     try {
       const sx = -offset.x / scale;
       const sy = -offset.y / scale;
       const sW = CROP_VIEWPORT_W / scale;
       const sH = CROP_VIEWPORT_H / scale;
+      // Zoomed out below "cover" leaves empty space around the image (visible
+      // as the card's own background) -- needs a format with an alpha channel.
+      const needsTransparency = dispW < CROP_VIEWPORT_W - 0.5 || dispH < CROP_VIEWPORT_H - 0.5;
 
       if (file.type === 'image/gif') {
         const targetW = 400; // smaller default than static images -- animated GIFs cost far more bytes per pixel
         const targetH = Math.round(targetW / CARD_ART_ASPECT);
-        let blob = await buildAnimatedGifBlob(file, { sx, sy, sW, sH }, targetW, targetH, 1);
+        const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+          Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error('GIF encoding timed out -- try a shorter/simpler GIF')), ms))]);
+
+        let blob = await withTimeout(buildAnimatedGifBlob(file, { sx, sy, sW, sH }, targetW, targetH, 1), 30000);
         if (blob.size > CARD_ART_MAX_BYTES) {
           // One retry: smaller frame + every other frame, before giving up and
           // handing back whatever we got (the server enforces the hard cap).
-          blob = await buildAnimatedGifBlob(file, { sx, sy, sW, sH }, Math.round(targetW * 0.6), Math.round(targetH * 0.6), 2);
+          blob = await withTimeout(
+            buildAnimatedGifBlob(file, { sx, sy, sW, sH }, Math.round(targetW * 0.6), Math.round(targetH * 0.6), 2),
+            30000,
+          );
         }
         onConfirm(blob);
         return;
@@ -2891,8 +2934,10 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
       canvas.height = targetH;
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(el, sx, sy, sW, sH, 0, 0, targetW, targetH);
-      const blob = await compressCanvasUnder(canvas, CARD_ART_MAX_BYTES);
+      const blob = await compressCanvasUnder(canvas, CARD_ART_MAX_BYTES, needsTransparency);
       onConfirm(blob);
+    } catch (err: any) {
+      setError(err?.message ?? 'Something went wrong processing this image');
     } finally {
       setProcessing(false);
     }
@@ -2902,7 +2947,11 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
     <div className="fixed inset-0 z-[210] bg-black/80 flex items-center justify-center p-4">
       <div className="bg-[#0f0f16] border border-white/10 rounded-2xl p-6 w-full max-w-sm">
         <h4 className="text-sm font-bold text-white mb-1">Crop Card Art</h4>
-        <p className="text-[11px] text-gray-500 mb-3">Drag to reposition, use the slider to zoom. Auto-compressed to fit under 2MB{file.type === 'image/gif' ? ' -- animation is preserved' : ''}.</p>
+        <p className="text-[11px] text-gray-500 mb-3">Drag to reposition, use the slider to zoom (below 1x frames a smaller image within the card). Auto-compressed to fit under 2MB{file.type === 'image/gif' ? ' -- animation is preserved' : ''}.</p>
+
+        {error && (
+          <div className="rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-3 py-2 mb-3">{error}</div>
+        )}
 
         <div
           className="relative mx-auto rounded-xl overflow-hidden bg-black/40 touch-none cursor-grab active:cursor-grabbing"
@@ -2934,7 +2983,7 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
 
         <div className="flex items-center gap-2 mt-3">
           <span className="text-[10px] text-gray-500">Zoom</span>
-          <input type="range" min={1} max={3} step={0.02} value={zoom} onChange={(e) => handleZoomChange(Number(e.target.value))} className="flex-1" />
+          <input type="range" min={0.3} max={3} step={0.02} value={zoom} onChange={(e) => handleZoomChange(Number(e.target.value))} className="flex-1" />
         </div>
 
         <div className="flex items-center justify-end gap-3 mt-5">
@@ -2967,6 +3016,44 @@ function CardMakerTab() {
   const [manageQty, setManageQty] = useState(1);
   const [manageBusy, setManageBusy] = useState(false);
   const [manageResult, setManageResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  const [mediaImages, setMediaImages] = useState<{ key: string; url: string; size: number; uploaded: string }[]>([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+
+  const openMediaLibrary = async () => {
+    setMediaLibraryOpen(true);
+    setMediaLoading(true);
+    setMediaError(null);
+    try {
+      const idToken = await user?.getIdToken();
+      const res = await fetch(`${CARDS_WORKER_URL}/admin/list-images`, { headers: { Authorization: `Bearer ${idToken}` } });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load media library');
+      setMediaImages(data.images);
+    } catch (err: any) {
+      setMediaError(err?.message ?? 'Failed to load media library');
+    } finally {
+      setMediaLoading(false);
+    }
+  };
+
+  const deleteMediaImage = async (key: string) => {
+    if (!window.confirm('Delete this image from R2 permanently? Any card still using it will show a broken image.')) return;
+    try {
+      const idToken = await user?.getIdToken();
+      const res = await fetch(`${CARDS_WORKER_URL}/admin/delete-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ key }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Delete failed');
+      setMediaImages((imgs) => imgs.filter((i) => i.key !== key));
+    } catch (err: any) {
+      setMediaError(err?.message ?? 'Delete failed');
+    }
+  };
 
   const handleAdjustCollection = async (sign: 1 | -1) => {
     const login = manageLogin.trim().toLowerCase();
@@ -3129,6 +3216,10 @@ function CardMakerTab() {
           <p className="text-xs text-gray-500 mt-1">Edits here go live on truebeast.io/cards and the stream overlay immediately.</p>
         </div>
         <div className="flex items-center gap-2">
+          <button type="button" onClick={openMediaLibrary}
+            className="px-3 py-2 rounded-lg text-xs font-semibold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer">
+            Media Library
+          </button>
           <button type="button" onClick={handleSeed}
             className="px-3 py-2 rounded-lg text-xs font-semibold bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer">
             Import Starter Set
@@ -3313,6 +3404,49 @@ function CardMakerTab() {
           onCancel={() => setPendingImageFile(null)}
           onConfirm={(blob) => { setPendingImageFile(null); handleImageUpload(blob); }}
         />
+      )}
+
+      {mediaLibraryOpen && (
+        <div className="fixed inset-0 z-[210] bg-black/80 flex items-center justify-center p-4" onClick={() => setMediaLibraryOpen(false)}>
+          <div className="bg-[#0f0f16] border border-white/10 rounded-2xl p-6 w-full max-w-3xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h4 className="text-lg font-bold text-white">Media Library</h4>
+                <p className="text-xs text-gray-500 mt-0.5">Everything uploaded to Cloudflare R2. Deleting here is permanent -- any card still using an image will show broken art.</p>
+              </div>
+              <button type="button" onClick={() => setMediaLibraryOpen(false)} className="text-gray-500 hover:text-white cursor-pointer">
+                <XClose className="w-5 h-5" />
+              </button>
+            </div>
+
+            {mediaError && <div className="rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-3 py-2 mb-3">{mediaError}</div>}
+
+            {mediaLoading ? (
+              <p className="text-gray-500 text-sm text-center py-10">Loading...</p>
+            ) : mediaImages.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-10">No uploads yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {mediaImages.map((img) => (
+                  <div key={img.key} className="relative group rounded-xl overflow-hidden bg-black/30 border border-white/10">
+                    <img src={img.url} alt="" className="w-full aspect-[3/4] object-contain bg-black/40" />
+                    <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2 text-center">
+                      <p className="text-[10px] text-gray-300 break-all">{(img.size / 1024).toFixed(0)} KB</p>
+                      <button type="button" onClick={() => navigator.clipboard.writeText(img.url)}
+                        className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-white/10 hover:bg-white/20 text-white cursor-pointer">
+                        Copy URL
+                      </button>
+                      <button type="button" onClick={() => deleteMediaImage(img.key)}
+                        className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-red-500/20 hover:bg-red-500/30 text-red-300 cursor-pointer">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
