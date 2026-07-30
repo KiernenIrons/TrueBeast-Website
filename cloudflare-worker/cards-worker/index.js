@@ -255,8 +255,8 @@ function cardValue(card) {
 
 const REDEMPTION_TYPE = 'channel.channel_points_custom_reward_redemption.add';
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
+function jsonResponse(data, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...extraHeaders } });
 }
 
 function htmlResponse(title, message, ok) {
