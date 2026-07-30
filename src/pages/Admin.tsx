@@ -2842,7 +2842,16 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
               onLoad={onImgLoad}
               draggable={false}
               alt=""
-              style={{ position: 'absolute', left: offset.x, top: offset.y, width: dispW || undefined, height: dispH || undefined, userSelect: 'none' }}
+              style={{
+                position: 'absolute',
+                left: offset.x,
+                top: offset.y,
+                width: dispW || undefined,
+                height: dispH || undefined,
+                maxWidth: 'none', // Tailwind's preflight sets img { max-width: 100% }, which
+                maxHeight: 'none', // would otherwise clamp this to the viewport's width and
+                userSelect: 'none', // desync the on-screen crop from the exported canvas math
+              }}
             />
           )}
         </div>
@@ -2920,7 +2929,7 @@ function CardMakerTab() {
       const idToken = await user?.getIdToken();
       const res = await fetch(`${CARDS_WORKER_URL}/admin/upload-image`, {
         method: 'POST',
-        headers: { 'Content-Type': 'image/jpeg', Authorization: `Bearer ${idToken}` },
+        headers: { 'Content-Type': blob.type || 'image/jpeg', Authorization: `Bearer ${idToken}` },
         body: blob,
       });
       const data = await res.json();
@@ -2931,6 +2940,21 @@ function CardMakerTab() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleFileSelected = (file: File) => {
+    // Animated GIFs can't go through the canvas-based crop/compress pipeline
+    // without losing their animation (canvas only ever captures one frame),
+    // so upload those as-is instead of opening the crop editor.
+    if (file.type === 'image/gif') {
+      if (file.size > CARD_ART_MAX_BYTES) {
+        setFeedback({ type: 'error', message: `GIF is ${(file.size / 1024 / 1024).toFixed(1)}MB -- must be under 2MB (GIFs aren't auto-compressed, since that would break the animation). Try a shorter/smaller GIF.` });
+        return;
+      }
+      handleImageUpload(file);
+      return;
+    }
+    setPendingImageFile(file);
   };
 
   const refresh = useCallback(async () => {
@@ -3160,10 +3184,10 @@ function CardMakerTab() {
                     <label className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${uploading ? 'bg-white/5 text-gray-500' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>
                       {uploading ? 'Uploading...' : 'Upload'}
                       <input type="file" accept="image/*" className="hidden" disabled={uploading}
-                        onChange={(e) => { const file = e.target.files?.[0]; if (file) setPendingImageFile(file); e.target.value = ''; }} />
+                        onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFileSelected(file); e.target.value = ''; }} />
                     </label>
                   </div>
-                  <p className="text-[10px] text-gray-600 mt-1">Uploaded images are stored permanently in Cloudflare R2 -- not a link to an external site that could break.</p>
+                  <p className="text-[10px] text-gray-600 mt-1">Stored permanently in Cloudflare R2, not an external link that could break. GIFs upload as-is (under 2MB) to keep their animation; other formats get the crop editor.</p>
                   {form.imageUrl && (
                     <button type="button" onClick={() => setForm((f) => ({ ...f, imageUrl: '' }))}
                       className="text-[10px] text-gray-500 hover:text-red-400 mt-1 cursor-pointer">
