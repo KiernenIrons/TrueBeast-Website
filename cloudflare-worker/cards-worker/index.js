@@ -14,8 +14,14 @@
  *   POST /admin/upload-image    — admin-only (super admin's Firebase ID token): uploads card
  *                                art to R2, returns its public URL. Called from the website's
  *                                Card Maker tab.
- *   POST /admin/adjust-card     — admin-only: add/remove copies of a card from one viewer's
- *                                collection (manual fixes). Called from the same tab.
+ *   POST /admin/adjust-card     — admin-only: add/remove copies of a single card from one
+ *                                viewer's collection (kept for quick +/-1 fixes).
+ *   POST /admin/set-collection  — admin-only: overwrites a viewer's ENTIRE card counts map at
+ *                                once (not an increment) -- backs the Viewer Collection Manager's
+ *                                inline grid editor in the Card Maker tab.
+ *   POST /admin/rollback-collection — admin-only: recomputes a viewer's collection from their
+ *                                packEvents history up to a given timestamp and overwrites it,
+ *                                undoing anything redeemed after that point ("roll back to here").
  *   GET  /admin/list-images     — admin-only: lists everything in the R2 bucket's card-art/
  *                                prefix, for the Media Library section of the Card Maker tab.
  *   POST /admin/delete-image    — admin-only: deletes one object from the R2 bucket by key.
@@ -388,6 +394,85 @@ async function incrementUserCollection(env, token, { channelId, twitchUserId, tw
   if (!res.ok) throw new Error('incrementUserCollection failed: ' + (await res.text()));
 }
 
+/**
+ * Replaces (not increments) a viewer's entire `cards` map, `totalCards`, and
+ * `totalValue` -- used by both the manual bulk editor (admin sends the exact
+ * desired counts) and the rollback tool (recomputed from packEvents history).
+ * Leaves channelId/twitchUserId/login/displayName alone via updateMask.
+ */
+async function overwriteUserCollection(env, token, { channelId, twitchUserId, twitchUserLogin, twitchUserDisplayName, cardCounts, totalValue }) {
+  const docId = `${channelId}_${twitchUserId}`;
+  const name = `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/userCollections/${docId}`;
+
+  const cardsFields = {};
+  for (const [cardId, count] of Object.entries(cardCounts)) {
+    if (count > 0) cardsFields[cardId] = { integerValue: String(count) };
+  }
+  const totalCards = Object.values(cardCounts).reduce((a, b) => a + Math.max(0, b), 0);
+
+  const write = {
+    update: {
+      name,
+      fields: {
+        channelId: fsString(channelId),
+        twitchUserId: fsString(twitchUserId),
+        twitchUserLogin: fsString(twitchUserLogin.toLowerCase()),
+        twitchUserDisplayName: fsString(twitchUserDisplayName),
+        cards: { mapValue: { fields: cardsFields } },
+        totalCards: { integerValue: String(totalCards) },
+        totalValue: { integerValue: String(totalValue) },
+        updatedAt: fsString(new Date().toISOString()),
+      },
+    },
+    updateMask: {
+      fieldPaths: ['channelId', 'twitchUserId', 'twitchUserLogin', 'twitchUserDisplayName', 'cards', 'totalCards', 'totalValue', 'updatedAt'],
+    },
+  };
+
+  const res = await fetch(`${firestoreBaseUrl(env)}:commit`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ writes: [write] }),
+  });
+  if (!res.ok) throw new Error('overwriteUserCollection failed: ' + (await res.text()));
+}
+
+/**
+ * Every packEvents doc for one Twitch user id, unsorted (sorted by the
+ * caller) -- a single equality filter needs no composite index. Used by the
+ * rollback tool to recompute a collection as of a chosen point in time.
+ */
+async function findPackEventsByUserId(env, token, twitchUserId) {
+  const res = await fetch(`${firestoreBaseUrl(env)}:runQuery`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: 'packEvents' }],
+        where: { fieldFilter: { field: { fieldPath: 'twitchUserId' }, op: 'EQUAL', value: fsString(twitchUserId) } },
+        limit: 1000,
+      },
+    }),
+  });
+  const rows = await res.json();
+  return (rows || [])
+    .filter((r) => r.document)
+    .map((r) => {
+      const fields = r.document.fields || {};
+      return {
+        createdAt: firestoreValueToJs(fields.createdAt),
+        cardIds: (fields.cardIds?.arrayValue?.values || []).map((v) => firestoreValueToJs(v)),
+      };
+    });
+}
+
+/** Looks up rarities for a batch of card ids (parallel, one direct GET each) -- unknown ids default to 'common'. */
+async function resolveRarities(cardIds) {
+  const unique = [...new Set(cardIds)];
+  const entries = await Promise.all(unique.map(async (id) => [id, (await fetchCardRarity(id)) || 'common']));
+  return new Map(entries);
+}
+
 /** Finds an existing userCollections doc for this channel + Twitch login, or null. */
 async function findUserCollectionByLogin(env, token, login) {
   const res = await fetch(`${firestoreBaseUrl(env)}:runQuery`, {
@@ -718,6 +803,123 @@ async function handleAdjustCard(request, env, corsHeaders) {
   );
 }
 
+// Admin-only route: overwrites a viewer's ENTIRE card-counts map at once
+// (not an increment) -- backs the Viewer Collection Manager's inline grid
+// editor, where the admin sees every card with its current count and edits
+// however many at once instead of one card/one delta per request.
+async function handleSetCollection(request, env, corsHeaders) {
+  try {
+    await requireSuperAdmin(request);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 401, corsHeaders);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+
+  const twitchLogin = (body.twitchLogin || '').trim().toLowerCase();
+  const cardCounts = body.cardCounts;
+  if (!twitchLogin || !cardCounts || typeof cardCounts !== 'object') {
+    return jsonResponse({ error: 'twitchLogin and cardCounts (an object of cardId -> count) are required' }, 400, corsHeaders);
+  }
+  for (const [cardId, count] of Object.entries(cardCounts)) {
+    if (!Number.isInteger(count) || count < 0) {
+      return jsonResponse({ error: `Invalid count for card "${cardId}" -- must be a non-negative integer` }, 400, corsHeaders);
+    }
+  }
+
+  const token = await getGoogleAccessToken(env, 'https://www.googleapis.com/auth/datastore');
+
+  let target = await findUserCollectionByLogin(env, token, twitchLogin);
+  if (!target) {
+    const resolved = await resolveTwitchUserByLogin(env, twitchLogin);
+    if (!resolved) return jsonResponse({ error: `No Twitch user found for login "${twitchLogin}"` }, 404, corsHeaders);
+    target = { ...resolved, cards: {} };
+  }
+
+  const rarities = await resolveRarities(Object.keys(cardCounts));
+  const totalValue = Object.entries(cardCounts).reduce((sum, [cardId, count]) => sum + count * cardValue({ rarity: rarities.get(cardId) }), 0);
+
+  await overwriteUserCollection(env, token, {
+    channelId: env.TWITCH_BROADCASTER_ID,
+    twitchUserId: target.twitchUserId,
+    twitchUserLogin: target.twitchUserLogin,
+    twitchUserDisplayName: target.twitchUserDisplayName,
+    cardCounts,
+    totalValue,
+  });
+
+  return jsonResponse({ ok: true, twitchUserDisplayName: target.twitchUserDisplayName }, 200, corsHeaders);
+}
+
+// Admin-only route: recomputes a viewer's collection from their packEvents
+// history up to (and including) a given timestamp, and overwrites their
+// current collection with that snapshot -- undoing any packs opened after
+// that point. This is what "roll back to here" in the admin's pack-history
+// list actually does; nothing is deleted, it's a full recompute from the
+// permanent packEvents log, so rolling forward again is just picking a later
+// cutoff.
+async function handleRollbackCollection(request, env, corsHeaders) {
+  try {
+    await requireSuperAdmin(request);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 401, corsHeaders);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+
+  const twitchLogin = (body.twitchLogin || '').trim().toLowerCase();
+  const cutoffIso = (body.cutoffIso || '').trim();
+  if (!twitchLogin || !cutoffIso) {
+    return jsonResponse({ error: 'twitchLogin and cutoffIso are required' }, 400, corsHeaders);
+  }
+
+  const token = await getGoogleAccessToken(env, 'https://www.googleapis.com/auth/datastore');
+
+  let target = await findUserCollectionByLogin(env, token, twitchLogin);
+  if (!target) {
+    const resolved = await resolveTwitchUserByLogin(env, twitchLogin);
+    if (!resolved) return jsonResponse({ error: `No Twitch user found for login "${twitchLogin}"` }, 404, corsHeaders);
+    target = { ...resolved, cards: {} };
+  }
+
+  const events = await findPackEventsByUserId(env, token, target.twitchUserId);
+  const keep = events.filter((e) => e.createdAt && e.createdAt <= cutoffIso);
+
+  const cardCounts = {};
+  for (const event of keep) {
+    for (const cardId of event.cardIds) cardCounts[cardId] = (cardCounts[cardId] || 0) + 1;
+  }
+
+  const rarities = await resolveRarities(Object.keys(cardCounts));
+  const totalValue = Object.entries(cardCounts).reduce((sum, [cardId, count]) => sum + count * cardValue({ rarity: rarities.get(cardId) }), 0);
+
+  await overwriteUserCollection(env, token, {
+    channelId: env.TWITCH_BROADCASTER_ID,
+    twitchUserId: target.twitchUserId,
+    twitchUserLogin: target.twitchUserLogin,
+    twitchUserDisplayName: target.twitchUserDisplayName,
+    cardCounts,
+    totalValue,
+  });
+
+  const totalCards = Object.values(cardCounts).reduce((a, b) => a + b, 0);
+  return jsonResponse(
+    { ok: true, twitchUserDisplayName: target.twitchUserDisplayName, keptEvents: keep.length, removedEvents: events.length - keep.length, totalCards, totalValue },
+    200,
+    corsHeaders,
+  );
+}
+
 // The website's Card Maker crop editor already compresses to under this
 // before sending -- this is just the server-side backstop in case that's
 // ever bypassed (e.g. someone calling this endpoint directly).
@@ -817,6 +1019,8 @@ export default {
       };
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
       if (url.pathname === '/admin/adjust-card' && request.method === 'POST') return handleAdjustCard(request, env, corsHeaders);
+      if (url.pathname === '/admin/set-collection' && request.method === 'POST') return handleSetCollection(request, env, corsHeaders);
+      if (url.pathname === '/admin/rollback-collection' && request.method === 'POST') return handleRollbackCollection(request, env, corsHeaders);
       if (url.pathname === '/admin/upload-image' && request.method === 'POST') return handleUploadImage(request, env, corsHeaders);
       if (url.pathname === '/admin/list-images' && request.method === 'GET') return handleListImages(request, env, corsHeaders);
       if (url.pathname === '/admin/delete-image' && request.method === 'POST') return handleDeleteImage(request, env, corsHeaders);

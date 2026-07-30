@@ -1,7 +1,8 @@
 /* ============================================================
    Trading Card Game — Leaderboard / Library landing
    Public: shows every collector, sortable by cards owned or
-   collection value. Click a row to view that person's full
+   collection value, or filterable to "who owns this card / any
+   card of this rarity". Click a row to view that person's full
    collection (src/pages/cards/Profile.tsx).
    ============================================================ */
 
@@ -9,15 +10,26 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import PageLayout from '@/components/layout/PageLayout';
 import { GlassCard } from '@/components/shared/GlassCard';
-import { getLeaderboard, type LeaderboardSort } from '@/cards/db';
-import { isCardsFirebaseConfigured } from '@/cards/config';
-import type { UserCollection } from '@/cards/types';
+import { getLeaderboard, getAllCollections, getCardCatalog, type LeaderboardSort } from '@/cards/db';
+import { isCardsFirebaseConfigured, RARITIES } from '@/cards/config';
+import type { UserCollection, CardDef } from '@/cards/types';
+
+type OwnerRow = { twitchUserId: string; twitchUserLogin: string; twitchUserDisplayName: string; count: number };
 
 export default function CardsLeaderboard() {
   const [sortBy, setSortBy] = useState<LeaderboardSort>('totalValue');
   const [entries, setEntries] = useState<UserCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
+  const [cards, setCards] = useState<CardDef[]>([]);
+  const [filterValue, setFilterValue] = useState('');
+  const [ownerRows, setOwnerRows] = useState<OwnerRow[] | null>(null);
+  const [filterLoading, setFilterLoading] = useState(false);
+
+  useEffect(() => {
+    getCardCatalog().then(setCards).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,11 +45,55 @@ export default function CardsLeaderboard() {
     };
   }, [sortBy]);
 
+  useEffect(() => {
+    if (!filterValue) { setOwnerRows(null); return; }
+    let cancelled = false;
+    setFilterLoading(true);
+    getAllCollections().then((collections) => {
+      if (cancelled) return;
+      let rows: OwnerRow[];
+      if (filterValue.startsWith('rarity:')) {
+        const rarityId = filterValue.slice('rarity:'.length);
+        const idsInTier = new Set(cards.filter((c) => c.rarity === rarityId).map((c) => c.id));
+        rows = collections.map((col) => ({
+          twitchUserId: col.twitchUserId,
+          twitchUserLogin: col.twitchUserLogin,
+          twitchUserDisplayName: col.twitchUserDisplayName,
+          count: Object.entries(col.cards || {}).reduce((sum, [id, n]) => sum + (idsInTier.has(id) ? n : 0), 0),
+        }));
+      } else {
+        const cardId = filterValue.slice('card:'.length);
+        rows = collections.map((col) => ({
+          twitchUserId: col.twitchUserId,
+          twitchUserLogin: col.twitchUserLogin,
+          twitchUserDisplayName: col.twitchUserDisplayName,
+          count: col.cards?.[cardId] || 0,
+        }));
+      }
+      setOwnerRows(rows.filter((r) => r.count > 0).sort((a, b) => b.count - a.count));
+      setFilterLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filterValue, cards]);
+
+  const filterLabel = useMemo(() => {
+    if (!filterValue) return null;
+    if (filterValue.startsWith('rarity:')) {
+      const rarityId = filterValue.slice('rarity:'.length);
+      return `${RARITIES.find((r) => r.id === rarityId)?.name ?? rarityId} owners`;
+    }
+    const cardId = filterValue.slice('card:'.length);
+    return `"${cards.find((c) => c.id === cardId)?.name ?? cardId}" owners`;
+  }, [filterValue, cards]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter((e) => (e.twitchUserDisplayName || e.twitchUserLogin).toLowerCase().includes(q));
-  }, [entries, search]);
+    const rows = ownerRows ?? entries;
+    if (!q) return rows;
+    return rows.filter((e) => (e.twitchUserDisplayName || e.twitchUserLogin).toLowerCase().includes(q));
+  }, [entries, ownerRows, search]);
 
   return (
     <PageLayout gradientVariant="green" title="Card Leaderboard | TrueBeast">
@@ -52,7 +108,7 @@ export default function CardsLeaderboard() {
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-stretch sm:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-4 mb-4 items-stretch sm:items-center justify-between">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -64,8 +120,9 @@ export default function CardsLeaderboard() {
               <button
                 key={key}
                 onClick={() => setSortBy(key)}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
-                  sortBy === key
+                disabled={!!ownerRows}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-40 ${
+                  sortBy === key && !ownerRows
                     ? 'bg-green-500/20 text-green-400 border border-green-500/40'
                     : 'glass text-gray-400 hover:text-white'
                 }`}
@@ -76,6 +133,27 @@ export default function CardsLeaderboard() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 mb-8">
+          <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
+            className="glass rounded-xl px-4 py-2.5 text-sm text-white bg-transparent outline-none focus:ring-2 focus:ring-green-500/40 flex-1 min-w-[220px]">
+            <option value="" className="bg-[#0b0b12]">Or find who owns...</option>
+            <optgroup label="A rarity tier" className="bg-[#0b0b12]">
+              {RARITIES.map((r) => <option key={r.id} value={`rarity:${r.id}`} className="bg-[#0b0b12]">Any {r.name} card</option>)}
+            </optgroup>
+            <optgroup label="A specific card" className="bg-[#0b0b12]">
+              {cards.filter((c) => c.active !== false).map((c) => (
+                <option key={c.id} value={`card:${c.id}`} className="bg-[#0b0b12]">{c.name}</option>
+              ))}
+            </optgroup>
+          </select>
+          {ownerRows && (
+            <button onClick={() => setFilterValue('')}
+              className="px-3 py-2 rounded-lg text-xs font-semibold text-gray-400 hover:text-white transition-colors">
+              Clear filter
+            </button>
+          )}
+        </div>
+
         {!isCardsFirebaseConfigured() && (
           <GlassCard className="rounded-2xl p-6 mb-8 text-amber-300 text-sm">
             The card game database isn't configured yet — see CARDS_SETUP.md. This page will populate
@@ -84,10 +162,17 @@ export default function CardsLeaderboard() {
         )}
 
         <GlassCard strong className="rounded-3xl overflow-hidden">
-          {loading ? (
+          {filterLabel && (
+            <div className="px-6 py-3 border-b border-white/10 text-xs font-semibold uppercase tracking-wide text-green-400">
+              {filterLabel}
+            </div>
+          )}
+          {(loading && !ownerRows) || filterLoading ? (
             <div className="p-10 text-center text-gray-400">Loading...</div>
           ) : filtered.length === 0 ? (
-            <div className="p-10 text-center text-gray-400">No collectors yet — be the first to open a pack!</div>
+            <div className="p-10 text-center text-gray-400">
+              {ownerRows ? 'Nobody owns this yet.' : 'No collectors yet — be the first to open a pack!'}
+            </div>
           ) : (
             <div className="divide-y divide-white/5">
               {filtered.map((entry, i) => (
@@ -104,10 +189,10 @@ export default function CardsLeaderboard() {
                   </div>
                   <div className="text-right">
                     <div className="text-white font-bold">
-                      {sortBy === 'totalValue' ? entry.totalValue : entry.totalCards}
+                      {ownerRows ? (entry as OwnerRow).count : sortBy === 'totalValue' ? (entry as UserCollection).totalValue : (entry as UserCollection).totalCards}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {sortBy === 'totalValue' ? 'value' : 'cards'}
+                      {ownerRows ? 'owned' : sortBy === 'totalValue' ? 'value' : 'cards'}
                     </div>
                   </div>
                 </Link>

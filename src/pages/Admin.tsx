@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type FormEvent, createContext, useContext } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, type FormEvent, createContext, useContext } from 'react';
 import {
   Send01,
   Trash01,
@@ -38,8 +38,8 @@ import { SITE_CONFIG } from '@/config';
 import { UNICODE_EMOJI, emojiMatchesSearch } from '@/data/emojis';
 import CardFace from '@/cards/CardFace';
 import { RARITIES, CARDS_WORKER_URL } from '@/cards/config';
-import type { CardDef, RarityId } from '@/cards/types';
-import { getCardCatalog, upsertCatalogCard, deleteCatalogCard, seedStarterCatalog } from '@/cards/db';
+import type { CardDef, RarityId, UserCollection, PackEvent } from '@/cards/types';
+import { getCardCatalog, upsertCatalogCard, deleteCatalogCard, seedStarterCatalog, getAllCollections, getPackHistoryForUser, getUserCollectionByLogin } from '@/cards/db';
 import GIF from 'gif.js';
 import { parseGIF, decompressFrames } from 'gifuct-js';
 
@@ -3065,6 +3065,283 @@ function ImageCropModal({
   );
 }
 
+type OwnerRow = { login: string; displayName: string; count: number };
+
+/**
+ * Replaces the old one-card-at-a-time adjuster. Lets an admin: (1) search or
+ * browse to any viewer and edit their ENTIRE collection at once via an
+ * inline grid (backed by /admin/set-collection, a full overwrite -- not an
+ * increment), (2) filter by rarity tier or a specific card to see who owns
+ * it, and (3) roll a viewer's collection back to any earlier point in their
+ * pack-opening history (backed by /admin/rollback-collection, which
+ * recomputes from the permanent packEvents log rather than deleting
+ * anything, so a rollback is itself always undoable by rolling forward
+ * again to a later point).
+ */
+function ViewerCollectionManager({ cards }: { cards: CardDef[] }) {
+  const { user } = useAuth();
+  const cardsById = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
+
+  // Search-or-browse-to-a-user
+  const [search, setSearch] = useState('');
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [allCollections, setAllCollections] = useState<UserCollection[]>([]);
+  useEffect(() => { getAllCollections().then(setAllCollections).catch(() => {}); }, []);
+  const suggestions = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [];
+    return allCollections
+      .filter((c) => c.twitchUserLogin.includes(q) || (c.twitchUserDisplayName || '').toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [search, allCollections]);
+
+  // Find-owners-by-rarity-or-card filter
+  const [filterValue, setFilterValue] = useState('');
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [filterResults, setFilterResults] = useState<OwnerRow[] | null>(null);
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const runFind = async () => {
+    if (!filterValue) { setFilterResults(null); return; }
+    setFilterLoading(true);
+    setFilterError(null);
+    try {
+      const collections = await getAllCollections();
+      let rows: OwnerRow[];
+      if (filterValue.startsWith('rarity:')) {
+        const rarityId = filterValue.slice('rarity:'.length);
+        const idsInTier = new Set(cards.filter((c) => c.rarity === rarityId).map((c) => c.id));
+        rows = collections.map((col) => ({
+          login: col.twitchUserLogin,
+          displayName: col.twitchUserDisplayName || col.twitchUserLogin,
+          count: Object.entries(col.cards || {}).reduce((sum, [id, n]) => sum + (idsInTier.has(id) ? n : 0), 0),
+        }));
+      } else {
+        const cardId = filterValue.slice('card:'.length);
+        rows = collections.map((col) => ({
+          login: col.twitchUserLogin,
+          displayName: col.twitchUserDisplayName || col.twitchUserLogin,
+          count: col.cards?.[cardId] || 0,
+        }));
+      }
+      setFilterResults(rows.filter((r) => r.count > 0).sort((a, b) => b.count - a.count));
+    } catch (err: any) {
+      setFilterError(err?.message ?? 'Search failed');
+    } finally {
+      setFilterLoading(false);
+    }
+  };
+
+  // The loaded viewer's editable collection + pack history
+  const [selectedLogin, setSelectedLogin] = useState<string | null>(null);
+  const [loadedCollection, setLoadedCollection] = useState<UserCollection | null>(null);
+  const [history, setHistory] = useState<PackEvent[]>([]);
+  const [editCounts, setEditCounts] = useState<Record<string, number>>({});
+  const [loadingUser, setLoadingUser] = useState(false);
+  const [savingCounts, setSavingCounts] = useState(false);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const loadUser = async (login: string) => {
+    const cleanLogin = login.trim().toLowerCase();
+    if (!cleanLogin) return;
+    setSelectedLogin(cleanLogin);
+    setSearch('');
+    setSuggestOpen(false);
+    setLoadingUser(true);
+    setResult(null);
+    try {
+      const collection = await getUserCollectionByLogin(cleanLogin);
+      setLoadedCollection(collection);
+      const counts: Record<string, number> = {};
+      for (const c of cards) counts[c.id] = collection?.cards?.[c.id] || 0;
+      setEditCounts(counts);
+      setHistory(collection ? await getPackHistoryForUser(collection.twitchUserId) : []);
+    } catch (err: any) {
+      setResult({ ok: false, message: err?.message ?? 'Failed to load user' });
+    } finally {
+      setLoadingUser(false);
+    }
+  };
+
+  const handleSaveCounts = async () => {
+    if (!selectedLogin) return;
+    setSavingCounts(true);
+    setResult(null);
+    try {
+      const idToken = await user?.getIdToken();
+      const res = await fetch(`${CARDS_WORKER_URL}/admin/set-collection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ twitchLogin: selectedLogin, cardCounts: editCounts }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Save failed');
+      setResult({ ok: true, message: `Saved ${data.twitchUserDisplayName}'s collection` });
+      await loadUser(selectedLogin);
+    } catch (err: any) {
+      setResult({ ok: false, message: err?.message ?? 'Save failed' });
+    } finally {
+      setSavingCounts(false);
+    }
+  };
+
+  const handleRollback = async (event: PackEvent) => {
+    if (!selectedLogin) return;
+    const when = new Date(event.createdAt).toLocaleString();
+    if (!window.confirm(`Roll back to ${when}? This undoes every pack opened after this one, recomputed from the permanent pack history -- nothing is deleted, so this can be reversed by rolling forward to a later point again.`)) return;
+    setRollingBackId(event.id);
+    setResult(null);
+    try {
+      const idToken = await user?.getIdToken();
+      const res = await fetch(`${CARDS_WORKER_URL}/admin/rollback-collection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ twitchLogin: selectedLogin, cutoffIso: event.createdAt }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Rollback failed');
+      setResult({ ok: true, message: `Rolled back to ${when} -- undid ${data.removedEvents} pack${data.removedEvents === 1 ? '' : 's'}` });
+      await loadUser(selectedLogin);
+    } catch (err: any) {
+      setResult({ ok: false, message: err?.message ?? 'Rollback failed' });
+    } finally {
+      setRollingBackId(null);
+    }
+  };
+
+  return (
+    <GlassCard className="p-5 space-y-4">
+      <div>
+        <h4 className="text-sm font-bold text-white">Viewer Collection Manager</h4>
+        <p className="text-xs text-gray-500 mt-0.5">Search or filter your way to a viewer, edit their whole collection at once, or roll it back to an earlier point in their pack history.</p>
+      </div>
+
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="relative">
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setSuggestOpen(true); }}
+            onFocus={() => setSuggestOpen(true)}
+            onKeyDown={(e) => { if (e.key === 'Enter') loadUser(search); }}
+            placeholder="Search a Twitch username..."
+            className="glass rounded-lg px-3 py-2 text-sm text-white w-full sm:w-72"
+          />
+          {suggestOpen && suggestions.length > 0 && (
+            <div className="absolute z-20 mt-1 w-full sm:w-72 max-h-56 overflow-y-auto rounded-lg border border-white/10 bg-[#0f0f16] shadow-xl">
+              {suggestions.map((s) => (
+                <button key={s.twitchUserId} type="button" onClick={() => loadUser(s.twitchUserLogin)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-left text-sm text-white hover:bg-white/10 transition-colors cursor-pointer">
+                  <span>{s.twitchUserDisplayName || s.twitchUserLogin}</span>
+                  <span className="text-[10px] text-gray-500">{s.totalCards} cards</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
+            className="glass rounded-lg px-3 py-2 text-sm text-white bg-transparent min-w-[200px]">
+            <option value="" className="bg-[#0f0f16]">Find owners of...</option>
+            <optgroup label="By rarity tier" className="bg-[#0f0f16]">
+              {RARITIES.map((r) => <option key={r.id} value={`rarity:${r.id}`} className="bg-[#0f0f16]">All {r.name} cards</option>)}
+            </optgroup>
+            <optgroup label="By specific card" className="bg-[#0f0f16]">
+              {cards.map((c) => <option key={c.id} value={`card:${c.id}`} className="bg-[#0f0f16]">{c.name}{c.active === false ? ' (retired)' : ''}</option>)}
+            </optgroup>
+          </select>
+          <button type="button" onClick={runFind} disabled={!filterValue || filterLoading}
+            className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
+            {filterLoading ? 'Searching...' : 'Find'}
+          </button>
+        </div>
+      </div>
+
+      {filterError && <p className="text-xs text-red-400">{filterError}</p>}
+      {filterResults && (
+        filterResults.length === 0 ? (
+          <p className="text-xs text-gray-500">Nobody owns this yet.</p>
+        ) : (
+          <div className="max-h-48 overflow-y-auto divide-y divide-white/5 rounded-lg border border-white/10">
+            {filterResults.map((r) => (
+              <button key={r.login} type="button" onClick={() => loadUser(r.login)}
+                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 transition-colors cursor-pointer">
+                <span className="text-sm text-white">{r.displayName}</span>
+                <span className="text-xs font-bold text-emerald-400">×{r.count}</span>
+              </button>
+            ))}
+          </div>
+        )
+      )}
+
+      {result && <p className={`text-xs ${result.ok ? 'text-emerald-400' : 'text-red-400'}`}>{result.message}</p>}
+
+      {loadingUser ? (
+        <p className="text-sm text-gray-500">Loading...</p>
+      ) : selectedLogin && (
+        <div className="space-y-4 border-t border-white/10 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-white font-bold">{loadedCollection?.twitchUserDisplayName || selectedLogin}</div>
+              <div className="text-xs text-gray-500">
+                {loadedCollection ? `${loadedCollection.totalCards} cards · ${loadedCollection.totalValue} value` : 'No collection yet -- saving below will create one'}
+              </div>
+            </div>
+            <button type="button" onClick={handleSaveCounts} disabled={savingCounts}
+              className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
+              {savingCounts ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto rounded-lg border border-white/10 divide-y divide-white/5">
+            {cards.map((card) => {
+              const rarity = RARITIES.find((r) => r.id === card.rarity);
+              return (
+                <div key={card.id} className="flex items-center gap-3 px-3 py-2">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: rarity?.color }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white truncate">{card.name}{card.active === false ? <span className="text-gray-600"> (retired)</span> : ''}</div>
+                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">{rarity?.name}</div>
+                  </div>
+                  <button type="button" onClick={() => setEditCounts((c) => ({ ...c, [card.id]: Math.max(0, (c[card.id] || 0) - 1) }))}
+                    className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-sm font-bold cursor-pointer">−</button>
+                  <input type="number" min={0} value={editCounts[card.id] ?? 0}
+                    onChange={(e) => setEditCounts((c) => ({ ...c, [card.id]: Math.max(0, Math.floor(Number(e.target.value)) || 0) }))}
+                    className="w-14 glass rounded-lg px-2 py-1 text-sm text-white text-center" />
+                  <button type="button" onClick={() => setEditCounts((c) => ({ ...c, [card.id]: (c[card.id] || 0) + 1 }))}
+                    className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-sm font-bold cursor-pointer">+</button>
+                </div>
+              );
+            })}
+          </div>
+
+          {history.length > 0 && (
+            <div>
+              <h5 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Pack History ({history.length})</h5>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-white/10 divide-y divide-white/5">
+                {[...history].reverse().map((event) => (
+                  <div key={event.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-xs text-gray-300">{new Date(event.createdAt).toLocaleString()}</div>
+                      <div className="text-[11px] text-gray-500 truncate">
+                        {event.cardIds.map((id) => cardsById.get(id)?.name || id).join(', ')}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => handleRollback(event)} disabled={rollingBackId !== null}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap">
+                      {rollingBackId === event.id ? 'Rolling back...' : 'Roll back to here'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
 function CardMakerTab() {
   const { user } = useAuth();
   const [cards, setCards] = useState<CardDef[]>([]);
@@ -3076,11 +3353,6 @@ function CardMakerTab() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
-  const [manageLogin, setManageLogin] = useState('');
-  const [manageCardId, setManageCardId] = useState('');
-  const [manageQty, setManageQty] = useState(1);
-  const [manageBusy, setManageBusy] = useState(false);
-  const [manageResult, setManageResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [mediaImages, setMediaImages] = useState<{ key: string; url: string; size: number; uploaded: string }[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
@@ -3117,37 +3389,6 @@ function CardMakerTab() {
       setMediaImages((imgs) => imgs.filter((i) => i.key !== key));
     } catch (err: any) {
       setMediaError(err?.message ?? 'Delete failed');
-    }
-  };
-
-  const handleAdjustCollection = async (sign: 1 | -1) => {
-    const login = manageLogin.trim().toLowerCase();
-    const cardId = manageCardId || cards[0]?.id;
-    const qty = Math.max(1, Math.floor(manageQty) || 1);
-    if (!login || !cardId) { setManageResult({ ok: false, message: 'Enter a Twitch username and pick a card' }); return; }
-
-    setManageBusy(true);
-    setManageResult(null);
-    try {
-      const idToken = await user?.getIdToken();
-      const res = await fetch(`${CARDS_WORKER_URL}/admin/adjust-card`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ twitchLogin: login, cardId, delta: sign * qty }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Request failed');
-      const cardName = cards.find((c) => c.id === cardId)?.name || cardId;
-      setManageResult({
-        ok: true,
-        message: data.unchanged
-          ? `${data.twitchUserDisplayName} already has 0 of "${cardName}" -- nothing to remove`
-          : `${data.twitchUserDisplayName} now has ${data.newCount}x "${cardName}"`,
-      });
-    } catch (err: any) {
-      setManageResult({ ok: false, message: err?.message ?? 'Request failed' });
-    } finally {
-      setManageBusy(false);
     }
   };
 
@@ -3298,31 +3539,7 @@ function CardMakerTab() {
 
       {feedback && <div className={`rounded-xl px-4 py-3 text-sm ${feedback.type === 'success' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>{feedback.message}</div>}
 
-      <GlassCard className="p-5 space-y-3">
-        <h4 className="text-sm font-bold text-white">Manage a Viewer's Cards</h4>
-        <p className="text-xs text-gray-500">Add or remove copies of a card from one viewer's collection -- for correcting mistakes. Can't go below 0.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input value={manageLogin} onChange={(e) => setManageLogin(e.target.value)}
-            className="glass rounded-lg px-3 py-2 text-sm text-white w-full sm:w-48" placeholder="Twitch username" />
-          <select value={manageCardId || cards[0]?.id || ''} onChange={(e) => setManageCardId(e.target.value)}
-            className="glass rounded-lg px-3 py-2 text-sm text-white bg-transparent flex-1 min-w-[140px]">
-            {cards.map((c) => <option key={c.id} value={c.id} className="bg-[#0f0f16]">{c.name}{c.active === false ? ' (retired)' : ''}</option>)}
-          </select>
-          <input type="number" min={1} value={manageQty} onChange={(e) => setManageQty(Number(e.target.value))}
-            className="glass rounded-lg px-3 py-2 text-sm text-white w-20" />
-          <button type="button" onClick={() => handleAdjustCollection(1)} disabled={manageBusy}
-            className="px-3 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
-            + Add
-          </button>
-          <button type="button" onClick={() => handleAdjustCollection(-1)} disabled={manageBusy}
-            className="px-3 py-2 rounded-lg text-xs font-bold bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors cursor-pointer disabled:opacity-50">
-            − Remove
-          </button>
-        </div>
-        {manageResult && (
-          <p className={`text-xs ${manageResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>{manageResult.message}</p>
-        )}
-      </GlassCard>
+      <ViewerCollectionManager cards={cards} />
 
       {loading ? (
         <GlassCard className="p-12 text-center"><p className="text-gray-500">Loading cards...</p></GlassCard>

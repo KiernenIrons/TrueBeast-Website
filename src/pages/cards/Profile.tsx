@@ -4,19 +4,23 @@
    Twitch login (no site account needed to view or be viewed).
    ============================================================ */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import PageLayout from '@/components/layout/PageLayout';
 import { GlassCard } from '@/components/shared/GlassCard';
 import CardFace from '@/cards/CardFace';
 import { getUserCollectionByLogin, getCardCatalog } from '@/cards/db';
-import type { UserCollection, CardDef } from '@/cards/types';
+import { RARITIES } from '@/cards/config';
+import type { UserCollection, CardDef, RarityId } from '@/cards/types';
 
 export default function CardsProfile() {
   const { login } = useParams<{ login: string }>();
   const [collection, setCollection] = useState<UserCollection | null>(null);
   const [allCards, setAllCards] = useState<CardDef[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [rarityFilter, setRarityFilter] = useState<RarityId | ''>('');
+  const [ownedOnly, setOwnedOnly] = useState(false);
 
   useEffect(() => {
     if (!login) return;
@@ -36,6 +40,16 @@ export default function CardsProfile() {
 
   const owned = collection?.cards ?? {};
   const uniqueOwned = Object.keys(owned).filter((id) => owned[id] > 0).length;
+
+  const visibleCards = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allCards.filter((card) => {
+      if (rarityFilter && card.rarity !== rarityFilter) return false;
+      if (ownedOnly && !(owned[card.id] > 0)) return false;
+      if (q && !card.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [allCards, rarityFilter, ownedOnly, search, owned]);
 
   return (
     <PageLayout gradientVariant="green" title={`${login} | Card Collection | TrueBeast`}>
@@ -69,15 +83,43 @@ export default function CardsProfile() {
           </div>
         </div>
 
+        {!loading && collection && (
+          <div className="flex flex-wrap items-center gap-2 mb-6">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search a card name..."
+              className="glass rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-green-500/40 w-full sm:w-56"
+            />
+            <select value={rarityFilter} onChange={(e) => setRarityFilter(e.target.value as RarityId | '')}
+              className="glass rounded-xl px-4 py-2.5 text-sm text-white bg-transparent outline-none focus:ring-2 focus:ring-green-500/40">
+              <option value="" className="bg-[#0b0b12]">All rarities</option>
+              {RARITIES.map((r) => <option key={r.id} value={r.id} className="bg-[#0b0b12]">{r.name}</option>)}
+            </select>
+            <button
+              onClick={() => setOwnedOnly((v) => !v)}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                ownedOnly ? 'bg-green-500/20 text-green-400 border border-green-500/40' : 'glass text-gray-400 hover:text-white'
+              }`}
+            >
+              Owned only
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <div className="text-center text-gray-400 py-20">Loading...</div>
         ) : !collection ? (
           <GlassCard className="rounded-2xl p-10 text-center text-gray-400">
             No collection found for "{login}" yet — packs opened live on stream show up here instantly.
           </GlassCard>
+        ) : visibleCards.length === 0 ? (
+          <GlassCard className="rounded-2xl p-10 text-center text-gray-400">
+            No cards match this filter.
+          </GlassCard>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 justify-items-center">
-            {allCards.map((card) => {
+            {visibleCards.map((card) => {
               const count = owned[card.id] ?? 0;
               return (
                 <div key={card.id} style={{ opacity: count > 0 ? 1 : 0.25, filter: count > 0 ? 'none' : 'grayscale(1)' }}>

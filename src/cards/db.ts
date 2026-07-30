@@ -25,6 +25,14 @@ const PACK_EVENTS_COL = 'packEvents';
 const USER_COLLECTIONS_COL = 'userCollections';
 const CARD_CATALOG_COL = 'cardCatalog';
 
+// Short in-memory cache for the "browse every collector" reads used by the
+// owners-filter tools (admin's Card Maker + the public Leaderboard page) --
+// these pull the whole userCollections table client-side (small enough for a
+// single-streamer instance) and filter/sort in the browser, rather than
+// needing a bespoke Firestore query shape per filter combination.
+const ALL_COLLECTIONS_CACHE_TTL_MS = 20_000;
+let allCollectionsCache: { data: UserCollection[]; expiresAt: number } | null = null;
+
 /**
  * Live-subscribes to newly-created pack events (createdAt > `sinceIso`).
  * Used by the OBS overlay so a fresh page load never replays old packs.
@@ -87,6 +95,52 @@ export async function getUserCollectionByLogin(login: string): Promise<UserColle
   } catch (err) {
     console.warn('[cards] getUserCollectionByLogin error:', (err as Error).message);
     return null;
+  }
+}
+
+/**
+ * Every collector, unsorted -- backs the owners-filter tools (admin's Card
+ * Maker "Browse Owners" and the public Leaderboard's rarity/card filters),
+ * which filter and sort this list client-side rather than needing a
+ * dedicated Firestore query per filter combination. Fine at single-streamer
+ * scale; cached briefly for the same reason getLeaderboard is.
+ */
+export async function getAllCollections(limitN = 1000): Promise<UserCollection[]> {
+  if (allCollectionsCache && allCollectionsCache.expiresAt > Date.now()) return allCollectionsCache.data;
+  const db = getCardsDb();
+  if (!db) return [];
+  try {
+    const q = query(collection(db, USER_COLLECTIONS_COL), limit(limitN));
+    const snap = await getDocs(q);
+    const data = snap.docs.map((d) => d.data() as UserCollection);
+    allCollectionsCache = { data, expiresAt: Date.now() + ALL_COLLECTIONS_CACHE_TTL_MS };
+    return data;
+  } catch (err) {
+    console.warn('[cards] getAllCollections error:', (err as Error).message);
+    return [];
+  }
+}
+
+/**
+ * One viewer's full pack-opening history, oldest first -- backs the admin
+ * "roll back to here" tool. packEvents is public-read (see CARDS_SETUP.md's
+ * Firestore rules), so this reads directly rather than needing a Worker
+ * route; only the actual rollback write goes through the Worker. Sorted
+ * client-side (rather than an `orderBy` in the query) so this never needs a
+ * composite Firestore index.
+ */
+export async function getPackHistoryForUser(twitchUserId: string): Promise<PackEvent[]> {
+  const db = getCardsDb();
+  if (!db) return [];
+  try {
+    const q = query(collection(db, PACK_EVENTS_COL), where('twitchUserId', '==', twitchUserId));
+    const snap = await getDocs(q);
+    const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PackEvent, 'id'>) }));
+    data.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return data;
+  } catch (err) {
+    console.warn('[cards] getPackHistoryForUser error:', (err as Error).message);
+    return [];
   }
 }
 
