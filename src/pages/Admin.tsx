@@ -2705,6 +2705,167 @@ function drawMdLineUI(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 
 const EMPTY_CARD_FORM = { id: '', name: '', rarity: 'common' as RarityId, emoji: '', imageUrl: '', gradientFrom: '#22c55e', gradientTo: '#052e16', flavorText: '' };
 
+// Matches CardFace's "md" preview proportions (172x240) -- close enough that
+// object-cover on the actual card face never needs to crop further.
+const CARD_ART_ASPECT = 172 / 240;
+const CARD_ART_MAX_BYTES = 2 * 1024 * 1024; // 2MB -- keeps R2 usage tiny and uploads fast
+const CROP_VIEWPORT_W = 260;
+const CROP_VIEWPORT_H = Math.round(CROP_VIEWPORT_W / CARD_ART_ASPECT);
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Canvas export failed'))), 'image/jpeg', quality);
+  });
+}
+
+/** Compresses (and if needed, downsamples) a canvas until it fits under maxBytes. */
+async function compressCanvasUnder(canvas: HTMLCanvasElement, maxBytes: number): Promise<Blob> {
+  let quality = 0.92;
+  let blob = await canvasToBlob(canvas, quality);
+  while (blob.size > maxBytes && quality > 0.4) {
+    quality -= 0.12;
+    blob = await canvasToBlob(canvas, quality);
+  }
+  if (blob.size > maxBytes) {
+    const scale = Math.max(0.3, Math.sqrt(maxBytes / blob.size) * 0.92);
+    const smaller = document.createElement('canvas');
+    smaller.width = Math.max(80, Math.round(canvas.width * scale));
+    smaller.height = Math.max(80, Math.round(canvas.height * scale));
+    smaller.getContext('2d')!.drawImage(canvas, 0, 0, smaller.width, smaller.height);
+    blob = await canvasToBlob(smaller, 0.75);
+  }
+  return blob;
+}
+
+/**
+ * Simple in-browser crop/zoom/pan editor -- no external library. The image
+ * is displayed "cover"-fit inside a fixed-aspect viewport; a zoom slider and
+ * drag-to-pan adjust which part shows, then "Use This Image" bakes the
+ * visible crop onto a canvas and auto-compresses it under CARD_ART_MAX_BYTES
+ * before handing back a Blob.
+ */
+function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: () => void; onConfirm: (blob: Blob) => void }) {
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [natSize, setNatSize] = useState({ w: 0, h: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [processing, setProcessing] = useState(false);
+  const dragRef = useRef<{ startX: number; startY: number; startOffX: number; startOffY: number } | null>(null);
+  const imgElRef = useRef<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setImgUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const baseScale = natSize.w > 0 ? Math.max(CROP_VIEWPORT_W / natSize.w, CROP_VIEWPORT_H / natSize.h) : 1;
+  const scale = baseScale * zoom;
+  const dispW = natSize.w * scale;
+  const dispH = natSize.h * scale;
+
+  const clamp = (x: number, y: number) => ({
+    x: Math.min(0, Math.max(CROP_VIEWPORT_W - dispW, x)),
+    y: Math.min(0, Math.max(CROP_VIEWPORT_H - dispH, y)),
+  });
+
+  const onImgLoad = () => {
+    const el = imgElRef.current;
+    if (!el) return;
+    setNatSize({ w: el.naturalWidth, h: el.naturalHeight });
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startOffX: offset.x, startOffY: offset.y };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setOffset(clamp(dragRef.current.startOffX + dx, dragRef.current.startOffY + dy));
+  };
+  const onPointerUp = () => { dragRef.current = null; };
+
+  const handleZoomChange = (next: number) => {
+    setZoom(next);
+    const nextScale = baseScale * next;
+    const nextDispW = natSize.w * nextScale;
+    const nextDispH = natSize.h * nextScale;
+    setOffset((o) => ({
+      x: Math.min(0, Math.max(CROP_VIEWPORT_W - nextDispW, o.x)),
+      y: Math.min(0, Math.max(CROP_VIEWPORT_H - nextDispH, o.y)),
+    }));
+  };
+
+  const handleConfirm = async () => {
+    const el = imgElRef.current;
+    if (!el || natSize.w === 0) return;
+    setProcessing(true);
+    try {
+      const targetW = 600;
+      const targetH = Math.round(targetW / CARD_ART_ASPECT);
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d')!;
+      const sx = -offset.x / scale;
+      const sy = -offset.y / scale;
+      const sW = CROP_VIEWPORT_W / scale;
+      const sH = CROP_VIEWPORT_H / scale;
+      ctx.drawImage(el, sx, sy, sW, sH, 0, 0, targetW, targetH);
+      const blob = await compressCanvasUnder(canvas, CARD_ART_MAX_BYTES);
+      onConfirm(blob);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[210] bg-black/80 flex items-center justify-center p-4">
+      <div className="bg-[#0f0f16] border border-white/10 rounded-2xl p-6 w-full max-w-sm">
+        <h4 className="text-sm font-bold text-white mb-1">Crop Card Art</h4>
+        <p className="text-[11px] text-gray-500 mb-3">Drag to reposition, use the slider to zoom. Auto-compressed to fit under 2MB.</p>
+
+        <div
+          className="relative mx-auto rounded-xl overflow-hidden bg-black/40 touch-none cursor-grab active:cursor-grabbing"
+          style={{ width: CROP_VIEWPORT_W, height: CROP_VIEWPORT_H }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+        >
+          {imgUrl && (
+            <img
+              ref={imgElRef}
+              src={imgUrl}
+              onLoad={onImgLoad}
+              draggable={false}
+              alt=""
+              style={{ position: 'absolute', left: offset.x, top: offset.y, width: dispW || undefined, height: dispH || undefined, userSelect: 'none' }}
+            />
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-[10px] text-gray-500">Zoom</span>
+          <input type="range" min={1} max={3} step={0.02} value={zoom} onChange={(e) => handleZoomChange(Number(e.target.value))} className="flex-1" />
+        </div>
+
+        <div className="flex items-center justify-end gap-3 mt-5">
+          <button type="button" onClick={onCancel} className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-400 hover:text-white transition-colors cursor-pointer">
+            Cancel
+          </button>
+          <button type="button" onClick={handleConfirm} disabled={processing || natSize.w === 0}
+            className="px-5 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50">
+            {processing ? 'Processing...' : 'Use This Image'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CardMakerTab() {
   const { user } = useAuth();
   const [cards, setCards] = useState<CardDef[]>([]);
@@ -2715,6 +2876,7 @@ function CardMakerTab() {
   const [form, setForm] = useState(EMPTY_CARD_FORM);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [manageLogin, setManageLogin] = useState('');
   const [manageCardId, setManageCardId] = useState('');
   const [manageQty, setManageQty] = useState(1);
@@ -2752,14 +2914,14 @@ function CardMakerTab() {
     }
   };
 
-  const handleImageUpload = async (file: File) => {
+  const handleImageUpload = async (blob: Blob) => {
     setUploading(true);
     try {
       const idToken = await user?.getIdToken();
       const res = await fetch(`${CARDS_WORKER_URL}/admin/upload-image`, {
         method: 'POST',
-        headers: { 'Content-Type': file.type, Authorization: `Bearer ${idToken}` },
-        body: file,
+        headers: { 'Content-Type': 'image/jpeg', Authorization: `Bearer ${idToken}` },
+        body: blob,
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed');
@@ -2998,7 +3160,7 @@ function CardMakerTab() {
                     <label className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer transition-colors ${uploading ? 'bg-white/5 text-gray-500' : 'bg-white/10 text-gray-200 hover:bg-white/20'}`}>
                       {uploading ? 'Uploading...' : 'Upload'}
                       <input type="file" accept="image/*" className="hidden" disabled={uploading}
-                        onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImageUpload(file); e.target.value = ''; }} />
+                        onChange={(e) => { const file = e.target.files?.[0]; if (file) setPendingImageFile(file); e.target.value = ''; }} />
                     </label>
                   </div>
                   <p className="text-[10px] text-gray-600 mt-1">Uploaded images are stored permanently in Cloudflare R2 -- not a link to an external site that could break.</p>
@@ -3054,6 +3216,14 @@ function CardMakerTab() {
             </div>
           </div>
         </div>
+      )}
+
+      {pendingImageFile && (
+        <ImageCropModal
+          file={pendingImageFile}
+          onCancel={() => setPendingImageFile(null)}
+          onConfirm={(blob) => { setPendingImageFile(null); handleImageUpload(blob); }}
+        />
       )}
     </div>
   );

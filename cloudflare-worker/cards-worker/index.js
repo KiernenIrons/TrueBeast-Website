@@ -715,7 +715,10 @@ async function handleAdjustCard(request, env, corsHeaders) {
   );
 }
 
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB
+// The website's Card Maker crop editor already compresses to under this
+// before sending -- this is just the server-side backstop in case that's
+// ever bypassed (e.g. someone calling this endpoint directly).
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2MB
 
 // Admin-only route: uploads card art to R2 (Cloudflare's free-tier object
 // storage) and returns its permanent public URL. Used instead of Firebase
@@ -736,7 +739,7 @@ async function handleUploadImage(request, env, corsHeaders) {
 
   const body = await request.arrayBuffer();
   if (body.byteLength === 0) return jsonResponse({ error: 'Empty file' }, 400, corsHeaders);
-  if (body.byteLength > MAX_UPLOAD_BYTES) return jsonResponse({ error: 'Image too large (max 5MB)' }, 400, corsHeaders);
+  if (body.byteLength > MAX_UPLOAD_BYTES) return jsonResponse({ error: 'Image too large (max 2MB)' }, 400, corsHeaders);
 
   const ext = (contentType.split('/')[1] || 'png').split(';')[0].replace(/[^a-z0-9]/gi, '') || 'png';
   const key = `card-art/${Date.now()}-${crypto.randomUUID()}.${ext}`;
