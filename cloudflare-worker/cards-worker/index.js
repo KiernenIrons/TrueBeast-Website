@@ -16,6 +16,9 @@
  *                                Card Maker tab.
  *   POST /admin/adjust-card     — admin-only: add/remove copies of a card from one viewer's
  *                                collection (manual fixes). Called from the same tab.
+ *   GET  /admin/list-images     — admin-only: lists everything in the R2 bucket's card-art/
+ *                                prefix, for the Media Library section of the Card Maker tab.
+ *   POST /admin/delete-image    — admin-only: deletes one object from the R2 bucket by key.
  *
  * Scheduled (Cron Trigger, see wrangler.toml):
  *   Re-checks the EventSub subscription is still `enabled`; recreates it (using
@@ -750,6 +753,55 @@ async function handleUploadImage(request, env, corsHeaders) {
   return jsonResponse({ ok: true, url: `${base}/${key}` }, 200, corsHeaders);
 }
 
+// Admin-only route: lists everything in the card-art/ prefix of the R2
+// bucket, so uploads can be reviewed/cleaned up from the website itself
+// instead of needing the Cloudflare dashboard.
+async function handleListImages(request, env, corsHeaders) {
+  try {
+    await requireSuperAdmin(request);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 401, corsHeaders);
+  }
+  if (!env.CARD_ART_BUCKET) return jsonResponse({ error: 'CARD_ART_BUCKET R2 binding not configured on this Worker' }, 500, corsHeaders);
+  if (!env.CARD_ART_PUBLIC_BASE_URL) return jsonResponse({ error: 'CARD_ART_PUBLIC_BASE_URL variable not set on this Worker' }, 500, corsHeaders);
+
+  const base = env.CARD_ART_PUBLIC_BASE_URL.replace(/\/+$/, '');
+  const images = [];
+  let cursor;
+  do {
+    const page = await env.CARD_ART_BUCKET.list({ prefix: 'card-art/', cursor, limit: 200 });
+    for (const obj of page.objects) {
+      images.push({ key: obj.key, url: `${base}/${obj.key}`, size: obj.size, uploaded: obj.uploaded });
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  images.sort((a, b) => new Date(b.uploaded).getTime() - new Date(a.uploaded).getTime());
+  return jsonResponse({ ok: true, images }, 200, corsHeaders);
+}
+
+// Admin-only route: deletes one object from the R2 bucket by key.
+async function handleDeleteImage(request, env, corsHeaders) {
+  try {
+    await requireSuperAdmin(request);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 401, corsHeaders);
+  }
+  if (!env.CARD_ART_BUCKET) return jsonResponse({ error: 'CARD_ART_BUCKET R2 binding not configured on this Worker' }, 500, corsHeaders);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400, corsHeaders);
+  }
+  const key = (body.key || '').trim();
+  if (!key || !key.startsWith('card-art/')) return jsonResponse({ error: 'Invalid key' }, 400, corsHeaders);
+
+  await env.CARD_ART_BUCKET.delete(key);
+  return jsonResponse({ ok: true }, 200, corsHeaders);
+}
+
 const ADMIN_ALLOWED_ORIGINS = ['https://truebeast.io', 'https://www.truebeast.io'];
 
 export default {
@@ -760,12 +812,14 @@ export default {
       const origin = request.headers.get('Origin') || '';
       const corsHeaders = {
         'Access-Control-Allow-Origin': ADMIN_ALLOWED_ORIGINS.includes(origin) ? origin : ADMIN_ALLOWED_ORIGINS[0],
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       };
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
       if (url.pathname === '/admin/adjust-card' && request.method === 'POST') return handleAdjustCard(request, env, corsHeaders);
       if (url.pathname === '/admin/upload-image' && request.method === 'POST') return handleUploadImage(request, env, corsHeaders);
+      if (url.pathname === '/admin/list-images' && request.method === 'GET') return handleListImages(request, env, corsHeaders);
+      if (url.pathname === '/admin/delete-image' && request.method === 'POST') return handleDeleteImage(request, env, corsHeaders);
       return jsonResponse({ error: 'Not found' }, 404, corsHeaders);
     }
 
