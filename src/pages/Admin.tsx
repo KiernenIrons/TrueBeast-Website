@@ -2715,14 +2715,18 @@ const CROP_VIEWPORT_W = 260;
 const CROP_VIEWPORT_H = Math.round(CROP_VIEWPORT_W / CARD_ART_ASPECT);
 
 /**
- * Clamps a pan offset on one axis. If the displayed image is larger than the
- * viewport (the normal "cover" case), it clamps so the image always fully
- * covers the viewport with no gaps. If the image is smaller (zoomed out
- * below "cover"), there's nothing to pan -- it centers instead.
+ * Clamps a pan offset on one axis so the image never gets dragged fully out
+ * of view. When the displayed image is larger than the viewport (the normal
+ * "cover" case), that means the usual "no gaps" clamp. When it's smaller
+ * (zoomed out below "cover"), the same formula flips into a positive range
+ * that lets the image be freely dragged anywhere within the viewport's
+ * padding -- top-left corner through bottom-right corner -- instead of being
+ * locked to dead-center.
  */
 function clampAxis(dispSize: number, viewportSize: number, desired: number): number {
-  if (dispSize <= viewportSize) return (viewportSize - dispSize) / 2;
-  return Math.min(0, Math.max(viewportSize - dispSize, desired));
+  const lo = Math.min(0, viewportSize - dispSize);
+  const hi = Math.max(0, viewportSize - dispSize);
+  return Math.min(hi, Math.max(lo, desired));
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, format: 'image/jpeg' | 'image/png', quality?: number): Promise<Blob> {
@@ -2838,7 +2842,18 @@ async function buildAnimatedGifBlob(
  * CARD_ART_MAX_BYTES before handing back a Blob. Animated GIFs go through
  * buildAnimatedGifBlob above instead, to preserve their animation.
  */
-function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: () => void; onConfirm: (blob: Blob) => void }) {
+function ImageCropModal({
+  file, gradientFrom, gradientTo, rarityColor, emoji, onCancel, onConfirm,
+}: {
+  file: File;
+  /** Passed in so the crop viewport shows the actual card look (gradient + border + emoji) behind/over the art, instead of a flat black box -- what you frame here is what the finished card looks like. */
+  gradientFrom: string;
+  gradientTo: string;
+  rarityColor: string;
+  emoji: string;
+  onCancel: () => void;
+  onConfirm: (blob: Blob) => void;
+}) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [natSize, setNatSize] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
@@ -2954,8 +2969,13 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
         )}
 
         <div
-          className="relative mx-auto rounded-xl overflow-hidden bg-black/40 touch-none cursor-grab active:cursor-grabbing"
-          style={{ width: CROP_VIEWPORT_W, height: CROP_VIEWPORT_H }}
+          className="relative mx-auto rounded-xl overflow-hidden touch-none cursor-grab active:cursor-grabbing"
+          style={{
+            width: CROP_VIEWPORT_W,
+            height: CROP_VIEWPORT_H,
+            background: `linear-gradient(155deg, ${gradientFrom} 0%, ${gradientTo} 100%)`,
+            border: `2px solid ${rarityColor}`,
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -2979,11 +2999,19 @@ function ImageCropModal({ file, onCancel, onConfirm }: { file: File; onCancel: (
               }}
             />
           )}
+          {emoji && (
+            <span
+              className="absolute inset-0 flex items-center justify-center pointer-events-none"
+              style={{ fontSize: Math.round((CROP_VIEWPORT_W / 172) * 56), textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' }}
+            >
+              {emoji}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 mt-3">
           <span className="text-[10px] text-gray-500">Zoom</span>
-          <input type="range" min={0.3} max={3} step={0.02} value={zoom} onChange={(e) => handleZoomChange(Number(e.target.value))} className="flex-1" />
+          <input type="range" min={0.08} max={3} step={0.02} value={zoom} onChange={(e) => handleZoomChange(Number(e.target.value))} className="flex-1" />
         </div>
 
         <div className="flex items-center justify-end gap-3 mt-5">
@@ -3401,6 +3429,10 @@ function CardMakerTab() {
       {pendingImageFile && (
         <ImageCropModal
           file={pendingImageFile}
+          gradientFrom={form.gradientFrom}
+          gradientTo={form.gradientTo}
+          rarityColor={RARITIES.find((r) => r.id === form.rarity)?.color || '#9ca3af'}
+          emoji={form.emoji}
           onCancel={() => setPendingImageFile(null)}
           onConfirm={(blob) => { setPendingImageFile(null); handleImageUpload(blob); }}
         />

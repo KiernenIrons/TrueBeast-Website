@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CardDef } from './types';
 import { rarityOf } from './engine';
 
@@ -17,6 +18,13 @@ const SIZES = {
 export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
   const rarity = rarityOf(card.rarity);
   const dims = SIZES[size];
+  // If the stored imageUrl ever fails to load (bad/rotted URL, R2 access
+  // issue, etc.), fall back to the emoji/❓ instead of a near-invisible
+  // broken-image glyph sitting on a dark card -- and log the exact URL so
+  // it's easy to check directly (open it in a new tab) instead of the card
+  // just silently looking "empty".
+  const [imgFailed, setImgFailed] = useState(false);
+  const showImage = !!card.imageUrl && !imgFailed;
 
   return (
     <div
@@ -43,16 +51,26 @@ export default function CardFace({ card, count, size = 'md' }: CardFaceProps) {
       </div>
 
       <div className="flex-1 relative flex items-center justify-center" style={{ fontSize: dims.emoji }}>
-        {card.imageUrl && <img src={card.imageUrl} alt={card.name} className="absolute inset-0 w-full h-full object-cover" />}
+        {card.imageUrl && !imgFailed && (
+          <img
+            src={card.imageUrl}
+            alt={card.name}
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={() => {
+              console.warn(`[cards] card "${card.id}" image failed to load, falling back to emoji: ${card.imageUrl}`);
+              setImgFailed(true);
+            }}
+          />
+        )}
         {card.emoji ? (
           <span
             className="relative z-[1]"
-            style={card.imageUrl ? { textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' } : undefined}
+            style={showImage ? { textShadow: '0 2px 6px rgba(0,0,0,0.7), 0 0 14px rgba(0,0,0,0.5)' } : undefined}
           >
             {card.emoji}
           </span>
         ) : (
-          !card.imageUrl && <span className="relative z-[1]">❓</span>
+          !showImage && <span className="relative z-[1]">❓</span>
         )}
       </div>
 
