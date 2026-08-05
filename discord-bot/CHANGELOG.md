@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Poop rating: delete button
+
+- Added red 🗑️ Delete button to every poop rating submission (`poop:delete:<userId>`)
+- Handler checks `isSubmitter || isMod (MOD_ROLE_ID) || isOwner (OWNER_DISCORD_ID)` — anyone else gets an ephemeral error
+- Deletes the message then replies ephemerally with confirmation (auto-dismissed after 3s)
+
 ## [2026-08-05] — Poop scale: star emojis instead of numbered list
 
 - Replaced `**1.**`, `**2.**` etc. in the poop scale with `⭐️`, `⭐️⭐️` etc. in both the `/setup-poop` prompt and the bottom of every submitted rating

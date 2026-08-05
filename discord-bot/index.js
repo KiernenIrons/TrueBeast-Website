@@ -343,7 +343,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '💩 Poop scale redesign', value: 'The rating scale now shows stars instead of numbers — ⭐️ through ⭐️⭐️⭐️⭐️⭐️ — so you can see exactly what each rating means at a glance.' },
+    { name: '🗑️ Poop rating — delete button', value: 'Each poop rating now has a red Delete button. Only the person who submitted it, a mod, or the server owner can use it.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -11053,6 +11053,7 @@ client.on('interactionCreate', async (interaction) => {
                 .addActionRowComponents(
                     new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('poop:rate').setLabel('Rate YOUR Poop').setEmoji('💩').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`poop:delete:${user.id}`).setLabel('Delete').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
                     ),
                 );
             await poopChannel.send({ flags: MessageFlags.IsComponentsV2, components: [container] });
@@ -11865,6 +11866,33 @@ client.on('interactionCreate', async (interaction) => {
             ),
         );
         await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Poop delete button ────────────────────────────────────────────────────
+    if (interaction.customId.startsWith('poop:delete:')) {
+        const submitterId = interaction.customId.split(':')[2];
+        const userId      = interaction.user.id;
+        const member      = interaction.member;
+        const isSubmitter = userId === submitterId;
+        const isMod       = member?.roles?.cache?.has(MOD_ROLE_ID);
+        const isOwner     = userId === OWNER_DISCORD_ID;
+
+        if (!isSubmitter && !isMod && !isOwner) {
+            await interaction.reply({ content: '❌ Only the person who submitted this rating, a mod, or the server owner can delete it.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+
+        try {
+            await interaction.message.delete();
+            await interaction.reply({ content: '✅ Rating deleted.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 3000);
+        } catch (e) {
+            console.error('[BeastBot] Failed to delete poop rating:', e.message);
+            await interaction.reply({ content: '❌ Could not delete this message.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
         return;
     }
 
