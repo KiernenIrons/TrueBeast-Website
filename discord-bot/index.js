@@ -343,8 +343,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '💩 Poop rating layout', value: 'Rating entries now show each section (rating, details, scale) separated by dividers. Also fixed the spelling of "conquered" and the ⭐️ emoji.' },
-    { name: '🎙️ VC status logging', value: 'Voice channel status changes ("Set a Status") are now tracked and posted to the log channel with the new status and who set it.' },
+    { name: '💩 Poop scale redesign', value: 'The rating scale now shows stars instead of numbers — ⭐️ through ⭐️⭐️⭐️⭐️⭐️ — so you can see exactly what each rating means at a glance.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -10174,7 +10173,7 @@ client.on('interactionCreate', async (interaction) => {
                     .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
                     .addTextDisplayComponents(
                         new TextDisplayBuilder().setContent(
-                            '**1.** You are shitting water.\n**2.** You have bad diarrhea.\n**3.** Your poop is like...soft icecream...\n**4.** Almost perfect poop.\n**5.** Your poop is so perfect that you don\'t even have to wipe your ass.',
+                            '⭐️ - You are shitting water.\n⭐️⭐️ - You have bad diarrhea.\n⭐️⭐️⭐️ - Your poop is like...soft icecream...\n⭐️⭐️⭐️⭐️ - Almost perfect poop.\n⭐️⭐️⭐️⭐️⭐️ - Your poop is so perfect that you don\'t even have to wipe your ass.',
                         ),
                     )
                     .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
@@ -11047,7 +11046,7 @@ client.on('interactionCreate', async (interaction) => {
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
-                        '**1.** You are shitting water.\n**2.** You have bad diarrhea.\n**3.** Your poop is like...soft icecream...\n**4.** Almost perfect poop.\n**5.** Your poop is so perfect that you don\'t even have to wipe your ass.',
+                        '⭐️ - You are shitting water.\n⭐️⭐️ - You have bad diarrhea.\n⭐️⭐️⭐️ - Your poop is like...soft icecream...\n⭐️⭐️⭐️⭐️ - Almost perfect poop.\n⭐️⭐️⭐️⭐️⭐️ - Your poop is so perfect that you don\'t even have to wipe your ass.',
                     ),
                 )
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))

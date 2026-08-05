@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Poop scale: star emojis instead of numbered list
+
+- Replaced `**1.**`, `**2.**` etc. in the poop scale with `⭐️`, `⭐️⭐️` etc. in both the `/setup-poop` prompt and the bottom of every submitted rating
+
 ## [2026-08-05] — Poop embed layout improvements; VC status logging fix
 
 - Fixed spelling: "conqured" → "conquered" in poop submission text
