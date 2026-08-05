@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Fix poop rating channel ID
+
+- Changed `POOP_CHANNEL_ID` from testing channel to the correct Poop Scale channel (`1534514208161403060`)
+
 ## [2026-08-05] — Poop rating: delete button
 
 - Added red 🗑️ Delete button to every poop rating submission (`poop:delete:<userId>`)

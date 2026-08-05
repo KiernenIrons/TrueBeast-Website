@@ -343,7 +343,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🗑️ Poop rating — delete button', value: 'Each poop rating now has a red Delete button. Only the person who submitted it, a mod, or the server owner can use it.' },
+    { name: '💩 Poop rating channel fix', value: '/setup-poop now posts to the correct Poop Scale channel.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1485,7 +1485,7 @@ let _lastDailyFirestoreDate = '';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
 const THOUGHTS_CHANNEL_ID = '1488545515976134737';
-const POOP_CHANNEL_ID     = '1486021237548257330';
+const POOP_CHANNEL_ID     = '1534514208161403060';
 const GIVEAWAY_CHANNEL_ID  = '836728871356989491';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
