@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Poop Rating (Components V2) + fitness removal
+
+- Rewrote poop rating messages to use Discord Components V2: `ContainerBuilder`, `MediaGalleryBuilder`, `SeparatorBuilder`, `TextDisplayBuilder` — matches the designed layout with image → separator → text → separator → button
+- Changed "Rate YOUR Poop" button style from `Secondary` (gray) to `Success` (green) to match design
+- Fixed text format: `__**Name**__ has successfully conqured another meal passthrough!\n**Rating:** ⭐⭐⭐☆☆\n\n**Details:** …`
+- Removed all fitness tracking code: `fitnessData`, `workoutRooms`, `challenges` Maps; `createWorkoutRoom`, `playWorkoutAlarm`, `postChallengeLeaderboard`, `updateChallengeCheckInEmbed` functions; `/fitness`, `/fitness-setup`, `/challenge`, `/reminder`, `/reminder-clear` slash commands; all fitness button/modal handlers; fitness VC trigger handling; workout notification DM loop; 30-day challenge daily post loop
+
 ## [2026-08-05] — Poop Rating feature
 
 - Added `POOP_CHANNEL_ID` constant pointing to the poop channel (`1486021237548257330`)

@@ -26,6 +26,8 @@ const {
     AuditLogEvent, MessageFlags,
     StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
     UserFlags, GuildMemberFlags,
+    ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
+    MediaGalleryBuilder, MediaGalleryItemBuilder,
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
@@ -341,7 +343,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '💩 Poop Rating', value: 'Rate your latest bathroom visit on a 1–5 scale and share what you\'ve been eating. Ratings post as an embed in the channel with your name, star rating, and details.' },
+    { name: '💩 Poop Rating', value: 'Click "Rate YOUR Poop" to log your bathroom visit on a 1–5 scale with details. Posts in the channel with your name, star rating, and explanation.' },
+    { name: '🗑️ Fitness removed', value: 'Workout logging, reminders, workout rooms, and 30-day challenges have been removed — these features were no longer in use.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1547,14 +1550,6 @@ const TEMP_VC_TRIGGER_ID = '1484970124292128992';
 // channelId → { ownerId, ownerName, deleteTimer }
 const tempVoiceChannels = new Map();
 
-// ── Fitness Tracking ──────────────────────────────────────────────────────────
-const FITNESS_TRACKING_CHANNEL_ID = '1499562548767490058'; // #tracking
-const FITNESS_VC_TRIGGER_ID       = '1499568259299676321'; // Workout Together (join-to-create)
-const FITNESS_DISCUSS_CHANNEL_ID  = '1499562699300802570'; // #discussions
-const fitnessData  = new Map(); // userId → { entries: [], notify: null }
-const workoutRooms = new Map(); // channelId → { ownerId, ownerName, deleteTimer, dmMessageId, createdAt }
-const challenges   = new Map(); // challengeId → { id, title, description, startDate, endDate, announceMsgId, active, dailyPosts, participants }
-
 // ── Reaction Roles ────────────────────────────────────────────────────────────
 const REACTION_ROLES_CHANNEL_ID  = '1465784739477590088';
 const reactionRoles = new Map(); // panelId → { panelId, messageId, title, description, buttons: [{ label, emoji, roleId, roleName }] }
@@ -2519,80 +2514,6 @@ function todayStr() {
     return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
 }
 
-function parseDurationToMins(str) {
-    if (!str) return null;
-    const s = str.toLowerCase().trim();
-    const hm = s.match(/(\d+)\s*h(?:r|ours?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?/);
-    if (hm) return parseInt(hm[1]) * 60 + (parseInt(hm[2] || '0') || 0);
-    const m = s.match(/(\d+)\s*m(?:in(?:utes?)?)?/);
-    if (m) return parseInt(m[1]);
-    const n = s.match(/^(\d+)$/);
-    if (n) return parseInt(n[1]);
-    return null;
-}
-
-function parseTimeToUtc(rawTime, offsetHours) {
-    const normalized = rawTime.trim().toUpperCase().replace(/\s+/g, '');
-    let h, m;
-    const ampm = normalized.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)$/);
-    const plain = normalized.match(/^(\d{1,2}):(\d{2})$/);
-    if (ampm) {
-        h = parseInt(ampm[1]);
-        m = parseInt(ampm[2] || '0');
-        if (ampm[3] === 'PM' && h !== 12) h += 12;
-        if (ampm[3] === 'AM' && h === 12) h = 0;
-    } else if (plain) {
-        h = parseInt(plain[1]);
-        m = parseInt(plain[2]);
-    } else {
-        return null;
-    }
-    if (h > 23 || m > 59) return null;
-    const totalMinsLocal = h * 60 + m;
-    const off = parseFloat(offsetHours) || 0;
-    const totalMinsUtc = ((totalMinsLocal - off * 60) % 1440 + 1440) % 1440;
-    const utcH = Math.floor(totalMinsUtc / 60);
-    const utcM = totalMinsUtc % 60;
-    return `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
-}
-
-function parseDays(rawDays) {
-    const s = rawDays.trim().toUpperCase();
-    if (['DAILY', 'EVERY DAY', 'EVERYDAY', 'ALL'].includes(s)) return [0, 1, 2, 3, 4, 5, 6];
-    if (['WEEKDAYS', 'WORKDAYS', 'MON-FRI'].includes(s)) return [1, 2, 3, 4, 5];
-    if (s === 'WEEKENDS') return [0, 6];
-    const map = { SUN: 0, SUNDAY: 0, MON: 1, MONDAY: 1, TUE: 2, TUES: 2, TUESDAY: 2, WED: 3, WEDNESDAY: 3, THU: 4, THURS: 4, THURSDAY: 4, FRI: 5, FRIDAY: 5, SAT: 6, SATURDAY: 6 };
-    const parts = s.split(/[\s,]+/).map(p => p.trim()).filter(Boolean);
-    const result = [];
-    for (const p of parts) {
-        if (map[p] !== undefined && !result.includes(map[p])) result.push(map[p]);
-    }
-    return result.length ? result.sort((a, b) => a - b) : null;
-}
-
-function calcStreak(entries) {
-    if (!entries || entries.length === 0) return 0;
-    const days = new Set(entries.map(e => e.date));
-    const today = todayStr();
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() - 1);
-    let streak = 0;
-    while (true) {
-        const key = d.toISOString().slice(0, 10);
-        if (!days.has(key)) break;
-        streak++;
-        d.setUTCDate(d.getUTCDate() - 1);
-    }
-    if (days.has(today)) streak++;
-    return streak;
-}
-
-function calcAvgDuration(entries) {
-    const valid = entries.filter(e => typeof e.durationMins === 'number');
-    if (valid.length === 0) return null;
-    return Math.round(valid.reduce((s, e) => s + e.durationMins, 0) / valid.length);
-}
-
 // ── Discord-channel backup (primary) + once-daily Firestore backup ─────────────
 
 function buildFullBackup() {
@@ -2661,26 +2582,6 @@ function buildFullBackup() {
         },
         aiHistory: ai,
         afk,
-        fitnessData: (() => {
-            const fd = {};
-            for (const [uid, data] of fitnessData) fd[uid] = { entries: data.entries, notify: data.notify };
-            return fd;
-        })(),
-        workoutRooms: (() => {
-            const wr = {};
-            for (const [chId, room] of workoutRooms) wr[chId] = { ownerId: room.ownerId, ownerName: room.ownerName, createdAt: room.createdAt };
-            return wr;
-        })(),
-        challenges: (() => {
-            const ch = {};
-            for (const [cid, c] of challenges) {
-                ch[cid] = { id: c.id, title: c.title, description: c.description,
-                    startDate: c.startDate, endDate: c.endDate,
-                    announceMsgId: c.announceMsgId, active: c.active,
-                    dailyPosts: c.dailyPosts, participants: c.participants };
-            }
-            return ch;
-        })(),
         reactionRoles: (() => {
             const rr = {};
             for (const [pid, panel] of reactionRoles) rr[pid] = panel;
@@ -3007,27 +2908,6 @@ function applyBackupToMemory(data) {
     afkUsers.clear();
     for (const [uid, d] of Object.entries(data.afk || {})) {
         afkUsers.set(uid, { reason: d.reason, originalNickname: d.originalNickname, timestamp: d.timestamp });
-    }
-    // Fitness data
-    fitnessData.clear();
-    for (const [uid, snap] of Object.entries(data.fitnessData || {})) {
-        fitnessData.set(uid, { entries: snap.entries || [], notify: snap.notify || null });
-    }
-    // Workout rooms (channels may no longer exist after restart — cleaned up on startup)
-    workoutRooms.clear();
-    for (const [chId, snap] of Object.entries(data.workoutRooms || {})) {
-        workoutRooms.set(chId, { ownerId: snap.ownerId, ownerName: snap.ownerName, deleteTimer: null, dmMessageId: null, createdAt: snap.createdAt || 0 });
-    }
-    // Challenges
-    challenges.clear();
-    for (const [cid, snap] of Object.entries(data.challenges || {})) {
-        challenges.set(cid, {
-            id: snap.id || cid, title: snap.title || 'Challenge',
-            description: snap.description || '', startDate: snap.startDate || '',
-            endDate: snap.endDate || '', announceMsgId: snap.announceMsgId || null,
-            active: snap.active !== false,
-            dailyPosts: snap.dailyPosts || {}, participants: snap.participants || {},
-        });
     }
     // Reaction roles
     reactionRoles.clear();
@@ -3623,158 +3503,6 @@ async function createTempVC(state) {
     }
 }
 
-// ── Fitness Workout Room logic ────────────────────────────────────────────────
-
-async function createWorkoutRoom(state) {
-    const member     = state.member;
-    const guild      = state.guild;
-    const trigger    = guild.channels.cache.get(FITNESS_VC_TRIGGER_ID);
-    const categoryId = trigger?.parentId || null;
-    const channelName = `${member.displayName}'s Workout 🏋️`;
-
-    // Guard: user already owns a room → move them there
-    for (const [chId, room] of workoutRooms) {
-        if (room.ownerId === member.id) {
-            const existing = guild.channels.cache.get(chId);
-            if (existing) { await member.voice.setChannel(existing).catch(() => {}); return; }
-            workoutRooms.delete(chId);
-        }
-    }
-
-    try {
-        const permOverwrites = [
-            {
-                id: member.id,
-                allow: [
-                    PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers,
-                    PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers,
-                    PermissionFlagsBits.PrioritySpeaker, PermissionFlagsBits.Stream,
-                    PermissionFlagsBits.Speak, PermissionFlagsBits.Connect,
-                    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.UseVAD,
-                    PermissionFlagsBits.SendMessages,
-                ],
-            },
-            {
-                id: client.user.id,
-                allow: [
-                    PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers,
-                    PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                ],
-            },
-        ];
-        if (MOD_ROLE_ID) {
-            permOverwrites.push({ id: MOD_ROLE_ID, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Speak, PermissionFlagsBits.SendMessages] });
-        }
-        const guildOwner = await guild.fetchOwner().catch(() => null);
-        if (guildOwner && guildOwner.id !== member.id) {
-            permOverwrites.push({ id: guildOwner.id, allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Speak, PermissionFlagsBits.SendMessages] });
-        }
-
-        // Quarantine role — deny view + connect so flagged users can't see or enter
-        permOverwrites.push({
-            id: QUARANTINE_ROLE_ID,
-            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-        });
-
-        const workoutChannel = await guild.channels.create({
-            name: channelName,
-            type: ChannelType.GuildVoice,
-            parent: categoryId,
-            permissionOverwrites: permOverwrites,
-            reason: `Workout room for ${member.user.tag}`,
-        });
-
-        await member.voice.setChannel(workoutChannel);
-
-        workoutRooms.set(workoutChannel.id, { ownerId: member.id, ownerName: member.displayName, deleteTimer: null, dmMessageId: null, createdAt: Date.now() });
-
-        // DM owner with setup buttons
-        try {
-            const dmUser = await client.users.fetch(member.id);
-            const dmRow  = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('fitness:room:rename').setLabel('✏️ Rename Session').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('fitness:room:limit').setLabel('👥 Set User Limit').setStyle(ButtonStyle.Secondary),
-            );
-            const dmMsg = await dmUser.send({
-                embeds: [{
-                    color: 0x22c55e,
-                    title: '🏋️ Your Workout Room is Ready!',
-                    description: `**${channelName}** has been created. It auto-deletes 60 seconds after everyone leaves.\n\nUse the buttons below to customise your session.`,
-                    footer: { text: 'These buttons work until the channel is deleted.' },
-                }],
-                components: [dmRow],
-            });
-            workoutRooms.get(workoutChannel.id).dmMessageId = dmMsg.id;
-        } catch (_) {}
-
-        // Announce in #discussions
-        try {
-            const discuss = await client.channels.fetch(FITNESS_DISCUSS_CHANNEL_ID);
-            await discuss.send({ embeds: [{ color: 0x22c55e, description: `🏋️ **${member.displayName}** just opened a workout session! Jump into **${channelName}** to sweat together.`, timestamp: new Date().toISOString() }] });
-        } catch (_) {}
-
-        console.log(`[BeastBot] 🏋️ Workout room created: "${channelName}" for ${member.user.tag}`);
-    } catch (e) {
-        console.error('[BeastBot] Failed to create workout room:', e.message);
-    }
-}
-
-async function playWorkoutAlarm(guild, userId) {
-    if (!ALARM_OGG) { console.log('[BeastBot] alarm: ❌ Alarm audio buffer not ready'); return false; }
-    try {
-        const member = await guild.members.fetch(userId);
-        const voiceChannel = member.voice?.channel;
-        if (!voiceChannel) { console.log('[BeastBot] alarm: ❌ User is not in a voice channel'); return false; }
-        console.log(`[BeastBot] alarm: 📡 Joining VC: ${voiceChannel.name}`);
-        const connection = joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
-            selfDeaf: false,
-        });
-        connection.on('error', (err) => {
-            console.log(`[BeastBot] alarm: ❌ Connection error: ${err.message}`);
-            try { connection.destroy(); } catch (_) {}
-        });
-        try {
-            await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
-        } catch (e) {
-            console.log(`[BeastBot] alarm: ❌ Never became ready after 15s: ${e.message}`);
-            try { connection.destroy(); } catch (_) {}
-            return false;
-        }
-        console.log('[BeastBot] alarm: ✅ Voice ready — playing audio (3x)');
-        const player = createAudioPlayer();
-        connection.subscribe(player);
-        player.on('error', (err) => {
-            console.log(`[BeastBot] alarm: ❌ Player error: ${err.message}`);
-            try { connection.destroy(); } catch (_) {}
-        });
-        let playsLeft = 2;
-        const playNext = () => {
-            const resource = createAudioResource(Readable.from([ALARM_OGG]), { inputType: StreamType.OggOpus });
-            player.play(resource);
-        };
-        const onIdle = () => {
-            playsLeft--;
-            if (playsLeft > 0) {
-                playNext();
-            } else {
-                console.log('[BeastBot] alarm: ✅ Audio finished (2x) — leaving VC');
-                player.off(AudioPlayerStatus.Idle, onIdle);
-                try { connection.destroy(); } catch (_) {}
-            }
-        };
-        player.on(AudioPlayerStatus.Idle, onIdle);
-        playNext();
-        return true;
-    } catch (e) {
-        console.log(`[BeastBot] alarm: ❌ playWorkoutAlarm threw: ${e.message}`);
-        return false;
-    }
-}
-
 // ── Leave timer store ────────────────────────────────────────────────────────
 // userId -> { mainTimeout, warningTimeout, channelId, textChannelId, reason, minutes }
 const leaveTimers = new Map();
@@ -3975,7 +3703,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             }
         }
         // Session start: joined a real channel (not AFK, not trigger, not no-XP)
-        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID && newCh !== FITNESS_VC_TRIGGER_ID && !NO_XP_VC_IDS.has(newCh)) {
+        if (newCh && newCh !== AFK_CHANNEL_ID && newCh !== TEMP_VC_TRIGGER_ID && !NO_XP_VC_IDS.has(newCh)) {
             const existing = voiceMinutes.get(uid) || { total: 0, days: new Map() };
             voiceStartTimes.set(uid, {
                 startMs: Date.now(),
@@ -3992,35 +3720,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         await logToChannel(`🎙️ **voiceStateUpdate fired** — ${newState.member?.user?.tag} joined trigger channel`);
         await createTempVC(newState);
         return;
-    }
-
-    // ── Someone joined the fitness VC trigger → create their workout room ─────
-    if (newCh === FITNESS_VC_TRIGGER_ID) {
-        await createWorkoutRoom(newState);
-        return;
-    }
-
-    // ── Someone joined an existing workout room → cancel its delete timer ─────
-    if (newCh && workoutRooms.has(newCh)) {
-        const room = workoutRooms.get(newCh);
-        if (room.deleteTimer) { clearTimeout(room.deleteTimer); room.deleteTimer = null; workoutRooms.set(newCh, room); }
-    }
-
-    // ── Someone left a workout room → if empty, start 60s delete timer ────────
-    if (oldCh && workoutRooms.has(oldCh)) {
-        const vcChannel = newState.guild.channels.cache.get(oldCh);
-        const room = workoutRooms.get(oldCh);
-        if ((vcChannel?.members.size ?? 0) === 0) {
-            if (room.deleteTimer) clearTimeout(room.deleteTimer);
-            room.deleteTimer = setTimeout(async () => {
-                try {
-                    const ch = client.channels.cache.get(oldCh);
-                    if (ch) await ch.delete('Workout room: empty for 60s');
-                } catch (_) {}
-                workoutRooms.delete(oldCh);
-            }, 60 * 1000);
-            workoutRooms.set(oldCh, room);
-        }
     }
 
     // ── Someone joined an existing temp VC → cancel its delete timer ──────────
@@ -5322,65 +5021,6 @@ async function pollDiscordCards() {
     }
 }
 
-// ── 30-Day Challenge helpers ─────────────────────────────────────────────────
-
-async function postChallengeLeaderboard(challenge, trackingCh) {
-    if (!challenge.active) return;
-    challenge.active = false;
-    challenges.set(challenge.id, challenge);
-    const ranked = Object.entries(challenge.participants)
-        .map(([uid, p]) => ({ uid, displayName: p.displayName, count: p.completedDays.length }))
-        .sort((a, b) => b.count - a.count || a.displayName.localeCompare(b.displayName));
-    const medals = ['🥇', '🥈', '🥉'];
-    const lines = ranked.map((p, i) => {
-        const medal  = medals[i] || `**${i + 1}.**`;
-        const filled = Math.round(p.count / 30 * 10);
-        const bar    = '█'.repeat(filled) + '░'.repeat(10 - filled);
-        return `${medal} **${p.displayName}** — ${p.count}/30 days  \`${bar}\``;
-    });
-    const winner = ranked[0];
-    await trackingCh.send({
-        embeds: [{
-            color: 0xf59e0b,
-            title: `🏆 30-Day Challenge Complete — ${challenge.title}`,
-            description: lines.length > 0 ? lines.join('\n') : '_No one completed any days._',
-            fields: [
-                { name: '🎯 Winner', value: winner ? `${winner.displayName} with **${winner.count}/30 days**` : '—', inline: false },
-                { name: '👥 Participants', value: String(ranked.length), inline: true },
-                { name: '📅 Ran', value: `${challenge.startDate} → ${challenge.endDate}`, inline: true },
-            ],
-            footer: { text: 'Congratulations to everyone who participated!' },
-            timestamp: new Date().toISOString(),
-        }],
-    });
-    console.log(`[BeastBot] 🏆 Challenge "${challenge.title}" leaderboard posted`);
-    saveDiscordBackup().catch(() => {});
-}
-
-async function updateChallengeCheckInEmbed(challenge, dateStr) {
-    const post = challenge.dailyPosts[dateStr];
-    if (!post) return;
-    try {
-        const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-        const msg = await trackingCh.messages.fetch(post.messageId);
-        const completedNames = Object.values(challenge.participants)
-            .filter(p => p.completedDays.includes(dateStr))
-            .map(p => p.displayName);
-        const completedField = completedNames.length > 0
-            ? completedNames.map(n => `✅ ${n}`).join('\n')
-            : '_No one yet — be first!_';
-        const existingEmbed = msg.embeds[0];
-        await msg.edit({
-            embeds: [{
-                ...existingEmbed.data,
-                fields: [{ name: `✅ Completed today (${completedNames.length})`, value: completedField, inline: false }],
-            }],
-        });
-    } catch (e) {
-        console.error('[BeastBot] Failed to update challenge check-in embed:', e.message);
-    }
-}
-
 // ── Bot Ready ─────────────────────────────────────────────────────────────────
 
 client.once('clientReady', async () => {
@@ -5568,16 +5208,6 @@ client.once('clientReady', async () => {
             }));
         console.log(`[BeastBot] Resumed voice tracking for ${voiceStartTimes.size} active members`);
 
-        // Clean up stale workout rooms from previous sessions
-        for (const [chId] of workoutRooms) {
-            const ch = guild.channels.cache.get(chId);
-            if (!ch || ch.members.size === 0) {
-                try { if (ch) await ch.delete('Workout room: stale after restart').catch(() => {}); } catch (_) {}
-                workoutRooms.delete(chId);
-            }
-        }
-        if (workoutRooms.size > 0) console.log(`[BeastBot] 🏋️ ${workoutRooms.size} workout room(s) still active after restart`);
-
         // Tick every 60s — update voiceMinutes + bonus XP + rank checks
         setInterval(async () => {
             const today = todayStr();
@@ -5594,88 +5224,6 @@ client.once('clientReady', async () => {
                 // Live rank update — fires rank-up message the minute they cross a threshold
                 const member = guild.members.cache.get(uid);
                 if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
-            }
-
-            // Workout notification DMs
-            const nowUtc = new Date();
-            const nowHHMM = `${String(nowUtc.getUTCHours()).padStart(2, '0')}:${String(nowUtc.getUTCMinutes()).padStart(2, '0')}`;
-            const prevUtc = new Date(nowUtc.getTime() - 60_000);
-            const prevHHMM = `${String(prevUtc.getUTCHours()).padStart(2, '0')}:${String(prevUtc.getUTCMinutes()).padStart(2, '0')}`;
-            const nowDay  = nowUtc.getUTCDay();
-            const todayNotify = todayStr();
-            const activeNotifies = [...fitnessData.values()].filter(d => d.notify).length;
-            if (activeNotifies > 0) console.log(`[BeastBot] 🕐 Notify tick: UTC=${nowHHMM} day=${nowDay} schedules=${activeNotifies}`);
-            for (const [notifyUid, fData] of fitnessData) {
-                if (!fData.notify) continue;
-                const n = fData.notify;
-                if (n.timeUtc !== nowHHMM && n.timeUtc !== prevHHMM) {
-                    console.log(`[BeastBot] ⏰ skip ${notifyUid}: time mismatch (want=${n.timeUtc} now=${nowHHMM} prev=${prevHHMM})`);
-                    continue;
-                }
-                if (!n.daySet.includes(nowDay)) {
-                    console.log(`[BeastBot] ⏰ skip ${notifyUid}: day mismatch (want=${JSON.stringify(n.daySet)} now=${nowDay})`);
-                    continue;
-                }
-                if (n.lastSentDate === todayNotify) {
-                    console.log(`[BeastBot] ⏰ skip ${notifyUid}: already sent today (${todayNotify})`);
-                    continue;
-                }
-                console.log(`[BeastBot] ⏰ Firing reminder for ${notifyUid} (${n.timeRaw})`);
-                try {
-                    const notifyUser = await client.users.fetch(notifyUid);
-                    const notifyGuild = client.guilds.cache.first();
-                    let voicePinged = false;
-                    if (notifyGuild) voicePinged = await playWorkoutAlarm(notifyGuild, notifyUid).catch(() => false);
-                    const dmDesc = voicePinged
-                        ? "Your reminder is going off — I beeped in your voice channel! Go get it done 💪"
-                        : "Your reminder is going off — go get it done 💪";
-                    await notifyUser.send({ embeds: [{
-                        color: 0xf59e0b,
-                        title: '⏰ Reminder!',
-                        description: dmDesc,
-                        footer: { text: `⏰ ${fData.notify.timeRaw} · 📅 ${fData.notify.days}` },
-                    }] });
-                    fData.notify.lastSentDate = todayNotify;
-                    fitnessData.set(notifyUid, fData);
-                } catch (e) {
-                    console.error(`[BeastBot] Reminder failed for ${notifyUid}:`, e.message);
-                }
-            }
-
-            // ── 30-Day Challenge daily posts (09:00 UTC) ──────────────────────
-            if (nowHHMM === '09:00') {
-                const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID).catch(() => null);
-                if (trackingCh) {
-                    for (const [cid, challenge] of challenges) {
-                        if (!challenge.active) continue;
-                        const startMs   = new Date(challenge.startDate + 'T00:00:00.000Z').getTime();
-                        const todayMs   = new Date(today + 'T00:00:00.000Z').getTime();
-                        const dayNumber = Math.floor((todayMs - startMs) / 86400000) + 1;
-                        if (dayNumber > 30) { await postChallengeLeaderboard(challenge, trackingCh); continue; }
-                        if (dayNumber < 1)  continue;
-                        if (challenge.dailyPosts[today]) continue; // already posted (restart guard)
-                        const sent = await trackingCh.send({
-                            content: `📣 **Day ${dayNumber} of 30** — ${challenge.title}`,
-                            embeds: [{
-                                color: 0x3b82f6,
-                                title: `Day ${dayNumber}/30 — ${challenge.title}`,
-                                description: challenge.description,
-                                fields: [{ name: '✅ Completed today (0)', value: '_No one yet — be first!_', inline: false }],
-                                footer: { text: `Challenge ends ${challenge.endDate} · Click the button below when you complete today's task` },
-                                timestamp: new Date().toISOString(),
-                            }],
-                            components: [new ActionRowBuilder().addComponents(
-                                new ButtonBuilder()
-                                    .setCustomId(`challenge:done:${cid}:${today}`)
-                                    .setLabel('✅ Done for Today')
-                                    .setStyle(ButtonStyle.Success)
-                            )],
-                        });
-                        challenge.dailyPosts[today] = { messageId: sent.id, dayNumber };
-                        challenges.set(cid, challenge);
-                        console.log(`[BeastBot] 📅 Challenge "${challenge.title}" Day ${dayNumber} posted`);
-                    }
-                }
             }
 
             // Save snapshot immediately after crediting — guarantees fresh data in backup
@@ -5938,59 +5486,6 @@ client.once('clientReady', async () => {
                 .addSubcommand(sub => sub.setName('stop').setDescription('End the current game (host or mod)'))
                 .addSubcommand(sub => sub.setName('status').setDescription('Show the current game status'))
                 .addSubcommand(sub => sub.setName('help').setDescription('How to play the Escape Room')),
-            new SlashCommandBuilder()
-                .setName('fitness')
-                .setDescription('Fitness tracking commands')
-                .addSubcommand(sub => sub.setName('progress').setDescription('View your fitness progress (private to you)'))
-                .addSubcommand(sub => sub.setName('manage').setDescription('Edit or delete your past workout entries'))
-                .addSubcommand(sub => sub.setName('alarm-test').setDescription('Test the voice alarm — bot will join your VC and play the beep')),
-            new SlashCommandBuilder()
-                .setName('reminder')
-                .setDescription('Set a daily workout DM reminder (and voice channel bleep)')
-                .addIntegerOption(opt => opt.setName('hour').setDescription('Hour (1–12)').setRequired(true).addChoices(
-                    { name: '12', value: 12 }, { name: '1', value: 1 }, { name: '2', value: 2 }, { name: '3', value: 3 },
-                    { name: '4', value: 4 }, { name: '5', value: 5 }, { name: '6', value: 6 }, { name: '7', value: 7 },
-                    { name: '8', value: 8 }, { name: '9', value: 9 }, { name: '10', value: 10 }, { name: '11', value: 11 }
-                ))
-                .addIntegerOption(opt => opt.setName('minute').setDescription('Minutes (0–59)').setRequired(true).setMinValue(0).setMaxValue(59))
-                .addStringOption(opt => opt.setName('period').setDescription('AM or PM').setRequired(true).addChoices(
-                    { name: 'AM', value: 'AM' }, { name: 'PM', value: 'PM' }
-                ))
-                .addStringOption(opt => opt.setName('timezone').setDescription('Your timezone').setRequired(true).addChoices(
-                    { name: 'UTC-12 (Baker Island)', value: '-12' }, { name: 'UTC-11 (Samoa)', value: '-11' }, { name: 'UTC-10 (Hawaii)', value: '-10' },
-                    { name: 'UTC-9 (Alaska)', value: '-9' }, { name: 'UTC-8 (Pacific — Los Angeles)', value: '-8' }, { name: 'UTC-7 (Mountain — Denver)', value: '-7' },
-                    { name: 'UTC-6 (Central — Chicago)', value: '-6' }, { name: 'UTC-5 (Eastern — New York)', value: '-5' }, { name: 'UTC-4 (Atlantic / Eastern DST)', value: '-4' },
-                    { name: 'UTC-3 (Brazil / Buenos Aires)', value: '-3' }, { name: 'UTC-2', value: '-2' }, { name: 'UTC-1 (Azores)', value: '-1' },
-                    { name: 'UTC+0 (London GMT / Lisbon / Reykjavik — winter only)', value: '0' }, { name: 'UTC+1 (London BST / Paris / Berlin — UK summer)', value: '1' }, { name: 'UTC+2 (Athens / Cairo / EET)', value: '2' },
-                    { name: 'UTC+3 (Moscow / Istanbul)', value: '3' }, { name: 'UTC+4 (Dubai)', value: '4' }, { name: 'UTC+5 (Pakistan)', value: '5' },
-                    { name: 'UTC+5:30 (India / IST)', value: '5.5' }, { name: 'UTC+6 (Bangladesh)', value: '6' }, { name: 'UTC+7 (Bangkok / Jakarta)', value: '7' },
-                    { name: 'UTC+8 (Beijing / Singapore / Perth)', value: '8' }, { name: 'UTC+9 (Tokyo / Seoul / JST)', value: '9' },
-                    { name: 'UTC+10 (Sydney / AEST)', value: '10' }, { name: 'UTC+12 (Auckland / NZT)', value: '12' }
-                ))
-                .addStringOption(opt => opt.setName('days').setDescription('Which days').setRequired(true).addChoices(
-                    { name: 'Every day', value: 'daily' }, { name: 'Weekdays (Mon–Fri)', value: 'weekdays' }, { name: 'Weekends (Sat & Sun)', value: 'weekends' },
-                    { name: 'Mon, Wed & Fri', value: 'mwf' }, { name: 'Tue & Thu', value: 'tt' },
-                    { name: 'Monday', value: 'mon' }, { name: 'Tuesday', value: 'tue' }, { name: 'Wednesday', value: 'wed' },
-                    { name: 'Thursday', value: 'thu' }, { name: 'Friday', value: 'fri' }, { name: 'Saturday', value: 'sat' }, { name: 'Sunday', value: 'sun' }
-                )),
-            new SlashCommandBuilder()
-                .setName('reminder-clear')
-                .setDescription('Remove your workout reminder'),
-            new SlashCommandBuilder()
-                .setName('fitness-setup')
-                .setDescription('(Owner only) Post the Log Your Workout button in #tracking'),
-            new SlashCommandBuilder()
-                .setName('challenge')
-                .setDescription('30-day challenge commands')
-                .addSubcommand(sub => sub
-                    .setName('setup')
-                    .setDescription('(Owner only) Create and post a new 30-day challenge')
-                    .addStringOption(opt => opt.setName('title').setDescription('Challenge name').setRequired(true).setMaxLength(80))
-                    .addStringOption(opt => opt.setName('description').setDescription('What to do each day').setRequired(true).setMaxLength(500))
-                    .addStringOption(opt => opt.setName('start_date').setDescription('Start date YYYY-MM-DD (defaults to tomorrow UTC)').setRequired(false))
-                )
-                .addSubcommand(sub => sub.setName('progress').setDescription('View your progress on active challenges (private)'))
-                .addSubcommand(sub => sub.setName('list').setDescription('Show all active challenges')),
             new SlashCommandBuilder()
                 .setName('role-panel')
                 .setDescription('Manage reaction role panels')
@@ -10672,352 +10167,28 @@ client.on('interactionCreate', async (interaction) => {
             }
             try {
                 const ch = await client.channels.fetch(POOP_CHANNEL_ID);
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('poop:rate')
-                        .setLabel('Rate YOUR Poop')
-                        .setEmoji('💩')
-                        .setStyle(ButtonStyle.Secondary),
-                );
-                await ch.send({
-                    embeds: [{
-                        image: { url: 'https://truebeast.io/poop-rating.png' },
-                        description: '**1.** You are shitting water.\n**2.** You have bad diarrhea.\n**3.** Your poop is like...soft icecream...\n**4.** Almost perfect poop.\n**5.** Your poop is so perfect that you don\'t even have to wipe your ass.',
-                        footer: { text: 'Click the button to submit your rating.' },
-                    }],
-                    components: [row],
-                });
+                const container = new ContainerBuilder()
+                    .addMediaGalleryComponents(
+                        new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL('https://truebeast.io/poop-rating.png')),
+                    )
+                    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                    .addTextDisplayComponents(
+                        new TextDisplayBuilder().setContent(
+                            '**1.** You are shitting water.\n**2.** You have bad diarrhea.\n**3.** Your poop is like...soft icecream...\n**4.** Almost perfect poop.\n**5.** Your poop is so perfect that you don\'t even have to wipe your ass.',
+                        ),
+                    )
+                    .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                    .addActionRowComponents(
+                        new ActionRowBuilder().addComponents(
+                            new ButtonBuilder().setCustomId('poop:rate').setLabel('Rate YOUR Poop').setEmoji('💩').setStyle(ButtonStyle.Success),
+                        ),
+                    );
+                await ch.send({ flags: MessageFlags.IsComponentsV2, components: [container] });
                 await interaction.reply({ content: '✅ Poop Rating prompt posted.', flags: 64 });
             } catch (e) {
                 await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
             }
             return;
-        }
-
-        // ── /fitness-setup ───────────────────────────────────────────────────
-        if (interaction.commandName === 'fitness-setup') {
-            if (interaction.user.id !== OWNER_DISCORD_ID) {
-                await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
-            }
-            try {
-                const ch = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-                await ch.send({
-                    embeds: [{
-                        color: 0x22c55e,
-                        title: '🏋️ TrueBeast Fitness Tracker',
-                        description: 'Track your workouts, share your progress, and hold each other accountable.\n\nClick the button below to log a workout.',
-                        fields: [],
-                        footer: { text: 'Use /fitness progress to see your stats anytime.' },
-                    }],
-                    components: [new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId('fitness:start').setLabel('🏋️ Log a Workout').setStyle(ButtonStyle.Success)
-                    )],
-                });
-                await interaction.reply({ content: '✅ Fitness tracker posted in #tracking.', flags: 64 });
-            } catch (e) {
-                await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
-            }
-            return;
-        }
-
-        // ── /challenge ───────────────────────────────────────────────────────
-        if (interaction.commandName === 'challenge') {
-            const sub  = interaction.options.getSubcommand(false);
-            const user = interaction.user;
-            const uid  = user.id;
-
-            if (sub === 'setup') {
-                if (uid !== OWNER_DISCORD_ID) {
-                    await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
-                }
-                const title       = interaction.options.getString('title').trim();
-                const description = interaction.options.getString('description').trim();
-                let startDateRaw  = interaction.options.getString('start_date');
-                // Default: tomorrow UTC
-                if (!startDateRaw) {
-                    startDateRaw = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-                }
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(startDateRaw)) {
-                    await interaction.reply({ content: '❌ Invalid date format — use YYYY-MM-DD.', flags: 64 }); return;
-                }
-                if (startDateRaw < todayStr()) {
-                    await interaction.reply({ content: '❌ Start date must be today or in the future.', flags: 64 }); return;
-                }
-                const startMs  = new Date(startDateRaw + 'T00:00:00.000Z').getTime();
-                const endDate  = new Date(startMs + 29 * 86400000).toISOString().slice(0, 10);
-                const cid      = `chal-${Date.now()}`;
-                try {
-                    const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-                    const sent = await trackingCh.send({
-                        embeds: [{
-                            color: 0x3b82f6,
-                            title: `🏁 30-Day Challenge: ${title}`,
-                            description,
-                            fields: [
-                                { name: '📅 Starts', value: startDateRaw, inline: true },
-                                { name: '🏁 Ends', value: endDate, inline: true },
-                                { name: '⏳ Duration', value: '30 days', inline: true },
-                            ],
-                            footer: { text: 'The bot will post a daily check-in at 10 AM BST — click ✅ Done for Today each day you complete the challenge' },
-                        }],
-                    });
-                    challenges.set(cid, {
-                        id: cid, title, description, startDate: startDateRaw, endDate,
-                        announceMsgId: sent.id, active: true, dailyPosts: {}, participants: {},
-                    });
-                    saveDiscordBackup().catch(() => {});
-                    await interaction.reply({ content: `✅ Challenge posted! Day 1 check-in will appear on **${startDateRaw}** at 09:00 UTC.`, flags: 64 });
-                } catch (e) {
-                    await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
-                }
-                return;
-            }
-
-            if (sub === 'progress') {
-                try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch { return; }
-                const active = [...challenges.values()].filter(c => c.active && c.participants[uid]);
-                if (active.length === 0) {
-                    await interaction.editReply({ content: '📋 You haven\'t joined any active challenges yet — click ✅ Done for Today on a daily check-in post to join automatically.' });
-                    return;
-                }
-                const today = todayStr();
-                const fields = active.map(c => {
-                    const p           = c.participants[uid];
-                    const count       = p.completedDays.length;
-                    const startMs     = new Date(c.startDate + 'T00:00:00.000Z').getTime();
-                    const todayMs     = new Date(today + 'T00:00:00.000Z').getTime();
-                    const elapsed     = Math.max(1, Math.min(30, Math.floor((todayMs - startMs) / 86400000) + 1));
-                    const remaining   = Math.max(0, 30 - elapsed);
-                    // streak: count consecutive days backwards from today
-                    let streak = 0;
-                    const d = new Date(today + 'T00:00:00.000Z');
-                    while (true) {
-                        const key = d.toISOString().slice(0, 10);
-                        if (!p.completedDays.includes(key)) break;
-                        streak++;
-                        d.setUTCDate(d.getUTCDate() - 1);
-                    }
-                    return {
-                        name: `🏁 ${c.title}`,
-                        value: `✅ **${count}/30** days completed · 🔥 **${streak}** day streak · 📅 **${remaining}** days remaining`,
-                        inline: false,
-                    };
-                });
-                await interaction.editReply({ embeds: [{ color: 0x3b82f6, title: '📋 Your Challenge Progress', fields, timestamp: new Date().toISOString() }] });
-                return;
-            }
-
-            if (sub === 'list') {
-                try { await interaction.deferReply({ flags: MessageFlags.Ephemeral }); } catch { return; }
-                const active = [...challenges.values()].filter(c => c.active);
-                if (active.length === 0) {
-                    await interaction.editReply({ content: '📋 No active challenges right now. Watch for the next one!' });
-                    return;
-                }
-                const today = todayStr();
-                const fields = active.map(c => {
-                    const startMs   = new Date(c.startDate + 'T00:00:00.000Z').getTime();
-                    const todayMs   = new Date(today + 'T00:00:00.000Z').getTime();
-                    const dayNumber = Math.max(1, Math.min(30, Math.floor((todayMs - startMs) / 86400000) + 1));
-                    const count     = Object.keys(c.participants).length;
-                    return {
-                        name: `🏁 ${c.title}`,
-                        value: `📅 ${c.startDate} → ${c.endDate}\n👥 **${count}** participant${count !== 1 ? 's' : ''} · Day **${dayNumber}**/30`,
-                        inline: false,
-                    };
-                });
-                await interaction.editReply({ embeds: [{ color: 0x3b82f6, title: '🏁 Active 30-Day Challenges', fields }] });
-                return;
-            }
-        }
-
-        // ── /fitness ─────────────────────────────────────────────────────────
-        if (interaction.commandName === 'fitness') {
-            // deferReply FIRST — before getSubcommand() or any routing that could throw.
-            // This guarantees Discord receives an acknowledgement within 3 s regardless
-            // of what happens next. All subcommand responses use editReply().
-            try {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            } catch (e) {
-                console.error('[BeastBot] /fitness deferReply failed:', e.message);
-                return; // token is dead — nothing we can do
-            }
-
-            try {
-                const sub  = interaction.options.getSubcommand(false);
-                const user = interaction.user;
-                const uid  = user.id;
-
-                if (sub === 'alarm-test') {
-                    const voicePinged = interaction.guild ? await playWorkoutAlarm(interaction.guild, uid).catch(() => false) : false;
-                    await interaction.editReply({ content: voicePinged ? '🔔 Alarm played (2×)!' : '❌ Alarm failed — make sure you\'re in a voice channel.' });
-                    return;
-                }
-
-                if (sub === 'progress') {
-                    const userData = fitnessData.get(uid);
-                    const entries  = userData?.entries || [];
-                    const total    = entries.length;
-                    const streak   = calcStreak(entries);
-                    const avg      = calcAvgDuration(entries);
-                    const last5    = [...entries].reverse().slice(0, 5);
-                    const fields = [
-                        { name: '📊 Total Workouts', value: `**${total}**`, inline: true },
-                        { name: '🔥 Current Streak', value: `**${streak} day${streak !== 1 ? 's' : ''}**`, inline: true },
-                        { name: '⏱️ Avg Duration', value: avg !== null ? `**${avg} min**` : '*N/A*', inline: true },
-                    ];
-                    if (userData?.notify) {
-                        fields.push({ name: '⏰ Reminder', value: `**${userData.notify.timeRaw}** on **${userData.notify.days}** *(fires at ${userData.notify.timeUtc} UTC)*`, inline: false });
-                    }
-                    fields.push({
-                        name: '📋 Last 5 Workouts',
-                        value: last5.length > 0
-                            ? last5.map(e => `**${e.date}** — ${e.workout.slice(0, 40)}${e.workout.length > 40 ? '...' : ''} *(${e.duration})*`).join('\n')
-                            : '*No workouts logged yet. Hit that button in #tracking!*',
-                        inline: false,
-                    });
-                    const member = interaction.member;
-                    await interaction.editReply({
-                        embeds: [{
-                            color: 0x5865f2,
-                            author: { name: `${member?.displayName || user.username}'s Fitness Progress`, icon_url: user.displayAvatarURL({ dynamic: true }) },
-                            fields,
-                            footer: { text: 'Log more workouts with the button in #tracking' },
-                            timestamp: new Date().toISOString(),
-                        }],
-                    });
-                    return;
-                }
-
-                if (sub === 'manage') {
-                    const userData = fitnessData.get(uid);
-                    const entries  = userData?.entries || [];
-                    if (entries.length === 0) {
-                        await interaction.editReply({ content: '📋 You have no logged workouts yet. Use the button in #tracking to log your first one!' });
-                        return;
-                    }
-                    const newest = [...entries].reverse().slice(0, 5);
-                    const opts = newest.map(e => ({
-                        label: `${e.date} — ${e.workout.slice(0, 50)}${e.workout.length > 50 ? '...' : ''}`,
-                        value: e.id,
-                        description: e.duration,
-                    }));
-                    const editMenu = new StringSelectMenuBuilder()
-                        .setCustomId('fitness:manage:edit')
-                        .setPlaceholder('✏️ Select an entry to edit...')
-                        .addOptions(opts);
-                    const deleteMenu = new StringSelectMenuBuilder()
-                        .setCustomId('fitness:manage:del')
-                        .setPlaceholder('🗑️ Select an entry to delete...')
-                        .addOptions(opts);
-                    await interaction.editReply({
-                        embeds: [{
-                            color: 0x5865f2,
-                            title: '📋 Manage Your Workouts',
-                            description: 'Select a workout below to **edit** or **delete** it. Showing your 5 most recent entries.',
-                            fields: newest.map((e, i) => ({
-                                name: `${i + 1}. ${e.date}`,
-                                value: `${e.workout.slice(0, 60)}${e.workout.length > 60 ? '...' : ''}\n*${e.duration}*`,
-                                inline: false,
-                            })),
-                            footer: { text: 'Edits will also update the #tracking message.' },
-                        }],
-                        components: [
-                            new ActionRowBuilder().addComponents(editMenu),
-                            new ActionRowBuilder().addComponents(deleteMenu),
-                        ],
-                    });
-                    return;
-                }
-
-            } catch (e) {
-                console.error('[BeastBot] /fitness error:', e.message, e.stack);
-                await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
-            }
-        }
-
-        // ── /reminder ────────────────────────────────────────────────────────
-        if (interaction.commandName === 'reminder') {
-            try {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            } catch (e) {
-                console.error('[BeastBot] /reminder deferReply failed:', e.message);
-                return;
-            }
-            try {
-                const uid     = interaction.user.id;
-                const hour    = interaction.options.getInteger('hour');
-                const period  = interaction.options.getString('period');
-                const minute  = interaction.options.getInteger('minute');
-                const tzStr   = interaction.options.getString('timezone');
-                const daysStr = interaction.options.getString('days');
-
-                let h24 = hour;
-                if (period === 'AM' && hour === 12) h24 = 0;
-                else if (period === 'PM' && hour !== 12) h24 = hour + 12;
-
-                const off = parseFloat(tzStr) || 0;
-                const totalMinsLocal = h24 * 60 + minute;
-                const rawUtcMins = totalMinsLocal - off * 60;
-                const totalMinsUtc = ((rawUtcMins) % 1440 + 1440) % 1440;
-                const utcH = Math.floor(totalMinsUtc / 60);
-                const utcM = totalMinsUtc % 60;
-                const timeUtc = `${String(utcH).padStart(2, '0')}:${String(utcM).padStart(2, '0')}`;
-                const timeRaw = `${hour}:${String(minute).padStart(2, '0')} ${period}`;
-                const dayShift = rawUtcMins >= 1440 ? 1 : rawUtcMins < 0 ? -1 : 0;
-
-                const dayPatterns = {
-                    daily:    { set: [0,1,2,3,4,5,6], display: 'Every day' },
-                    weekdays: { set: [1,2,3,4,5],     display: 'Weekdays (Mon–Fri)' },
-                    weekends: { set: [0,6],            display: 'Weekends (Sat & Sun)' },
-                    mwf:      { set: [1,3,5],          display: 'Mon, Wed & Fri' },
-                    tt:       { set: [2,4],            display: 'Tue & Thu' },
-                    mon:      { set: [1],              display: 'Monday' },
-                    tue:      { set: [2],              display: 'Tuesday' },
-                    wed:      { set: [3],              display: 'Wednesday' },
-                    thu:      { set: [4],              display: 'Thursday' },
-                    fri:      { set: [5],              display: 'Friday' },
-                    sat:      { set: [6],              display: 'Saturday' },
-                    sun:      { set: [0],              display: 'Sunday' },
-                };
-                const dayInfo = dayPatterns[daysStr] || dayPatterns.daily;
-                const utcDaySet = dayShift === 0
-                    ? dayInfo.set
-                    : dayInfo.set.map(d => (d + dayShift + 7) % 7);
-                const tzLabel = TZ_LABELS[tzStr] || `UTC${off >= 0 ? '+' : ''}${tzStr}`;
-
-                const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                userData.notify = { timeUtc, timeRaw, days: dayInfo.display, daySet: utcDaySet, lastSentDate: null };
-                fitnessData.set(uid, userData);
-                saveDiscordBackup().catch(() => {});
-                console.log(`[BeastBot] ⏰ Reminder saved for ${uid}: timeUtc=${timeUtc} daySet=${JSON.stringify(utcDaySet)}`);
-
-                await interaction.editReply({ content: `✅ Reminder set!\n🕐 **${timeRaw}** — ${tzLabel}\n📅 ${dayInfo.display}\n\nYou'll get a DM and a beep in your voice channel at that time.` });
-            } catch (e) {
-                console.error('[BeastBot] /reminder error:', e.message, e.stack);
-                await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
-            }
-        }
-
-        // ── /reminder-clear ──────────────────────────────────────────────────
-        if (interaction.commandName === 'reminder-clear') {
-            try {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            } catch (e) {
-                console.error('[BeastBot] /reminder-clear deferReply failed:', e.message);
-                return;
-            }
-            try {
-                const uid = interaction.user.id;
-                const userData = fitnessData.get(uid) || { entries: [], notify: null };
-                userData.notify = null;
-                fitnessData.set(uid, userData);
-                saveDiscordBackup().catch(() => {});
-                await interaction.editReply({ content: '✅ Workout reminder removed.' });
-            } catch (e) {
-                console.error('[BeastBot] /reminder-clear error:', e.message, e.stack);
-                await interaction.editReply({ content: '❌ Something went wrong — please try again.' }).catch(() => {});
-            }
         }
 
         // ── /say ─────────────────────────────────────────────────────────────
@@ -11855,35 +11026,27 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        const POOP_DESCS = [
-            'You are shitting water.',
-            'You have bad diarrhea.',
-            'Your poop is like...soft icecream...',
-            'Almost perfect poop.',
-            'Your poop is so perfect that you don\'t even have to wipe your ass.',
-        ];
         const stars = '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
-        const desc  = POOP_DESCS[rating - 1];
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('poop:rate')
-                .setLabel('Rate YOUR Poop')
-                .setEmoji('💩')
-                .setStyle(ButtonStyle.Secondary),
-        );
 
         try {
             const poopChannel = await client.channels.fetch(POOP_CHANNEL_ID);
-            await poopChannel.send({
-                embeds: [{
-                    image: { url: 'https://truebeast.io/poop-rating.png' },
-                    description: `__**${display}**__ has successfully conquered another meal passthrough! **Rating:** ${stars} **Details:** ${details}`,
-                    footer: { text: desc },
-                    timestamp: new Date().toISOString(),
-                }],
-                components: [row],
-            });
+            const container = new ContainerBuilder()
+                .addMediaGalleryComponents(
+                    new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL('https://truebeast.io/poop-rating.png')),
+                )
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                        `__**${display}**__ has successfully conqured another meal passthrough!\n**Rating:** ${stars}\n\n**Details:** ${details}`,
+                    ),
+                )
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                .addActionRowComponents(
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId('poop:rate').setLabel('Rate YOUR Poop').setEmoji('💩').setStyle(ButtonStyle.Success),
+                    ),
+                );
+            await poopChannel.send({ flags: MessageFlags.IsComponentsV2, components: [container] });
             await interaction.reply({ content: '✅ Your poop rating has been submitted!', ephemeral: true });
             setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
             console.log(`[BeastBot] 💩 Poop rating ${rating}/5 submitted by ${user.tag}`);
@@ -12027,237 +11190,6 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        // ── Fitness: manage delete ────────────────────────────────────────────
-        if (interaction.customId === 'fitness:manage:del') {
-            const entryId  = interaction.values[0];
-            const uid      = interaction.user.id;
-            const userData = fitnessData.get(uid);
-            if (!userData) { await interaction.update({ content: '❌ No data found.', embeds: [], components: [] }); return; }
-            const idx = userData.entries.findIndex(e => e.id === entryId);
-            if (idx < 0) { await interaction.update({ content: '❌ Entry not found.', embeds: [], components: [] }); return; }
-            const entry = userData.entries[idx];
-            if (entry.messageId) {
-                try {
-                    const trackCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-                    const msg = await trackCh.messages.fetch(entry.messageId);
-                    await msg.delete();
-                } catch (_) {}
-            }
-            userData.entries.splice(idx, 1);
-            fitnessData.set(uid, userData);
-            await interaction.update({ content: '✅ Workout entry deleted.', embeds: [], components: [] });
-            return;
-        }
-
-        // ── Fitness: manage edit (show pre-filled modal) ──────────────────────
-        if (interaction.customId === 'fitness:manage:edit') {
-            const entryId  = interaction.values[0];
-            const uid      = interaction.user.id;
-            const userData = fitnessData.get(uid);
-            if (!userData) { await interaction.reply({ content: '❌ No data found.', ephemeral: true }); return; }
-            const entry = userData.entries.find(e => e.id === entryId);
-            if (!entry) { await interaction.reply({ content: '❌ Entry not found.', ephemeral: true }); return; }
-            const modal = new ModalBuilder().setCustomId(`fitness:manage:edit_modal:${entryId}`).setTitle('✏️ Edit Workout Entry');
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setValue(entry.workout).setRequired(true).setMaxLength(200)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_duration').setLabel('How long?').setStyle(TextInputStyle.Short).setValue(entry.duration).setRequired(true).setMaxLength(50)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_weight').setLabel('Current weight (optional)').setStyle(TextInputStyle.Short).setValue(entry.weight || '').setRequired(false).setMaxLength(30)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_energy').setLabel('Energy level (optional)').setStyle(TextInputStyle.Short).setValue(entry.energy || '').setRequired(false).setMaxLength(50)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph).setValue(entry.notes || '').setRequired(false).setMaxLength(300)),
-            );
-            await interaction.showModal(modal);
-            return;
-        }
-    }
-
-
-    // ── Fitness: workout modal submit ────────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId === 'fitness:modal') {
-        const user     = interaction.user;
-        const member   = interaction.member;
-        const uid      = user.id;
-        const display  = member?.displayName || user.username;
-        const workout  = interaction.fields.getTextInputValue('fit_workout').trim();
-        const duration = interaction.fields.getTextInputValue('fit_duration').trim();
-        const weight   = interaction.fields.getTextInputValue('fit_weight').trim() || null;
-        const energy   = interaction.fields.getTextInputValue('fit_energy').trim() || null;
-        const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
-        const durationMins = parseDurationToMins(duration);
-        const entryId  = `${uid}-${Date.now()}`;
-        const entry = { id: entryId, date: todayStr(), workout, duration, weight, energy, notes, durationMins, messageId: null };
-        const userData = fitnessData.get(uid) || { entries: [], notify: null };
-        userData.entries.push(entry);
-        fitnessData.set(uid, userData);
-
-        try {
-            const trackingCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-            const embedFields = [
-                { name: '⏱️ Duration', value: duration, inline: true },
-            ];
-            if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
-            if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
-            if (notes)  embedFields.push({ name: '📝 Notes', value: notes, inline: false });
-            const sent = await trackingCh.send({
-                embeds: [{
-                    color: 0x22c55e,
-                    author: { name: `${display} logged a workout 🏋️`, icon_url: user.displayAvatarURL({ dynamic: true }) },
-                    title: workout,
-                    fields: embedFields,
-                    footer: { text: 'React to hype them up!' },
-                    timestamp: new Date().toISOString(),
-                }],
-                components: [
-                    new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`fitness:react:flex:${uid}`).setLabel('💪').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId(`fitness:react:fire:${uid}`).setLabel('🔥').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId(`fitness:react:clap:${uid}`).setLabel('👏').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId(`fitness:thread:${uid}`).setLabel('💬 Discuss').setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId(`fitness:edit:${uid}`).setLabel('✏️ Edit').setStyle(ButtonStyle.Primary),
-                    ),
-                    new ActionRowBuilder().addComponents(
-                        new ButtonBuilder().setCustomId(`fitness:delete:${uid}`).setLabel('🗑️ Delete').setStyle(ButtonStyle.Danger),
-                        new ButtonBuilder().setCustomId('fitness:start').setLabel('📝 Log Another').setStyle(ButtonStyle.Success),
-                    ),
-                ],
-            });
-            const updatedData = fitnessData.get(uid);
-            const idx = updatedData.entries.findIndex(e => e.id === entryId);
-            if (idx >= 0) updatedData.entries[idx].messageId = sent.id;
-            fitnessData.set(uid, updatedData);
-            await interaction.reply({ content: '✅ Workout posted! Nice work 💪', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        } catch (e) {
-            console.error('[BeastBot] Failed to post public workout:', e.message);
-            await interaction.reply({ content: '❌ Could not post your workout. Try again.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        }
-        return;
-    }
-
-    // ── Fitness: workout room rename modal ────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId === 'fitness:room:rename:modal') {
-        const newName = interaction.fields.getTextInputValue('room_name').trim().slice(0, 100);
-        const uid     = interaction.user.id;
-        let found = null;
-        for (const [chId, room] of workoutRooms) { if (room.ownerId === uid) { found = { chId, room }; break; } }
-        if (!found) {
-            await interaction.reply({ content: '❌ You don\'t have an active workout room.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        try {
-            const ch = await client.channels.fetch(found.chId);
-            await ch.setName(newName);
-            await interaction.reply({ content: `✅ Session renamed to **${newName}**!`, ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        } catch (e) {
-            await interaction.reply({ content: '❌ Couldn\'t rename the channel. It may have been deleted.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        }
-        return;
-    }
-
-    // ── Fitness: workout room user limit modal ────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId === 'fitness:room:limit:modal') {
-        const raw   = interaction.fields.getTextInputValue('room_limit').trim();
-        const limit = parseInt(raw);
-        const uid   = interaction.user.id;
-        if (isNaN(limit) || limit < 0 || limit > 99) {
-            await interaction.reply({ content: '❌ Please enter a number between 0 and 99 (0 = unlimited).', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        let found = null;
-        for (const [chId, room] of workoutRooms) { if (room.ownerId === uid) { found = { chId, room }; break; } }
-        if (!found) {
-            await interaction.reply({ content: '❌ You don\'t have an active workout room.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        try {
-            const ch = await client.channels.fetch(found.chId);
-            await ch.setUserLimit(limit);
-            await interaction.reply({ content: `✅ User limit set to **${limit === 0 ? 'unlimited' : limit}**!`, ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        } catch (e) {
-            await interaction.reply({ content: '❌ Couldn\'t set the limit. The channel may have been deleted.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        }
-        return;
-    }
-
-    // ── Fitness: manage edit modal submit ─────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:manage:edit_modal:')) {
-        const entryId  = interaction.customId.slice('fitness:manage:edit_modal:'.length);
-        const uid      = interaction.user.id;
-        const userData = fitnessData.get(uid);
-        if (!userData) { await interaction.reply({ content: '❌ No data found.', ephemeral: true }); return; }
-        const idx = userData.entries.findIndex(e => e.id === entryId);
-        if (idx < 0) { await interaction.reply({ content: '❌ Entry not found.', ephemeral: true }); return; }
-        const entry    = userData.entries[idx];
-        const workout  = interaction.fields.getTextInputValue('fit_workout').trim();
-        const duration = interaction.fields.getTextInputValue('fit_duration').trim();
-        const weight   = interaction.fields.getTextInputValue('fit_weight').trim() || null;
-        const energy   = interaction.fields.getTextInputValue('fit_energy').trim() || null;
-        const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
-        entry.workout  = workout; entry.duration = duration; entry.weight = weight; entry.energy = energy; entry.notes = notes;
-        entry.durationMins = parseDurationToMins(duration);
-        fitnessData.set(uid, userData);
-        if (entry.messageId) {
-            try {
-                const trackCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-                const msg = await trackCh.messages.fetch(entry.messageId);
-                const member = interaction.member;
-                const display = member?.displayName || interaction.user.username;
-                const embedFields = [
-                    { name: '⏱️ Duration', value: duration, inline: true },
-                ];
-                if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
-                if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
-                if (notes)  embedFields.push({ name: '📝 Notes', value: notes, inline: false });
-                await msg.edit({ embeds: [{ color: 0x22c55e, author: { name: `${display} logged a workout 🏋️`, icon_url: interaction.user.displayAvatarURL({ dynamic: true }) }, title: workout, fields: embedFields, footer: { text: 'React to hype them up! · Edited' }, timestamp: new Date().toISOString() }] });
-            } catch (_) {}
-        }
-        await interaction.reply({ content: '✅ Workout updated!', ephemeral: true });
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        return;
-    }
-
-    // ── Fitness: public post edit modal submit ────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('fitness:edit_modal:')) {
-        const parts    = interaction.customId.split(':');
-        const ownerUid = parts[2];
-        const msgId    = parts[3];
-        const uid      = interaction.user.id;
-        if (uid !== ownerUid) { await interaction.reply({ content: '❌ You can only edit your own posts.', ephemeral: true }); return; }
-        const userData = fitnessData.get(uid);
-        const idx      = userData?.entries.findIndex(e => e.messageId === msgId) ?? -1;
-        if (idx < 0) { await interaction.reply({ content: '❌ Entry not found.', ephemeral: true }); return; }
-        const entry    = userData.entries[idx];
-        const workout  = interaction.fields.getTextInputValue('fit_workout').trim();
-        const duration = interaction.fields.getTextInputValue('fit_duration').trim();
-        const weight   = interaction.fields.getTextInputValue('fit_weight').trim() || null;
-        const energy   = interaction.fields.getTextInputValue('fit_energy').trim() || null;
-        const notes    = interaction.fields.getTextInputValue('fit_notes').trim() || null;
-        entry.workout  = workout; entry.duration = duration; entry.weight = weight; entry.energy = energy; entry.notes = notes;
-        entry.durationMins = parseDurationToMins(duration);
-        fitnessData.set(uid, userData);
-        try {
-            const trackCh = await client.channels.fetch(FITNESS_TRACKING_CHANNEL_ID);
-            const msg = await trackCh.messages.fetch(msgId);
-            const member = interaction.member;
-            const display = member?.displayName || interaction.user.username;
-            const embedFields = [
-                { name: '⏱️ Duration', value: duration, inline: true },
-            ];
-            if (weight) embedFields.push({ name: '⚖️ Weight', value: weight, inline: true });
-            if (energy) embedFields.push({ name: '⚡ Energy Level', value: energy, inline: true });
-            if (notes)  embedFields.push({ name: '📝 Notes', value: notes, inline: false });
-            await msg.edit({ embeds: [{ color: 0x22c55e, author: { name: `${display} logged a workout 🏋️`, icon_url: interaction.user.displayAvatarURL({ dynamic: true }) }, title: workout, fields: embedFields, footer: { text: 'React to hype them up! · Edited' }, timestamp: new Date().toISOString() }] });
-        } catch (_) {}
-        await interaction.reply({ content: '✅ Your workout post has been updated!', ephemeral: true });
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        return;
     }
 
     if (!interaction.isButton()) return;
@@ -13131,164 +12063,6 @@ client.on('interactionCreate', async (interaction) => {
     //     return;
     // }
 
-    // ── Fitness: start button ────────────────────────────────────────────────
-    if (interaction.customId === 'fitness:start') {
-        const modal = new ModalBuilder()
-            .setCustomId('fitness:modal')
-            .setTitle('🏋️ Log Your Workout');
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setPlaceholder('e.g. Chest & Back — 3x10 bench, 3x8 rows, 20min cardio').setRequired(true).setMaxLength(200)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('fit_duration').setLabel('How long?').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 45 minutes, 1h 30m, 1 hour').setRequired(true).setMaxLength(50)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('fit_weight').setLabel('Current weight (optional)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 180 lbs, 82 kg').setRequired(false).setMaxLength(30)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('fit_energy').setLabel('Energy level (optional)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 9/10, High, Absolutely smashed it').setRequired(false).setMaxLength(50)
-            ),
-            new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId('fit_notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph).setPlaceholder("PR'd something? New exercises? How do you feel?").setRequired(false).setMaxLength(300)
-            ),
-        );
-        await interaction.showModal(modal);
-        return;
-    }
-
-    // ── Fitness: reaction buttons ─────────────────────────────────────────────
-    if (interaction.customId.startsWith('fitness:react:')) {
-        const parts       = interaction.customId.split(':');
-        const emojiKey    = parts[2]; // flex | fire | clap
-        const ownerUid    = parts[3];
-        const emojiMap    = { flex: '💪', fire: '🔥', clap: '👏' };
-        const emoji       = emojiMap[emojiKey] || '💪';
-        const reactorName = interaction.member?.displayName || interaction.user.username;
-        if (ownerUid !== interaction.user.id) {
-            try {
-                const ownerUser = await client.users.fetch(ownerUid);
-                await ownerUser.send({ embeds: [{ color: 0x22c55e, description: `${emoji} **${reactorName}** reacted to your workout!` }] });
-            } catch (_) {}
-        }
-        await interaction.reply({ content: `${emoji} Hyped up their workout!`, ephemeral: true });
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
-        return;
-    }
-
-    // ── Fitness: thread button ────────────────────────────────────────────────
-    if (interaction.customId.startsWith('fitness:thread:')) {
-        const msg = interaction.message;
-        if (msg.thread) {
-            await interaction.reply({ content: `💬 There's already a discussion thread here: ${msg.thread}`, ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        const title = msg.embeds[0]?.title || '🏋️ Workout Discussion';
-        try {
-            const thread = await msg.startThread({ name: title.slice(0, 50), autoArchiveDuration: 1440 });
-            await interaction.reply({ content: `💬 Thread started — head to ${thread}!`, ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        } catch (e) {
-            await interaction.reply({ content: '❌ Couldn\'t create a thread.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        }
-        return;
-    }
-
-    // ── Fitness: delete button ────────────────────────────────────────────────
-    if (interaction.customId.startsWith('fitness:delete:')) {
-        const ownerUid = interaction.customId.split(':')[2];
-        const uid      = interaction.user.id;
-        const isMod    = interaction.member?.roles.cache.has(MOD_ROLE_ID);
-        const isOwner  = uid === OWNER_DISCORD_ID;
-        if (uid !== ownerUid && !isMod && !isOwner) {
-            await interaction.reply({ content: '❌ You can only delete your own posts.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        const msgId = interaction.message.id;
-        try {
-            await interaction.reply({ content: '🗑️ Workout post deleted.', ephemeral: true });
-            await interaction.message.delete();
-            const ownerData = fitnessData.get(ownerUid);
-            if (ownerData) {
-                const idx = ownerData.entries.findIndex(e => e.messageId === msgId);
-                if (idx >= 0) ownerData.entries[idx].messageId = null;
-                fitnessData.set(ownerUid, ownerData);
-            }
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        } catch (e) {
-            await interaction.followUp({ content: '❌ Couldn\'t delete that post.', ephemeral: true }).catch(() => {});
-        }
-        return;
-    }
-
-    // ── Fitness: workout room rename button ───────────────────────────────────
-    if (interaction.customId === 'fitness:room:rename') {
-        const uid = interaction.user.id;
-        let hasRoom = false;
-        for (const [, room] of workoutRooms) { if (room.ownerId === uid) { hasRoom = true; break; } }
-        if (!hasRoom) {
-            await interaction.reply({ content: '❌ Your workout room no longer exists.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        const modal = new ModalBuilder().setCustomId('fitness:room:rename:modal').setTitle('✏️ Rename Your Session');
-        modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('room_name').setLabel('New session name').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 🧘 Yoga · 🚴 Spin Class · 💪 Chest Day').setRequired(true).setMaxLength(100)
-        ));
-        await interaction.showModal(modal);
-        return;
-    }
-
-    // ── Fitness: edit button on public post ───────────────────────────────────
-    if (interaction.customId.startsWith('fitness:edit:')) {
-        const ownerUid = interaction.customId.split(':')[2];
-        const uid      = interaction.user.id;
-        if (uid !== ownerUid) {
-            await interaction.reply({ content: '❌ You can only edit your own posts.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        const msgId    = interaction.message.id;
-        const userData = fitnessData.get(uid);
-        const entry    = userData?.entries.find(e => e.messageId === msgId);
-        if (!entry) {
-            await interaction.reply({ content: '❌ Could not find this workout entry. It may have been deleted.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        const modal = new ModalBuilder().setCustomId(`fitness:edit_modal:${uid}:${msgId}`).setTitle('✏️ Edit Your Workout');
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_workout').setLabel('What did you do?').setStyle(TextInputStyle.Paragraph).setValue(entry.workout).setRequired(true).setMaxLength(200)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_duration').setLabel('How long?').setStyle(TextInputStyle.Short).setValue(entry.duration).setRequired(true).setMaxLength(50)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_weight').setLabel('Current weight (optional)').setStyle(TextInputStyle.Short).setValue(entry.weight || '').setRequired(false).setMaxLength(30)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_energy').setLabel('Energy level (optional)').setStyle(TextInputStyle.Short).setValue(entry.energy || '').setRequired(false).setMaxLength(50)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('fit_notes').setLabel('Notes (optional)').setStyle(TextInputStyle.Paragraph).setValue(entry.notes || '').setRequired(false).setMaxLength(300)),
-        );
-        await interaction.showModal(modal);
-        return;
-    }
-
-    // ── Fitness: workout room user limit button ────────────────────────────────
-    if (interaction.customId === 'fitness:room:limit') {
-        const uid = interaction.user.id;
-        let hasRoom = false;
-        for (const [, room] of workoutRooms) { if (room.ownerId === uid) { hasRoom = true; break; } }
-        if (!hasRoom) {
-            await interaction.reply({ content: '❌ Your workout room no longer exists.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        const modal = new ModalBuilder().setCustomId('fitness:room:limit:modal').setTitle('👥 Set User Limit');
-        modal.addComponents(new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('room_limit').setLabel('Max members (0 = unlimited)').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 5').setRequired(true).setMaxLength(3)
-        ));
-        await interaction.showModal(modal);
-        return;
-    }
-
     // ── Unscramble leaderboard navigation buttons (usclb:) ───────────────────
     if (interaction.customId.startsWith('usclb:')) {
         const view = interaction.customId.split(':')[1]; // 'week', 'alltime', or 'close'
@@ -13377,46 +12151,6 @@ client.on('interactionCreate', async (interaction) => {
         }] }).catch(() => {});
 
         await duelPostNextWord(duel).catch(() => {});
-        return;
-    }
-
-    // ── Challenge: done button ────────────────────────────────────────────────
-    if (interaction.customId.startsWith('challenge:done:')) {
-        const parts       = interaction.customId.split(':');
-        const challengeId = parts[2];
-        const dateStr     = parts[3];
-        const uid         = interaction.user.id;
-        const member      = interaction.member;
-        const challenge   = challenges.get(challengeId);
-        if (!challenge || !challenge.active) {
-            await interaction.reply({ content: '❌ Challenge not found or already ended.', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-            return;
-        }
-        // Duplicate check
-        if (challenge.participants[uid]?.completedDays.includes(dateStr)) {
-            await interaction.reply({ content: '✅ Already logged for that day! Keep it up 🔥', ephemeral: true });
-            setTimeout(() => interaction.deleteReply().catch(() => {}), 4000);
-            return;
-        }
-        // Auto-join if new
-        if (!challenge.participants[uid]) {
-            challenge.participants[uid] = {
-                displayName: member?.displayName || interaction.user.username,
-                joinedAt: todayStr(),
-                completedDays: [],
-            };
-        }
-        challenge.participants[uid].completedDays.push(dateStr);
-        challenge.participants[uid].completedDays.sort();
-        challenges.set(challengeId, challenge);
-        const count = challenge.participants[uid].completedDays.length;
-        const post  = challenge.dailyPosts[dateStr];
-        const dayN  = post?.dayNumber || '?';
-        await interaction.reply({ content: `✅ Day ${dayN} logged for **${challenge.title}**! Total: **${count}/30** days`, ephemeral: true });
-        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
-        await updateChallengeCheckInEmbed(challenge, dateStr);
-        saveDiscordBackup().catch(() => {});
         return;
     }
 
