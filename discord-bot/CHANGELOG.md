@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Poop Rating feature
+
+- Added `POOP_CHANNEL_ID` constant pointing to the poop channel (`1486021237548257330`)
+- Added `/setup-poop` slash command (owner only) — posts the poop scale image and 1–5 tier descriptions with a "Rate YOUR Poop 💩" button
+- Added `poop:rate` button handler — opens a modal with a 1–5 rating field and a details paragraph field
+- Added `poop:modal` submit handler — validates rating (1–5), builds a star string, looks up the tier description, and posts an embed with the user's display name, star rating, tier label in the footer, timestamp, and scale image; each posted rating also includes a "Rate YOUR Poop" button so others can submit
+- Image hosted at `https://truebeast.io/poop-rating.png` (`public/poop-rating.png` added to website repo)
+
 ## [2026-07-26] — Pond: investments, boosts, cosmetics, and legacy system
 
 - Added **Pond Investments** (`/pond invest info` / `/pond invest buy`): four passive income generators (Algae Farm, Firefly Lantern, Lily Garden, Worm Farm) each with 3 tiers; income accrues inside existing `applyDecay()` daily bucket; Worm Farm uses its own `lastWormFarmAt` sub-day timer

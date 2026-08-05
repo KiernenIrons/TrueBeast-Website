@@ -341,7 +341,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔤 Unscramble — no more skipped puzzles', value: 'The game no longer auto-posts a new puzzle on a timer. A new round only starts once both the Regular and Expert words have been solved.' },
+    { name: '💩 Poop Rating', value: 'Rate your latest bathroom visit on a 1–5 scale and share what you\'ve been eating. Ratings post as an embed in the channel with your name, star rating, and details.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1483,6 +1483,7 @@ let _lastDailyFirestoreDate = '';
 const LOG_CHANNEL_ID     = '1339916490744397896';
 const INTRO_CHANNEL_ID   = process.env.INTRO_CHANNEL_ID || '';
 const THOUGHTS_CHANNEL_ID = '1488545515976134737';
+const POOP_CHANNEL_ID     = '1486021237548257330';
 const GIVEAWAY_CHANNEL_ID  = '836728871356989491';
 const BUMP_INTERVAL      = 2 * 60 * 60 * 1000; // 2 hours
 const DISCADIA_INTERVAL  = 24 * 60 * 60 * 1000; // 24 hours
@@ -5890,6 +5891,9 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('setup-thoughts')
                 .setDescription('(Owner only) Post the Share Your Thoughts prompt in the thoughts channel'),
+            new SlashCommandBuilder()
+                .setName('setup-poop')
+                .setDescription('(Owner only) Post the Poop Rating prompt in the poop channel'),
             // ── Backup management ────────────────────────────────────────────
             new SlashCommandBuilder()
                 .setName('backup-status')
@@ -10661,6 +10665,35 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /setup-poop ───────────────────────────────────────────────────────
+        if (interaction.commandName === 'setup-poop') {
+            if (interaction.user.id !== OWNER_DISCORD_ID) {
+                await interaction.reply({ content: '❌ Owner only.', flags: 64 }); return;
+            }
+            try {
+                const ch = await client.channels.fetch(POOP_CHANNEL_ID);
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('poop:rate')
+                        .setLabel('Rate YOUR Poop')
+                        .setEmoji('💩')
+                        .setStyle(ButtonStyle.Secondary),
+                );
+                await ch.send({
+                    embeds: [{
+                        image: { url: 'https://truebeast.io/poop-rating.png' },
+                        description: '**1.** You are shitting water.\n**2.** You have bad diarrhea.\n**3.** Your poop is like...soft icecream...\n**4.** Almost perfect poop.\n**5.** Your poop is so perfect that you don\'t even have to wipe your ass.',
+                        footer: { text: 'Click the button to submit your rating.' },
+                    }],
+                    components: [row],
+                });
+                await interaction.reply({ content: '✅ Poop Rating prompt posted.', flags: 64 });
+            } catch (e) {
+                await interaction.reply({ content: `❌ Failed: ${e.message}`, flags: 64 });
+            }
+            return;
+        }
+
         // ── /fitness-setup ───────────────────────────────────────────────────
         if (interaction.commandName === 'fitness-setup') {
             if (interaction.user.id !== OWNER_DISCORD_ID) {
@@ -11807,6 +11840,61 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── Poop rating modal submit ──────────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId === 'poop:modal') {
+        const ratingRaw = interaction.fields.getTextInputValue('poop_rating').trim();
+        const details   = interaction.fields.getTextInputValue('poop_details').trim();
+        const user      = interaction.user;
+        const member    = interaction.member;
+        const display   = member?.displayName || user.username;
+
+        const rating = parseInt(ratingRaw, 10);
+        if (isNaN(rating) || rating < 1 || rating > 5) {
+            await interaction.reply({ content: '❌ Rating must be a number from 1 to 5.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            return;
+        }
+
+        const POOP_DESCS = [
+            'You are shitting water.',
+            'You have bad diarrhea.',
+            'Your poop is like...soft icecream...',
+            'Almost perfect poop.',
+            'Your poop is so perfect that you don\'t even have to wipe your ass.',
+        ];
+        const stars = '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
+        const desc  = POOP_DESCS[rating - 1];
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('poop:rate')
+                .setLabel('Rate YOUR Poop')
+                .setEmoji('💩')
+                .setStyle(ButtonStyle.Secondary),
+        );
+
+        try {
+            const poopChannel = await client.channels.fetch(POOP_CHANNEL_ID);
+            await poopChannel.send({
+                embeds: [{
+                    image: { url: 'https://truebeast.io/poop-rating.png' },
+                    description: `__**${display}**__ has successfully conquered another meal passthrough! **Rating:** ${stars} **Details:** ${details}`,
+                    footer: { text: desc },
+                    timestamp: new Date().toISOString(),
+                }],
+                components: [row],
+            });
+            await interaction.reply({ content: '✅ Your poop rating has been submitted!', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+            console.log(`[BeastBot] 💩 Poop rating ${rating}/5 submitted by ${user.tag}`);
+        } catch (e) {
+            console.error('[BeastBot] Failed to post poop rating:', e.message);
+            await interaction.reply({ content: '❌ Something went wrong. Try again.', ephemeral: true });
+            setTimeout(() => interaction.deleteReply().catch(() => {}), 5000);
+        }
+        return;
+    }
+
     if (interaction.isModalSubmit() && interaction.customId === 'intro:modal') {
         const name        = interaction.fields.getTextInputValue('intro_name');
         const ageLocation = interaction.fields.getTextInputValue('intro_age_location');
@@ -12804,6 +12892,35 @@ client.on('interactionCreate', async (interaction) => {
                     .setPlaceholder('https://example.com/image.png')
                     .setRequired(false)
                     .setMaxLength(500),
+            ),
+        );
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Poop rating button ────────────────────────────────────────────────────
+    if (interaction.customId === 'poop:rate') {
+        const modal = new ModalBuilder()
+            .setCustomId('poop:modal')
+            .setTitle('Rate YOUR Poop!');
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('poop_rating')
+                    .setLabel('Poop Scale Rating From 1-5?')
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder('1 - 5')
+                    .setRequired(true)
+                    .setMaxLength(1),
+            ),
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('poop_details')
+                    .setLabel('Details?')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setPlaceholder('What have you been eating? How do you feel?')
+                    .setRequired(true)
+                    .setMaxLength(1000),
             ),
         );
         await interaction.showModal(modal);
