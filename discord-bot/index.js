@@ -343,8 +343,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '💩 Poop Rating', value: 'Click "Rate YOUR Poop" to log your bathroom visit on a 1–5 scale with details. Posts in the channel with your name, star rating, and explanation.' },
-    { name: '🗑️ Fitness removed', value: 'Workout logging, reminders, workout rooms, and 30-day challenges have been removed — these features were no longer in use.' },
+    { name: '⭐️ Poop star fix', value: 'The star emoji in poop ratings now uses the correct ⭐️ variant instead of the plain Discord :star: emoji.' },
+    { name: '🎙️ VC status logging', value: 'Voice channel status changes ("Set a Status") are now logged — shows the new status and who set it.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -11026,7 +11026,7 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
-        const stars = '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
+        const stars = '⭐️'.repeat(rating) + '☆'.repeat(5 - rating);
 
         try {
             const poopChannel = await client.channels.fetch(POOP_CHANNEL_ID);
@@ -13166,6 +13166,27 @@ client.on('channelDelete', async (channel) => {
         timestamp: new Date().toISOString(),
         footer: entry ? { text: `Deleted by: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
     });
+});
+
+// Voice channel status changes come through a raw gateway event, not channelUpdate
+client.ws.on('VOICE_CHANNEL_STATUS_UPDATE', async (data) => {
+    try {
+        const guild = client.guilds.cache.get(data.guild_id);
+        if (!guild) return;
+        const channel = guild.channels.cache.get(data.id);
+        const channelName = channel?.name || `<#${data.id}>`;
+        const newStatus = data.status || '';
+        const entry = await getAuditEntry(guild, AuditLogEvent.ChannelUpdate, data.id, 5000);
+        await sendLog(guild, {
+            color: LOG_COLORS.info,
+            description: `🎙️ Voice channel **${channelName}** status was **${newStatus ? 'updated' : 'cleared'}**`,
+            fields: [{ name: 'Status', value: newStatus || '*(cleared)*' }],
+            timestamp: new Date().toISOString(),
+            footer: entry ? { text: `By: ${entry.executor?.tag || entry.executor?.username || 'Unknown'}` } : undefined,
+        });
+    } catch (e) {
+        console.error('[BeastBot] VOICE_CHANNEL_STATUS_UPDATE log failed:', e.message);
+    }
 });
 
 // ── Thread events ─────────────────────────────────────────────────────────────

@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Fix poop star emoji; log voice channel status changes
+
+- Fixed poop rating star emoji: changed `'⭐'.repeat(rating)` to `'⭐️'.repeat(rating)` (added U+FE0F variation selector to force emoji presentation)
+- Added `client.ws.on('VOICE_CHANNEL_STATUS_UPDATE', ...)` raw gateway handler — voice channel "Set a Status" changes now post to the log channel with the new status text and the user who set it (via audit log)
+
 ## [2026-08-05] — Poop Rating (Components V2) + fitness removal
 
 - Rewrote poop rating messages to use Discord Components V2: `ContainerBuilder`, `MediaGalleryBuilder`, `SeparatorBuilder`, `TextDisplayBuilder` — matches the designed layout with image → separator → text → separator → button
