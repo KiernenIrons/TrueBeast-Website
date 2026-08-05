@@ -4244,19 +4244,44 @@ function DiscordCardsTab() {
 // Announcements v2 Tab — Discord Components v2
 // ═══════════════════════════════════════════════════════════════════════════
 
-type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery' | 'buttons';
+type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery' | 'buttons' | 'file';
 
 interface V2TextBlock     { id: string; kind: 'text';          content: string }
 interface V2SeparatorBlock{ id: string; kind: 'separator';     divider: boolean; spacing: 1 | 2 }
-interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; thumbnailUrl: string; thumbnailAlt: string; thumbnailSpoiler?: boolean }
+interface V2SectionBlock  { id: string; kind: 'section';       texts: string[]; accessoryType: 'none' | 'thumbnail' | 'button'; thumbnailUrl: string; thumbnailAlt: string; thumbnailSpoiler?: boolean; accessoryButton: ButtonData }
 interface V2MediaItem     { url: string; description: string; spoiler?: boolean; mediaType?: 'image' | 'video' }
 interface V2MediaGalleryBlock{ id: string; kind: 'media_gallery'; items: V2MediaItem[] }
 interface V2FieldItem     { key: string; value: string }
 interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldItem[] }
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
-type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock
+interface V2FileBlock     { id: string; kind: 'file';          url: string; spoiler?: boolean }
+type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock | V2FileBlock
 
-interface V2State { content: string; accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[]; reactions: string[] }
+interface V2Container { id: string; accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[] }
+interface V2State { content: string; containers: V2Container[]; reactions: string[] }
+
+function migrateV2State(raw: any): V2State {
+  if (!raw) return emptyV2State();
+  if (Array.isArray(raw.blocks) && !Array.isArray(raw.containers)) {
+    return {
+      content: raw.content || '',
+      reactions: raw.reactions || [],
+      containers: [{ id: uid(), accentColor: raw.accentColor || '#5865f2', showAccent: raw.showAccent ?? true, spoilerContainer: raw.spoilerContainer ?? false, blocks: (raw.blocks as V2Block[]).map(patchSectionBlock) }],
+    };
+  }
+  return {
+    content: raw.content || '',
+    reactions: raw.reactions || [],
+    containers: (raw.containers || []).map((c: any): V2Container => ({
+      id: c.id || uid(), accentColor: c.accentColor || '#5865f2', showAccent: c.showAccent ?? true, spoilerContainer: c.spoilerContainer ?? false,
+      blocks: (c.blocks || []).map(patchSectionBlock),
+    })),
+  };
+}
+function patchSectionBlock(b: any): V2Block {
+  if (b?.kind === 'section') return { accessoryType: 'none', accessoryButton: newButton(), ...b };
+  return b as V2Block;
+}
 
 interface CustomTemplate {
   id: string; label: string; desc: string; emoji: string;
@@ -4265,101 +4290,124 @@ interface CustomTemplate {
 }
 
 function emptyV2State(): V2State {
-  return { content: '', accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }], reactions: [] };
+  return { content: '', containers: [{ id: uid(), accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }] }], reactions: [] };
 }
 
 function newV2Block(kind: V2BlockKind): V2Block {
   switch (kind) {
     case 'text':          return { id: uid(), kind: 'text', content: '' };
     case 'fields':        return { id: uid(), kind: 'fields', items: [{ key: '', value: '' }] };
-    case 'section':       return { id: uid(), kind: 'section', texts: ['', ''], thumbnailUrl: '', thumbnailAlt: '' };
+    case 'section':       return { id: uid(), kind: 'section', texts: ['', ''], accessoryType: 'none', thumbnailUrl: '', thumbnailAlt: '', accessoryButton: newButton() };
     case 'separator':     return { id: uid(), kind: 'separator', divider: true, spacing: 1 };
-    case 'media_gallery': return { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '' }] };
+    case 'media_gallery': return { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '', mediaType: 'image' }] };
     case 'buttons':       return { id: uid(), kind: 'buttons', row: [newButton()] };
+    case 'file':          return { id: uid(), kind: 'file', url: '', spoiler: false };
   }
 }
 
 function buildPayloadV2(state: V2State): Record<string, unknown> | null {
-  const accentInt = parseInt(state.accentColor.replace('#', ''), 16);
-  const inner: unknown[] = [];
+  function addEmoji(b: ButtonData, btn: Record<string, unknown>) {
+    if (!b.emoji) return;
+    const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
+    if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
+    else btn.emoji = { name: b.emoji };
+  }
 
-  for (const block of state.blocks) {
-    if (block.kind === 'text') {
-      if (!block.content.trim()) continue;
-      inner.push({ type: 10, content: block.content });
-    } else if (block.kind === 'fields') {
-      const lines = block.items.filter((f) => f.key.trim() || f.value.trim()).map((f) => `**${f.key}**: ${f.value}`);
-      if (!lines.length) continue;
-      inner.push({ type: 10, content: lines.join('\n') });
-    } else if (block.kind === 'separator') {
-      inner.push({ type: 14, divider: block.divider, spacing: block.spacing });
-    } else if (block.kind === 'section') {
-      const textComps = block.texts.filter((t) => t.trim()).map((t) => ({ type: 10, content: t }));
-      if (!textComps.length) continue;
-      const section: Record<string, unknown> = { type: 9, components: textComps };
-      if (block.thumbnailUrl.trim()) {
-        const acc: Record<string, unknown> = { type: 11, media: { url: block.thumbnailUrl } };
-        if (block.thumbnailAlt) acc.description = block.thumbnailAlt;
-        if (block.thumbnailSpoiler) acc.spoiler = true;
-        section.accessory = acc;
-      }
-      inner.push(section);
-    } else if (block.kind === 'media_gallery') {
-      const items = block.items.filter((i) => i.url.trim()).map((i) => {
-        const item: Record<string, unknown> = { media: { url: i.url } };
-        if (i.description.trim()) item.description = i.description;
-        if (i.spoiler) item.spoiler = true;
-        return item;
-      });
-      if (!items.length) continue;
-      inner.push({ type: 12, items });
-    } else if (block.kind === 'buttons') {
-      const addEmoji = (b: ButtonData, btn: Record<string, unknown>) => {
-        if (!b.emoji) return;
-        const m = b.emoji.match(/(?:(.+):)?(\d{15,})$/);
-        if (m) btn.emoji = { name: m[1] || '_', id: m[2] };
-        else btn.emoji = { name: b.emoji };
-      };
-      const buttons = block.row
-        .filter((b) => b.type === 'form' ? !!b.formId && (b.label.trim() || b.emoji) : b.url.trim() && (b.label.trim() || b.emoji))
-        .map((b) => {
-          if (b.type === 'form') {
-            const btn: Record<string, unknown> = { type: 2, style: b.btnStyle ?? 1, custom_id: `annform_${b.formId}` };
+  function buildBlockComponents(blocks: V2Block[]): unknown[] {
+    const inner: unknown[] = [];
+    for (const block of blocks) {
+      if (block.kind === 'text') {
+        if (!block.content.trim()) continue;
+        inner.push({ type: 10, content: block.content });
+      } else if (block.kind === 'fields') {
+        const lines = block.items.filter((f) => f.key.trim() || f.value.trim()).map((f) => `**${f.key}**: ${f.value}`);
+        if (!lines.length) continue;
+        inner.push({ type: 10, content: lines.join('\n') });
+      } else if (block.kind === 'separator') {
+        inner.push({ type: 14, divider: block.divider, spacing: block.spacing });
+      } else if (block.kind === 'section') {
+        const textComps = block.texts.filter((t) => t.trim()).map((t) => ({ type: 10, content: t }));
+        if (!textComps.length) continue;
+        const section: Record<string, unknown> = { type: 9, components: textComps };
+        if (block.accessoryType === 'thumbnail' && block.thumbnailUrl.trim()) {
+          const acc: Record<string, unknown> = { type: 11, media: { url: block.thumbnailUrl } };
+          if (block.thumbnailAlt) acc.description = block.thumbnailAlt;
+          if (block.thumbnailSpoiler) acc.spoiler = true;
+          section.accessory = acc;
+        } else if (block.accessoryType === 'button') {
+          const b = block.accessoryButton;
+          const valid = b.type === 'form' ? !!b.formId && (b.label.trim() || !!b.emoji) : b.url.trim() && (b.label.trim() || !!b.emoji);
+          if (valid) {
+            const btn: Record<string, unknown> = b.type === 'form'
+              ? { type: 2, style: b.btnStyle ?? 1, custom_id: `annform_${b.formId}` }
+              : { type: 2, style: 5, url: b.url };
+            if (b.label.trim()) btn.label = b.label;
+            if (b.disabled) btn.disabled = true;
+            addEmoji(b, btn);
+            section.accessory = btn;
+          }
+        }
+        inner.push(section);
+      } else if (block.kind === 'media_gallery') {
+        const items = block.items.filter((i) => i.url.trim()).map((i) => {
+          const item: Record<string, unknown> = { media: { url: i.url } };
+          if (i.description.trim()) item.description = i.description;
+          if (i.spoiler) item.spoiler = true;
+          return item;
+        });
+        if (!items.length) continue;
+        inner.push({ type: 12, items });
+      } else if (block.kind === 'buttons') {
+        const buttons = block.row
+          .filter((b) => b.type === 'form' ? !!b.formId && (b.label.trim() || b.emoji) : b.url.trim() && (b.label.trim() || b.emoji))
+          .map((b) => {
+            if (b.type === 'form') {
+              const btn: Record<string, unknown> = { type: 2, style: b.btnStyle ?? 1, custom_id: `annform_${b.formId}` };
+              if (b.label.trim()) btn.label = b.label;
+              if (b.disabled) btn.disabled = true;
+              addEmoji(b, btn);
+              return btn;
+            }
+            const btn: Record<string, unknown> = { type: 2, style: 5, url: b.url };
             if (b.label.trim()) btn.label = b.label;
             if (b.disabled) btn.disabled = true;
             addEmoji(b, btn);
             return btn;
-          }
-          const btn: Record<string, unknown> = { type: 2, style: 5, url: b.url };
-          if (b.label.trim()) btn.label = b.label;
-          if (b.disabled) btn.disabled = true;
-          addEmoji(b, btn);
-          return btn;
-        });
-      if (!buttons.length) continue;
-      inner.push({ type: 1, components: buttons });
+          });
+        if (!buttons.length) continue;
+        inner.push({ type: 1, components: buttons });
+      } else if (block.kind === 'file') {
+        if (!block.url.trim()) continue;
+        const fileComp: Record<string, unknown> = { type: 13, file: { url: block.url } };
+        if (block.spoiler) fileComp.spoiler = true;
+        inner.push(fileComp);
+      }
     }
+    return inner;
   }
 
-  if (!inner.length && !state.content.trim()) return null;
   const topLevel: unknown[] = [];
   if (state.content.trim()) topLevel.push({ type: 10, content: state.content });
-  if (inner.length) {
-    const container: Record<string, unknown> = { type: 17, components: inner };
-    if (state.showAccent) container.accent_color = accentInt;
-    if (state.spoilerContainer) container.spoiler = true;
-    topLevel.push(container);
+  for (const container of state.containers) {
+    const inner = buildBlockComponents(container.blocks);
+    if (!inner.length) continue;
+    const cont: Record<string, unknown> = { type: 17, components: inner };
+    if (container.showAccent) cont.accent_color = parseInt(container.accentColor.replace('#', ''), 16);
+    if (container.spoilerContainer) cont.spoiler = true;
+    topLevel.push(cont);
   }
+  if (!topLevel.length) return null;
   return { flags: 32768, components: topLevel };
 }
 
 const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
   { kind: 'text',          label: 'Text Display',  desc: 'Markdown text — headers, bold, lists' },
   { kind: 'fields',        label: 'Fields',         desc: 'Key: Value info rows (auto-bold keys)' },
-  { kind: 'section',       label: 'Section',        desc: 'Text + optional thumbnail on the right' },
+  { kind: 'section',       label: 'Section',        desc: 'Text + image or button on the right' },
   { kind: 'separator',     label: 'Separator',      desc: 'Visual divider / spacer' },
   { kind: 'media_gallery', label: 'Media Gallery',  desc: 'Image/video grid (up to 4)' },
-  { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link buttons' },
+  { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link or form buttons' },
+  { kind: 'file',          label: 'File',           desc: 'File attachment (Discord CDN URL)' },
 ];
 
 function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMoveUp, onMoveDown }: {
@@ -4370,7 +4418,7 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
   const [open, setOpen] = useState(true);
   const typeInfo = V2_BLOCK_TYPES.find((t) => t.kind === block.kind)!;
 
-  const kindLabel: Record<V2BlockKind, string> = { text: 'T', fields: '≡', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡' };
+  const kindLabel: Record<V2BlockKind, string> = { text: 'T', fields: '≡', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡', file: '📎' };
 
   return (
     <div className="border border-white/5 rounded-xl">
@@ -4468,22 +4516,45 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
                 )}
               </div>
               <div>
-                <label className={subLbl}>Thumbnail (right side, optional)</label>
-                <input type="url" value={block.thumbnailUrl}
-                  onChange={(e) => onChange({ ...block, thumbnailUrl: e.target.value })}
-                  placeholder="https://... image URL" className={inpSm} />
-                {block.thumbnailUrl && (
+                <label className={subLbl}>Accessory (right side)</label>
+                <div className="flex gap-1.5 mb-2">
+                  {(['none', 'thumbnail', 'button'] as const).map((t) => (
+                    <button key={t} type="button"
+                      onClick={() => onChange({ ...block, accessoryType: t })}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${block.accessoryType === t ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' : 'bg-white/5 border-white/10 text-gray-500 hover:text-gray-300'}`}>
+                      {t === 'none' ? 'None' : t === 'thumbnail' ? 'Image' : 'Button'}
+                    </button>
+                  ))}
+                </div>
+                {block.accessoryType === 'thumbnail' && (
                   <>
-                    <input type="text" value={block.thumbnailAlt}
-                      onChange={(e) => onChange({ ...block, thumbnailAlt: e.target.value })}
-                      placeholder="Alt text (optional)" className={inpSm + ' mt-1'} />
-                    <label className="flex items-center gap-2 mt-1.5 cursor-pointer select-none">
-                      <input type="checkbox" checked={!!block.thumbnailSpoiler}
-                        onChange={(e) => onChange({ ...block, thumbnailSpoiler: e.target.checked })}
-                        className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
-                      <span className="text-[11px] text-gray-500">Spoiler (hidden until clicked)</span>
-                    </label>
+                    <input type="url" value={block.thumbnailUrl}
+                      onChange={(e) => onChange({ ...block, thumbnailUrl: e.target.value })}
+                      placeholder="https://... image URL" className={inpSm} />
+                    {block.thumbnailUrl && (
+                      <>
+                        <input type="text" value={block.thumbnailAlt}
+                          onChange={(e) => onChange({ ...block, thumbnailAlt: e.target.value })}
+                          placeholder="Alt text (optional)" className={inpSm + ' mt-1'} />
+                        <label className="flex items-center gap-2 mt-1.5 cursor-pointer select-none">
+                          <input type="checkbox" checked={!!block.thumbnailSpoiler}
+                            onChange={(e) => onChange({ ...block, thumbnailSpoiler: e.target.checked })}
+                            className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+                          <span className="text-[11px] text-gray-500">Spoiler (hidden until clicked)</span>
+                        </label>
+                      </>
+                    )}
                   </>
+                )}
+                {block.accessoryType === 'button' && (
+                  <div className="border border-white/5 rounded-xl p-3">
+                    <SingleButtonEditor
+                      btn={block.accessoryButton}
+                      onChange={(upd) => onChange({ ...block, accessoryButton: { ...block.accessoryButton, ...upd } })}
+                      onRemove={() => onChange({ ...block, accessoryType: 'none' })}
+                      formCapable
+                    />
+                  </div>
                 )}
               </div>
             </>
@@ -4562,147 +4633,186 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
                 onRemoveRow={() => {}} formCapable />
             </div>
           )}
+
+          {block.kind === 'file' && (
+            <div className="space-y-2">
+              <label className={subLbl}>File URL (must be a Discord CDN attachment URL)</label>
+              <input type="url" value={block.url}
+                onChange={(e) => onChange({ ...block, url: e.target.value })}
+                placeholder="https://cdn.discordapp.com/attachments/..." className={inpSm} />
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={!!block.spoiler}
+                  onChange={(e) => onChange({ ...block, spoiler: e.target.checked })}
+                  className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+                <span className="text-[11px] text-gray-500">Spoiler (hidden until clicked)</span>
+              </label>
+              <p className="text-[10px] text-amber-400/70">Note: the file must be attached to the message. Upload it separately to Discord first and paste the CDN URL.</p>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
+function V2PreviewBlocks({ blocks, bot }: { blocks: V2Block[]; bot: ReturnType<typeof useContext<typeof BotCtx>> }) {
+  const FORM_BG: Record<number, string> = { 1: '#5865f2', 2: '#4f545c', 3: '#57f287', 4: '#ed4245' };
+
+  function renderButton(b: ButtonData, key: number) {
+    const m = b.emoji?.match(/(?:(.+):)?(\d{15,})$/);
+    const eid = m?.[2];
+    const em = eid ? (bot as any).emojis?.find((e: any) => e.id === eid) : null;
+    const isForm = b.type === 'form';
+    const bgColor = isForm ? (FORM_BG[b.btnStyle ?? 1] ?? '#5865f2') : undefined;
+    const textColor = isForm && b.btnStyle === 3 ? '#0e0e0e' : 'white';
+    return (
+      <span key={key} style={isForm ? { backgroundColor: bgColor, color: textColor, opacity: b.disabled ? 0.4 : 1 } : undefined}
+        className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded cursor-default ${!isForm ? (b.disabled ? 'bg-[#4f545c]/50 text-white/40' : 'bg-[#4f545c] text-white') : ''}`}>
+        {eid ? <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt="" className="w-4 h-4" /> : b.emoji ? <span>{b.emoji}</span> : null}
+        {b.label && <span>{b.label}</span>}
+        {!b.disabled && !isForm && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>}
+        {isForm && !b.disabled && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-60"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 13h4M8 17h8"/></svg>}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      {blocks.map((block) => {
+        if (block.kind === 'text') {
+          if (!block.content.trim()) return null;
+          return <div key={block.id} className="text-gray-200 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(block.content, bot as any) }} />;
+        }
+        if (block.kind === 'fields') {
+          const rows = block.items.filter((f) => f.key.trim() || f.value.trim());
+          if (!rows.length) return null;
+          return (
+            <div key={block.id} className="text-sm leading-relaxed space-y-0.5">
+              {rows.map((f, fi) => (
+                <div key={fi} className="text-gray-200">
+                  <span className="font-bold text-white">{f.key}</span>
+                  {f.key && f.value ? ': ' : ''}{f.value}
+                </div>
+              ))}
+            </div>
+          );
+        }
+        if (block.kind === 'separator') {
+          return (
+            <div key={block.id} className={block.spacing === 2 ? 'py-3' : 'py-1.5'}>
+              {block.divider && <hr className="border-white/15" />}
+            </div>
+          );
+        }
+        if (block.kind === 'section') {
+          const texts = block.texts.filter((t) => t.trim());
+          if (!texts.length) return null;
+          const hasThumb = block.accessoryType === 'thumbnail' && block.thumbnailUrl.trim();
+          const hasBtn = block.accessoryType === 'button' && (block.accessoryButton.url.trim() || (block.accessoryButton.type === 'form' && block.accessoryButton.formId));
+          return (
+            <div key={block.id} className="flex gap-3 items-center">
+              <div className="flex-1 min-w-0 space-y-1">
+                {texts.map((t, i) => (
+                  <div key={i} className="text-gray-200 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(t, bot as any) }} />
+                ))}
+              </div>
+              {hasThumb && (
+                <div className="relative w-16 h-16 flex-shrink-0">
+                  <img src={block.thumbnailUrl} alt={block.thumbnailAlt || ''} className={`w-16 h-16 rounded-lg object-cover ${block.thumbnailSpoiler ? 'blur-md' : ''}`}
+                    onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                  {block.thumbnailSpoiler && <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30"><span className="text-white text-[9px] font-bold">SPOILER</span></div>}
+                </div>
+              )}
+              {hasBtn && <div className="flex-shrink-0">{renderButton(block.accessoryButton, 0)}</div>}
+            </div>
+          );
+        }
+        if (block.kind === 'media_gallery') {
+          const items = block.items.filter((i) => i.url.trim());
+          if (!items.length) return null;
+          return (
+            <div key={block.id} className={`-mx-3 grid gap-0.5 ${items.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {items.map((item, i) => (
+                <div key={i} className="relative rounded overflow-hidden bg-white/5" style={items.length > 1 ? { aspectRatio: '1/1' } : undefined}>
+                  {(item.mediaType ?? 'image') === 'video' ? (
+                    <video src={item.url} controls={!item.spoiler} className={`${items.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${item.spoiler ? 'blur-md' : ''}`} />
+                  ) : (
+                    <img src={item.url} alt={item.description || ''} className={`${items.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${item.spoiler ? 'blur-md' : ''}`}
+                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                  )}
+                  {item.spoiler && <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] font-semibold bg-black/50 px-2 py-0.5 rounded">SPOILER</span></div>}
+                  {item.description && !item.spoiler && <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-0.5"><p className="text-white text-[10px] truncate">{item.description}</p></div>}
+                </div>
+              ))}
+            </div>
+          );
+        }
+        if (block.kind === 'buttons') {
+          const buttons = block.row.filter((b) => b.type === 'form' ? !!b.formId && (b.label.trim() || b.emoji) : b.url.trim() && (b.label.trim() || b.emoji));
+          if (!buttons.length) return null;
+          return <div key={block.id} className="flex flex-wrap gap-1.5">{buttons.map((b, bi) => renderButton(b, bi))}</div>;
+        }
+        if (block.kind === 'file') {
+          if (!block.url.trim()) return null;
+          const filename = block.url.split('/').pop()?.split('?')[0] || 'file';
+          return (
+            <div key={block.id} className={`flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2 ${block.spoiler ? 'blur-sm' : ''}`}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400 flex-shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <span className="text-gray-300 text-xs truncate">{filename}</span>
+            </div>
+          );
+        }
+        return null;
+      })}
+    </>
+  );
+}
+
 function V2Preview({ state }: { state: V2State }) {
   const bot = useContext(BotCtx);
-  const hasContent = state.blocks.some((b) => {
+  const allBlocks = state.containers.flatMap((c) => c.blocks);
+  const hasAnyContent = allBlocks.some((b) => {
     if (b.kind === 'text') return b.content.trim().length > 0;
     if (b.kind === 'fields') return b.items.some((f) => f.key.trim() || f.value.trim());
     if (b.kind === 'section') return b.texts.some((t) => t.trim());
     if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
     if (b.kind === 'buttons') return b.row.some((btn) => btn.type === 'form' ? !!btn.formId && (btn.label.trim() || btn.emoji) : btn.url.trim() && (btn.label.trim() || btn.emoji));
+    if (b.kind === 'file') return b.url.trim().length > 0;
     return true;
   });
 
-  if (!hasContent && !state.content.trim()) return <div className="text-gray-500 text-sm italic text-center py-8">Add some blocks to see a preview…</div>;
+  if (!hasAnyContent && !state.content.trim()) return <div className="text-gray-500 text-sm italic text-center py-8">Add some blocks to see a preview…</div>;
 
   return (
     <div className="space-y-2">
       {state.content.trim() && (
         <div className="text-gray-200 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(state.content, bot) }} />
       )}
-      {hasContent && (
-    <div className={`flex rounded overflow-hidden relative ${state.spoilerContainer ? 'cursor-pointer' : ''}`}>
-      {state.showAccent && <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: state.accentColor }} />}
-      <div className={`bg-[#2f3136] ${state.showAccent ? 'rounded-r' : 'rounded'} p-3 flex-1 min-w-0 space-y-2 ${state.spoilerContainer ? 'blur-sm select-none pointer-events-none' : ''}`}>
-        {state.blocks.map((block) => {
-          if (block.kind === 'text') {
-            if (!block.content.trim()) return null;
-            return (
-              <div key={block.id} className="text-gray-200 text-sm leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(block.content, bot) }} />
-            );
-          }
-          if (block.kind === 'fields') {
-            const rows = block.items.filter((f) => f.key.trim() || f.value.trim());
-            if (!rows.length) return null;
-            return (
-              <div key={block.id} className="text-sm leading-relaxed space-y-0.5">
-                {rows.map((f, fi) => (
-                  <div key={fi} className="text-gray-200">
-                    <span className="font-bold text-white">{f.key}</span>
-                    {f.key && f.value ? ': ' : ''}{f.value}
-                  </div>
-                ))}
+      {state.containers.map((container) => {
+        const hasContent = container.blocks.some((b) => {
+          if (b.kind === 'text') return b.content.trim().length > 0;
+          if (b.kind === 'fields') return b.items.some((f) => f.key.trim() || f.value.trim());
+          if (b.kind === 'section') return b.texts.some((t) => t.trim());
+          if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
+          if (b.kind === 'buttons') return b.row.some((btn) => btn.type === 'form' ? !!btn.formId && (btn.label.trim() || btn.emoji) : btn.url.trim() && (btn.label.trim() || btn.emoji));
+          if (b.kind === 'file') return b.url.trim().length > 0;
+          return true;
+        });
+        if (!hasContent) return null;
+        return (
+          <div key={container.id} className={`flex rounded overflow-hidden relative ${container.spoilerContainer ? 'cursor-pointer' : ''}`}>
+            {container.showAccent && <div className="w-1 flex-shrink-0 rounded-l" style={{ backgroundColor: container.accentColor }} />}
+            <div className={`bg-[#2f3136] ${container.showAccent ? 'rounded-r' : 'rounded'} p-3 flex-1 min-w-0 space-y-2 ${container.spoilerContainer ? 'blur-sm select-none pointer-events-none' : ''}`}>
+              <V2PreviewBlocks blocks={container.blocks} bot={bot as any} />
+            </div>
+            {container.spoilerContainer && (
+              <div className="absolute inset-0 flex items-center justify-center rounded bg-black/20 backdrop-blur-[1px]">
+                <span className="text-white text-xs font-semibold bg-black/60 px-3 py-1 rounded-full">SPOILER — click to reveal</span>
               </div>
-            );
-          }
-          if (block.kind === 'separator') {
-            return (
-              <div key={block.id} className={block.spacing === 2 ? 'py-3' : 'py-1.5'}>
-                {block.divider && <hr className="border-white/15" />}
-              </div>
-            );
-          }
-          if (block.kind === 'section') {
-            const texts = block.texts.filter((t) => t.trim());
-            if (!texts.length) return null;
-            return (
-              <div key={block.id} className="flex gap-3 items-start">
-                <div className="flex-1 min-w-0 space-y-1">
-                  {texts.map((t, i) => (
-                    <div key={i} className="text-gray-200 text-sm leading-relaxed"
-                      dangerouslySetInnerHTML={{ __html: renderDiscordMarkdown(t, bot) }} />
-                  ))}
-                </div>
-                {block.thumbnailUrl.trim() && (
-                  <div className="relative w-16 h-16 flex-shrink-0">
-                    <img src={block.thumbnailUrl} alt={block.thumbnailAlt || ''} className={`w-16 h-16 rounded-lg object-cover ${block.thumbnailSpoiler ? 'blur-md' : ''}`}
-                      onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
-                    {block.thumbnailSpoiler && <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30"><span className="text-white text-[9px] font-bold">SPOILER</span></div>}
-                  </div>
-                )}
-              </div>
-            );
-          }
-          if (block.kind === 'media_gallery') {
-            const items = block.items.filter((i) => i.url.trim());
-            if (!items.length) return null;
-            return (
-              <div key={block.id} className={`-mx-3 grid gap-0.5 ${items.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                {items.map((item, i) => (
-                  <div key={i} className="relative rounded overflow-hidden bg-white/5"
-                    style={items.length > 1 ? { aspectRatio: '1/1' } : undefined}>
-                    {(item.mediaType ?? 'image') === 'video' ? (
-                      <video src={item.url} controls={!item.spoiler}
-                        className={`${items.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${item.spoiler ? 'blur-md' : ''}`} />
-                    ) : (
-                      <img src={item.url} alt={item.description || ''}
-                        className={`${items.length === 1 ? 'w-full h-auto block' : 'w-full h-full object-cover'} ${item.spoiler ? 'blur-md' : ''}`}
-                        onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
-                    )}
-                    {item.spoiler && <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] font-semibold bg-black/50 px-2 py-0.5 rounded">SPOILER</span></div>}
-                    {item.description && !item.spoiler && (
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-0.5">
-                        <p className="text-white text-[10px] truncate">{item.description}</p>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            );
-          }
-          if (block.kind === 'buttons') {
-            const buttons = block.row.filter((b) => b.type === 'form' ? !!b.formId && (b.label.trim() || b.emoji) : b.url.trim() && (b.label.trim() || b.emoji));
-            if (!buttons.length) return null;
-            const FORM_BG: Record<number, string> = { 1: '#5865f2', 2: '#4f545c', 3: '#57f287', 4: '#ed4245' };
-            return (
-              <div key={block.id} className="flex flex-wrap gap-1.5">
-                {buttons.map((b, bi) => {
-                  const m = b.emoji?.match(/(?:(.+):)?(\d{15,})$/);
-                  const eid = m?.[2];
-                  const em = eid ? bot.emojis.find((e) => e.id === eid) : null;
-                  const isForm = b.type === 'form';
-                  const bgColor = isForm ? (FORM_BG[b.btnStyle ?? 1] ?? '#5865f2') : undefined;
-                  const textColor = isForm && b.btnStyle === 3 ? '#0e0e0e' : 'white';
-                  return (
-                    <span key={bi} style={isForm ? { backgroundColor: bgColor, color: textColor, opacity: b.disabled ? 0.4 : 1 } : undefined}
-                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded cursor-default ${!isForm ? (b.disabled ? 'bg-[#4f545c]/50 text-white/40' : 'bg-[#4f545c] text-white') : ''}`}>
-                      {eid ? <img src={`https://cdn.discordapp.com/emojis/${eid}.${em?.animated ? 'gif' : 'png'}?size=20`} alt="" className="w-4 h-4" /> : b.emoji ? <span>{b.emoji}</span> : null}
-                      {b.label && <span>{b.label}</span>}
-                      {!b.disabled && !isForm && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-50"><path d="M7 17L17 7M17 7H7M17 7V17" /></svg>}
-                      {isForm && !b.disabled && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="opacity-60"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 13h4M8 17h8"/></svg>}
-                    </span>
-                  );
-                })}
-              </div>
-            );
-          }
-          return null;
-        })}
-      </div>
-      {state.spoilerContainer && (
-        <div className="absolute inset-0 flex items-center justify-center rounded bg-black/20 backdrop-blur-[1px]">
-          <span className="text-white text-xs font-semibold bg-black/60 px-3 py-1 rounded-full">SPOILER — click to reveal</span>
-        </div>
-      )}
-    </div>
-      )}
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -4720,15 +4830,14 @@ const V2_TEMPLATES: { id: string; label: string; desc: string; emoji: string; ac
       { id: uid(), kind: 'separator', divider: true, spacing: 1 },
       { id: uid(), kind: 'text',    content: '## Tasks\nUser must complete any of the following tasks\n- Play on desktop (15 minutes)\n- Play on console (15 minutes)' },
       { id: uid(), kind: 'separator', divider: true, spacing: 1 },
-      { id: uid(), kind: 'section', texts: ['## Rewards\n**Reward Type**: Virtual Currency\n**Name**: 700 Orbs\n**Amount**: 700'], thumbnailUrl: '', thumbnailAlt: 'Reward icon' },
+      { id: uid(), kind: 'section', texts: ['## Rewards\n**Reward Type**: Virtual Currency\n**Name**: 700 Orbs\n**Amount**: 700'], accessoryType: 'none', thumbnailUrl: '', thumbnailAlt: 'Reward icon', accessoryButton: newButton() },
     ],
   },
   {
     id: 'quest-card', label: 'Quest Card', desc: 'Compact card — title + description, image on the right, button below', emoji: '🎯',
     accentColor: '#5865f2',
     make: () => [
-      { id: uid(), kind: 'section', texts: ['## Quest Title Here', 'Short description of the quest goes here — what to do and what you get for it.'], thumbnailUrl: '', thumbnailAlt: 'Quest icon' },
-      { id: uid(), kind: 'buttons', row: [{ ...newButton(), label: 'View Quest', url: '' }] },
+      { id: uid(), kind: 'section', texts: ['## Quest Title Here', 'Short description of the quest goes here — what to do and what you get for it.'], accessoryType: 'button', thumbnailUrl: '', thumbnailAlt: 'Quest icon', accessoryButton: { ...newButton(), label: 'View Quest', url: '' } },
     ],
   },
   {
@@ -4778,7 +4887,7 @@ function AnnouncementsV2Tab() {
   const [state, setState] = useState<V2State>(emptyV2State);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [addMenuContainerId, setAddMenuContainerId] = useState<string | null>(null);
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
   const [showHistory2, setShowHistory2] = useState(false);
   const [histEntries2, setHistEntries2] = useState<HistEntryV2[]>([]);
@@ -4794,15 +4903,17 @@ function AnnouncementsV2Tab() {
   useEffect(() => { FirebaseDB.getAnnouncementHistory('v2').then((entries) => setHistEntries2(entries as unknown as HistEntryV2[])).catch(() => {}); }, []);
   useEffect(() => { FirebaseDB.getAnnouncementTemplates().then((tpls) => setCustomTpls(tpls as unknown as CustomTemplate[])).catch(() => {}); }, []);
 
+  const totalBlocks = state.containers.reduce((n, c) => n + c.blocks.length, 0);
+
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
-    if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState((s) => ({ content: s.content, accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make(), reactions: [] }));
+    if (totalBlocks > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
+    setState((s) => ({ content: s.content, reactions: [], containers: [{ id: uid(), accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make() }] }));
     setTemplateMenuOpen(false);
   };
 
   const loadCustomTemplate = (tpl: CustomTemplate) => {
-    if (state.blocks.length > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState((s) => ({ content: s.content, accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)), reactions: [] }));
+    if (totalBlocks > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
+    setState((s) => ({ content: s.content, reactions: [], containers: [{ id: uid(), accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)).map(patchSectionBlock) }] }));
     setTemplateMenuOpen(false);
   };
 
@@ -4816,10 +4927,11 @@ function AnnouncementsV2Tab() {
 
   const handleSaveTemplate = () => {
     if (!saveName.trim()) return;
+    const firstC = state.containers[0] || { accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [] };
     const tpl: CustomTemplate = {
       id: uid(), label: saveName.trim(), desc: saveDesc.trim(), emoji: saveEmoji || '📋',
-      accentColor: state.accentColor, showAccent: state.showAccent, spoilerContainer: state.spoilerContainer,
-      blocks: JSON.parse(JSON.stringify(state.blocks)), createdAt: new Date().toISOString(),
+      accentColor: firstC.accentColor, showAccent: firstC.showAccent, spoilerContainer: firstC.spoilerContainer,
+      blocks: JSON.parse(JSON.stringify(firstC.blocks)), createdAt: new Date().toISOString(),
     };
     setCustomTpls((tpls) => [...tpls, tpl]);
     FirebaseDB.saveAnnouncementTemplate(tpl as unknown as AnnouncementTemplateRecord).catch((err) => {
@@ -4830,15 +4942,35 @@ function AnnouncementsV2Tab() {
     setSaveName(''); setSaveDesc(''); setSaveEmoji('📋');
   };
 
-  const updateBlock = (id: string, b: V2Block) => setState((s) => ({ ...s, blocks: s.blocks.map((x) => x.id === id ? b : x) }));
-  const removeBlock = (id: string) => setState((s) => ({ ...s, blocks: s.blocks.filter((x) => x.id !== id) }));
-  const addBlock = (kind: V2BlockKind) => { setState((s) => ({ ...s, blocks: [...s.blocks, newV2Block(kind)] })); setAddMenuOpen(false); };
-  const moveBlock = (index: number, dir: -1 | 1) => setState((s) => {
-    const blocks = [...s.blocks];
+  const updateBlock = (cid: string, bid: string, b: V2Block) =>
+    setState((s) => ({ ...s, containers: s.containers.map((c) => c.id === cid ? { ...c, blocks: c.blocks.map((x) => x.id === bid ? b : x) } : c) }));
+  const removeBlock = (cid: string, bid: string) =>
+    setState((s) => ({ ...s, containers: s.containers.map((c) => c.id === cid ? { ...c, blocks: c.blocks.filter((x) => x.id !== bid) } : c) }));
+  const addBlock = (cid: string, kind: V2BlockKind) =>
+    setState((s) => ({ ...s, containers: s.containers.map((c) => c.id === cid ? { ...c, blocks: [...c.blocks, newV2Block(kind)] } : c) }));
+  const moveBlock = (cid: string, index: number, dir: -1 | 1) => setState((s) => ({
+    ...s,
+    containers: s.containers.map((c) => {
+      if (c.id !== cid) return c;
+      const blocks = [...c.blocks];
+      const target = index + dir;
+      if (target < 0 || target >= blocks.length) return c;
+      [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
+      return { ...c, blocks };
+    }),
+  }));
+  const updateContainer = (id: string, upd: Partial<V2Container>) =>
+    setState((s) => ({ ...s, containers: s.containers.map((c) => c.id === id ? { ...c, ...upd } : c) }));
+  const addContainer = () =>
+    setState((s) => ({ ...s, containers: [...s.containers, { id: uid(), accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }] }] }));
+  const removeContainer = (id: string) =>
+    setState((s) => ({ ...s, containers: s.containers.filter((c) => c.id !== id) }));
+  const moveContainer = (index: number, dir: -1 | 1) => setState((s) => {
+    const containers = [...s.containers];
     const target = index + dir;
-    if (target < 0 || target >= blocks.length) return s;
-    [blocks[index], blocks[target]] = [blocks[target], blocks[index]];
-    return { ...s, blocks };
+    if (target < 0 || target >= containers.length) return s;
+    [containers[index], containers[target]] = [containers[target], containers[index]];
+    return { ...s, containers };
   });
 
   const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
@@ -4848,11 +4980,14 @@ function AnnouncementsV2Tab() {
     // Assign fresh formIds on every send so prior submissions never block a new announcement
     const freshState: V2State = {
       ...state,
-      blocks: state.blocks.map((block) =>
-        block.kind === 'buttons'
-          ? { ...block, row: block.row.map((btn) => btn.type === 'form' ? { ...btn, formId: uid() } : btn) }
-          : block
-      ),
+      containers: state.containers.map((container) => ({
+        ...container,
+        blocks: container.blocks.map((block) => {
+          if (block.kind === 'buttons') return { ...block, row: block.row.map((btn) => btn.type === 'form' ? { ...btn, formId: uid() } : btn) };
+          if (block.kind === 'section' && block.accessoryType === 'button' && block.accessoryButton.type === 'form') return { ...block, accessoryButton: { ...block.accessoryButton, formId: uid() } };
+          return block;
+        }),
+      })),
     };
     setState(freshState);
     const payload = buildPayloadV2(freshState);
@@ -4860,11 +4995,18 @@ function AnnouncementsV2Tab() {
     setSending(true); setFeedback(null);
     try {
       // Save form configs to Firestore so the bot can read them when buttons are clicked
-      for (const block of freshState.blocks) {
-        if (block.kind === 'buttons') {
-          for (const btn of block.row) {
-            if (btn.type === 'form' && btn.formId && btn.formConfig) {
-              await FirebaseDB.saveFormConfig(btn.formId, btn.formConfig).catch((err) => console.error('Failed to save form config:', err));
+      for (const container of freshState.containers) {
+        for (const block of container.blocks) {
+          if (block.kind === 'buttons') {
+            for (const btn of block.row) {
+              if (btn.type === 'form' && btn.formId && btn.formConfig) {
+                await FirebaseDB.saveFormConfig(btn.formId, btn.formConfig).catch((err) => console.error('Failed to save form config:', err));
+              }
+            }
+          } else if (block.kind === 'section' && block.accessoryType === 'button') {
+            const ab = block.accessoryButton;
+            if (ab.type === 'form' && ab.formId && ab.formConfig) {
+              await FirebaseDB.saveFormConfig(ab.formId, ab.formConfig).catch((err) => console.error('Failed to save form config:', err));
             }
           }
         }
@@ -4950,8 +5092,8 @@ function AnnouncementsV2Tab() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/50" />
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: state.accentColor }} />
-              <span>Saves current accent colour, {state.blocks.length} block{state.blocks.length !== 1 ? 's' : ''}, and all settings</span>
+              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: state.containers[0]?.accentColor || '#5865f2' }} />
+              <span>Saves first container ({(state.containers[0]?.blocks.length ?? 0)} block{(state.containers[0]?.blocks.length ?? 0) !== 1 ? 's' : ''}) settings</span>
             </div>
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setSaveModalOpen(false)}
@@ -4969,12 +5111,14 @@ function AnnouncementsV2Tab() {
       {showHistory2 && (
         <HistoryPanel<HistEntryV2>
           kind="v2" entries={histEntries2}
-          onRestore={(e) => { setState({ ...e.state, content: e.state.content || '', reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
-          onEdit={(e) => { setEditingEntry(e); setState({ ...e.state, content: e.state.content || '', reactions: e.state.reactions || [] }); setChannelId(e.channelId); }}
+          onRestore={(e) => { setState(migrateV2State(e.state)); setChannelId(e.channelId); }}
+          onEdit={(e) => { setEditingEntry(e); setState(migrateV2State(e.state)); setChannelId(e.channelId); }}
           onClose={() => setShowHistory2(false)}
           renderPreview={(e) => {
-            const first = e.state.blocks.find((b) => b.kind === 'text');
-            return first && first.kind === 'text' ? first.content.slice(0, 80) : `${e.state.blocks.length} blocks`;
+            const st = migrateV2State(e.state);
+            const allBlocks = st.containers.flatMap((c) => c.blocks);
+            const first = allBlocks.find((b) => b.kind === 'text');
+            return first && first.kind === 'text' ? first.content.slice(0, 80) : `${allBlocks.length} blocks`;
           }}
         />
       )}
@@ -5083,69 +5227,104 @@ function AnnouncementsV2Tab() {
 
           <hr className="border-white/5" />
 
-          {/* Container accent color */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className={subLbl + ' mb-0'}>Container Accent Bar</label>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <span className="text-xs text-gray-500">{state.showAccent ? 'On' : 'Off'}</span>
-                <button type="button" role="switch" aria-checked={state.showAccent}
-                  onClick={() => setState((s) => ({ ...s, showAccent: !s.showAccent }))}
-                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${state.showAccent ? 'bg-indigo-500' : 'bg-white/10'}`}>
-                  <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.showAccent ? 'translate-x-4' : 'translate-x-0'}`} />
-                </button>
-              </label>
-            </div>
-            {state.showAccent && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-gray-500 uppercase tracking-wider w-14 flex-shrink-0">Custom</label>
-                  <input type="color" value={state.accentColor}
-                    onChange={(e) => setState((s) => ({ ...s, accentColor: e.target.value }))}
-                    className="flex-1 h-8 rounded-lg border border-white/10 cursor-pointer p-0.5" />
-                  <span className="text-xs text-gray-500 font-mono w-16 flex-shrink-0">{state.accentColor}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-[10px] text-gray-500 uppercase tracking-wider w-14 flex-shrink-0">Presets</label>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {V2_ACCENT_PRESETS.map((color) => (
-                      <button key={color} type="button" title={color}
-                        onClick={() => setState((s) => ({ ...s, accentColor: color }))}
-                        className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform border-2"
-                        style={{ backgroundColor: color, borderColor: state.accentColor === color ? 'white' : 'transparent' }} />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="flex items-center justify-between pt-1">
-              <label className={subLbl + ' mb-0'}>Container Spoiler</label>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <span className="text-xs text-gray-500">{state.spoilerContainer ? 'On' : 'Off'}</span>
-                <button type="button" role="switch" aria-checked={state.spoilerContainer}
-                  onClick={() => setState((s) => ({ ...s, spoilerContainer: !s.spoilerContainer }))}
-                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${state.spoilerContainer ? 'bg-yellow-500' : 'bg-white/10'}`}>
-                  <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${state.spoilerContainer ? 'translate-x-4' : 'translate-x-0'}`} />
-                </button>
-              </label>
-            </div>
-          </div>
         </GlassCard>
 
-        {/* Block list */}
-        <GlassCard className="p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <label className={lbl + ' mb-0'}>Blocks ({state.blocks.length})</label>
+        {/* Containers + blocks */}
+        {state.containers.map((container, ci) => (
+          <GlassCard key={container.id} className="p-5 space-y-3">
+            {/* Container header */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: container.accentColor }} />
+                <span className={lbl + ' mb-0'}>
+                  Container {state.containers.length > 1 ? ci + 1 : ''} · {container.blocks.length} block{container.blocks.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                <button type="button" onClick={() => moveContainer(ci, -1)} disabled={ci === 0} title="Move up"
+                  className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors cursor-pointer">
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" onClick={() => moveContainer(ci, 1)} disabled={ci === state.containers.length - 1} title="Move down"
+                  className="p-1 text-gray-600 hover:text-gray-300 disabled:opacity-20 transition-colors cursor-pointer">
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                {state.containers.length > 1 && (
+                  <button type="button" onClick={() => { if (window.confirm('Remove this container and all its blocks?')) removeContainer(container.id); }}
+                    className="p-1 text-gray-600 hover:text-red-400 transition-colors cursor-pointer" title="Remove container">
+                    <XClose className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Accent + Spoiler row */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Accent</span>
+                <button type="button" role="switch" aria-checked={container.showAccent}
+                  onClick={() => updateContainer(container.id, { showAccent: !container.showAccent })}
+                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${container.showAccent ? 'bg-indigo-500' : 'bg-white/10'}`}>
+                  <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${container.showAccent ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+                {container.showAccent && (
+                  <>
+                    <input type="color" value={container.accentColor}
+                      onChange={(e) => updateContainer(container.id, { accentColor: e.target.value })}
+                      className="w-8 h-8 rounded-lg border border-white/10 cursor-pointer p-0.5 flex-shrink-0" />
+                    <div className="flex gap-1 flex-wrap">
+                      {V2_ACCENT_PRESETS.map((color) => (
+                        <button key={color} type="button" title={color}
+                          onClick={() => updateContainer(container.id, { accentColor: color })}
+                          className="w-4 h-4 rounded-full cursor-pointer hover:scale-110 transition-transform border-2 flex-shrink-0"
+                          style={{ backgroundColor: color, borderColor: container.accentColor === color ? 'white' : 'transparent' }} />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Spoiler</span>
+                <button type="button" role="switch" aria-checked={container.spoilerContainer}
+                  onClick={() => updateContainer(container.id, { spoilerContainer: !container.spoilerContainer })}
+                  className={`relative w-8 h-4 rounded-full transition-colors cursor-pointer ${container.spoilerContainer ? 'bg-yellow-500' : 'bg-white/10'}`}>
+                  <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${container.spoilerContainer ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+              </div>
+            </div>
+
+            <hr className="border-white/5" />
+
+            {/* Block list */}
+            {container.blocks.length === 0 && (
+              <p className="text-gray-600 text-xs italic text-center py-4">No blocks yet — click "Add Block" to start</p>
+            )}
+            <div className="space-y-2">
+              {container.blocks.map((block, bi) => (
+                <V2BlockEditor key={block.id} block={block} index={bi} total={container.blocks.length}
+                  onChange={(b) => updateBlock(container.id, block.id, b)}
+                  onRemove={() => removeBlock(container.id, block.id)}
+                  onCopy={() => setState((s) => ({
+                    ...s, containers: s.containers.map((c) => c.id !== container.id ? c : {
+                      ...c, blocks: (() => { const bs = [...c.blocks]; bs.splice(bi + 1, 0, { ...JSON.parse(JSON.stringify(block)), id: uid() }); return bs; })(),
+                    }),
+                  }))}
+                  onMoveUp={() => moveBlock(container.id, bi, -1)}
+                  onMoveDown={() => moveBlock(container.id, bi, 1)} />
+              ))}
+            </div>
+
+            {/* Add block */}
             <div className="relative">
-              <button type="button" onClick={() => setAddMenuOpen(!addMenuOpen)}
+              <button type="button" onClick={() => setAddMenuContainerId(addMenuContainerId === container.id ? null : container.id)}
                 className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
                 <Plus className="w-3 h-3" /> Add Block
               </button>
-              {addMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 bg-[#1e1f22] border border-white/10 rounded-xl shadow-2xl p-2 w-52"
-                  onMouseLeave={() => setAddMenuOpen(false)}>
+              {addMenuContainerId === container.id && (
+                <div className="absolute left-0 top-full mt-1 z-50 bg-[#1e1f22] border border-white/10 rounded-xl shadow-2xl p-2 w-56"
+                  onMouseLeave={() => setAddMenuContainerId(null)}>
                   {V2_BLOCK_TYPES.map((bt) => (
-                    <button key={bt.kind} type="button" onClick={() => addBlock(bt.kind)}
+                    <button key={bt.kind} type="button" onClick={() => { addBlock(container.id, bt.kind); setAddMenuContainerId(null); }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10 flex flex-col gap-0.5 transition-colors cursor-pointer">
                       <span className="text-xs font-semibold text-gray-200">{bt.label}</span>
                       <span className="text-[10px] text-gray-500">{bt.desc}</span>
@@ -5154,21 +5333,14 @@ function AnnouncementsV2Tab() {
                 </div>
               )}
             </div>
-          </div>
+          </GlassCard>
+        ))}
 
-          {state.blocks.length === 0 && (
-            <p className="text-gray-600 text-xs italic text-center py-6">No blocks yet — click "Add Block" to start</p>
-          )}
-
-          <div className="space-y-2">
-            {state.blocks.map((block, i) => (
-              <V2BlockEditor key={block.id} block={block} index={i} total={state.blocks.length}
-                onChange={(b) => updateBlock(block.id, b)} onRemove={() => removeBlock(block.id)}
-                onCopy={() => setState((s) => { const blocks = [...s.blocks]; blocks.splice(i + 1, 0, { ...JSON.parse(JSON.stringify(block)), id: uid() }); return { ...s, blocks }; })}
-                onMoveUp={() => moveBlock(i, -1)} onMoveDown={() => moveBlock(i, 1)} />
-            ))}
-          </div>
-        </GlassCard>
+        {/* Add container */}
+        <button type="button" onClick={addContainer}
+          className="w-full py-3 rounded-xl border border-dashed border-white/10 text-xs text-gray-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-colors cursor-pointer flex items-center justify-center gap-1.5">
+          <Plus className="w-3.5 h-3.5" /> Add Container
+        </button>
       </div>
 
       {/* Right: preview + send */}
@@ -5197,8 +5369,7 @@ function AnnouncementsV2Tab() {
         <GlassCard className="p-4">
           <p className="text-[11px] text-gray-500 leading-relaxed">
             <span className="text-indigo-400 font-semibold">Components v2</span> messages use{' '}
-            <code className="text-green-400 bg-white/5 px-1 rounded text-[10px]">flags: 32768</code>. All content lives
-            inside a Container — no embed fields, no plain content string. The left bar is the container's accent colour.
+            <code className="text-green-400 bg-white/5 px-1 rounded text-[10px]">flags: 32768</code>. Content lives inside Containers — add multiple for separate accent bars. Sections support an image <em>or</em> a button on the right.
           </p>
         </GlassCard>
 
@@ -5216,7 +5387,7 @@ function AnnouncementsV2Tab() {
           )}
           <div className="flex items-center gap-3">
             <button type="button" disabled={sending}
-              onClick={() => { if (state.blocks.length === 0 || window.confirm('Clear all blocks?')) { setState(emptyV2State()); setEditingEntry(null); } }}
+              onClick={() => { if (totalBlocks === 0 || window.confirm('Clear all blocks?')) { setState(emptyV2State()); setEditingEntry(null); } }}
               className="flex-1 flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/10 hover:border-red-500/30 disabled:opacity-50 transition-all cursor-pointer">
               <Trash01 className="w-4 h-4" /> Clear
             </button>
@@ -5254,11 +5425,8 @@ const ROLE_BTN_STYLES: { value: 1 | 2 | 3 | 4; label: string; cls: string }[] = 
 function buildRolePickerPayload(picker: RolePicker): Record<string, unknown> | null {
   const v2State: V2State = {
     content: picker.content,
-    accentColor: picker.accentColor,
-    showAccent: picker.showAccent,
-    spoilerContainer: picker.spoilerContainer,
-    blocks: picker.blocks,
     reactions: [],
+    containers: [{ id: picker.id, accentColor: picker.accentColor, showAccent: picker.showAccent, spoilerContainer: picker.spoilerContainer, blocks: picker.blocks.map(patchSectionBlock) }],
   };
   const base = buildPayloadV2(v2State);
   const components: unknown[] = base ? (base.components as unknown[]).slice() : [];
@@ -5442,11 +5610,8 @@ function RolePickerPreview({ picker }: { picker: RolePicker }) {
   const bot = useContext(BotCtx);
   const v2State: V2State = {
     content: picker.content,
-    accentColor: picker.accentColor,
-    showAccent: picker.showAccent,
-    spoilerContainer: picker.spoilerContainer,
-    blocks: picker.blocks,
     reactions: [],
+    containers: [{ id: picker.id, accentColor: picker.accentColor, showAccent: picker.showAccent, spoilerContainer: picker.spoilerContainer, blocks: picker.blocks.map(patchSectionBlock) }],
   };
 
   const hasBlocks = picker.blocks.some((b) => {
