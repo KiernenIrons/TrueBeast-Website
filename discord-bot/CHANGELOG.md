@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-08-05] — Poop embed layout improvements; VC status logging fix
+
+- Fixed spelling: "conqured" → "conquered" in poop submission text
+- Poop submissions now split content into separate TextDisplay blocks: header+rating → separator → details → separator → full scale → separator → button
+- Added `\n\n` between the passthrough line and Rating line for visual separation
+- Switched VC status listener from `client.ws.on('VOICE_CHANNEL_STATUS_UPDATE', ...)` to `client.on('raw', ...)` for reliability — discord.js emits all gateway packets on `raw`; added console.log to confirm event receipt in Fly logs
+- Fixed ⭐️ emoji variation selector in poop star string
+
 ## [2026-08-05] — Fix poop star emoji; log voice channel status changes
 
 - Fixed poop rating star emoji: changed `'⭐'.repeat(rating)` to `'⭐️'.repeat(rating)` (added U+FE0F variation selector to force emoji presentation)

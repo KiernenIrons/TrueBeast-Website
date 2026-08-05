@@ -343,8 +343,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '⭐️ Poop star fix', value: 'The star emoji in poop ratings now uses the correct ⭐️ variant instead of the plain Discord :star: emoji.' },
-    { name: '🎙️ VC status logging', value: 'Voice channel status changes ("Set a Status") are now logged — shows the new status and who set it.' },
+    { name: '💩 Poop rating layout', value: 'Rating entries now show each section (rating, details, scale) separated by dividers. Also fixed the spelling of "conquered" and the ⭐️ emoji.' },
+    { name: '🎙️ VC status logging', value: 'Voice channel status changes ("Set a Status") are now tracked and posted to the log channel with the new status and who set it.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -11037,7 +11037,17 @@ client.on('interactionCreate', async (interaction) => {
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
                 .addTextDisplayComponents(
                     new TextDisplayBuilder().setContent(
-                        `__**${display}**__ has successfully conqured another meal passthrough!\n**Rating:** ${stars}\n\n**Details:** ${details}`,
+                        `__**${display}**__ has successfully conquered another meal passthrough!\n\n**Rating:** ${stars}`,
+                    ),
+                )
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(`**Details:** ${details}`),
+                )
+                .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+                .addTextDisplayComponents(
+                    new TextDisplayBuilder().setContent(
+                        '**1.** You are shitting water.\n**2.** You have bad diarrhea.\n**3.** Your poop is like...soft icecream...\n**4.** Almost perfect poop.\n**5.** Your poop is so perfect that you don\'t even have to wipe your ass.',
                     ),
                 )
                 .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
@@ -13168,8 +13178,11 @@ client.on('channelDelete', async (channel) => {
     });
 });
 
-// Voice channel status changes come through a raw gateway event, not channelUpdate
-client.ws.on('VOICE_CHANNEL_STATUS_UPDATE', async (data) => {
+// Voice channel status ("Set a Status") comes as a raw gateway dispatch — not a discord.js event
+client.on('raw', async (packet) => {
+    if (packet.t !== 'VOICE_CHANNEL_STATUS_UPDATE') return;
+    const data = packet.d;
+    console.log(`[BeastBot] 🎙️ VOICE_CHANNEL_STATUS_UPDATE: channel=${data.id} guild=${data.guild_id} status="${data.status ?? ''}"`);
     try {
         const guild = client.guilds.cache.get(data.guild_id);
         if (!guild) return;
