@@ -4886,9 +4886,6 @@ function AnnouncementsV2Tab() {
   const { user } = useAuth();
   const [draftPrompt, setDraftPrompt] = useState('');
   const [draftChannelId, setDraftChannelId] = useState('');
-  const [draftImageUrl, setDraftImageUrl] = useState('');
-  const [draftButtonLabel, setDraftButtonLabel] = useState('');
-  const [draftButtonUrl, setDraftButtonUrl] = useState('');
   const [draftQueuing, setDraftQueuing] = useState(false);
   const [draftPanelOpen, setDraftPanelOpen] = useState(false);
   const [channelId, setChannelId] = useState(() => localStorage.getItem(CHANNEL_KEY) ?? '');
@@ -5233,39 +5230,24 @@ function AnnouncementsV2Tab() {
               <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">🪄 Draft with AI &amp; send for approval</span>
               <span className="text-[10px] text-gray-500">{draftPanelOpen ? 'Hide' : 'Instead of building it yourself, describe it and approve in Discord'}</span>
             </button>
-            {draftPanelOpen && (() => {
-              const draftButtonMismatch = (draftButtonLabel.trim() !== '') !== (draftButtonUrl.trim() !== '');
-              return (
+            {draftPanelOpen && (
               <div className="mt-3 space-y-2.5">
-                <p className="text-[11px] text-gray-500">Claude writes the copy, posts it to #testing with Approve / Request Changes / Discard buttons, and only sends it to the real channel once someone approves it there. On approval the bot also reacts with 13 random server emoji.</p>
+                <p className="text-[11px] text-gray-500">Claude writes the copy, generates a matching banner image, and picks fitting buttons (Twitch/YouTube/game night/movie night) automatically — then posts it to #testing with Approve / Request Changes / Discard buttons, and only sends it to the real channel once someone approves it there. On approval the bot also reacts with 13 random server emoji.</p>
                 <textarea value={draftPrompt} onChange={(e) => setDraftPrompt(e.target.value)} rows={2} placeholder="What should the announcement say? e.g. &quot;New card set MYTHIC drops Friday, 20% off with code BEAST20&quot;"
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none" />
-                <input value={draftImageUrl} onChange={(e) => setDraftImageUrl(e.target.value)} type="url" placeholder="Banner image URL (optional)"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
-                <div className="flex items-center gap-2">
-                  <input value={draftButtonLabel} onChange={(e) => setDraftButtonLabel(e.target.value)} placeholder="Button label (optional)"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
-                  <input value={draftButtonUrl} onChange={(e) => setDraftButtonUrl(e.target.value)} type="url" placeholder="Button URL"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50" />
-                </div>
                 <div className="flex items-center gap-2">
                   <select value={draftChannelId} onChange={(e) => setDraftChannelId(e.target.value)}
                     className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer appearance-none">
                     <option value="" className="bg-[#1e1f22]">— Post to channel —</option>
                     {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
                   </select>
-                  <button type="button" disabled={draftQueuing || !draftPrompt.trim() || !draftChannelId || draftButtonMismatch}
+                  <button type="button" disabled={draftQueuing || !draftPrompt.trim() || !draftChannelId}
                     onClick={async () => {
                       setDraftQueuing(true);
                       try {
-                        await FirebaseDB.queueAnnouncementDraft({
-                          promptText: draftPrompt.trim(), targetChannelId: draftChannelId, requestedBy: user?.email || 'website',
-                          imageUrl: draftImageUrl.trim() || undefined,
-                          buttonLabel: draftButtonLabel.trim() || undefined,
-                          buttonUrl: draftButtonUrl.trim() || undefined,
-                        });
+                        await FirebaseDB.queueAnnouncementDraft({ promptText: draftPrompt.trim(), targetChannelId: draftChannelId, requestedBy: user?.email || 'website' });
                         setFeedback({ type: 'success', message: 'Queued! Check #testing in Discord in a few seconds for the draft to approve.' });
-                        setDraftPrompt(''); setDraftImageUrl(''); setDraftButtonLabel(''); setDraftButtonUrl(''); setDraftPanelOpen(false);
+                        setDraftPrompt(''); setDraftPanelOpen(false);
                       } catch (err: unknown) {
                         setFeedback({ type: 'error', message: (err as Error)?.message ?? 'Failed to queue draft.' });
                       } finally { setDraftQueuing(false); }
@@ -5274,12 +5256,8 @@ function AnnouncementsV2Tab() {
                     {draftQueuing ? 'Queuing…' : 'Queue Draft'}
                   </button>
                 </div>
-                {draftButtonMismatch && (
-                  <p className="text-[10px] text-amber-400">Button label and URL are both required to add a link button.</p>
-                )}
               </div>
-              );
-            })()}
+            )}
           </div>
 
           <hr className="border-white/5" />

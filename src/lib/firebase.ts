@@ -205,9 +205,6 @@ export interface AnnounceDraftQueueItem {
   promptText: string;
   targetChannelId: string;
   requestedBy: string;
-  imageUrl: string;
-  buttonLabel: string;
-  buttonUrl: string;
   historyJson: string;
   createdAt: string;
   updatedAt: string;
@@ -774,7 +771,7 @@ export const FirebaseDB = {
   // #testing for approve / request-changes / discard, then to the real channel)
   // -----------------------------------------------------------------------
 
-  async queueAnnouncementDraft(input: { promptText: string; targetChannelId: string; requestedBy: string; imageUrl?: string; buttonLabel?: string; buttonUrl?: string }): Promise<AnnounceDraftQueueItem> {
+  async queueAnnouncementDraft(input: { promptText: string; targetChannelId: string; requestedBy: string }): Promise<AnnounceDraftQueueItem> {
     _ensureApp();
     if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
     const id = 'ad-web-' + Date.now();
@@ -787,9 +784,6 @@ export const FirebaseDB = {
       promptText: input.promptText,
       targetChannelId: input.targetChannelId,
       requestedBy: input.requestedBy,
-      imageUrl: input.imageUrl || '',
-      buttonLabel: input.buttonLabel || '',
-      buttonUrl: input.buttonUrl || '',
       historyJson: '[]',
       createdAt: now,
       updatedAt: now,

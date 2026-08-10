@@ -344,8 +344,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🖼️ Richer AI-drafted announcements', value: '/announce-draft (and the dashboard) now support an optional banner image and a link button, so AI drafts can look as good as hand-built ones.' },
-    { name: '🎉 Auto reactions on announcements', value: 'When an announcement gets approved, the bot now reacts to it with 13 random emoji from the server’s own emoji list.' },
+    { name: '🎨 AI-generated announcement banners', value: 'No more pasting image URLs — every AI-drafted announcement now gets a free auto-generated banner image matching the announcement.' },
+    { name: '🔘 Smarter announcement buttons', value: 'Announcements about a Twitch/YouTube stream, game night, or movie night now automatically get the right button(s) — Twitch, YouTube, Join Voice Chat, or Join Movie Night.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -5028,11 +5028,12 @@ async function pollDiscordCards() {
 // Collection: `announceDrafts` (Firestore, same public-write pattern as `discordCards`).
 // Any code — this bot, the website admin dashboard, or a future webhook — can queue a
 // draft by creating a doc with status: 'pending' and a `promptText` describing what the
-// announcement should say. This bot drafts the copy with Claude, posts a preview with
-// Approve / Request Changes / Discard buttons to #testing, and only posts to the real
+// announcement should say. This bot drafts the copy with Claude, generates a matching
+// banner image, picks context-appropriate link buttons, and posts a preview with
+// Approve / Request Changes / Discard buttons to #testing — only posting to the real
 // target channel once approved. "Request Changes" opens a modal — whatever's typed there
-// is sent back to Claude along with the current draft to produce a revision, looping
-// until approved or discarded.
+// is sent back to Claude along with the current draft to produce a full revision (copy,
+// image, and buttons), looping until approved or discarded.
 //
 // Doc shape (all fields are strings unless noted):
 //   status            'pending' | 'awaiting_approval' | 'posted' | 'rejected' | 'failed'
@@ -5042,8 +5043,8 @@ async function pollDiscordCards() {
 //   title / bodyText  drafted copy (set once Claude has drafted it)
 //   targetChannelId   channel to post the final announcement to
 //   requestedBy       Discord user ID, or 'website' / 'schedule'
-//   imageUrl          optional — banner image rendered as a media gallery above the text
-//   buttonLabel/buttonUrl  optional — link button rendered below the text (both required together)
+//   imageUrl          auto-generated banner image (Pollinations.ai, from the drafted title) — media gallery above the text
+//   buttonsJson       auto-picked link buttons (JSON array of { label, url }) — see buildAutoAnnounceButtons
 //   testingMessageId  message ID of the preview in #testing
 //   postedMessageId   message ID of the final announcement, once posted
 //   historyJson       JSON array of { role, text, ts, by } — change-request log
@@ -5052,7 +5053,8 @@ async function pollDiscordCards() {
 // To queue a draft from outside the bot (e.g. a site event), create a doc at
 // announceDrafts/<id> with: { id, status: 'pending', source: 'event', sourceDetail,
 // promptText, targetChannelId, requestedBy, historyJson: '[]', createdAt, updatedAt }.
-// This bot's 20s poll picks it up from there.
+// This bot's 20s poll picks it up from there, drafts it, generates the image/buttons, and
+// posts the preview.
 //
 // When a draft is approved, the bot also reacts to the posted message with 13 random
 // custom emoji pulled from the server's own emoji list (see addRandomGuildReactions) —
@@ -5096,29 +5098,83 @@ async function saveAnnounceDraft(id, fields) {
     return firestoreSet('announceDrafts', id, clean);
 }
 
-// Shared body: optional banner image, the title/body text, optional link button.
+// Shared body: optional banner image, the title/body text, optional link buttons.
 // Used for the real posted announcement, the #testing preview, and the post-decision footer.
-function buildAnnounceBodyBlocks({ title, bodyText, imageUrl, buttonLabel, buttonUrl }) {
+function buildAnnounceBodyBlocks({ title, bodyText, imageUrl, buttonsJson }) {
     const blocks = [];
     if (imageUrl) {
         blocks.push({ type: 12, items: [ { media: { url: imageUrl } } ] });
         blocks.push({ type: 14, divider: true, spacing: 1 });
     }
     blocks.push({ type: 10, content: title ? `## ${title}\n\n${bodyText || ''}` : (bodyText || '_(empty)_') });
-    if (buttonLabel && buttonUrl) {
+    let buttons = [];
+    try { buttons = JSON.parse(buttonsJson || '[]'); } catch (_) { /* ignore malformed JSON */ }
+    if (Array.isArray(buttons) && buttons.length) {
         blocks.push({ type: 14, divider: true, spacing: 1 });
-        blocks.push({ type: 1, components: [ { type: 2, style: 5, label: buttonLabel, url: buttonUrl } ] });
+        blocks.push({ type: 1, components: buttons.slice(0, 5).map(b => ({ type: 2, style: 5, label: b.label, url: b.url })) });
     }
     return blocks;
 }
 
-function buildAnnouncePayload(title, body, { accentColor = 0x5865f2, imageUrl, buttonLabel, buttonUrl } = {}) {
+function buildAnnouncePayload(title, body, { accentColor = 0x5865f2, imageUrl, buttonsJson } = {}) {
     return {
         flags: 32768, // IS_COMPONENTS_V2
         components: [
-            { type: 17, accent_color: accentColor, components: buildAnnounceBodyBlocks({ title, bodyText: body, imageUrl, buttonLabel, buttonUrl }) },
+            { type: 17, accent_color: accentColor, components: buildAnnounceBodyBlocks({ title, bodyText: body, imageUrl, buttonsJson }) },
         ],
     };
+}
+
+// Static links for the auto-button detection below — same URLs as SITE_CONFIG.social on the website.
+const ANNOUNCE_TWITCH_URL = 'https://www.twitch.tv/realtruebeast';
+const ANNOUNCE_YOUTUBE_URL = 'https://www.youtube.com/@RealTrueBeast';
+
+// Picks link buttons based on the tags Claude classified the draft with (see draftAnnouncementText).
+// Game night → the 🍀│Public voice channel; movie night → the 🎬│Movie Night stage — found by
+// type + name match so this keeps working if either channel gets renamed slightly.
+function buildAutoAnnounceButtons(tags, guild) {
+    const buttons = [];
+    if (tags.includes('twitch')) buttons.push({ label: '🟣 Watch on Twitch', url: ANNOUNCE_TWITCH_URL });
+    if (tags.includes('youtube')) buttons.push({ label: '🔴 Watch on YouTube', url: ANNOUNCE_YOUTUBE_URL });
+    if (guild) {
+        if (tags.includes('game_night')) {
+            const vc = guild.channels.cache.find(c => c.type === ChannelType.GuildVoice && c.name.toLowerCase().includes('public'));
+            if (vc) buttons.push({ label: '🎮 Join Voice Chat', url: `https://discord.com/channels/${guild.id}/${vc.id}` });
+        }
+        if (tags.includes('movie_night')) {
+            const stage = guild.channels.cache.find(c => c.type === ChannelType.GuildStageVoice && c.name.toLowerCase().includes('movie'));
+            if (stage) buttons.push({ label: '🎬 Join Movie Night', url: `https://discord.com/channels/${guild.id}/${stage.id}` });
+        }
+    }
+    return buttons.slice(0, 5);
+}
+
+function simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) | 0;
+    return Math.abs(hash);
+}
+
+// Generates a banner image for an announcement via Pollinations.ai (free, no API key —
+// see conversation with Kiernen: ChatGPT Plus doesn't cover API image generation, and this
+// avoids per-image billing entirely). Returns a directly-embeddable image URL, or '' if the
+// service doesn't respond in time — callers should treat that as "no image", not a hard failure.
+async function generateAnnounceImageUrl(basis) {
+    const prompt = `Vibrant digital art banner for a Discord gaming community announcement, no text, no words, no letters, no logos: ${basis}`.slice(0, 500);
+    const seed = simpleHash(basis);
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=576&seed=${seed}&nologo=true`;
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 25000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/')) throw new Error(`bad response: ${res.status}`);
+        await res.arrayBuffer(); // drain body; we only needed to confirm generation succeeded
+        return url;
+    } catch (e) {
+        console.error('[BeastBot] generateAnnounceImageUrl failed:', e.message);
+        return '';
+    }
 }
 
 function buildAnnouncePreviewPayload(draft) {
@@ -5164,10 +5220,18 @@ async function addRandomGuildReactions(channelId, messageId, guild, count = 13) 
 
 async function draftAnnouncementText({ promptText, priorTitle, priorBody, changeRequest }) {
     const system = `You write Discord announcement copy for TrueBeast, a gaming community server. Voice: punchy, upbeat, a little playful — never corporate. Use Discord markdown (bold with **, bullet lists with -, sparing emoji). Keep it tight: a short title and a body of 1-4 short paragraphs or a short bullet list.
+
+Also classify the announcement with zero or more tags from this exact list, comma-separated (only tag ones that clearly apply — most announcements need none of these):
+- twitch — announcement is about a Twitch livestream
+- youtube — announcement is about a YouTube livestream or premiere
+- game_night — announcement is about a game night / voice-chat hangout event
+- movie_night — announcement is about a movie night event
+
 Return ONLY in this exact format, nothing else:
 TITLE: <title text, no markdown>
 BODY:
-<body text, markdown allowed>`;
+<body text, markdown allowed>
+TAGS: <comma-separated tags from the list above, or "none">`;
 
     const userParts = [];
     if (priorBody) {
@@ -5194,9 +5258,20 @@ BODY:
     if (!res.ok) throw new Error(`Anthropic API error: HTTP ${res.status}`);
     const data = await res.json();
     const text = data.content?.[0]?.text?.trim() || '';
-    const m = text.match(/TITLE:\s*(.*?)\s*BODY:\s*([\s\S]*)/i);
-    if (!m) return { title: priorTitle || 'Announcement', body: text || priorBody || '' };
-    return { title: m[1].trim(), body: m[2].trim() };
+    const m = text.match(/TITLE:\s*(.*?)\s*BODY:\s*([\s\S]*?)\s*TAGS:\s*(.*?)\s*$/i);
+    if (!m) return { title: priorTitle || 'Announcement', body: text || priorBody || '', tags: [] };
+    const tags = m[3].toLowerCase() === 'none' ? [] : m[3].split(',').map(t => t.trim()).filter(Boolean);
+    return { title: m[1].trim(), body: m[2].trim(), tags };
+}
+
+// Runs the full draft pipeline: copy + tags from Claude, a matching banner image, and
+// tag-driven link buttons. Shared by the initial draft (pollAnnounceDrafts, /announce-draft)
+// and every "Request Changes" revision (handleAnnounceEditModal) so both stay in sync.
+async function composeAnnounceDraftFields({ promptText, priorTitle, priorBody, changeRequest, guild }) {
+    const { title, body, tags } = await draftAnnouncementText({ promptText, priorTitle, priorBody, changeRequest });
+    const imageUrl = await generateAnnounceImageUrl(title || promptText || priorTitle || 'community announcement');
+    const buttons = buildAutoAnnounceButtons(tags, guild);
+    return { title, bodyText: body, imageUrl, buttonsJson: JSON.stringify(buttons) };
 }
 
 async function postAnnounceDraftPreview(draft) {
@@ -5232,8 +5307,9 @@ async function pollAnnounceDrafts() {
             const f = decodeFirestoreFields(doc.fields);
             console.log(`[BeastBot] Drafting announcement ${id} (${f.source}: ${f.sourceDetail || ''})`);
             try {
-                const { title, body } = await draftAnnouncementText({ promptText: f.promptText });
-                const draft = { ...f, id, title, bodyText: body, status: 'awaiting_approval', updatedAt: new Date().toISOString() };
+                const guild = client.guilds.cache.first();
+                const fields = await composeAnnounceDraftFields({ promptText: f.promptText, guild });
+                const draft = { ...f, id, ...fields, status: 'awaiting_approval', updatedAt: new Date().toISOString() };
                 const messageId = await postAnnounceDraftPreview(draft);
                 draft.testingMessageId = messageId;
                 await saveAnnounceDraft(id, draft);
@@ -5249,9 +5325,9 @@ async function pollAnnounceDrafts() {
 
 // Simple recurring-announcement schedule. Config lives in botConfig/announceSchedule as
 // `entriesJson` — a JSON array of { id, label, dayOfWeek (0-6, Sun=0), hour (0-23, UTC),
-// promptText, targetChannelId, lastFiredKey, imageUrl?, buttonLabel?, buttonUrl? }. No
-// dashboard UI yet for editing this list — write to that Firestore doc directly (or ask
-// Claude to add/update entries) until one exists.
+// promptText, targetChannelId, lastFiredKey }. Image + buttons are auto-generated same as
+// any other draft. No dashboard UI yet for editing this list — write to that Firestore doc
+// directly (or ask Claude to add/update entries) until one exists.
 async function checkAnnounceSchedule() {
     if (botFeatures.announceDrafts === false) return;
     try {
@@ -5272,7 +5348,6 @@ async function checkAnnounceSchedule() {
             await saveAnnounceDraft(id, {
                 id, status: 'pending', source: 'schedule', sourceDetail: entry.label || entry.id,
                 promptText: entry.promptText, targetChannelId: entry.targetChannelId, requestedBy: 'schedule',
-                imageUrl: entry.imageUrl, buttonLabel: entry.buttonLabel, buttonUrl: entry.buttonUrl,
                 historyJson: '[]', createdAt: now.toISOString(), updatedAt: now.toISOString(),
             });
             entry.lastFiredKey = fireKey;
@@ -5296,7 +5371,7 @@ async function handleAnnounceApprove(interaction) {
     const f = await getAnnounceDraft(id);
     if (!f) return;
     try {
-        const payload = buildAnnouncePayload(f.title, f.bodyText, { imageUrl: f.imageUrl, buttonLabel: f.buttonLabel, buttonUrl: f.buttonUrl });
+        const payload = buildAnnouncePayload(f.title, f.bodyText, { imageUrl: f.imageUrl, buttonsJson: f.buttonsJson });
         const res = await fetch(`https://discord.com/api/v10/channels/${f.targetChannelId}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
@@ -5358,11 +5433,11 @@ async function handleAnnounceEditModal(interaction) {
     const f = await getAnnounceDraft(id);
     if (!f) return interaction.editReply({ content: '❌ Draft not found (may have expired).' });
     try {
-        const { title, body } = await draftAnnouncementText({ priorTitle: f.title, priorBody: f.bodyText, changeRequest });
+        const fields = await composeAnnounceDraftFields({ priorTitle: f.title, priorBody: f.bodyText, changeRequest, guild: interaction.guild });
         let history = [];
         try { history = JSON.parse(f.historyJson || '[]'); } catch (_) {}
         history.push({ role: 'request', text: changeRequest, ts: Date.now(), by: interaction.user.tag });
-        const updated = { ...f, id, title, bodyText: body, historyJson: JSON.stringify(history).slice(0, 100000), updatedAt: new Date().toISOString() };
+        const updated = { ...f, id, ...fields, historyJson: JSON.stringify(history).slice(0, 100000), updatedAt: new Date().toISOString() };
         await saveAnnounceDraft(id, updated);
         await updateAnnounceDraftPreview(updated);
         await interaction.editReply({ content: '✅ Updated the draft above.' });
@@ -5785,12 +5860,9 @@ client.once('clientReady', async () => {
                 .addStringOption(opt => opt.setName('message').setDescription('Message content').setRequired(true)),
             new SlashCommandBuilder()
                 .setName('announce-draft')
-                .setDescription('(Owner/Mod) Draft an announcement with Claude and send it to #testing for approval')
+                .setDescription('(Owner/Mod) Draft an announcement with Claude — auto-generates a banner image and picks fitting buttons')
                 .addStringOption(opt => opt.setName('prompt').setDescription('What should the announcement say?').setRequired(true))
-                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post to once approved').setRequired(true))
-                .addStringOption(opt => opt.setName('image').setDescription('Optional banner image URL').setRequired(false))
-                .addStringOption(opt => opt.setName('button_label').setDescription('Optional link button label (needs button_url too)').setRequired(false))
-                .addStringOption(opt => opt.setName('button_url').setDescription('Optional link button URL (needs button_label too)').setRequired(false)),
+                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post to once approved').setRequired(true)),
             new SlashCommandBuilder()
                 .setName('dm')
                 .setDescription('(Mod only) Send an anonymous DM to a member as the bot')
@@ -10606,17 +10678,13 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.deferReply({ flags: 64 });
             const promptText = interaction.options.getString('prompt');
             const targetChannel = interaction.options.getChannel('channel');
-            const imageUrl = interaction.options.getString('image') || undefined;
-            const buttonLabel = interaction.options.getString('button_label') || undefined;
-            const buttonUrl = interaction.options.getString('button_url') || undefined;
             const id = `ad-manual-${Date.now()}`;
             try {
-                const { title, body } = await draftAnnouncementText({ promptText });
+                const fields = await composeAnnounceDraftFields({ promptText, guild: interaction.guild });
                 const now = new Date().toISOString();
                 const draft = {
                     id, status: 'awaiting_approval', source: 'manual', sourceDetail: `Requested by ${interaction.user.tag}`,
-                    promptText, title, bodyText: body, targetChannelId: targetChannel.id, requestedBy: interaction.user.id,
-                    imageUrl, buttonLabel, buttonUrl,
+                    promptText, ...fields, targetChannelId: targetChannel.id, requestedBy: interaction.user.id,
                     historyJson: '[]', createdAt: now, updatedAt: now,
                 };
                 const messageId = await postAnnounceDraftPreview(draft);

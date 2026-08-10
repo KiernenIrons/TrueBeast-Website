@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-08-10] — Auto-generated banner images + smart buttons for announcements
+
+- Replaced the manual `imageUrl`/`buttonLabel`/`buttonUrl` fields with automatic generation — nobody has to paste a URL anymore
+- `draftAnnouncementText()` now also has Claude classify each draft with tags (`twitch`, `youtube`, `game_night`, `movie_night`, or none) alongside the copy
+- New `generateAnnounceImageUrl()` — generates a banner image via Pollinations.ai (free, no API key) from the drafted title, with a 25s timeout and a content-type check; returns `''` on failure rather than blocking the draft
+- New `buildAutoAnnounceButtons()` — turns tags into real link buttons: Twitch/YouTube tags link to the server's static channel URLs; `game_night` links to the 🍀│Public voice channel; `movie_night` links to the 🎬│Movie Night stage — both found dynamically by channel type + name match
+- New `composeAnnounceDraftFields()` runs the full pipeline (copy + tags → image → buttons) and is shared by the initial draft (`pollAnnounceDrafts`, `/announce-draft`) and every "Request Changes" revision, so revisions regenerate the image/buttons to match the new copy too
+- `buildAnnounceBodyBlocks()` now takes a `buttonsJson` array (up to 5 buttons) instead of a single button pair
+- `/announce-draft` lost its `image`/`button_label`/`button_url` options — no longer needed
+- Website: reverted the Admin dashboard's "Draft with AI" panel and `FirebaseDB.queueAnnouncementDraft` to drop the manual image/button inputs added in the previous pass
+
 ## [2026-08-10] — Richer AI-drafted announcements + auto reactions
 
 - Added optional `imageUrl`, `buttonLabel`, `buttonUrl` fields to the `announceDrafts` doc shape — when set, the drafted announcement renders a media-gallery banner image above the text and/or a link button below it, matching the look of hand-built Components v2 announcements
