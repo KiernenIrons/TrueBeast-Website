@@ -344,6 +344,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🐛 Fixed /announce-draft not updating', value: 'A too-long command description was silently breaking slash command registration entirely. /announce-draft now correctly reflects the auto-image/auto-button update from the last release.' },
     { name: '🎨 AI-generated announcement banners', value: 'No more pasting image URLs — every AI-drafted announcement now gets a free auto-generated banner image matching the announcement.' },
     { name: '🔘 Smarter announcement buttons', value: 'Announcements about a Twitch/YouTube stream, game night, or movie night now automatically get the right button(s) — Twitch, YouTube, Join Voice Chat, or Join Movie Night.' },
 ];
@@ -5860,7 +5861,7 @@ client.once('clientReady', async () => {
                 .addStringOption(opt => opt.setName('message').setDescription('Message content').setRequired(true)),
             new SlashCommandBuilder()
                 .setName('announce-draft')
-                .setDescription('(Owner/Mod) Draft an announcement with Claude — auto-generates a banner image and picks fitting buttons')
+                .setDescription('(Owner/Mod) Draft an announcement with Claude — auto image + smart buttons')
                 .addStringOption(opt => opt.setName('prompt').setDescription('What should the announcement say?').setRequired(true))
                 .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post to once approved').setRequired(true)),
             new SlashCommandBuilder()
@@ -5983,7 +5984,7 @@ client.once('clientReady', async () => {
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
         console.log('[BeastBot] Slash commands registered');
     } catch (e) {
-        console.error('[BeastBot] Failed to register slash commands:', e.message);
+        console.error('[BeastBot] Failed to register slash commands:', e.stack || e.message);
     }
 
     // scheduleDiscordMeReminder(); // DISABLED — Discord.me reminder removed

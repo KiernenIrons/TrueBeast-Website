@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-08-10] — Fix slash command registration silently failing
+
+- Root cause: the previous commit's `/announce-draft` description was 103 characters — Discord's hard limit is 100. `@discordjs/builders`' `setDescription()` throws synchronously (`ExpectedConstraintError`, logged as "Invalid string length") when a description exceeds that, and since all ~64 commands are built into one array and registered in a single bulk `rest.put`, that one throw aborted the *entire* registration — every command silently kept whatever was last successfully registered, no crash, no visible symptom beyond a log line
+- Shortened the description to 74 characters
+- Changed the registration failure log from `e.message` to `e.stack || e.message` so the next time this class of bug happens, the actual throw site is visible in `flyctl logs` instead of just a generic message
+- Verified locally by extracting the exact `const commands = [...]` array from the file and running `.map(c => c.toJSON())` + `JSON.stringify()` against the real `@discordjs/builders` validation — this is now a repeatable way to catch command-schema violations before deploying, without needing a live redeploy cycle to find them
+
 ## [2026-08-10] — Auto-generated banner images + smart buttons for announcements
 
 - Replaced the manual `imageUrl`/`buttonLabel`/`buttonUrl` fields with automatic generation — nobody has to paste a URL anymore
