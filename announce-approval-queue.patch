@@ -1,0 +1,588 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 58ab282..5b61385 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -77,6 +77,10 @@ The `UPDATE_NOTES` constant near the top of `index.js` is what `/bot-updates` sh
+ ### CHANGELOG
+ `discord-bot/CHANGELOG.md` — append a new dated entry for every deploy. Most recent first.
+ 
++## Announcement approval queue
++
++`/announce-draft` (and the admin dashboard's "Draft with AI & send for approval" panel) queue a Firestore doc in `announceDrafts` with `status: 'pending'`. The bot's `pollAnnounceDrafts` (every 20s) drafts the copy with Claude Haiku, posts a Components v2 preview to #testing (`ANNOUNCE_TESTING_CHANNEL_ID`) with Approve/Request Changes/Discard buttons, and only posts to the real target channel on approval. "Request Changes" opens a modal and loops the draft back through Claude. Any other code (site events, cron) can queue a draft the same way — see the doc-shape comment above `pollAnnounceDrafts` in `discord-bot/index.js`. A basic weekly/day+hour schedule lives in `botConfig/announceSchedule` (`entriesJson`), checked hourly — no dashboard UI for it yet.
++
+ ## Key channel/role IDs (hardcoded in index.js)
+ - `OWNER_DISCORD_ID` — `392450364340830208` (Kiernen)
+ - Disboard bot ID — `302050872383242240`
+diff --git a/discord-bot/.env.example b/discord-bot/.env.example
+index cd1758b..22a771c 100644
+--- a/discord-bot/.env.example
++++ b/discord-bot/.env.example
+@@ -14,3 +14,6 @@ ANTHROPIC_API_KEY=sk-ant-...
+ # Firebase — from https://console.firebase.google.com → Project Settings → Your apps
+ FIREBASE_PROJECT_ID=truebeast-support
+ FIREBASE_API_KEY=your-firebase-web-api-key-here
++
++# Channel ID for the announcement-draft approval queue (defaults to the hardcoded #testing ID if unset)
++ANNOUNCE_TESTING_CHANNEL_ID=1486021237548257330
+diff --git a/discord-bot/CHANGELOG.md b/discord-bot/CHANGELOG.md
+index 19968d9..5857a99 100644
+--- a/discord-bot/CHANGELOG.md
++++ b/discord-bot/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # Beast Bot Changelog
+ 
++## [2026-08-10] — Announcement approval queue
++
++- New `/announce-draft <prompt> <channel>` (Owner/Mod only) — Claude Haiku drafts announcement copy and posts a Components v2 preview to #testing (`ANNOUNCE_TESTING_CHANNEL_ID`, defaults to `1486021237548257330`) with **Approve & Post**, **Request Changes**, and **Discard** buttons
++- **Request Changes** opens a modal for freeform feedback; Claude regenerates the draft against the current copy + the requested change and re-posts the same preview message — repeatable until approved
++- **Approve & Post** sends the final Components v2 message to the target channel and marks the preview posted; **Discard** marks it rejected
++- New Firestore collection `announceDrafts` (same public-write pattern as `discordCards`) — anything can queue a draft by writing a `status: 'pending'` doc with `promptText` + `targetChannelId`; a 20s poll (`pollAnnounceDrafts`) picks it up, drafts it, and posts the preview. This is the generic hook for site/event-triggered announcements.
++- New `botConfig/announceSchedule` (`entriesJson`) + hourly `checkAnnounceSchedule` — lightweight recurring-announcement schedule (day-of-week + hour), no dashboard UI yet, edit the Firestore doc directly
++- Admin dashboard: Announcements v2 tab now has a "🪄 Draft with AI & send for approval" panel that queues a draft doc instead of sending directly (`FirebaseDB.queueAnnouncementDraft`)
++- New feature flag `announceDrafts` (default on) in `botConfig/features`
++
+ ## [2026-08-05] — Fix poop rating channel ID
+ 
+ - Changed `POOP_CHANNEL_ID` from testing channel to the correct Poop Scale channel (`1534514208161403060`)
+diff --git a/discord-bot/index.js b/discord-bot/index.js
+index 35f6df2..a442aca 100644
+--- a/discord-bot/index.js
++++ b/discord-bot/index.js
+@@ -331,6 +331,7 @@ const STEAM_API_KEY              = process.env.STEAM_API_KEY;
+ const STEAM_ID                   = process.env.STEAM_ID || '76561198254213878';
+ const GOOGLE_SAFE_BROWSING_KEY   = process.env.GOOGLE_SAFE_BROWSING_KEY;
+ const OWNER_DISCORD_ID           = '392450364340830208';
++const ANNOUNCE_TESTING_CHANNEL_ID = process.env.ANNOUNCE_TESTING_CHANNEL_ID || '1486021237548257330'; // #testing — approval queue for announcements
+ const WIDGET_APP_ID              = '1522610369640792086';
+ const WIDGET_BOT_TOKEN           = process.env.WIDGET_BOT_TOKEN;
+ const WIDGET_YT_API_KEY          = process.env.WIDGET_YOUTUBE_API_KEY;
+@@ -343,6 +344,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
+ 
+ // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
+ const UPDATE_NOTES = [
++    { name: '📢 Announcement approval queue', value: 'New `/announce-draft` — Claude drafts an announcement, posts it to #testing for approval, and you can approve, discard, or request changes right from the buttons.' },
+     { name: '💩 Poop rating channel fix', value: '/setup-poop now posts to the correct Poop Scale channel.' },
+ ];
+ 
+@@ -360,6 +362,7 @@ let botFeatures = {
+     pondFrogs:           true,
+     unscrambleGame:      true,
+     instagramPreviews:   true,
++    announceDrafts:      true, // approval-queue announcement automation
+ };
+ 
+ // ── Unscramble Game ───────────────────────────────────────────────────────────
+@@ -5020,6 +5023,311 @@ async function pollDiscordCards() {
+     }
+ }
+ 
++
++// ── Announcement Drafts (approval queue) ──────────────────────────────────────
++// Collection: `announceDrafts` (Firestore, same public-write pattern as `discordCards`).
++// Any code — this bot, the website admin dashboard, or a future webhook — can queue a
++// draft by creating a doc with status: 'pending' and a `promptText` describing what the
++// announcement should say. This bot drafts the copy with Claude, posts a preview with
++// Approve / Request Changes / Discard buttons to #testing, and only posts to the real
++// target channel once approved. "Request Changes" opens a modal — whatever's typed there
++// is sent back to Claude along with the current draft to produce a revision, looping
++// until approved or discarded.
++//
++// Doc shape (all fields are strings unless noted):
++//   status            'pending' | 'awaiting_approval' | 'posted' | 'rejected' | 'failed'
++//   source            'manual' | 'event' | 'schedule'
++//   sourceDetail      human-readable description of what triggered this draft
++//   promptText        what the announcement should be about (used for the first draft)
++//   title / bodyText  drafted copy (set once Claude has drafted it)
++//   targetChannelId   channel to post the final announcement to
++//   requestedBy       Discord user ID, or 'website' / 'schedule'
++//   testingMessageId  message ID of the preview in #testing
++//   postedMessageId   message ID of the final announcement, once posted
++//   historyJson       JSON array of { role, text, ts, by } — change-request log
++//   createdAt / updatedAt  ISO timestamps
++//
++// To queue a draft from outside the bot (e.g. a site event), create a doc at
++// announceDrafts/<id> with: { id, status: 'pending', source: 'event', sourceDetail,
++// promptText, targetChannelId, requestedBy, historyJson: '[]', createdAt, updatedAt }.
++// This bot's 20s poll picks it up from there.
++
++const processedAnnounceDraftIds = new Set();
++
++async function firestoreRunQuery(collectionId, whereField, whereValue, limit = 10) {
++    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents:runQuery?key=${FIREBASE_API_KEY}`;
++    const res = await fetch(url, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ structuredQuery: {
++            from: [{ collectionId }],
++            where: { fieldFilter: { field: { fieldPath: whereField }, op: 'EQUAL', value: { stringValue: whereValue } } },
++            limit,
++        }}),
++    });
++    if (!res.ok) throw new Error(`Firestore query on ${collectionId} failed: HTTP ${res.status}`);
++    const rows = await res.json();
++    return rows.map(r => r.document).filter(Boolean);
++}
++
++function decodeFirestoreFields(fields) {
++    const out = {};
++    for (const [k, v] of Object.entries(fields || {})) {
++        out[k] = v.integerValue !== undefined ? Number(v.integerValue) : (v.stringValue ?? '');
++    }
++    return out;
++}
++
++async function getAnnounceDraft(id) {
++    return firestoreGet('announceDrafts', id);
++}
++
++async function saveAnnounceDraft(id, fields) {
++    // firestoreSet PATCHes the whole doc with no update mask — always pass every field,
++    // and strip undefined/null so we never write the literal string "undefined".
++    const clean = {};
++    for (const [k, v] of Object.entries(fields)) if (v !== undefined && v !== null) clean[k] = v;
++    return firestoreSet('announceDrafts', id, clean);
++}
++
++function buildAnnouncePayload(title, body, { accentColor = 0x5865f2 } = {}) {
++    const content = title ? `## ${title}\n\n${body || ''}` : (body || '');
++    return {
++        flags: 32768, // IS_COMPONENTS_V2
++        components: [
++            { type: 17, accent_color: accentColor, components: [ { type: 10, content } ] },
++        ],
++    };
++}
++
++function buildAnnouncePreviewPayload(draft) {
++    const header = {
++        type: 17,
++        accent_color: 0xf4c430,
++        components: [ { type: 10, content:
++            `📋 **DRAFT — awaiting approval**\n` +
++            `**Source:** ${draft.sourceDetail || draft.source}\n` +
++            `**Target:** <#${draft.targetChannelId}>` } ],
++    };
++    const preview = {
++        type: 17, accent_color: 0x5865f2,
++        components: [ { type: 10, content: draft.title ? `## ${draft.title}\n\n${draft.bodyText || ''}` : (draft.bodyText || '_(empty)_') } ],
++    };
++    const buttons = { type: 1, components: [
++        { type: 2, style: 3, label: '✅ Approve & Post', custom_id: `annapprove:${draft.id}` },
++        { type: 2, style: 2, label: '✏️ Request Changes', custom_id: `annedit:${draft.id}` },
++        { type: 2, style: 4, label: '🗑️ Discard', custom_id: `annreject:${draft.id}` },
++    ]};
++    return { flags: 32768, components: [ header, preview, buttons ] };
++}
++
++async function draftAnnouncementText({ promptText, priorTitle, priorBody, changeRequest }) {
++    const system = `You write Discord announcement copy for TrueBeast, a gaming community server. Voice: punchy, upbeat, a little playful — never corporate. Use Discord markdown (bold with **, bullet lists with -, sparing emoji). Keep it tight: a short title and a body of 1-4 short paragraphs or a short bullet list.
++Return ONLY in this exact format, nothing else:
++TITLE: <title text, no markdown>
++BODY:
++<body text, markdown allowed>`;
++
++    const userParts = [];
++    if (priorBody) {
++        userParts.push(`Current draft:\nTITLE: ${priorTitle || ''}\nBODY:\n${priorBody}`);
++        userParts.push(`Requested change: ${changeRequest}`);
++    } else {
++        userParts.push(`Write an announcement about: ${promptText}`);
++    }
++
++    const res = await fetch('https://api.anthropic.com/v1/messages', {
++        method: 'POST',
++        headers: {
++            'x-api-key': ANTHROPIC_API_KEY,
++            'anthropic-version': '2023-06-01',
++            'content-type': 'application/json',
++        },
++        body: JSON.stringify({
++            model: 'claude-haiku-4-5-20251001',
++            max_tokens: 500,
++            system,
++            messages: [{ role: 'user', content: userParts.join('\n\n') }],
++        }),
++    });
++    if (!res.ok) throw new Error(`Anthropic API error: HTTP ${res.status}`);
++    const data = await res.json();
++    const text = data.content?.[0]?.text?.trim() || '';
++    const m = text.match(/TITLE:\s*(.*?)\s*BODY:\s*([\s\S]*)/i);
++    if (!m) return { title: priorTitle || 'Announcement', body: text || priorBody || '' };
++    return { title: m[1].trim(), body: m[2].trim() };
++}
++
++async function postAnnounceDraftPreview(draft) {
++    const payload = buildAnnouncePreviewPayload(draft);
++    const res = await fetch(`https://discord.com/api/v10/channels/${ANNOUNCE_TESTING_CHANNEL_ID}/messages`, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
++        body: JSON.stringify(payload),
++    });
++    const data = await res.json();
++    if (!res.ok) throw new Error(`Failed to post preview: ${JSON.stringify(data)}`);
++    return data.id;
++}
++
++async function updateAnnounceDraftPreview(draft) {
++    const payload = buildAnnouncePreviewPayload(draft);
++    const res = await fetch(`https://discord.com/api/v10/channels/${ANNOUNCE_TESTING_CHANNEL_ID}/messages/${draft.testingMessageId}`, {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
++        body: JSON.stringify(payload),
++    });
++    if (!res.ok) console.error('[BeastBot] updateAnnounceDraftPreview failed:', await res.text());
++}
++
++async function pollAnnounceDrafts() {
++    if (botFeatures.announceDrafts === false) return;
++    try {
++        const docs = await firestoreRunQuery('announceDrafts', 'status', 'pending', 5);
++        for (const doc of docs) {
++            const id = doc.name.split('/').pop();
++            if (processedAnnounceDraftIds.has(id)) continue;
++            processedAnnounceDraftIds.add(id);
++            const f = decodeFirestoreFields(doc.fields);
++            console.log(`[BeastBot] Drafting announcement ${id} (${f.source}: ${f.sourceDetail || ''})`);
++            try {
++                const { title, body } = await draftAnnouncementText({ promptText: f.promptText });
++                const draft = { ...f, id, title, bodyText: body, status: 'awaiting_approval', updatedAt: new Date().toISOString() };
++                const messageId = await postAnnounceDraftPreview(draft);
++                draft.testingMessageId = messageId;
++                await saveAnnounceDraft(id, draft);
++            } catch (e) {
++                console.error(`[BeastBot] Failed to draft announcement ${id}:`, e.message);
++                await saveAnnounceDraft(id, { ...f, id, status: 'failed', updatedAt: new Date().toISOString() });
++            }
++        }
++    } catch (e) {
++        console.error('[BeastBot] pollAnnounceDrafts error:', e.message);
++    }
++}
++
++// Simple recurring-announcement schedule. Config lives in botConfig/announceSchedule as
++// `entriesJson` — a JSON array of { id, label, dayOfWeek (0-6, Sun=0), hour (0-23, UTC),
++// promptText, targetChannelId, lastFiredKey }. No dashboard UI yet for editing this list —
++// write to that Firestore doc directly (or ask Claude to add/update entries) until one exists.
++async function checkAnnounceSchedule() {
++    if (botFeatures.announceDrafts === false) return;
++    try {
++        const cfg = await firestoreGet('botConfig', 'announceSchedule');
++        if (!cfg?.entriesJson) return;
++        let entries;
++        try { entries = JSON.parse(cfg.entriesJson); } catch (_) { return; }
++        if (!Array.isArray(entries) || !entries.length) return;
++        const now = new Date();
++        const jan1 = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
++        const week = Math.ceil((((now - jan1) / 86400000) + jan1.getUTCDay() + 1) / 7);
++        const fireKey = `${now.getUTCFullYear()}-W${week}`;
++        let changed = false;
++        for (const entry of entries) {
++            if (now.getUTCDay() !== entry.dayOfWeek || now.getUTCHours() !== entry.hour) continue;
++            if (entry.lastFiredKey === fireKey) continue;
++            const id = `ad-sched-${entry.id}-${Date.now()}`;
++            await saveAnnounceDraft(id, {
++                id, status: 'pending', source: 'schedule', sourceDetail: entry.label || entry.id,
++                promptText: entry.promptText, targetChannelId: entry.targetChannelId, requestedBy: 'schedule',
++                historyJson: '[]', createdAt: now.toISOString(), updatedAt: now.toISOString(),
++            });
++            entry.lastFiredKey = fireKey;
++            changed = true;
++            console.log(`[BeastBot] Scheduled announcement fired: ${entry.label || entry.id}`);
++        }
++        if (changed) await firestoreSet('botConfig', 'announceSchedule', { entriesJson: JSON.stringify(entries) });
++    } catch (e) {
++        console.error('[BeastBot] checkAnnounceSchedule error:', e.message);
++    }
++}
++
++function isAnnounceApprover(interaction) {
++    return interaction.user.id === OWNER_DISCORD_ID || !!interaction.member?.roles?.cache?.has(MOD_ROLE_ID);
++}
++
++async function handleAnnounceApprove(interaction) {
++    const id = interaction.customId.split(':')[1];
++    if (!isAnnounceApprover(interaction)) return interaction.reply({ content: '❌ Owner/Mod only.', flags: 64 });
++    await interaction.deferUpdate();
++    const f = await getAnnounceDraft(id);
++    if (!f) return;
++    try {
++        const payload = buildAnnouncePayload(f.title, f.bodyText);
++        const res = await fetch(`https://discord.com/api/v10/channels/${f.targetChannelId}/messages`, {
++            method: 'POST',
++            headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
++            body: JSON.stringify(payload),
++        });
++        const data = await res.json();
++        if (!res.ok) throw new Error(JSON.stringify(data));
++        await saveAnnounceDraft(id, { ...f, id, status: 'posted', postedMessageId: data.id, updatedAt: new Date().toISOString() });
++        const footer = { type: 17, accent_color: 0x3ba55d, components: [ { type: 10, content: `✅ **Approved & posted** to <#${f.targetChannelId}> by <@${interaction.user.id}>` } ] };
++        const preview = { type: 17, accent_color: 0x5865f2, components: [ { type: 10, content: f.title ? `## ${f.title}\n\n${f.bodyText}` : f.bodyText } ] };
++        await fetch(`https://discord.com/api/v10/channels/${ANNOUNCE_TESTING_CHANNEL_ID}/messages/${f.testingMessageId}`, {
++            method: 'PATCH',
++            headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
++            body: JSON.stringify({ flags: 32768, components: [ footer, preview ] }),
++        });
++    } catch (e) {
++        console.error('[BeastBot] handleAnnounceApprove failed:', e.message);
++        await interaction.followUp({ content: `❌ Failed to post: ${e.message}`, flags: 64 });
++    }
++}
++
++async function handleAnnounceReject(interaction) {
++    const id = interaction.customId.split(':')[1];
++    if (!isAnnounceApprover(interaction)) return interaction.reply({ content: '❌ Owner/Mod only.', flags: 64 });
++    await interaction.deferUpdate();
++    const f = await getAnnounceDraft(id);
++    if (!f) return;
++    await saveAnnounceDraft(id, { ...f, id, status: 'rejected', updatedAt: new Date().toISOString() });
++    const footer = { type: 17, accent_color: 0xed4245, components: [ { type: 10, content: `🗑️ **Discarded** by <@${interaction.user.id}>` } ] };
++    const preview = { type: 17, accent_color: 0x5865f2, components: [ { type: 10, content: f.title ? `## ${f.title}\n\n${f.bodyText}` : f.bodyText } ] };
++    await fetch(`https://discord.com/api/v10/channels/${ANNOUNCE_TESTING_CHANNEL_ID}/messages/${f.testingMessageId}`, {
++        method: 'PATCH',
++        headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
++        body: JSON.stringify({ flags: 32768, components: [ footer, preview ] }),
++    });
++}
++
++async function handleAnnounceEditButton(interaction) {
++    const id = interaction.customId.split(':')[1];
++    if (!isAnnounceApprover(interaction)) return interaction.reply({ content: '❌ Owner/Mod only.', flags: 64 });
++    const modal = new ModalBuilder().setCustomId(`annedit_modal:${id}`).setTitle('Request changes');
++    const input = new TextInputBuilder()
++        .setCustomId('changes')
++        .setLabel('What should change?')
++        .setStyle(TextInputStyle.Paragraph)
++        .setPlaceholder('e.g. "make it shorter and mention the 20% discount code BEAST20"')
++        .setRequired(true)
++        .setMaxLength(1000);
++    modal.addComponents(new ActionRowBuilder().addComponents(input));
++    await interaction.showModal(modal);
++}
++
++async function handleAnnounceEditModal(interaction) {
++    const id = interaction.customId.split(':')[1];
++    if (!isAnnounceApprover(interaction)) return interaction.reply({ content: '❌ Owner/Mod only.', flags: 64 });
++    await interaction.deferReply({ flags: 64 });
++    const changeRequest = interaction.fields.getTextInputValue('changes');
++    const f = await getAnnounceDraft(id);
++    if (!f) return interaction.editReply({ content: '❌ Draft not found (may have expired).' });
++    try {
++        const { title, body } = await draftAnnouncementText({ priorTitle: f.title, priorBody: f.bodyText, changeRequest });
++        let history = [];
++        try { history = JSON.parse(f.historyJson || '[]'); } catch (_) {}
++        history.push({ role: 'request', text: changeRequest, ts: Date.now(), by: interaction.user.tag });
++        const updated = { ...f, id, title, bodyText: body, historyJson: JSON.stringify(history).slice(0, 100000), updatedAt: new Date().toISOString() };
++        await saveAnnounceDraft(id, updated);
++        await updateAnnounceDraftPreview(updated);
++        await interaction.editReply({ content: '✅ Updated the draft above.' });
++    } catch (e) {
++        console.error('[BeastBot] handleAnnounceEditModal failed:', e.message);
++        await interaction.editReply({ content: `❌ Failed to regenerate: ${e.message}` });
++    }
++}
++
+ // ── Bot Ready ─────────────────────────────────────────────────────────────────
+ 
+ client.once('clientReady', async () => {
+@@ -5183,6 +5491,7 @@ client.once('clientReady', async () => {
+         setInterval(() => checkWeeklyBumpReset(guild).catch(() => {}), 60 * 60 * 1000);
+         setInterval(() => checkUnscrambleWeeklyReset(guild).catch(() => {}), 60 * 60 * 1000);
+         setInterval(() => checkQuarantineExpiry().catch(() => {}), 5 * 60 * 1000); // check every 5 min
++    setInterval(() => checkAnnounceSchedule().catch(() => {}), 60 * 60 * 1000); // check every hour
+         pushDiscordWidget().catch(() => {});
+         setInterval(() => pushDiscordWidget().catch(() => {}), 15 * 60 * 1000);
+ 
+@@ -5430,6 +5739,11 @@ client.once('clientReady', async () => {
+                 .setDescription('(Owner only) Send a message as the bot')
+                 .addChannelOption(opt => opt.setName('channel').setDescription('Channel to send to').setRequired(true))
+                 .addStringOption(opt => opt.setName('message').setDescription('Message content').setRequired(true)),
++            new SlashCommandBuilder()
++                .setName('announce-draft')
++                .setDescription('(Owner/Mod) Draft an announcement with Claude and send it to #testing for approval')
++                .addStringOption(opt => opt.setName('prompt').setDescription('What should the announcement say?').setRequired(true))
++                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post to once approved').setRequired(true)),
+             new SlashCommandBuilder()
+                 .setName('dm')
+                 .setDescription('(Mod only) Send an anonymous DM to a member as the bot')
+@@ -5710,6 +6024,7 @@ client.once('clientReady', async () => {
+ 
+     // Poll Firestore for queued Discord cards every 60s (filtered query = 0 reads when empty)
+     setInterval(() => pollDiscordCards().catch(() => {}), 60 * 1000);
++    setInterval(() => pollAnnounceDrafts().catch(() => {}), 20 * 1000);
+     setTimeout(() => pollDiscordCards().catch(() => {}), 3000); // first poll 3s after ready
+ 
+     // Heartbeat every 30 min so we can detect silent crashes
+@@ -8722,6 +9037,20 @@ client.on('interactionCreate', async (interaction) => {
+         return handleAnnFormModalSubmit(interaction);
+     }
+ 
++    // ── Announcement draft approval buttons / modal ───────────────────────────
++    if (interaction.isButton() && interaction.customId.startsWith('annapprove:')) {
++        return handleAnnounceApprove(interaction);
++    }
++    if (interaction.isButton() && interaction.customId.startsWith('annedit:')) {
++        return handleAnnounceEditButton(interaction);
++    }
++    if (interaction.isButton() && interaction.customId.startsWith('annreject:')) {
++        return handleAnnounceReject(interaction);
++    }
++    if (interaction.isModalSubmit() && interaction.customId.startsWith('annedit_modal:')) {
++        return handleAnnounceEditModal(interaction);
++    }
++
+     // ── Role picker buttons ───────────────────────────────────────────────────
+     if (interaction.isButton() && interaction.customId.startsWith('rolepick:')) {
+         return handleRolePick(interaction);
+@@ -10222,6 +10551,34 @@ client.on('interactionCreate', async (interaction) => {
+             return;
+         }
+ 
++        // ── /announce-draft ──────────────────────────────────────────────────
++        if (interaction.commandName === 'announce-draft') {
++            if (!isAnnounceApprover(interaction)) {
++                await interaction.reply({ content: '❌ Owner/Mod only.', flags: 64 }); return;
++            }
++            await interaction.deferReply({ flags: 64 });
++            const promptText = interaction.options.getString('prompt');
++            const targetChannel = interaction.options.getChannel('channel');
++            const id = `ad-manual-${Date.now()}`;
++            try {
++                const { title, body } = await draftAnnouncementText({ promptText });
++                const now = new Date().toISOString();
++                const draft = {
++                    id, status: 'awaiting_approval', source: 'manual', sourceDetail: `Requested by ${interaction.user.tag}`,
++                    promptText, title, bodyText: body, targetChannelId: targetChannel.id, requestedBy: interaction.user.id,
++                    historyJson: '[]', createdAt: now, updatedAt: now,
++                };
++                const messageId = await postAnnounceDraftPreview(draft);
++                draft.testingMessageId = messageId;
++                await saveAnnounceDraft(id, draft);
++                await interaction.editReply({ content: `📋 Draft posted to <#${ANNOUNCE_TESTING_CHANNEL_ID}> for approval.` });
++            } catch (e) {
++                console.error('[BeastBot] /announce-draft failed:', e.message);
++                await interaction.editReply({ content: `❌ Failed to draft: ${e.message}` });
++            }
++            return;
++        }
++
+         // ── /ai-context ──────────────────────────────────────────────────────
+         if (interaction.commandName === 'ai-context') {
+             if (interaction.user.id !== OWNER_DISCORD_ID) {
+diff --git a/src/lib/firebase.ts b/src/lib/firebase.ts
+index 12b19f8..05be478 100644
+--- a/src/lib/firebase.ts
++++ b/src/lib/firebase.ts
+@@ -195,6 +195,21 @@ export interface DiscordCard {
+   [key: string]: unknown;
+ }
+ 
++// Queued for the Discord bot to draft (with Claude) and post to #testing for approval.
++// See discord-bot/index.js `pollAnnounceDrafts` for the doc contract.
++export interface AnnounceDraftQueueItem {
++  id: string;
++  status: 'pending';
++  source: 'manual' | 'event' | 'schedule';
++  sourceDetail: string;
++  promptText: string;
++  targetChannelId: string;
++  requestedBy: string;
++  historyJson: string;
++  createdAt: string;
++  updatedAt: string;
++}
++
+ // ---------------------------------------------------------------------------
+ // Internal state
+ // ---------------------------------------------------------------------------
+@@ -751,6 +766,32 @@ export const FirebaseDB = {
+     return document;
+   },
+ 
++  // -----------------------------------------------------------------------
++  // Announcement drafts (approval queue — bot drafts w/ Claude, posts to
++  // #testing for approve / request-changes / discard, then to the real channel)
++  // -----------------------------------------------------------------------
++
++  async queueAnnouncementDraft(input: { promptText: string; targetChannelId: string; requestedBy: string }): Promise<AnnounceDraftQueueItem> {
++    _ensureApp();
++    if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
++    const id = 'ad-web-' + Date.now();
++    const now = new Date().toISOString();
++    const document: AnnounceDraftQueueItem = {
++      id,
++      status: 'pending',
++      source: 'manual',
++      sourceDetail: `Requested via dashboard by ${input.requestedBy}`,
++      promptText: input.promptText,
++      targetChannelId: input.targetChannelId,
++      requestedBy: input.requestedBy,
++      historyJson: '[]',
++      createdAt: now,
++      updatedAt: now,
++    };
++    await _withTimeout(setDoc(doc(_db, 'announceDrafts', id), document));
++    return document;
++  },
++
+   async getLatestAnnouncement(): Promise<Announcement | null> {
+     _ensureApp();
+     if (!_isConfigured() || !_db) return null;
+diff --git a/src/pages/Admin.tsx b/src/pages/Admin.tsx
+index b176953..dfde9b9 100644
+--- a/src/pages/Admin.tsx
++++ b/src/pages/Admin.tsx
+@@ -4883,6 +4883,11 @@ const V2_TEMPLATES: { id: string; label: string; desc: string; emoji: string; ac
+ 
+ function AnnouncementsV2Tab() {
+   const bot = useContext(BotCtx);
++  const { user } = useAuth();
++  const [draftPrompt, setDraftPrompt] = useState('');
++  const [draftChannelId, setDraftChannelId] = useState('');
++  const [draftQueuing, setDraftQueuing] = useState(false);
++  const [draftPanelOpen, setDraftPanelOpen] = useState(false);
+   const [channelId, setChannelId] = useState(() => localStorage.getItem(CHANNEL_KEY) ?? '');
+   const [state, setState] = useState<V2State>(emptyV2State);
+   const [sending, setSending] = useState(false);
+@@ -5219,6 +5224,42 @@ function AnnouncementsV2Tab() {
+             </div>
+           </div>
+ 
++          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
++            <button type="button" onClick={() => setDraftPanelOpen((o) => !o)}
++              className="w-full flex items-center justify-between text-left cursor-pointer">
++              <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">🪄 Draft with AI &amp; send for approval</span>
++              <span className="text-[10px] text-gray-500">{draftPanelOpen ? 'Hide' : 'Instead of building it yourself, describe it and approve in Discord'}</span>
++            </button>
++            {draftPanelOpen && (
++              <div className="mt-3 space-y-2.5">
++                <p className="text-[11px] text-gray-500">Claude writes the copy, posts it to #testing with Approve / Request Changes / Discard buttons, and only sends it to the real channel once someone approves it there.</p>
++                <textarea value={draftPrompt} onChange={(e) => setDraftPrompt(e.target.value)} rows={2} placeholder="What should the announcement say? e.g. &quot;New card set MYTHIC drops Friday, 20% off with code BEAST20&quot;"
++                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none" />
++                <div className="flex items-center gap-2">
++                  <select value={draftChannelId} onChange={(e) => setDraftChannelId(e.target.value)}
++                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer appearance-none">
++                    <option value="" className="bg-[#1e1f22]">— Post to channel —</option>
++                    {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
++                  </select>
++                  <button type="button" disabled={draftQueuing || !draftPrompt.trim() || !draftChannelId}
++                    onClick={async () => {
++                      setDraftQueuing(true);
++                      try {
++                        await FirebaseDB.queueAnnouncementDraft({ promptText: draftPrompt.trim(), targetChannelId: draftChannelId, requestedBy: user?.email || 'website' });
++                        setFeedback({ type: 'success', message: 'Queued! Check #testing in Discord in a few seconds for the draft to approve.' });
++                        setDraftPrompt(''); setDraftPanelOpen(false);
++                      } catch (err: unknown) {
++                        setFeedback({ type: 'error', message: (err as Error)?.message ?? 'Failed to queue draft.' });
++                      } finally { setDraftQueuing(false); }
++                    }}
++                    className="px-3 py-2 rounded-lg text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
++                    {draftQueuing ? 'Queuing…' : 'Queue Draft'}
++                  </button>
++                </div>
++              </div>
++            )}
++          </div>
++
+           <hr className="border-white/5" />
+ 
+           {/* Ping / message content (renders above the container, outside the accent bar) */}
