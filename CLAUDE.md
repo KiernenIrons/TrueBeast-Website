@@ -77,6 +77,10 @@ The `UPDATE_NOTES` constant near the top of `index.js` is what `/bot-updates` sh
 ### CHANGELOG
 `discord-bot/CHANGELOG.md` — append a new dated entry for every deploy. Most recent first.
 
+## Announcement approval queue
+
+`/announce-draft` (and the admin dashboard's "Draft with AI & send for approval" panel) queue a Firestore doc in `announceDrafts` with `status: 'pending'`. The bot's `pollAnnounceDrafts` (every 20s) drafts the copy with Claude Haiku, posts a Components v2 preview to #testing (`ANNOUNCE_TESTING_CHANNEL_ID`) with Approve/Request Changes/Discard buttons, and only posts to the real target channel on approval. "Request Changes" opens a modal and loops the draft back through Claude. Any other code (site events, cron) can queue a draft the same way — see the doc-shape comment above `pollAnnounceDrafts` in `discord-bot/index.js`. A basic weekly/day+hour schedule lives in `botConfig/announceSchedule` (`entriesJson`), checked hourly — no dashboard UI for it yet.
+
 ## Key channel/role IDs (hardcoded in index.js)
 - `OWNER_DISCORD_ID` — `392450364340830208` (Kiernen)
 - Disboard bot ID — `302050872383242240`

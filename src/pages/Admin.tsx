@@ -4883,6 +4883,11 @@ const V2_TEMPLATES: { id: string; label: string; desc: string; emoji: string; ac
 
 function AnnouncementsV2Tab() {
   const bot = useContext(BotCtx);
+  const { user } = useAuth();
+  const [draftPrompt, setDraftPrompt] = useState('');
+  const [draftChannelId, setDraftChannelId] = useState('');
+  const [draftQueuing, setDraftQueuing] = useState(false);
+  const [draftPanelOpen, setDraftPanelOpen] = useState(false);
   const [channelId, setChannelId] = useState(() => localStorage.getItem(CHANNEL_KEY) ?? '');
   const [state, setState] = useState<V2State>(emptyV2State);
   const [sending, setSending] = useState(false);
@@ -5217,6 +5222,42 @@ function AnnouncementsV2Tab() {
                 {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+            <button type="button" onClick={() => setDraftPanelOpen((o) => !o)}
+              className="w-full flex items-center justify-between text-left cursor-pointer">
+              <span className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">🪄 Draft with AI &amp; send for approval</span>
+              <span className="text-[10px] text-gray-500">{draftPanelOpen ? 'Hide' : 'Instead of building it yourself, describe it and approve in Discord'}</span>
+            </button>
+            {draftPanelOpen && (
+              <div className="mt-3 space-y-2.5">
+                <p className="text-[11px] text-gray-500">Claude writes the copy, posts it to #testing with Approve / Request Changes / Discard buttons, and only sends it to the real channel once someone approves it there.</p>
+                <textarea value={draftPrompt} onChange={(e) => setDraftPrompt(e.target.value)} rows={2} placeholder="What should the announcement say? e.g. &quot;New card set MYTHIC drops Friday, 20% off with code BEAST20&quot;"
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none" />
+                <div className="flex items-center gap-2">
+                  <select value={draftChannelId} onChange={(e) => setDraftChannelId(e.target.value)}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer appearance-none">
+                    <option value="" className="bg-[#1e1f22]">— Post to channel —</option>
+                    {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
+                  </select>
+                  <button type="button" disabled={draftQueuing || !draftPrompt.trim() || !draftChannelId}
+                    onClick={async () => {
+                      setDraftQueuing(true);
+                      try {
+                        await FirebaseDB.queueAnnouncementDraft({ promptText: draftPrompt.trim(), targetChannelId: draftChannelId, requestedBy: user?.email || 'website' });
+                        setFeedback({ type: 'success', message: 'Queued! Check #testing in Discord in a few seconds for the draft to approve.' });
+                        setDraftPrompt(''); setDraftPanelOpen(false);
+                      } catch (err: unknown) {
+                        setFeedback({ type: 'error', message: (err as Error)?.message ?? 'Failed to queue draft.' });
+                      } finally { setDraftQueuing(false); }
+                    }}
+                    className="px-3 py-2 rounded-lg text-xs font-medium bg-indigo-500 text-white hover:bg-indigo-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+                    {draftQueuing ? 'Queuing…' : 'Queue Draft'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <hr className="border-white/5" />

@@ -195,6 +195,21 @@ export interface DiscordCard {
   [key: string]: unknown;
 }
 
+// Queued for the Discord bot to draft (with Claude) and post to #testing for approval.
+// See discord-bot/index.js `pollAnnounceDrafts` for the doc contract.
+export interface AnnounceDraftQueueItem {
+  id: string;
+  status: 'pending';
+  source: 'manual' | 'event' | 'schedule';
+  sourceDetail: string;
+  promptText: string;
+  targetChannelId: string;
+  requestedBy: string;
+  historyJson: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
@@ -748,6 +763,32 @@ export const FirebaseDB = {
       createdAt: new Date().toISOString(),
     } as DiscordCard;
     await _withTimeout(setDoc(doc(_db, 'discordCards', id), document));
+    return document;
+  },
+
+  // -----------------------------------------------------------------------
+  // Announcement drafts (approval queue — bot drafts w/ Claude, posts to
+  // #testing for approve / request-changes / discard, then to the real channel)
+  // -----------------------------------------------------------------------
+
+  async queueAnnouncementDraft(input: { promptText: string; targetChannelId: string; requestedBy: string }): Promise<AnnounceDraftQueueItem> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) throw new Error('Firebase not configured');
+    const id = 'ad-web-' + Date.now();
+    const now = new Date().toISOString();
+    const document: AnnounceDraftQueueItem = {
+      id,
+      status: 'pending',
+      source: 'manual',
+      sourceDetail: `Requested via dashboard by ${input.requestedBy}`,
+      promptText: input.promptText,
+      targetChannelId: input.targetChannelId,
+      requestedBy: input.requestedBy,
+      historyJson: '[]',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await _withTimeout(setDoc(doc(_db, 'announceDrafts', id), document));
     return document;
   },
 

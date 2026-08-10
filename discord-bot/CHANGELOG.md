@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-08-10] — Announcement approval queue
+
+- New `/announce-draft <prompt> <channel>` (Owner/Mod only) — Claude Haiku drafts announcement copy and posts a Components v2 preview to #testing (`ANNOUNCE_TESTING_CHANNEL_ID`, defaults to `1486021237548257330`) with **Approve & Post**, **Request Changes**, and **Discard** buttons
+- **Request Changes** opens a modal for freeform feedback; Claude regenerates the draft against the current copy + the requested change and re-posts the same preview message — repeatable until approved
+- **Approve & Post** sends the final Components v2 message to the target channel and marks the preview posted; **Discard** marks it rejected
+- New Firestore collection `announceDrafts` (same public-write pattern as `discordCards`) — anything can queue a draft by writing a `status: 'pending'` doc with `promptText` + `targetChannelId`; a 20s poll (`pollAnnounceDrafts`) picks it up, drafts it, and posts the preview. This is the generic hook for site/event-triggered announcements.
+- New `botConfig/announceSchedule` (`entriesJson`) + hourly `checkAnnounceSchedule` — lightweight recurring-announcement schedule (day-of-week + hour), no dashboard UI yet, edit the Firestore doc directly
+- Admin dashboard: Announcements v2 tab now has a "🪄 Draft with AI & send for approval" panel that queues a draft doc instead of sending directly (`FirebaseDB.queueAnnouncementDraft`)
+- New feature flag `announceDrafts` (default on) in `botConfig/features`
+
 ## [2026-08-05] — Fix poop rating channel ID
 
 - Changed `POOP_CHANNEL_ID` from testing channel to the correct Poop Scale channel (`1534514208161403060`)
