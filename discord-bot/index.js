@@ -344,8 +344,8 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📢 Announcement approval queue', value: 'New `/announce-draft` — Claude drafts an announcement, posts it to #testing for approval, and you can approve, discard, or request changes right from the buttons.' },
-    { name: '💩 Poop rating channel fix', value: '/setup-poop now posts to the correct Poop Scale channel.' },
+    { name: '🖼️ Richer AI-drafted announcements', value: '/announce-draft (and the dashboard) now support an optional banner image and a link button, so AI drafts can look as good as hand-built ones.' },
+    { name: '🎉 Auto reactions on announcements', value: 'When an announcement gets approved, the bot now reacts to it with 13 random emoji from the server’s own emoji list.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -5042,6 +5042,8 @@ async function pollDiscordCards() {
 //   title / bodyText  drafted copy (set once Claude has drafted it)
 //   targetChannelId   channel to post the final announcement to
 //   requestedBy       Discord user ID, or 'website' / 'schedule'
+//   imageUrl          optional — banner image rendered as a media gallery above the text
+//   buttonLabel/buttonUrl  optional — link button rendered below the text (both required together)
 //   testingMessageId  message ID of the preview in #testing
 //   postedMessageId   message ID of the final announcement, once posted
 //   historyJson       JSON array of { role, text, ts, by } — change-request log
@@ -5051,6 +5053,10 @@ async function pollDiscordCards() {
 // announceDrafts/<id> with: { id, status: 'pending', source: 'event', sourceDetail,
 // promptText, targetChannelId, requestedBy, historyJson: '[]', createdAt, updatedAt }.
 // This bot's 20s poll picks it up from there.
+//
+// When a draft is approved, the bot also reacts to the posted message with 13 random
+// custom emoji pulled from the server's own emoji list (see addRandomGuildReactions) —
+// matches the look of hand-built announcements without needing the drafter to pick any.
 
 const processedAnnounceDraftIds = new Set();
 
@@ -5090,12 +5096,27 @@ async function saveAnnounceDraft(id, fields) {
     return firestoreSet('announceDrafts', id, clean);
 }
 
-function buildAnnouncePayload(title, body, { accentColor = 0x5865f2 } = {}) {
-    const content = title ? `## ${title}\n\n${body || ''}` : (body || '');
+// Shared body: optional banner image, the title/body text, optional link button.
+// Used for the real posted announcement, the #testing preview, and the post-decision footer.
+function buildAnnounceBodyBlocks({ title, bodyText, imageUrl, buttonLabel, buttonUrl }) {
+    const blocks = [];
+    if (imageUrl) {
+        blocks.push({ type: 12, items: [ { media: { url: imageUrl } } ] });
+        blocks.push({ type: 14, divider: true, spacing: 1 });
+    }
+    blocks.push({ type: 10, content: title ? `## ${title}\n\n${bodyText || ''}` : (bodyText || '_(empty)_') });
+    if (buttonLabel && buttonUrl) {
+        blocks.push({ type: 14, divider: true, spacing: 1 });
+        blocks.push({ type: 1, components: [ { type: 2, style: 5, label: buttonLabel, url: buttonUrl } ] });
+    }
+    return blocks;
+}
+
+function buildAnnouncePayload(title, body, { accentColor = 0x5865f2, imageUrl, buttonLabel, buttonUrl } = {}) {
     return {
         flags: 32768, // IS_COMPONENTS_V2
         components: [
-            { type: 17, accent_color: accentColor, components: [ { type: 10, content } ] },
+            { type: 17, accent_color: accentColor, components: buildAnnounceBodyBlocks({ title, bodyText: body, imageUrl, buttonLabel, buttonUrl }) },
         ],
     };
 }
@@ -5109,16 +5130,36 @@ function buildAnnouncePreviewPayload(draft) {
             `**Source:** ${draft.sourceDetail || draft.source}\n` +
             `**Target:** <#${draft.targetChannelId}>` } ],
     };
-    const preview = {
-        type: 17, accent_color: 0x5865f2,
-        components: [ { type: 10, content: draft.title ? `## ${draft.title}\n\n${draft.bodyText || ''}` : (draft.bodyText || '_(empty)_') } ],
-    };
+    const preview = { type: 17, accent_color: 0x5865f2, components: buildAnnounceBodyBlocks(draft) };
     const buttons = { type: 1, components: [
         { type: 2, style: 3, label: '✅ Approve & Post', custom_id: `annapprove:${draft.id}` },
         { type: 2, style: 2, label: '✏️ Request Changes', custom_id: `annedit:${draft.id}` },
         { type: 2, style: 4, label: '🗑️ Discard', custom_id: `annreject:${draft.id}` },
     ]};
     return { flags: 32768, components: [ header, preview, buttons ] };
+}
+
+// Reacts to a posted announcement with random custom emoji from the server's own emoji
+// list, mirroring the look of hand-built announcements. Skips silently if the guild has
+// no custom emoji or a reaction add fails (rate limits, missing perms, etc).
+async function addRandomGuildReactions(channelId, messageId, guild, count = 13) {
+    if (!guild) return;
+    try {
+        const emojis = guild.emojis.cache.filter(e => e.available).map(e => e.identifier);
+        if (!emojis.length) return;
+        const picks = emojis.sort(() => Math.random() - 0.5).slice(0, Math.min(count, emojis.length));
+        for (const identifier of picks) {
+            try {
+                await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(identifier)}/@me`, {
+                    method: 'PUT',
+                    headers: { Authorization: `Bot ${TOKEN}` },
+                });
+            } catch (_) { /* skip individual failures */ }
+            await new Promise(r => setTimeout(r, 300)); // stay well under the reaction rate limit
+        }
+    } catch (e) {
+        console.error('[BeastBot] addRandomGuildReactions failed:', e.message);
+    }
 }
 
 async function draftAnnouncementText({ promptText, priorTitle, priorBody, changeRequest }) {
@@ -5208,8 +5249,9 @@ async function pollAnnounceDrafts() {
 
 // Simple recurring-announcement schedule. Config lives in botConfig/announceSchedule as
 // `entriesJson` — a JSON array of { id, label, dayOfWeek (0-6, Sun=0), hour (0-23, UTC),
-// promptText, targetChannelId, lastFiredKey }. No dashboard UI yet for editing this list —
-// write to that Firestore doc directly (or ask Claude to add/update entries) until one exists.
+// promptText, targetChannelId, lastFiredKey, imageUrl?, buttonLabel?, buttonUrl? }. No
+// dashboard UI yet for editing this list — write to that Firestore doc directly (or ask
+// Claude to add/update entries) until one exists.
 async function checkAnnounceSchedule() {
     if (botFeatures.announceDrafts === false) return;
     try {
@@ -5230,6 +5272,7 @@ async function checkAnnounceSchedule() {
             await saveAnnounceDraft(id, {
                 id, status: 'pending', source: 'schedule', sourceDetail: entry.label || entry.id,
                 promptText: entry.promptText, targetChannelId: entry.targetChannelId, requestedBy: 'schedule',
+                imageUrl: entry.imageUrl, buttonLabel: entry.buttonLabel, buttonUrl: entry.buttonUrl,
                 historyJson: '[]', createdAt: now.toISOString(), updatedAt: now.toISOString(),
             });
             entry.lastFiredKey = fireKey;
@@ -5253,7 +5296,7 @@ async function handleAnnounceApprove(interaction) {
     const f = await getAnnounceDraft(id);
     if (!f) return;
     try {
-        const payload = buildAnnouncePayload(f.title, f.bodyText);
+        const payload = buildAnnouncePayload(f.title, f.bodyText, { imageUrl: f.imageUrl, buttonLabel: f.buttonLabel, buttonUrl: f.buttonUrl });
         const res = await fetch(`https://discord.com/api/v10/channels/${f.targetChannelId}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
@@ -5261,9 +5304,10 @@ async function handleAnnounceApprove(interaction) {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(JSON.stringify(data));
+        await addRandomGuildReactions(f.targetChannelId, data.id, interaction.guild);
         await saveAnnounceDraft(id, { ...f, id, status: 'posted', postedMessageId: data.id, updatedAt: new Date().toISOString() });
         const footer = { type: 17, accent_color: 0x3ba55d, components: [ { type: 10, content: `✅ **Approved & posted** to <#${f.targetChannelId}> by <@${interaction.user.id}>` } ] };
-        const preview = { type: 17, accent_color: 0x5865f2, components: [ { type: 10, content: f.title ? `## ${f.title}\n\n${f.bodyText}` : f.bodyText } ] };
+        const preview = { type: 17, accent_color: 0x5865f2, components: buildAnnounceBodyBlocks(f) };
         await fetch(`https://discord.com/api/v10/channels/${ANNOUNCE_TESTING_CHANNEL_ID}/messages/${f.testingMessageId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
@@ -5283,7 +5327,7 @@ async function handleAnnounceReject(interaction) {
     if (!f) return;
     await saveAnnounceDraft(id, { ...f, id, status: 'rejected', updatedAt: new Date().toISOString() });
     const footer = { type: 17, accent_color: 0xed4245, components: [ { type: 10, content: `🗑️ **Discarded** by <@${interaction.user.id}>` } ] };
-    const preview = { type: 17, accent_color: 0x5865f2, components: [ { type: 10, content: f.title ? `## ${f.title}\n\n${f.bodyText}` : f.bodyText } ] };
+    const preview = { type: 17, accent_color: 0x5865f2, components: buildAnnounceBodyBlocks(f) };
     await fetch(`https://discord.com/api/v10/channels/${ANNOUNCE_TESTING_CHANNEL_ID}/messages/${f.testingMessageId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bot ${TOKEN}` },
@@ -5743,7 +5787,10 @@ client.once('clientReady', async () => {
                 .setName('announce-draft')
                 .setDescription('(Owner/Mod) Draft an announcement with Claude and send it to #testing for approval')
                 .addStringOption(opt => opt.setName('prompt').setDescription('What should the announcement say?').setRequired(true))
-                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post to once approved').setRequired(true)),
+                .addChannelOption(opt => opt.setName('channel').setDescription('Channel to post to once approved').setRequired(true))
+                .addStringOption(opt => opt.setName('image').setDescription('Optional banner image URL').setRequired(false))
+                .addStringOption(opt => opt.setName('button_label').setDescription('Optional link button label (needs button_url too)').setRequired(false))
+                .addStringOption(opt => opt.setName('button_url').setDescription('Optional link button URL (needs button_label too)').setRequired(false)),
             new SlashCommandBuilder()
                 .setName('dm')
                 .setDescription('(Mod only) Send an anonymous DM to a member as the bot')
@@ -10559,6 +10606,9 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.deferReply({ flags: 64 });
             const promptText = interaction.options.getString('prompt');
             const targetChannel = interaction.options.getChannel('channel');
+            const imageUrl = interaction.options.getString('image') || undefined;
+            const buttonLabel = interaction.options.getString('button_label') || undefined;
+            const buttonUrl = interaction.options.getString('button_url') || undefined;
             const id = `ad-manual-${Date.now()}`;
             try {
                 const { title, body } = await draftAnnouncementText({ promptText });
@@ -10566,6 +10616,7 @@ client.on('interactionCreate', async (interaction) => {
                 const draft = {
                     id, status: 'awaiting_approval', source: 'manual', sourceDetail: `Requested by ${interaction.user.tag}`,
                     promptText, title, bodyText: body, targetChannelId: targetChannel.id, requestedBy: interaction.user.id,
+                    imageUrl, buttonLabel, buttonUrl,
                     historyJson: '[]', createdAt: now, updatedAt: now,
                 };
                 const messageId = await postAnnounceDraftPreview(draft);

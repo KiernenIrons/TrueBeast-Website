@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-08-10] — Richer AI-drafted announcements + auto reactions
+
+- Added optional `imageUrl`, `buttonLabel`, `buttonUrl` fields to the `announceDrafts` doc shape — when set, the drafted announcement renders a media-gallery banner image above the text and/or a link button below it, matching the look of hand-built Components v2 announcements
+- New shared `buildAnnounceBodyBlocks()` builds these blocks once and is reused by the real posted message, the #testing preview, and the post-decision (approved/discarded) footer, so all three always stay in sync
+- New `addRandomGuildReactions()` — on approval, the bot reacts to the posted announcement with 13 random custom emoji pulled live from the server's own emoji list (`guild.emojis.cache`), skipping unavailable emoji and rate-limiting itself to one reaction per 300ms
+- `/announce-draft` gained three new optional options: `image`, `button_label`, `button_url`
+- `checkAnnounceSchedule` schedule entries can now also carry `imageUrl` / `buttonLabel` / `buttonUrl`
+- Website: `FirebaseDB.queueAnnouncementDraft` and the Admin dashboard's "Draft with AI" panel gained matching optional Banner Image URL / Button Label / Button URL inputs (with a mismatch warning if only one of label/URL is filled in)
+
 ## [2026-08-10] — Announcement approval queue
 
 - New `/announce-draft <prompt> <channel>` (Owner/Mod only) — Claude Haiku drafts announcement copy and posts a Components v2 preview to #testing (`ANNOUNCE_TESTING_CHANNEL_ID`, defaults to `1486021237548257330`) with **Approve & Post**, **Request Changes**, and **Discard** buttons
