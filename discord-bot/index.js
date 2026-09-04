@@ -729,31 +729,37 @@ async function handleAnnounceSelect(interaction) {
     let cfg;
     try { cfg = JSON.parse(doc.config); } catch (e) { await interaction.reply({ content: '❌ This menu is misconfigured.', ephemeral: true }); return; }
 
-    const chosen = (cfg.options || []).filter((o) => interaction.values.includes(o.id));
+    const selectedIds = new Set(interaction.values);
     const member = interaction.member;
     const lines = [];
     let responses = null;
 
-    for (const opt of chosen) {
-        if (opt.action === 'role' && opt.roleId && member) {
+    // Role options are synced against the full current selection rather than only reacting to
+    // what was just clicked — deselecting an option (or clearing the dropdown, min_values: 0)
+    // removes the role, which is how Discord's own select menu UI actually lets you "toggle" one.
+    const roleOptions = (cfg.options || []).filter((o) => o.action === 'role' && o.roleId);
+    if (member) {
+        for (const opt of roleOptions) {
+            const shouldHave = selectedIds.has(opt.id);
+            const has = member.roles.cache.has(opt.roleId);
+            if (shouldHave === has) continue;
             try {
-                if (cfg.exclusiveRoles) {
-                    const groupRoleIds = cfg.options.filter((o) => o.action === 'role' && o.roleId).map((o) => o.roleId);
-                    const toRemove = groupRoleIds.filter((id) => id !== opt.roleId && member.roles.cache.has(id));
-                    if (toRemove.length) await member.roles.remove(toRemove);
-                    if (!member.roles.cache.has(opt.roleId)) await member.roles.add(opt.roleId);
-                    lines.push(opt.ackMessage || `✅ Set your role to **${opt.label}**`);
-                } else if (member.roles.cache.has(opt.roleId)) {
-                    await member.roles.remove(opt.roleId);
-                    lines.push(opt.ackMessage || `✅ Removed **${opt.label}**`);
-                } else {
+                if (shouldHave) {
                     await member.roles.add(opt.roleId);
                     lines.push(opt.ackMessage || `✅ Added **${opt.label}**`);
+                } else {
+                    await member.roles.remove(opt.roleId);
+                    lines.push(`✅ Removed **${opt.label}**`);
                 }
             } catch (e) {
                 lines.push(`❌ Couldn't update **${opt.label}**: ${e.message}`);
             }
-        } else if (opt.action === 'response') {
+        }
+    }
+
+    const chosen = (cfg.options || []).filter((o) => o.action !== 'role' && selectedIds.has(o.id));
+    for (const opt of chosen) {
+        if (opt.action === 'response') {
             if (!responses) responses = doc.responses ? JSON.parse(doc.responses) : {};
             responses[interaction.user.id] = { optionId: opt.id, label: opt.label, ts: Date.now() };
             lines.push(opt.ackMessage || `✅ Recorded: **${opt.label}**`);

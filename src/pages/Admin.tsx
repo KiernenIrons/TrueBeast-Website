@@ -4321,7 +4321,7 @@ interface V2SelectOption {
 }
 interface V2SelectMenuBlock {
   id: string; kind: 'select_menu';
-  placeholder: string; allowMultiple: boolean; exclusiveRoles: boolean;
+  placeholder: string; allowMultiple: boolean;
   options: V2SelectOption[];
 }
 type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock | V2FileBlock | V2SelectMenuBlock
@@ -4373,7 +4373,7 @@ function newV2Block(kind: V2BlockKind): V2Block {
     case 'media_gallery': return { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '', mediaType: 'image' }] };
     case 'buttons':       return { id: uid(), kind: 'buttons', row: [newButton()] };
     case 'file':          return { id: uid(), kind: 'file', url: '', spoiler: false };
-    case 'select_menu':   return { id: uid(), kind: 'select_menu', placeholder: 'Choose an option...', allowMultiple: false, exclusiveRoles: false, options: [newSelectOption()] };
+    case 'select_menu':   return { id: uid(), kind: 'select_menu', placeholder: 'Choose an option...', allowMultiple: false, options: [newSelectOption()] };
   }
 }
 
@@ -4472,7 +4472,7 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
           type: 3,
           custom_id: `announce:select:${block.id}`,
           placeholder: block.placeholder || undefined,
-          min_values: block.allowMultiple ? 0 : 1,
+          min_values: 0,
           max_values: block.allowMultiple ? options.length : 1,
           options,
         };
@@ -4581,12 +4581,8 @@ function SelectMenuEditor({ block, onChange }: { block: V2SelectMenuBlock; onCha
             className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
           <span className="text-[11px] text-gray-500">Allow multiple selections</span>
         </label>
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input type="checkbox" checked={block.exclusiveRoles} onChange={(e) => onChange({ ...block, exclusiveRoles: e.target.checked })}
-            className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
-          <span className="text-[11px] text-gray-500">Exclusive roles (picking a new role removes this menu's other roles)</span>
-        </label>
       </div>
+      <p className="text-[11px] text-gray-600">Role options are synced to whatever's selected — picking an option assigns its role, deselecting it (or clearing the dropdown) removes it.</p>
       <div>
         <label className={subLbl}>Options (max 25)</label>
         <div className="space-y-2">
@@ -5194,7 +5190,7 @@ function AnnouncementsV2Tab() {
   const syncSelectMenuConfigs = () => {
     for (const block of state.containers.flatMap((c) => c.blocks)) {
       if (block.kind !== 'select_menu') continue;
-      const cfg = { placeholder: block.placeholder, exclusiveRoles: block.exclusiveRoles, options: block.options };
+      const cfg = { placeholder: block.placeholder, options: block.options };
       FirebaseDB.saveAnnounceSelectConfig(block.id, cfg).catch((err) => console.error('Failed to sync select menu config:', err));
     }
   };
