@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-09-04] — Announcements v2: select menu (dropdown) block
+
+- Added `handleAnnounceSelect()` to handle `announce:select:<blockId>` string select interactions
+- Config for each dropdown (placeholder, options, per-option action) is written by the admin panel to `botConfig/announceSelect_<blockId>` when the announcement is sent/edited, since `botConfig` is the only collection this bot can read (see CLAUDE.md)
+- Per-option actions: `role` (toggle a role, optionally exclusive within the menu), `response` (logged to the same Firestore doc for the admin panel to read back), `page` (ephemeral markdown reply — e.g. rules/FAQ sections), `ack` (plain ephemeral confirmation)
+- Added `firestoreMergeStringField()` helper for the response write, so recording a response never clobbers the menu's `config` field
+- Replies are always ephemeral — the public announcement message itself is never edited
+
 ## [2026-08-10] — Fix slash command registration silently failing
 
 - Root cause: the previous commit's `/announce-draft` description was 103 characters — Discord's hard limit is 100. `@discordjs/builders`' `setDescription()` throws synchronously (`ExpectedConstraintError`, logged as "Invalid string length") when a description exceeds that, and since all ~64 commands are built into one array and registered in a single bulk `rest.put`, that one throw aborted the *entire* registration — every command silently kept whatever was last successfully registered, no crash, no visible symptom beyond a log line

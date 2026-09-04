@@ -732,6 +732,37 @@ export const FirebaseDB = {
   },
 
   // -----------------------------------------------------------------------
+  // Announcement select-menu configs (Components v2 dropdowns)
+  // Stored in `botConfig` — the only collection the Discord bot can read —
+  // so it can resolve a menu's options when someone picks one, long after
+  // the announcement was sent. `{ merge: true }` so re-saving the config on
+  // an edit never wipes the `responses` map the bot writes back into the
+  // same doc.
+  // -----------------------------------------------------------------------
+
+  async saveAnnounceSelectConfig(blockId: string, cfg: Record<string, unknown>): Promise<void> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return;
+    await _withTimeout(setDoc(doc(_db, 'botConfig', `announceSelect_${blockId}`), {
+      config: JSON.stringify(cfg),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }));
+  },
+
+  async getAnnounceSelectResponses(blockId: string): Promise<Record<string, { optionId: string; label: string; ts: number }>> {
+    _ensureApp();
+    if (!_isConfigured() || !_db) return {};
+    try {
+      const snap = await _withTimeout(getDoc(doc(_db, 'botConfig', `announceSelect_${blockId}`)));
+      const raw = snap.data()?.responses;
+      return raw ? JSON.parse(raw) : {};
+    } catch (err) {
+      console.warn('FirebaseDB.getAnnounceSelectResponses error:', (err as Error).message);
+      return {};
+    }
+  },
+
+  // -----------------------------------------------------------------------
   // Announcements (public-read for homepage latest announcement)
   // -----------------------------------------------------------------------
 

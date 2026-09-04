@@ -344,6 +344,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
+    { name: '🔽 Announcement Select Menus', value: 'Announcements v2 can now include a real Discord dropdown. Options can assign/remove a role, record a response (RSVP/poll), show ephemeral page content (e.g. rules/FAQ sections), or just acknowledge.' },
     { name: '🐛 Fixed /announce-draft not updating', value: 'A too-long command description was silently breaking slash command registration entirely. /announce-draft now correctly reflects the auto-image/auto-button update from the last release.' },
     { name: '🎨 AI-generated announcement banners', value: 'No more pasting image URLs — every AI-drafted announcement now gets a free auto-generated banner image matching the announcement.' },
     { name: '🔘 Smarter announcement buttons', value: 'Announcements about a Twitch/YouTube stream, game night, or movie night now automatically get the right button(s) — Twitch, YouTube, Join Voice Chat, or Join Movie Night.' },
@@ -707,6 +708,65 @@ async function firestoreGet(collection, docId) {
         }
         return result;
     } catch (e) { return null; }
+}
+
+// Partial update of a single string field — never touches other fields on the doc
+// (a mask-less PATCH would silently delete them, see firestoreSet above).
+async function firestoreMergeStringField(collection, docId, field, value) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/${collection}/${docId}?updateMask.fieldPaths=${field}&key=${FIREBASE_API_KEY}`;
+    try {
+        await fetch(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: { [field]: { stringValue: value } } }) });
+    } catch (e) { console.error(`[BeastBot] firestoreMergeStringField ${collection}/${docId}.${field} failed:`, e.message); }
+}
+
+// ── Announcements v2: select menu interactions ─────────────────────────────
+// Config for each dropdown is written by the admin panel to botConfig/announceSelect_<blockId>
+// when the announcement is sent/edited (that's the one collection this bot can read — see CLAUDE.md).
+async function handleAnnounceSelect(interaction) {
+    const blockId = interaction.customId.slice('announce:select:'.length);
+    const doc = await firestoreGet('botConfig', `announceSelect_${blockId}`);
+    if (!doc?.config) { await interaction.reply({ content: '❌ This menu is no longer configured.', ephemeral: true }); return; }
+    let cfg;
+    try { cfg = JSON.parse(doc.config); } catch (e) { await interaction.reply({ content: '❌ This menu is misconfigured.', ephemeral: true }); return; }
+
+    const chosen = (cfg.options || []).filter((o) => interaction.values.includes(o.id));
+    const member = interaction.member;
+    const lines = [];
+    let responses = null;
+
+    for (const opt of chosen) {
+        if (opt.action === 'role' && opt.roleId && member) {
+            try {
+                if (cfg.exclusiveRoles) {
+                    const groupRoleIds = cfg.options.filter((o) => o.action === 'role' && o.roleId).map((o) => o.roleId);
+                    const toRemove = groupRoleIds.filter((id) => id !== opt.roleId && member.roles.cache.has(id));
+                    if (toRemove.length) await member.roles.remove(toRemove);
+                    if (!member.roles.cache.has(opt.roleId)) await member.roles.add(opt.roleId);
+                    lines.push(opt.ackMessage || `✅ Set your role to **${opt.label}**`);
+                } else if (member.roles.cache.has(opt.roleId)) {
+                    await member.roles.remove(opt.roleId);
+                    lines.push(opt.ackMessage || `✅ Removed **${opt.label}**`);
+                } else {
+                    await member.roles.add(opt.roleId);
+                    lines.push(opt.ackMessage || `✅ Added **${opt.label}**`);
+                }
+            } catch (e) {
+                lines.push(`❌ Couldn't update **${opt.label}**: ${e.message}`);
+            }
+        } else if (opt.action === 'response') {
+            if (!responses) responses = doc.responses ? JSON.parse(doc.responses) : {};
+            responses[interaction.user.id] = { optionId: opt.id, label: opt.label, ts: Date.now() };
+            lines.push(opt.ackMessage || `✅ Recorded: **${opt.label}**`);
+        } else if (opt.action === 'page') {
+            lines.push(opt.pageContent || '*(no content set)*');
+        } else {
+            lines.push(opt.ackMessage || `You selected **${opt.label}**`);
+        }
+    }
+
+    if (responses) await firestoreMergeStringField('botConfig', `announceSelect_${blockId}`, 'responses', JSON.stringify(responses));
+
+    await interaction.reply({ content: (lines.join('\n\n') || '✅ Done.').slice(0, 1900), ephemeral: true });
 }
 
 // ── VIP helpers ───────────────────────────────────────────────────────────────
@@ -11657,6 +11717,10 @@ client.on('interactionCreate', async (interaction) => {
 
     // ── Traitors — select menu interactions (DM night vote + channel ban vote) ──
     if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith('announce:select:')) {
+            await handleAnnounceSelect(interaction);
+            return;
+        }
         if (interaction.customId.startsWith('esc:vault:dial:')) {
             await handleEscVaultDial(interaction);
             return;

@@ -1202,7 +1202,7 @@ function PresetManager({ state, onLoad }: { state: ComposerState; onLoad: (s: Co
 
 function HistoryPanel<T extends HistEntryBase>({
   kind, entries, onRestore, onClose, onEdit,
-  renderPreview,
+  renderPreview, renderExtra,
 }: {
   kind: 'v1' | 'v2';
   entries: T[];
@@ -1210,6 +1210,7 @@ function HistoryPanel<T extends HistEntryBase>({
   onClose: () => void;
   onEdit?: (e: T) => void;
   renderPreview: (e: T) => React.ReactNode;
+  renderExtra?: (e: T) => React.ReactNode;
 }) {
   const [list, setList] = useState<T[]>(entries);
   const remove = (id: string) => { setList((l) => l.filter((e) => e.id !== id)); FirebaseDB.deleteAnnouncementHistoryEntry(kind, id).catch(() => {}); };
@@ -1248,6 +1249,7 @@ function HistoryPanel<T extends HistEntryBase>({
                       <div className="text-xs text-gray-300 leading-relaxed line-clamp-3">{renderPreview(entry)}</div>
                     </div>
                     <div className="flex flex-col gap-1.5 flex-shrink-0">
+                      {renderExtra && renderExtra(entry)}
                       {onEdit && entry.messageId && (
                         <button type="button" onClick={() => { onEdit(entry); onClose(); }}
                           className="text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer">
@@ -1271,6 +1273,62 @@ function HistoryPanel<T extends HistEntryBase>({
         </div>
       </div>
     </div>
+  );
+}
+
+function SelectMenuResponsesButton({ entry }: { entry: HistEntryV2 }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Record<string, { optionId: string; label: string; ts: number }> | null>(null);
+
+  const selectBlocks = migrateV2State(entry.state).containers.flatMap((c) => c.blocks).filter((b) => b.kind === 'select_menu' && b.options.some((o) => o.action === 'response')) as V2SelectMenuBlock[];
+  if (!selectBlocks.length) return null;
+
+  const load = async () => {
+    setOpen(true); setLoading(true);
+    const results: Record<string, { optionId: string; label: string; ts: number }> = {};
+    for (const block of selectBlocks) {
+      const r = await FirebaseDB.getAnnounceSelectResponses(block.id);
+      Object.assign(results, r);
+    }
+    setData(results); setLoading(false);
+  };
+
+  const counts: Record<string, number> = {};
+  if (data) for (const r of Object.values(data)) counts[r.label] = (counts[r.label] || 0) + 1;
+
+  return (
+    <>
+      <button type="button" onClick={load}
+        className="text-xs text-green-400 hover:text-green-300 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer">
+        Responses
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)}>
+          <div className="bg-[#1a1b1e] border border-white/10 rounded-2xl shadow-2xl p-5 w-full max-w-sm max-h-[70vh] overflow-y-auto space-y-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Select Menu Responses</h3>
+              <button type="button" onClick={() => setOpen(false)} className="text-gray-500 hover:text-gray-300 cursor-pointer"><XClose className="w-4 h-4" /></button>
+            </div>
+            {loading ? (
+              <p className="text-xs text-gray-500">Loading…</p>
+            ) : !data || Object.keys(data).length === 0 ? (
+              <p className="text-xs text-gray-500">No responses yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {Object.entries(counts).map(([label, count]) => (
+                  <div key={label} className="flex items-center justify-between text-xs text-gray-300 bg-white/5 rounded-lg px-2.5 py-1.5">
+                    <span>{label}</span>
+                    <span className="text-gray-500">{count}</span>
+                  </div>
+                ))}
+                <p className="text-[10px] text-gray-600 pt-1">{Object.keys(data).length} total respondent(s)</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -4244,7 +4302,7 @@ function DiscordCardsTab() {
 // Announcements v2 Tab — Discord Components v2
 // ═══════════════════════════════════════════════════════════════════════════
 
-type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery' | 'buttons' | 'file';
+type V2BlockKind = 'text' | 'fields' | 'section' | 'separator' | 'media_gallery' | 'buttons' | 'file' | 'select_menu';
 
 interface V2TextBlock     { id: string; kind: 'text';          content: string }
 interface V2SeparatorBlock{ id: string; kind: 'separator';     divider: boolean; spacing: 1 | 2 }
@@ -4255,7 +4313,18 @@ interface V2FieldItem     { key: string; value: string }
 interface V2FieldsBlock   { id: string; kind: 'fields';        items: V2FieldItem[] }
 interface V2ButtonsBlock  { id: string; kind: 'buttons';       row: ButtonData[] }
 interface V2FileBlock     { id: string; kind: 'file';          url: string; spoiler?: boolean }
-type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock | V2FileBlock
+type V2SelectAction = 'role' | 'response' | 'page' | 'ack';
+interface V2SelectOption {
+  id: string; label: string; description: string; emoji: string;
+  action: V2SelectAction;
+  roleId?: string; pageContent?: string; ackMessage?: string;
+}
+interface V2SelectMenuBlock {
+  id: string; kind: 'select_menu';
+  placeholder: string; allowMultiple: boolean; exclusiveRoles: boolean;
+  options: V2SelectOption[];
+}
+type V2Block = V2TextBlock | V2FieldsBlock | V2SeparatorBlock | V2SectionBlock | V2MediaGalleryBlock | V2ButtonsBlock | V2FileBlock | V2SelectMenuBlock
 
 interface V2Container { id: string; accentColor: string; showAccent: boolean; spoilerContainer: boolean; blocks: V2Block[] }
 interface V2State { content: string; containers: V2Container[]; reactions: string[] }
@@ -4293,6 +4362,8 @@ function emptyV2State(): V2State {
   return { content: '', containers: [{ id: uid(), accentColor: '#5865f2', showAccent: true, spoilerContainer: false, blocks: [{ id: uid(), kind: 'text', content: '' }] }], reactions: [] };
 }
 
+function newSelectOption(): V2SelectOption { return { id: uid(), label: '', description: '', emoji: '', action: 'ack' }; }
+
 function newV2Block(kind: V2BlockKind): V2Block {
   switch (kind) {
     case 'text':          return { id: uid(), kind: 'text', content: '' };
@@ -4302,6 +4373,7 @@ function newV2Block(kind: V2BlockKind): V2Block {
     case 'media_gallery': return { id: uid(), kind: 'media_gallery', items: [{ url: '', description: '', mediaType: 'image' }] };
     case 'buttons':       return { id: uid(), kind: 'buttons', row: [newButton()] };
     case 'file':          return { id: uid(), kind: 'file', url: '', spoiler: false };
+    case 'select_menu':   return { id: uid(), kind: 'select_menu', placeholder: 'Choose an option...', allowMultiple: false, exclusiveRoles: false, options: [newSelectOption()] };
   }
 }
 
@@ -4381,6 +4453,30 @@ function buildPayloadV2(state: V2State): Record<string, unknown> | null {
         const fileComp: Record<string, unknown> = { type: 13, file: { url: block.url } };
         if (block.spoiler) fileComp.spoiler = true;
         inner.push(fileComp);
+      } else if (block.kind === 'select_menu') {
+        const options = block.options
+          .filter((o) => o.label.trim())
+          .slice(0, 25)
+          .map((o) => {
+            const opt: Record<string, unknown> = { label: o.label, value: o.id };
+            if (o.description.trim()) opt.description = o.description;
+            if (o.emoji) {
+              const m = o.emoji.match(/(?:(.+):)?(\d{15,})$/);
+              if (m) opt.emoji = { name: m[1] || '_', id: m[2] };
+              else opt.emoji = { name: o.emoji };
+            }
+            return opt;
+          });
+        if (!options.length) continue;
+        const select: Record<string, unknown> = {
+          type: 3,
+          custom_id: `announce:select:${block.id}`,
+          placeholder: block.placeholder || undefined,
+          min_values: block.allowMultiple ? 0 : 1,
+          max_values: block.allowMultiple ? options.length : 1,
+          options,
+        };
+        inner.push({ type: 1, components: [select] });
       }
     }
     return inner;
@@ -4408,7 +4504,105 @@ const V2_BLOCK_TYPES: { kind: V2BlockKind; label: string; desc: string }[] = [
   { kind: 'media_gallery', label: 'Media Gallery',  desc: 'Image/video grid (up to 4)' },
   { kind: 'buttons',       label: 'Buttons',        desc: 'Row of link or form buttons' },
   { kind: 'file',          label: 'File',           desc: 'File attachment (Discord CDN URL)' },
+  { kind: 'select_menu',   label: 'Select Menu',    desc: 'Dropdown members can pick from (roles, RSVPs, FAQ pages)' },
 ];
+
+function SelectOptionEditor({ option, onChange, onRemove }: { option: V2SelectOption; onChange: (upd: Partial<V2SelectOption>) => void; onRemove: () => void }) {
+  const bot = useContext(BotCtx);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const renderOptEmoji = () => {
+    if (!option.emoji) return <FaceSmile className="w-4 h-4 text-gray-500" />;
+    const m = option.emoji.match(/(?:(.+):)?(\d{15,})$/);
+    if (m) {
+      const eid = m[2];
+      const em = bot.emojis.find((e) => e.id === eid);
+      const ext = em?.animated ? 'gif' : 'png';
+      return <img src={`https://cdn.discordapp.com/emojis/${eid}.${ext}?size=32`} alt={m[1] || 'emoji'} className="w-5 h-5" />;
+    }
+    return <span className="text-lg leading-none">{option.emoji}</span>;
+  };
+
+  return (
+    <div className="border border-white/5 rounded-lg p-2.5 space-y-1.5">
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-shrink-0">
+          <button type="button" onClick={() => setPickerOpen(!pickerOpen)} className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer overflow-hidden" title="Pick emoji">
+            {renderOptEmoji()}
+          </button>
+          {option.emoji && <button type="button" onClick={() => onChange({ emoji: '' })} className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center cursor-pointer"><XClose className="w-2 h-2" /></button>}
+          {pickerOpen && <EmojiPicker onPick={(em) => { onChange({ emoji: em }); setPickerOpen(false); }} onClose={() => setPickerOpen(false)} />}
+        </div>
+        <input type="text" placeholder="Label" value={option.label} onChange={(e) => onChange({ label: e.target.value })} className={inpSm + ' !w-28'} />
+        <input type="text" placeholder="Description (optional)" value={option.description} onChange={(e) => onChange({ description: e.target.value })} className={inpSm} />
+        <button type="button" onClick={onRemove} className="text-gray-500 hover:text-red-400 transition-colors flex-shrink-0 cursor-pointer"><Minus className="w-4 h-4" /></button>
+      </div>
+      <div className="flex gap-2 items-center">
+        <select value={option.action} onChange={(e) => onChange({ action: e.target.value as V2SelectAction })} className={inpSm + ' !w-40'}>
+          <option value="ack" className="bg-[#1e1f22]">Just acknowledge</option>
+          <option value="role" className="bg-[#1e1f22]">Toggle a role</option>
+          <option value="response" className="bg-[#1e1f22]">Record response</option>
+          <option value="page" className="bg-[#1e1f22]">Show page content</option>
+        </select>
+        {option.action === 'role' && (
+          <select value={option.roleId || ''} onChange={(e) => onChange({ roleId: e.target.value })} className={inpSm}>
+            <option value="" className="bg-[#1e1f22]">— Select role —</option>
+            {bot.roles.map((r) => <option key={r.id} value={r.id} className="bg-[#1e1f22]">{r.name}</option>)}
+          </select>
+        )}
+      </div>
+      {option.action === 'page' && (
+        <textarea placeholder="Content shown to the user when they pick this option (markdown, ephemeral)" value={option.pageContent || ''}
+          onChange={(e) => onChange({ pageContent: e.target.value })} rows={3} className={inpSm + ' resize-y'} />
+      )}
+      {option.action !== 'page' && (
+        <input type="text" placeholder="Confirmation message shown to the user (optional)" value={option.ackMessage || ''}
+          onChange={(e) => onChange({ ackMessage: e.target.value })} className={inpSm} />
+      )}
+    </div>
+  );
+}
+
+function SelectMenuEditor({ block, onChange }: { block: V2SelectMenuBlock; onChange: (b: V2SelectMenuBlock) => void }) {
+  const setOpt = (oi: number, upd: Partial<V2SelectOption>) => { const options = [...block.options]; options[oi] = { ...options[oi], ...upd }; onChange({ ...block, options }); };
+  const addOpt = () => { if (block.options.length < 25) onChange({ ...block, options: [...block.options, newSelectOption()] }); };
+  const removeOpt = (oi: number) => onChange({ ...block, options: block.options.filter((_, i) => i !== oi) });
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className={subLbl}>Placeholder text</label>
+        <input type="text" value={block.placeholder} onChange={(e) => onChange({ ...block, placeholder: e.target.value })}
+          placeholder="Choose an option..." className={inpSm} />
+      </div>
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={block.allowMultiple} onChange={(e) => onChange({ ...block, allowMultiple: e.target.checked })}
+            className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+          <span className="text-[11px] text-gray-500">Allow multiple selections</span>
+        </label>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" checked={block.exclusiveRoles} onChange={(e) => onChange({ ...block, exclusiveRoles: e.target.checked })}
+            className="w-3.5 h-3.5 rounded accent-indigo-500 cursor-pointer" />
+          <span className="text-[11px] text-gray-500">Exclusive roles (picking a new role removes this menu's other roles)</span>
+        </label>
+      </div>
+      <div>
+        <label className={subLbl}>Options (max 25)</label>
+        <div className="space-y-2">
+          {block.options.map((opt, oi) => (
+            <SelectOptionEditor key={opt.id} option={opt} onChange={(upd) => setOpt(oi, upd)} onRemove={() => removeOpt(oi)} />
+          ))}
+        </div>
+        {block.options.length < 25 && (
+          <button type="button" onClick={addOpt} className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer">
+            <Plus className="w-3 h-3" /> Add option
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMoveUp, onMoveDown }: {
   block: V2Block; index: number; total: number;
@@ -4416,9 +4610,10 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
   onMoveUp: () => void; onMoveDown: () => void;
 }) {
   const [open, setOpen] = useState(true);
+  const bot = useContext(BotCtx);
   const typeInfo = V2_BLOCK_TYPES.find((t) => t.kind === block.kind)!;
 
-  const kindLabel: Record<V2BlockKind, string> = { text: 'T', fields: '≡', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡', file: '📎' };
+  const kindLabel: Record<V2BlockKind, string> = { text: 'T', fields: '≡', section: '▣', separator: '—', media_gallery: '⊞', buttons: '⬡', file: '📎', select_menu: '▾' };
 
   return (
     <div className="border border-white/5 rounded-xl">
@@ -4649,6 +4844,10 @@ function V2BlockEditor({ block, index, total, onChange, onRemove, onCopy, onMove
               <p className="text-[10px] text-amber-400/70">Note: the file must be attached to the message. Upload it separately to Discord first and paste the CDN URL.</p>
             </div>
           )}
+
+          {block.kind === 'select_menu' && (
+            <SelectMenuEditor block={block} onChange={onChange} />
+          )}
         </div>
       )}
     </div>
@@ -4762,6 +4961,16 @@ function V2PreviewBlocks({ blocks, bot }: { blocks: V2Block[]; bot: ReturnType<t
             </div>
           );
         }
+        if (block.kind === 'select_menu') {
+          const options = block.options.filter((o) => o.label.trim());
+          if (!options.length) return null;
+          return (
+            <div key={block.id} className="flex items-center justify-between gap-2 bg-[#2b2d31] border border-white/5 rounded px-3 py-2 text-sm text-gray-300 cursor-default">
+              <span className="truncate">{block.placeholder || 'Choose an option...'}</span>
+              <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            </div>
+          );
+        }
         return null;
       })}
     </>
@@ -4778,6 +4987,7 @@ function V2Preview({ state }: { state: V2State }) {
     if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
     if (b.kind === 'buttons') return b.row.some((btn) => btn.type === 'form' ? !!btn.formId && (btn.label.trim() || btn.emoji) : btn.url.trim() && (btn.label.trim() || btn.emoji));
     if (b.kind === 'file') return b.url.trim().length > 0;
+    if (b.kind === 'select_menu') return b.options.some((o) => o.label.trim());
     return true;
   });
 
@@ -4796,6 +5006,7 @@ function V2Preview({ state }: { state: V2State }) {
           if (b.kind === 'media_gallery') return b.items.some((i) => i.url.trim());
           if (b.kind === 'buttons') return b.row.some((btn) => btn.type === 'form' ? !!btn.formId && (btn.label.trim() || btn.emoji) : btn.url.trim() && (btn.label.trim() || btn.emoji));
           if (b.kind === 'file') return b.url.trim().length > 0;
+          if (b.kind === 'select_menu') return b.options.some((o) => o.label.trim());
           return true;
         });
         if (!hasContent) return null;
@@ -4980,6 +5191,14 @@ function AnnouncementsV2Tab() {
 
   const base = SITE_CONFIG.email.workerUrl.replace(/\/+$/, '');
 
+  const syncSelectMenuConfigs = () => {
+    for (const block of state.containers.flatMap((c) => c.blocks)) {
+      if (block.kind !== 'select_menu') continue;
+      const cfg = { placeholder: block.placeholder, exclusiveRoles: block.exclusiveRoles, options: block.options };
+      FirebaseDB.saveAnnounceSelectConfig(block.id, cfg).catch((err) => console.error('Failed to sync select menu config:', err));
+    }
+  };
+
   const handleSend = async () => {
     if (!channelId) { setFeedback({ type: 'error', message: 'Select a channel first.' }); return; }
     // Assign fresh formIds on every send so prior submissions never block a new announcement
@@ -5016,6 +5235,7 @@ function AnnouncementsV2Tab() {
           }
         }
       }
+      syncSelectMenuConfigs();
       const reactions = state.reactions.map(formatReaction);
       const res = await fetch(base + '/discord/send', {
         method: 'POST',
@@ -5048,6 +5268,7 @@ function AnnouncementsV2Tab() {
     if (!payload) { setFeedback({ type: 'error', message: 'Add some content before updating.' }); return; }
     setSending(true); setFeedback(null);
     try {
+      syncSelectMenuConfigs();
       const res = await fetch(base + '/discord/edit', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -5125,6 +5346,7 @@ function AnnouncementsV2Tab() {
             const first = allBlocks.find((b) => b.kind === 'text');
             return first && first.kind === 'text' ? first.content.slice(0, 80) : `${allBlocks.length} blocks`;
           }}
+          renderExtra={(e) => <SelectMenuResponsesButton entry={e} />}
         />
       )}
       {/* Left: editor */}
