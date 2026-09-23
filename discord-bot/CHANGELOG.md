@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-09-23] — Self-hosted NSFW image detection; mod command responses now public
+
+- **New self-hosted NSFW image scanning** (`nsfwjs` + pure-JS `@tensorflow/tfjs` — no native bindings, no third-party API, no per-image cost). `loadNsfwModel()` loads the MobileNetV2 model in the background at startup (weights fetched from a CDN, doesn't block readiness). `classifyImageUrl()` decodes an attachment via the existing `@napi-rs/canvas` (downscaled to 512px max dim for speed) into a `tf.tensor3d` and classifies it — avoids needing `@tensorflow/tfjs-node`'s native image decoder, which has historically been unreliable on Alpine/musl
+- `checkMessageForNsfwContent()` runs first in `messageCreate`, before any other processing, on every message with image attachments. Flags when `Porn + Hentai` combined confidence ≥ `securityConfig.nsfwThreshold` (default 0.8)
+- `handleNsfwViolation()`: deletes the message, logs it as an infraction (`addInfraction(userId, 'nsfw-content', ...)` — shows up in `/infractions` and is now surfaced in the `/ban` log embed's prior-history line), and tracks a rolling violation count per user (`nsfwViolations`, persisted via `buildFullBackup`/`applyBackupToMemory`). First offenses (up to `nsfwQuarantineAfter`, default 2) get `applySecurityRestriction()` (timeout + case, same primitive as the other Phase 3 triggers); reaching the threshold within `nsfwWindowMs` (default 7 days) calls the existing `quarantineUser()` instead — reuses its "must respond in the quarantine channel, a mod decides whether to unquarantine" flow rather than building a new one
+- Enforcement failures (delete fails — likely a permissions issue) are logged, not silent
+- New `botFeatures.nsfwDetection` flag; new `/security config threshold` choices `nsfw` (sensitivity 0-100) and `nsfw-quarantine-after`; both now shown in `/security config show`
+- Known gap: only scans direct file attachments, not images from embedded link previews (those arrive via a later `messageUpdate`, not synchronously) — not covered in this pass
+- Verified end-to-end in the actual Alpine container (not just locally) before deploying, given the last deploy's incident — built the real Docker image and ran the full load→classify pipeline inside it
+- **Mod command responses are public again**: `/ban`, `/tempban`, `/kick`, `/mute`, `/tempmute`, `/unmute`, `/unban`, `/warn`, and the new `/security restrict`/`release`/`lockdown`/`restore` now `deferReply()` without the ephemeral flag, so the confirmation posts to the channel instead of only being visible to the invoking mod. `/privacy-tips` is public too. `/report` and its context-menu counterpart deliberately stay ephemeral — that's a privacy requirement, not an oversight
+
 ## [2026-09-23] — Security overhaul: gradual access, spam containment, mod tools, reporting
 
 - **New permanent role `🔓 Verified`** (`MEDIA_UNLOCK_ROLE_ID`) — the actual permission gate Discord keys off, separate from the cosmetic `VOICE_RANK_ROLES` tiers (which are mutually exclusive and reset monthly, so they can't safely carry a permanent unlock)

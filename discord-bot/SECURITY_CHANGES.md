@@ -1,8 +1,8 @@
 # Security overhaul — what changed
 
-This is the plain-language list of every change made for the gradual-access / anti-abuse / reporting overhaul. Code changes are in `discord-bot/index.js`; the one-time Discord permission setup is a separate script you run yourself.
+This is the plain-language list of every change made for the gradual-access / anti-abuse / reporting overhaul. Code changes are in `discord-bot/index.js`; the one-time Discord permission setup is a separate script you already ran.
 
-**Nothing here is live yet.** The bot code is ready, but the actual Discord permission changes only happen when you run `scripts/setup-security-permissions.js` (see "What you still need to do" below).
+**Status: live.** The `🔓 Verified` role exists, `@everyone`'s permissions are updated, the AutoMod link rule is created, `MEDIA_UNLOCK_ROLE_ID` is set on Fly, and the bot is deployed and running this code.
 
 ---
 
@@ -20,7 +20,7 @@ You asked for **Silver I** as the unlock rank (not Bronze II as originally draft
 
 These three numbers are adjustable live with `/security config threshold set` — no redeploy needed.
 
-Existing members already at Silver I or higher get grandfathered in automatically by the setup script — nobody currently active loses access.
+Existing members already at Silver I or higher were grandfathered in when the setup script ran — nobody who was already active lost access.
 
 ## 3. Anti-farming guards on chat XP
 
@@ -30,7 +30,7 @@ Existing members already at Silver I or higher get grandfathered in automaticall
 
 These guards only throttle **rank progression** (a new, separate counter). `/rank`, `/profile`, the leaderboard, and message milestones (100/500/1000 msgs) still count every message exactly like before — they were never rate-limited. Only how fast someone can climb the Bronze→Apex ranks or reach Silver I for media unlock is throttled.
 
-One small, expected wrinkle right after deploy: rank-progression XP starts this new counter from zero, so for the rest of the current calendar month, everyone's message-based rank progress looks like it "reset" (voice/reaction XP and cosmetic ranks are untouched — nobody is demoted). It self-corrects as people keep chatting under the new counter, and resets naturally every month anyway.
+One small, expected wrinkle right after deploy: rank-progression XP started this new counter from zero, so for the rest of that calendar month, everyone's message-based rank progress looked like it "reset" (voice/reaction XP and cosmetic ranks were untouched — nobody was demoted). It self-corrects as people keep chatting, and resets naturally every month anyway.
 
 ## 4. Automatic spam containment
 
@@ -59,40 +59,63 @@ All restricted to the existing mod role (or the server owner) — same check eve
 
 Every case is written to Firestore immediately (not on the usual 60-second cycle), so a restart or a timeout naturally expiring never silently erases it — only `/security release` closes a case.
 
+**Command responses are public**, same as `/ban` etc. — see section 9.
+
 ## 6. Reporting: `/report` and right-click → "Report Message"
 
-- Private — only the reporter and staff (mod channel) ever see it.
+- Private — only the reporter and staff (mod channel) ever see it. This one stays private on purpose, even though most other command responses were made public (section 9) — making a report public would defeat the point of it.
 - Categories include **"Unwanted or inappropriate DM"**, which gets an extra reply explaining how to block the sender and report the DM to Discord directly (the bot can't see or act on DMs between other members).
 - Never copies attachments into the report — just a message link.
-- New `/privacy-tips` command explains how to turn off "Allow direct messages from server members" — a setting only the member themselves controls.
+- New `/privacy-tips` command explains how to turn off "Allow direct messages from server members" — a setting only the member themselves controls. Unlike `/report`, this one **is public**.
 - Nothing here asks anyone for an age, or to forward images as evidence.
 
-## 7. Discord permission changes (script, not automatic)
+## 7. Discord permission changes (already applied)
 
-Everything above is bot logic. The actual "new members can't post media" guarantee comes from Discord's own permission system, so it holds even if the bot is offline — that requires running:
+Everything above (except this section) is bot logic. The actual "new members can't post media" guarantee comes from Discord's own permission system, so it holds even if the bot is offline. This was set up by running:
 
 ```
 cd discord-bot
-node scripts/setup-security-permissions.js --dry-run   # review first
-node scripts/setup-security-permissions.js             # then apply
+node scripts/setup-security-permissions.js --dry-run   # reviewed first
+node scripts/setup-security-permissions.js             # then applied
 ```
 
 That script:
-1. Creates the 🔓 Verified role (prints its ID — put it in `.env` / Fly secrets as `MEDIA_UNLOCK_ROLE_ID`)
-2. Removes from `@everyone`, and grants to Verified: thread creation, voice messages, TTS, polls, soundboard, external sounds, screen share/video, activities, and external-app message posting
-3. Removes from `@everyone` only (channel-scoped, not granted anywhere by default): attachments, embedded links/GIFs, external stickers, external emojis
-4. Audits and strips the same restricted permissions from the VIP role and the Server Booster role, if they grant any
-5. Reports (without changing) any other role — including self-selected/reaction-role-panel roles — that grants those permissions, so you can review manually
-6. Creates a native AutoMod rule blocking links, exempt for mods and Verified members — **test it against a harmless message before relying on it**
-7. Grandfathers in every current Silver I+ member
+1. Created the 🔓 Verified role
+2. Removed from `@everyone`, and granted to Verified: thread creation, voice messages, TTS, polls, soundboard, external sounds, screen share/video, activities, and external-app message posting
+3. Removed from `@everyone` only (channel-scoped, not granted anywhere by default): attachments, embedded links/GIFs, external stickers, external emojis
+4. Audited the VIP role and the Server Booster role — neither granted any of the restricted permissions, so nothing needed stripping
+5. Reported (without changing) other roles that carry those permissions — Admin/Owner/Bots (expected, full-permission roles) and every rank role Silver I and above, which already had `UseExternalApps` granted directly (harmless overlap since those members get it via Verified anyway)
+6. Created the native AutoMod link-block rule, exempting Mods and Verified members
+7. Grandfathered in the 21 members who were already Silver I+ at the time
 
-It does **not** set per-channel media overwrites — designate your media/meme/gaming channels with `/security config media-channel add #channel` once the bot's running, and grant `Attach Files`/`Embed Links` to 🔓 Verified on those specific channels in Discord (the command reminds you of this each time).
+It does **not** set per-channel media overwrites — designate your media/meme/gaming channels with `/security config media-channel add #channel`, and grant `Attach Files`/`Embed Links` to 🔓 Verified on those specific channels in Discord (the command reminds you of this each time).
 
-## What you still need to do
+## 8. Automatic NSFW image detection
 
-1. Run the setup script (dry-run first).
-2. Add `MEDIA_UNLOCK_ROLE_ID` to Fly secrets.
+Runs entirely on the bot — no paid API, no per-image cost, nothing to sign up for. When someone posts an image attachment:
+
+1. The bot scans it against a model that classifies for Porn/Hentai/Sexy/Drawing/Neutral content.
+2. If it's flagged (Porn + Hentai confidence ≥ 80% by default), the message is **deleted immediately** and logged as an infraction — visible in `/infractions` and referenced automatically in the `/ban` log if that person is later banned.
+3. **First offense** (up to your quarantine threshold): a 10-minute timeout, same mechanism as the other automatic containment triggers.
+4. **Repeat offense** (2+ within 7 days by default): full **quarantine** — the existing system that strips their roles and requires them to explain themselves in the quarantine channel before a mod manually restores anything. If they never give an adequate explanation, they simply stay quarantined (and after 48h with no response at all, the bot's existing auto-ban safeguard kicks in, same as it always has).
+
+Sensitivity, the timeout length, and how many violations trigger quarantine are all adjustable via `/security config threshold set` (types `nsfw` and `nsfw-quarantine-after`) — check current values with `/security config show`.
+
+**What it does not do, on purpose:** it never re-uploads, reposts, or stores the deleted image anywhere, including in mod logs — only metadata (who, when, which channel, confidence score) is kept. If an image ever looked like it could be child sexual abuse material, the correct move is reporting it directly to Discord Trust & Safety (and NCMEC, where required), not preserving it internally — nothing in this system does that reporting for you, so that step is still on you/your mod team if it ever comes up.
+
+**Known gap:** it only scans files people upload directly. It doesn't (yet) scan images that show up as link-preview embeds (e.g. a raw image URL or a Tenor GIF link) — those load in asynchronously and would need separate handling. Say the word if you want that covered too.
+
+## 9. Mod command responses are public again
+
+`/ban`, `/tempban`, `/kick`, `/mute`, `/tempmute`, `/unmute`, `/unban`, `/warn`, and `/security restrict`/`release`/`lockdown`/`restore` now post their confirmation to the channel where the command was run, visible to everyone — not just the mod who ran it. `/privacy-tips` is public too.
+
+Left private on purpose: `/report`, the "Report Message" context action, and any "❌ Mods only" permission-denied replies. Everything else the bot already sends privately (game-related messages, personal stat lookups, `/security config` tuning confirmations, `/infractions` lookups, etc.) is untouched — only the moderation-action confirmations changed.
+
+## What's left
+
+1. ~~Run the setup script~~ — done.
+2. ~~Add `MEDIA_UNLOCK_ROLE_ID` to Fly secrets~~ — done.
 3. Pick your media/meme/gaming channels and run `/security config media-channel add` for each, then grant the channel-level permission in Discord.
 4. Optionally set `/security config lockdown-channel add` for your main public channels, so `/security lockdown` works with no arguments during an incident.
 5. Test a harmless link as a non-Verified test account to confirm AutoMod blocks it before trusting it.
-6. Work through the test checklist in the implementation plan (fresh member restrictions, VIP/booster bypass removal, bot-offline behavior, cross-channel spam containment, non-mod command rejection, restart/rejoin persistence, report privacy, lockdown/restore).
+6. Work through the test checklist (fresh member restrictions, VIP/booster bypass removal, bot-offline behavior, cross-channel spam containment, non-mod command rejection, restart/rejoin persistence, report privacy, lockdown/restore, and now NSFW auto-deletion + escalation).

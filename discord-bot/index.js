@@ -32,6 +32,8 @@ const {
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
+const tf = require('@tensorflow/tfjs');
+const nsfwjs = require('nsfwjs');
 
 const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus, StreamType, VoiceConnectionStatus, entersState } = require('@discordjs/voice');
 const { spawn } = require('child_process');
@@ -345,12 +347,9 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔒 New members start text-only', value: 'Unranked and Bronze members can chat normally but can\'t post attachments, links, GIFs, voice messages, or use threads/soundboard until they unlock 🔓 Verified.' },
-    { name: '🔓 Media unlock is now earned, not instant', value: 'Reaching Silver I unlocks media/links (in designated channels) once you\'ve also been here 72+ hours and chatted on 3 separate days — not just XP alone.' },
-    { name: '🛡️ Automatic spam containment', value: 'Message flooding, cross-channel copy-paste spam, and repeated blocked-link attempts now trigger a short automatic timeout and a staff alert — no more waiting for a mod to notice.' },
-    { name: '📮 New /report command + right-click "Report Message"', value: 'Privately report a member or message to staff — includes a category for unwanted DMs with guidance on blocking and reporting to Discord directly.' },
-    { name: '🔐 New /privacy-tips command', value: 'Shows you how to stop non-friends on this server from DMing you, a setting only you control.' },
-    { name: '🧰 New mod tools: /security', value: 'Mods can now restrict/release a member\'s access, or temporarily lock down public channels during an incident and restore them exactly afterward.' },
+    { name: '🔞 Automatic NSFW image detection', value: 'Explicit images are now auto-deleted and the poster timed out on the spot. Repeat offenders are moved to quarantine until a mod reviews their explanation.' },
+    { name: '📢 Mod actions are public again', value: 'Ban/kick/mute/warn/unban/unmute and the new /security commands now post their confirmation to the channel instead of hiding it from everyone but the mod who ran it.' },
+    { name: '🔐 /privacy-tips is public too', value: 'So anyone can see it and share it, not just the person who ran the command.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -368,6 +367,7 @@ let botFeatures = {
     unscrambleGame:      true,
     instagramPreviews:   true,
     announceDrafts:      true, // approval-queue announcement automation
+    nsfwDetection:       true, // self-hosted image content scanning (see loadNsfwModel/checkMessageForNsfwContent)
 };
 
 // ── Unscramble Game ───────────────────────────────────────────────────────────
@@ -1749,6 +1749,11 @@ let securityConfig = {
     dupMsgCount:         3,    dupWindowMs:      30 * 1000, dupChannelCount: 2,
     automodCount:        3,    automodWindowMs:  60 * 1000,
     joinSurgeCount:      5,    joinSurgeWindowMs: 60 * 1000,
+    // Self-hosted NSFW image scanning (nsfwjs, runs on the bot — no third-party API).
+    nsfwThreshold:       0.8,               // Porn+Hentai combined confidence (0-1) to flag an image
+    nsfwTimeoutMs:       10 * 60 * 1000,    // timeout applied on every violation
+    nsfwQuarantineAfter: 2,                 // violation count within nsfwWindowMs that escalates to full quarantine
+    nsfwWindowMs:        7 * 24 * 60 * 60 * 1000, // rolling window for counting repeat violations
 };
 
 // Spam-containment tracking — separate from the existing quarantine-oriented userActivityTrack,
@@ -1758,6 +1763,10 @@ const dupContentTrack   = new Map(); // userId → [{ channelId, hash, ts, messa
 const automodBlockTrack = new Map(); // userId → [ts, ...] — repeated AutoMod link-block trigger
 let joinTimestamps      = [];        // rolling window of recent join times — surge trigger
 let _lastJoinSurgeAlertAt = 0;
+
+// NSFW image detection — model loaded once at startup (see loadNsfwModel), null until ready.
+let nsfwModel = null;
+const nsfwViolations = new Map(); // userId → [{ ts, channelId, messageId }] — rolling window for escalation
 
 // Server-wide temporary lockdown state — persisted so a restart doesn't lose an in-progress incident.
 let lockdownState = {
@@ -2356,6 +2365,117 @@ async function restoreLockdown(guild) {
     lockdownState.reason          = null;
     await saveLockdownState();
     return restored;
+}
+
+// ── NSFW image detection (self-hosted via nsfwjs — no third-party API, no per-image cost) ──
+// Known gap: only scans direct file attachments, not images from embedded link previews
+// (those arrive on a later messageUpdate, not synchronously) — flag if that needs covering too.
+
+async function loadNsfwModel() {
+    try {
+        nsfwModel = await nsfwjs.load();
+        console.log('[BeastBot] 🔞 NSFW detection model loaded');
+    } catch (e) {
+        console.error('[BeastBot] Failed to load NSFW model — image scanning disabled:', e.message);
+        nsfwModel = null;
+    }
+}
+
+const NSFW_IMAGE_EXT = /\.(png|jpe?g|webp|gif)(\?.*)?$/i;
+const NSFW_MAX_DIM   = 512; // downscale before decoding — keeps CPU inference fast on Fly's shared machine
+
+// Fetches + decodes an image and returns nsfwjs class predictions, or null on any failure
+// (corrupt image, unsupported format, fetch error, etc. — fails open, never blocks the message).
+async function classifyImageUrl(url) {
+    if (!nsfwModel) return null;
+    let tensor;
+    try {
+        const img   = await loadImage(url);
+        const scale = Math.min(1, NSFW_MAX_DIM / Math.max(img.width, img.height));
+        const w     = Math.max(1, Math.round(img.width * scale));
+        const h     = Math.max(1, Math.round(img.height * scale));
+        const canvas = createCanvas(w, h);
+        const ctx    = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const { data } = ctx.getImageData(0, 0, w, h);
+        const rgb = new Uint8Array(w * h * 3);
+        for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
+            rgb[j] = data[i]; rgb[j + 1] = data[i + 1]; rgb[j + 2] = data[i + 2];
+        }
+        tensor = tf.tensor3d(rgb, [h, w, 3]);
+        return await nsfwModel.classify(tensor);
+    } catch (e) {
+        console.error(`[Security] NSFW classify failed for ${url}:`, e.message);
+        return null;
+    } finally {
+        tensor?.dispose();
+    }
+}
+
+// Scans a message's image attachments; deletes + contains on a match. Returns true if the
+// message was handled (deleted) — callers should stop further processing on that message.
+async function checkMessageForNsfwContent(message) {
+    if (botFeatures.nsfwDetection === false || !nsfwModel) return false;
+    if (!message.attachments?.size) return false;
+
+    const images = [...message.attachments.values()].filter(a =>
+        (a.contentType && a.contentType.startsWith('image/')) ||
+        (!a.contentType && NSFW_IMAGE_EXT.test(a.name || '')));
+    if (images.length === 0) return false;
+
+    for (const att of images) {
+        const predictions = await classifyImageUrl(att.url);
+        if (!predictions) continue;
+        const porn   = predictions.find(p => p.className === 'Porn')?.probability   || 0;
+        const hentai = predictions.find(p => p.className === 'Hentai')?.probability || 0;
+        const score  = porn + hentai;
+        if (score < securityConfig.nsfwThreshold) continue;
+
+        await handleNsfwViolation(message, predictions, score);
+        return true;
+    }
+    return false;
+}
+
+async function handleNsfwViolation(message, predictions, score) {
+    const guild  = message.guild;
+    const member = message.member;
+    const userId = message.author.id;
+
+    const deleted = await message.delete().then(() => true).catch(() => false);
+    if (!deleted) {
+        await sendLog(guild, buildLogEmbed({
+            color: 0xFF0000, user: message.author,
+            description: `⚠️ **Enforcement failed**: could not delete a flagged NSFW image from <@${userId}> in <#${message.channelId}> (missing permissions?) — message ID \`${message.id}\``,
+        })).catch(() => {});
+    }
+
+    const reason = `NSFW image detected (${(score * 100).toFixed(1)}% confidence) in #${message.channel?.name || message.channelId}`;
+    addInfraction(userId, 'nsfw-content', reason, 'AUTO');
+
+    // Track violations in a rolling window to decide whether this escalates to quarantine.
+    const now = Date.now();
+    const hits = (nsfwViolations.get(userId) || []).filter(h => now - h.ts < securityConfig.nsfwWindowMs);
+    hits.push({ ts: now, channelId: message.channelId, messageId: message.id });
+    nsfwViolations.set(userId, hits);
+
+    await sendLog(guild, buildLogEmbed({
+        color: 0xFF0000, user: message.author,
+        description: `🔞 <@${userId}>'s image was **auto-deleted** — ${reason}\n` +
+            predictions.map(p => `${p.className}: ${(p.probability * 100).toFixed(1)}%`).join(' · ') +
+            `\nViolations in the last ${Math.round(securityConfig.nsfwWindowMs / 86400000)} days: **${hits.length}**`,
+    })).catch(() => {});
+
+    if (!member) return;
+
+    if (hits.length >= securityConfig.nsfwQuarantineAfter) {
+        // Repeat offense within the window — full quarantine; only a mod's Unquarantine click
+        // lifts it, so this is exactly the "explain themselves or stay quarantined" flow.
+        await quarantineUser(guild, member,
+            `Repeated NSFW content: ${hits.length} violations within ${Math.round(securityConfig.nsfwWindowMs / 86400000)} days`);
+    } else {
+        await applySecurityRestriction(member, reason, { durationMs: securityConfig.nsfwTimeoutMs, triggerSource: 'auto' });
+    }
 }
 
 async function postMemberSpotlight() {
@@ -3064,6 +3184,8 @@ function buildFullBackup() {
         for (const [day, cnt] of dMap) if (cnt > 0) obj[day] = cnt;
         if (Object.keys(obj).length) xmd[uid] = obj;
     }
+    const nsfwV = {};
+    for (const [uid, hits] of nsfwViolations) if (hits.length > 0) nsfwV[uid] = hits;
 
     return {
         savedAt: new Date().toISOString(),
@@ -3115,6 +3237,7 @@ function buildFullBackup() {
         qualifyingDays: qd,
         mediaUnlocked:  mu,
         xpMessageDays:  xmd,
+        nsfwViolations: nsfwV,
     };
 }
 
@@ -3438,6 +3561,11 @@ function applyBackupToMemory(data) {
         const dMap = new Map();
         for (const [day, cnt] of Object.entries(days)) dMap.set(day, cnt);
         if (dMap.size) xpMessageDays.set(uid, dMap);
+    }
+    // NSFW violation history (rolling window, for repeat-offense escalation)
+    nsfwViolations.clear();
+    for (const [uid, hits] of Object.entries(data.nsfwViolations || {})) {
+        if (Array.isArray(hits) && hits.length) nsfwViolations.set(uid, hits);
     }
     // Unscramble all-time scores
     unscrambleScores.clear();
@@ -6420,12 +6548,14 @@ client.once('clientReady', async () => {
                         .addChannelOption(opt => opt.setName('channel').setDescription('Channel').setRequired(true)))
                     .addSubcommand(sub => sub
                         .setName('threshold')
-                        .setDescription('Adjust a media-unlock threshold')
+                        .setDescription('Adjust a media-unlock or NSFW-detection threshold')
                         .addStringOption(opt => opt.setName('type').setDescription('Which threshold').setRequired(true)
                             .addChoices(
                                 { name: 'XP (Silver I default)', value: 'xp' },
                                 { name: 'Hours in server', value: 'hours' },
                                 { name: 'Distinct active days', value: 'days' },
+                                { name: 'NSFW detection sensitivity (0-100)', value: 'nsfw' },
+                                { name: 'NSFW violations before quarantine', value: 'nsfw-quarantine-after' },
                             ))
                         .addIntegerOption(opt => opt.setName('value').setDescription('New value').setRequired(true).setMinValue(0)))
                     .addSubcommand(sub => sub
@@ -6786,6 +6916,10 @@ client.once('clientReady', async () => {
     await loadSecurityCases();
     await loadSecurityConfig();
     await loadLockdownState();
+
+    // Load the NSFW detection model in the background — downloads weights from a CDN on first
+    // run, so don't block startup on it; checkMessageForNsfwContent no-ops until nsfwModel is set.
+    loadNsfwModel().catch(e => console.error('[BeastBot] loadNsfwModel failed:', e.message));
 
     // Clean up daily snapshots older than 14 days
     cleanupOldSnapshots().catch(e => console.error('[BeastBot] Snapshot cleanup failed:', e.message));
@@ -11470,16 +11604,21 @@ client.on('interactionCreate', async (interaction) => {
         // ── /ban ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'ban') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const target = interaction.options.getUser('user');
             const reason = interaction.options.getString('reason') || 'No reason provided';
             const delDays = interaction.options.getInteger('delete_days') || 0;
             try {
+                const priorHistory = getUserInfractions(target.id); // captured before this ban is added
                 await interaction.guild.members.ban(target.id, { reason, deleteMessageSeconds: delDays * 86400 });
                 addInfraction(target.id, 'ban', reason, interaction.user.id);
+                const nsfwCount = priorHistory.filter(i => i.type === 'nsfw-content').length;
+                const historyLine = priorHistory.length
+                    ? `\nPrior infractions: **${priorHistory.length}**${nsfwCount ? ` (${nsfwCount} NSFW content deletion${nsfwCount === 1 ? '' : 's'})` : ''} — see \`/infractions\``
+                    : '';
                 await sendLog(interaction.guild, buildLogEmbed({
                     color: LOG_COLORS.ban, user: target,
-                    description: `🔨 <@${target.id}> **was banned**\nReason: ${reason}`,
+                    description: `🔨 <@${target.id}> **was banned**\nReason: ${reason}${historyLine}`,
                     footerExtra: `Banned by: ${interaction.user.tag || interaction.user.username}`,
                 }));
                 await interaction.editReply(`✅ **${target.tag || target.username}** was banned. Action logged in <#${LOG_CHANNEL_ID}>.`);
@@ -11490,7 +11629,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /tempban ──────────────────────────────────────────────────────────
         if (interaction.commandName === 'tempban') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const target = interaction.options.getUser('user');
             const durStr = interaction.options.getString('duration');
             const reason = interaction.options.getString('reason') || 'No reason provided';
@@ -11516,7 +11655,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /kick ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'kick') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const member = interaction.options.getMember('user');
             const reason = interaction.options.getString('reason') || 'No reason provided';
             if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
@@ -11536,7 +11675,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /mute ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'mute') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const member = interaction.options.getMember('user');
             const reason = interaction.options.getString('reason') || 'No reason provided';
             if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
@@ -11556,7 +11695,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /tempmute ─────────────────────────────────────────────────────────
         if (interaction.commandName === 'tempmute') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const member = interaction.options.getMember('user');
             const durStr = interaction.options.getString('duration');
             const reason = interaction.options.getString('reason') || 'No reason provided';
@@ -11580,7 +11719,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /unmute ───────────────────────────────────────────────────────────
         if (interaction.commandName === 'unmute') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const member = interaction.options.getMember('user');
             if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
             try {
@@ -11598,7 +11737,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /unban ────────────────────────────────────────────────────────────
         if (interaction.commandName === 'unban') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const userId = interaction.options.getString('userid');
             const reason = interaction.options.getString('reason') || 'No reason provided';
             try {
@@ -11621,7 +11760,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /warn ─────────────────────────────────────────────────────────────
         if (interaction.commandName === 'warn') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const target = interaction.options.getUser('user');
             const reason = interaction.options.getString('reason');
             addInfraction(target.id, 'warn', reason, interaction.user.id);
@@ -11697,6 +11836,11 @@ client.on('interactionCreate', async (interaction) => {
                     if (type === 'xp')    securityConfig.xpThreshold = value;
                     if (type === 'hours') securityConfig.minHours    = value;
                     if (type === 'days')  securityConfig.minDays     = value;
+                    if (type === 'nsfw') {
+                        if (value < 0 || value > 100) { await interaction.editReply('❌ NSFW sensitivity must be 0-100.'); return; }
+                        securityConfig.nsfwThreshold = value / 100;
+                    }
+                    if (type === 'nsfw-quarantine-after') securityConfig.nsfwQuarantineAfter = Math.max(1, value);
                     await saveSecurityConfig();
                     await interaction.editReply(`✅ Updated **${type}** threshold to **${value}**.`);
                     return;
@@ -11716,6 +11860,7 @@ client.on('interactionCreate', async (interaction) => {
                             { name: 'AutoMod-block trigger', value: `${securityConfig.automodCount} blocks / ${Math.round(securityConfig.automodWindowMs / 1000)}s`, inline: true },
                             { name: 'Join-surge trigger', value: `${securityConfig.joinSurgeCount} joins / ${Math.round(securityConfig.joinSurgeWindowMs / 1000)}s`, inline: true },
                             { name: 'Default restrict duration', value: formatDuration(securityConfig.restrictDurationMs), inline: true },
+                            { name: 'NSFW detection', value: `${nsfwModel ? '🟢 model loaded' : '🔴 not loaded'} — ${(securityConfig.nsfwThreshold * 100).toFixed(0)}% sensitivity, timeout ${formatDuration(securityConfig.nsfwTimeoutMs)}, quarantine after ${securityConfig.nsfwQuarantineAfter} in ${Math.round(securityConfig.nsfwWindowMs / 86400000)}d` },
                         ],
                     }] });
                     return;
@@ -11724,7 +11869,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (sub === 'restrict') {
-                await interaction.deferReply({ flags: 64 });
+                await interaction.deferReply();
                 const member = interaction.options.getMember('member');
                 const reason = interaction.options.getString('reason');
                 const durStr = interaction.options.getString('duration');
@@ -11739,7 +11884,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (sub === 'release') {
-                await interaction.deferReply({ flags: 64 });
+                await interaction.deferReply();
                 const target  = interaction.options.getUser('member');
                 const reason  = interaction.options.getString('reason') || 'Reviewed by staff';
                 try {
@@ -11751,7 +11896,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (sub === 'lockdown') {
-                await interaction.deferReply({ flags: 64 });
+                await interaction.deferReply();
                 const reason   = interaction.options.getString('reason');
                 const explicit = [1, 2, 3].map(n => interaction.options.getChannel(`channel${n}`)).filter(Boolean).map(c => c.id);
                 const targets  = explicit.length ? explicit : securityConfig.lockdownChannelIds;
@@ -11768,7 +11913,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             if (sub === 'restore') {
-                await interaction.deferReply({ flags: 64 });
+                await interaction.deferReply();
                 if (!lockdownState.active) { await interaction.editReply('⚠️ No active lockdown to restore.'); return; }
                 try {
                     const restored = await restoreLockdown(interaction.guild);
@@ -11811,7 +11956,6 @@ client.on('interactionCreate', async (interaction) => {
                         `This is a setting only you control — the bot can't see or change it for you, and it can't read DMs between other members.\n\n` +
                         `If someone DMs you something unwanted: **block them**, use Discord's own **Report** action on the DM, and feel free to also run \`/report\` here so staff are aware.`,
                 }],
-                flags: 64,
             });
             return;
         }
@@ -13751,6 +13895,15 @@ client.on('messageCreate', async (message) => {
     // }
 
     if (message.author.bot) return;
+
+    // ── NSFW image scan — runs first; the message is gone before anything else touches it ──
+    if (message.guild && message.attachments?.size) {
+        const handled = await checkMessageForNsfwContent(message).catch(e => {
+            console.error('[Security] checkMessageForNsfwContent failed:', e.message);
+            return false;
+        });
+        if (handled) return;
+    }
 
     // Set by the automatic spam-containment triggers below — when true, this message was
     // part of a flagged incident, so it's skipped for XP ("ignore blocked/deleted spam").
