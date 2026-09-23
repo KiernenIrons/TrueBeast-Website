@@ -90,20 +90,30 @@ That script:
 
 It does **not** set per-channel media overwrites — designate your media/meme/gaming channels with `/security config media-channel add #channel`, and grant `Attach Files`/`Embed Links` to 🔓 Verified on those specific channels in Discord (the command reminds you of this each time).
 
-## 8. Automatic NSFW image detection
+## 8. Automatic NSFW detection — images and links
 
-Runs entirely on the bot — no paid API, no per-image cost, nothing to sign up for. When someone posts an image attachment:
+Runs entirely on the bot — no paid API, no per-image cost, nothing to sign up for.
 
-1. The bot scans it against a model that classifies for Porn/Hentai/Sexy/Drawing/Neutral content.
-2. If it's flagged (Porn + Hentai confidence ≥ 80% by default), the message is **deleted immediately** and logged as an infraction — visible in `/infractions` and referenced automatically in the `/ban` log if that person is later banned.
-3. **First offense** (up to your quarantine threshold): a 10-minute timeout, same mechanism as the other automatic containment triggers.
-4. **Repeat offense** (2+ within 7 days by default): full **quarantine** — the existing system that strips their roles and requires them to explain themselves in the quarantine channel before a mod manually restores anything. If they never give an adequate explanation, they simply stay quarantined (and after 48h with no response at all, the bot's existing auto-ban safeguard kicks in, same as it always has).
+**Uploaded images:**
+1. The bot scans every image attachment against a model that classifies for Porn/Hentai/Sexy/Drawing/Neutral content.
+2. If it's flagged (Porn + Hentai confidence ≥ 80% by default), the message is **deleted immediately**.
 
-Sensitivity, the timeout length, and how many violations trigger quarantine are all adjustable via `/security config threshold set` (types `nsfw` and `nsfw-quarantine-after`) — check current values with `/security config show`.
+**Links** (added after a live test caught a real gap — see below): every link in a message is checked two ways:
+1. **Known adult domains** (pornhub, xvideos, xhamster, and ~30 others) are blocked outright, no scanning needed.
+2. Any direct image/GIF link **not** on that list still gets run through the same classifier as uploads.
 
-**What it does not do, on purpose:** it never re-uploads, reposts, or stores the deleted image anywhere, including in mod logs — only metadata (who, when, which channel, confidence score) is kept. If an image ever looked like it could be child sexual abuse material, the correct move is reporting it directly to Discord Trust & Safety (and NCMEC, where required), not preserving it internally — nothing in this system does that reporting for you, so that step is still on you/your mod team if it ever comes up.
+This applies to **everyone, including `🔓 Verified` members and mods** — deliberately no rank exemption, because this is a content-policy check (is this link to known adult content), completely separate from the rank-based "can this person post links at all" AutoMod rule, which does still exempt Verified/Mods on purpose.
 
-**Known gap:** it only scans files people upload directly. It doesn't (yet) scan images that show up as link-preview embeds (e.g. a raw image URL or a Tenor GIF link) — those load in asynchronously and would need separate handling. Say the word if you want that covered too.
+Either way, once flagged:
+- Logged as an infraction — visible in `/infractions` and referenced automatically in the `/ban` log if that person is later banned.
+- **First offense** (up to your quarantine threshold): a 10-minute timeout, same mechanism as the other automatic containment triggers.
+- **Repeat offense** (2+ within 7 days by default): full **quarantine** — the existing system that strips their roles and requires them to explain themselves in the quarantine channel before a mod manually restores anything. If they never give an adequate explanation, they simply stay quarantined (and after 48h with no response at all, the bot's existing auto-ban safeguard kicks in, same as it always has).
+
+Sensitivity, the timeout length, and how many violations trigger quarantine are all adjustable via `/security config threshold set` (types `nsfw` and `nsfw-quarantine-after`); the blocked-domain list is extendable with `/security config nsfw-domain add <domain>` — check current values with `/security config show`.
+
+**What it does not do, on purpose:** it never re-uploads, reposts, or stores the deleted image anywhere, including in mod logs — only metadata (who, when, which channel, confidence score/domain) is kept. If an image ever looked like it could be child sexual abuse material, the correct move is reporting it directly to Discord Trust & Safety (and NCMEC, where required), not preserving it internally — nothing in this system does that reporting for you, so that step is still on you/your mod team if it ever comes up.
+
+**What caught the gap:** you tested with your own alt account, which already holds Verified — the link went through because Verified members are *supposed* to be able to post ordinary links, and at that point nothing checked what the link actually pointed to. The domain blocklist above closes that specific hole. It's still not exhaustive — new adult sites appear constantly — so treat the blocklist as a strong baseline you can extend via `/security config nsfw-domain add`, not a guarantee. It also doesn't (yet) scan images that show up purely as Discord's own auto-generated link-preview embeds without a direct file extension in the URL (e.g. some Tenor pages) — say the word if a gap like that shows up in testing and I'll close it the same way.
 
 ## 9. Mod command responses are public again
 

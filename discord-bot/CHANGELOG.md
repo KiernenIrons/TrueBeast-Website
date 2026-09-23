@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-09-23] — Fix VM OOM; close NSFW link gap; bumped memory to 1GB
+
+- **Production incident**: the previous deploy's NSFW model load OOM-crashed the bot on the 512MB Fly machine — confirmed by watching live logs post-deploy (crashed twice, ~45-70s apart). Bumped to 1024MB via `flyctl scale memory 1024` and made it permanent in `fly.toml` (the scale command alone would've been reverted by the next `fly deploy`). Confirmed stable afterward: model loads, bot runs normally, no further restarts
+- **Real gap found via live testing**: a member with `🔓 Verified` (correctly, by design, exempt from the rank-based link AutoMod rule) posted a pornhub.com link and it went through — NSFW detection only ever scanned file attachments, never link content, so a link to an adult site had no check at all regardless of rank
+- New `NSFW_DOMAIN_BLOCKLIST` (~30 mainstream adult sites) + `checkMessageForNsfwLinks()`: extracts every URL in a message, blocks outright on a known-domain match (no classifier needed, catches the reported case), and separately runs any direct image/GIF-extension URL not on that list through the existing `classifyImageUrl()`. Reuses `handleNsfwViolation()` (now takes an optional `reasonOverride`) for identical delete+infraction+escalation handling as the attachment path
+- Deliberately **no Verified/Mod exemption** on this check — it's a content policy (is this link to known adult content), not a rank gate (can this rank post links at all); the existing AutoMod rule already covers the rank gate and keeps its own exemptions untouched
+- New `/security config nsfw-domain add/remove` so mods can extend the blocklist live; shown in `/security config show`
+- Verified the exact reported URL end-to-end before shipping (regex match → hostname extraction → blocklist hit)
+
 ## [2026-09-23] — Self-hosted NSFW image detection; mod command responses now public
 
 - **New self-hosted NSFW image scanning** (`nsfwjs` + pure-JS `@tensorflow/tfjs` — no native bindings, no third-party API, no per-image cost). `loadNsfwModel()` loads the MobileNetV2 model in the background at startup (weights fetched from a CDN, doesn't block readiness). `classifyImageUrl()` decodes an attachment via the existing `@napi-rs/canvas` (downscaled to 512px max dim for speed) into a `tf.tensor3d` and classifies it — avoids needing `@tensorflow/tfjs-node`'s native image decoder, which has historically been unreliable on Alpine/musl

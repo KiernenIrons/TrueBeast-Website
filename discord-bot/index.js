@@ -347,9 +347,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔞 Automatic NSFW image detection', value: 'Explicit images are now auto-deleted and the poster timed out on the spot. Repeat offenders are moved to quarantine until a mod reviews their explanation.' },
-    { name: '📢 Mod actions are public again', value: 'Ban/kick/mute/warn/unban/unmute and the new /security commands now post their confirmation to the channel instead of hiding it from everyone but the mod who ran it.' },
-    { name: '🔐 /privacy-tips is public too', value: 'So anyone can see it and share it, not just the person who ran the command.' },
+    { name: '🔞 Links to adult sites are now blocked too', value: 'Not just uploaded images — a link to a known adult site (or a direct GIF/image link that scans as explicit) gets deleted and treated the same as an explicit image, for everyone, regardless of rank.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1754,6 +1752,7 @@ let securityConfig = {
     nsfwTimeoutMs:       10 * 60 * 1000,    // timeout applied on every violation
     nsfwQuarantineAfter: 2,                 // violation count within nsfwWindowMs that escalates to full quarantine
     nsfwWindowMs:        7 * 24 * 60 * 60 * 1000, // rolling window for counting repeat violations
+    nsfwExtraBlockedDomains: [], // mod-added, on top of the built-in NSFW_DOMAIN_BLOCKLIST
 };
 
 // Spam-containment tracking — separate from the existing quarantine-oriented userActivityTrack,
@@ -2437,7 +2436,62 @@ async function checkMessageForNsfwContent(message) {
     return false;
 }
 
-async function handleNsfwViolation(message, predictions, score) {
+// Known adult-content domains — necessarily an incomplete list (new sites appear constantly),
+// but catches the large majority of mainstream porn platforms instantly and reliably, with no
+// classifier needed. Mods can extend it live with /security config nsfw-domain add.
+const NSFW_DOMAIN_BLOCKLIST = [
+    'pornhub.com', 'xvideos.com', 'xnxx.com', 'xhamster.com', 'redtube.com',
+    'youporn.com', 'motherless.com', 'spankbang.com', 'tnaflix.com', 'youjizz.com',
+    'chaturbate.com', 'brazzers.com', 'txxx.com', 'eporner.com', 'thumbzilla.com',
+    'porntrex.com', 'hclips.com', 'tube8.com', 'rule34.xxx', 'e621.net',
+    'gelbooru.com', 'hentaihaven.xxx', 'nhentai.net', 'fapello.com', 'spankwire.com',
+    'beeg.com', 'xxxymovies.com', 'porndig.com', 'hqporner.com', 'porn.com',
+    'camsoda.com', 'stripchat.com', 'bongacams.com', 'livejasmin.com', 'myfreecams.com',
+];
+const NSFW_URL_REGEX        = /https?:\/\/[^\s<>"']+/gi;
+const NSFW_DIRECT_MEDIA_EXT = /\.(gif|png|jpe?g|webp)(\?\S*)?$/i;
+
+function extractHostname(url) {
+    try { return new URL(url).hostname.replace(/^www\./i, '').toLowerCase(); } catch { return null; }
+}
+
+// Checks every link in a message: known adult domains are blocked outright (no classifier
+// needed); direct image/GIF URLs not on that list are run through the same image classifier
+// used for attachments. Applies to everyone — this is a content policy, not a rank gate, so
+// there's no Verified/Mod exemption here (that exemption only applies to the separate AutoMod
+// rule that gates ordinary links by rank).
+async function checkMessageForNsfwLinks(message) {
+    if (botFeatures.nsfwDetection === false) return false;
+    const urls = message.content?.match(NSFW_URL_REGEX);
+    if (!urls) return false;
+
+    for (const url of urls) {
+        const domain = extractHostname(url);
+        if (!domain) continue;
+        if (NSFW_DOMAIN_BLOCKLIST.includes(domain) || securityConfig.nsfwExtraBlockedDomains?.includes(domain)) {
+            await handleNsfwViolation(message, [{ className: 'BlockedDomain', probability: 1 }], 1,
+                `Link to a known adult-content site (${domain})`);
+            return true;
+        }
+    }
+
+    if (nsfwModel) {
+        for (const url of urls) {
+            if (!NSFW_DIRECT_MEDIA_EXT.test(url)) continue;
+            const predictions = await classifyImageUrl(url);
+            if (!predictions) continue;
+            const porn   = predictions.find(p => p.className === 'Porn')?.probability   || 0;
+            const hentai = predictions.find(p => p.className === 'Hentai')?.probability || 0;
+            const score  = porn + hentai;
+            if (score < securityConfig.nsfwThreshold) continue;
+            await handleNsfwViolation(message, predictions, score);
+            return true;
+        }
+    }
+    return false;
+}
+
+async function handleNsfwViolation(message, predictions, score, reasonOverride = null) {
     const guild  = message.guild;
     const member = message.member;
     const userId = message.author.id;
@@ -2446,11 +2500,11 @@ async function handleNsfwViolation(message, predictions, score) {
     if (!deleted) {
         await sendLog(guild, buildLogEmbed({
             color: 0xFF0000, user: message.author,
-            description: `⚠️ **Enforcement failed**: could not delete a flagged NSFW image from <@${userId}> in <#${message.channelId}> (missing permissions?) — message ID \`${message.id}\``,
+            description: `⚠️ **Enforcement failed**: could not delete flagged NSFW content from <@${userId}> in <#${message.channelId}> (missing permissions?) — message ID \`${message.id}\``,
         })).catch(() => {});
     }
 
-    const reason = `NSFW image detected (${(score * 100).toFixed(1)}% confidence) in #${message.channel?.name || message.channelId}`;
+    const reason = reasonOverride || `NSFW image detected (${(score * 100).toFixed(1)}% confidence) in #${message.channel?.name || message.channelId}`;
     addInfraction(userId, 'nsfw-content', reason, 'AUTO');
 
     // Track violations in a rolling window to decide whether this escalates to quarantine.
@@ -6558,6 +6612,12 @@ client.once('clientReady', async () => {
                                 { name: 'NSFW violations before quarantine', value: 'nsfw-quarantine-after' },
                             ))
                         .addIntegerOption(opt => opt.setName('value').setDescription('New value').setRequired(true).setMinValue(0)))
+                    .addSubcommand(sub => sub
+                        .setName('nsfw-domain')
+                        .setDescription('Add/remove a domain from the blocked adult-content list')
+                        .addStringOption(opt => opt.setName('action').setDescription('Add or remove').setRequired(true)
+                            .addChoices({ name: 'Add', value: 'add' }, { name: 'Remove', value: 'remove' }))
+                        .addStringOption(opt => opt.setName('domain').setDescription('Domain, e.g. example.com (no https:// or www.)').setRequired(true)))
                     .addSubcommand(sub => sub
                         .setName('show')
                         .setDescription('Show the current security config'))),
@@ -11845,6 +11905,19 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.editReply(`✅ Updated **${type}** threshold to **${value}**.`);
                     return;
                 }
+                if (sub === 'nsfw-domain') {
+                    const action = interaction.options.getString('action');
+                    const domain = interaction.options.getString('domain').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+                    if (!securityConfig.nsfwExtraBlockedDomains) securityConfig.nsfwExtraBlockedDomains = [];
+                    if (action === 'add') {
+                        if (!securityConfig.nsfwExtraBlockedDomains.includes(domain)) securityConfig.nsfwExtraBlockedDomains.push(domain);
+                    } else {
+                        securityConfig.nsfwExtraBlockedDomains = securityConfig.nsfwExtraBlockedDomains.filter(d => d !== domain);
+                    }
+                    await saveSecurityConfig();
+                    await interaction.editReply(`✅ ${action === 'add' ? 'Added' : 'Removed'} \`${domain}\` ${action === 'add' ? 'to' : 'from'} the blocked-domain list.`);
+                    return;
+                }
                 if (sub === 'show') {
                     await interaction.editReply({ embeds: [{
                         color: 0x3b82f6,
@@ -11861,6 +11934,7 @@ client.on('interactionCreate', async (interaction) => {
                             { name: 'Join-surge trigger', value: `${securityConfig.joinSurgeCount} joins / ${Math.round(securityConfig.joinSurgeWindowMs / 1000)}s`, inline: true },
                             { name: 'Default restrict duration', value: formatDuration(securityConfig.restrictDurationMs), inline: true },
                             { name: 'NSFW detection', value: `${nsfwModel ? '🟢 model loaded' : '🔴 not loaded'} — ${(securityConfig.nsfwThreshold * 100).toFixed(0)}% sensitivity, timeout ${formatDuration(securityConfig.nsfwTimeoutMs)}, quarantine after ${securityConfig.nsfwQuarantineAfter} in ${Math.round(securityConfig.nsfwWindowMs / 86400000)}d` },
+                            { name: 'Blocked adult domains', value: `${NSFW_DOMAIN_BLOCKLIST.length} built-in${securityConfig.nsfwExtraBlockedDomains?.length ? ` + ${securityConfig.nsfwExtraBlockedDomains.length} added: ${securityConfig.nsfwExtraBlockedDomains.map(d => `\`${d}\``).join(', ')}` : ''}` },
                         ],
                     }] });
                     return;
@@ -13896,10 +13970,17 @@ client.on('messageCreate', async (message) => {
 
     if (message.author.bot) return;
 
-    // ── NSFW image scan — runs first; the message is gone before anything else touches it ──
+    // ── NSFW image/link scan — runs first; the message is gone before anything else touches it ──
     if (message.guild && message.attachments?.size) {
         const handled = await checkMessageForNsfwContent(message).catch(e => {
             console.error('[Security] checkMessageForNsfwContent failed:', e.message);
+            return false;
+        });
+        if (handled) return;
+    }
+    if (message.guild && message.content) {
+        const handled = await checkMessageForNsfwLinks(message).catch(e => {
+            console.error('[Security] checkMessageForNsfwLinks failed:', e.message);
             return false;
         });
         if (handled) return;
