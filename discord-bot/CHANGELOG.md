@@ -1,5 +1,22 @@
 # Beast Bot Changelog
 
+## [2026-09-23] — Security overhaul: gradual access, spam containment, mod tools, reporting
+
+- **New permanent role `🔓 Verified`** (`MEDIA_UNLOCK_ROLE_ID`) — the actual permission gate Discord keys off, separate from the cosmetic `VOICE_RANK_ROLES` tiers (which are mutually exclusive and reset monthly, so they can't safely carry a permanent unlock)
+- **Media-unlock eligibility** (`checkMediaUnlockEligibility`, swept every 5 min via `sweepMediaUnlockEligibility`): grants `🔓 Verified` once a member hits the Silver I XP threshold (240, `securityConfig.xpThreshold`) AND has been in the server 72h+ (`securityConfig.minHours`) AND has qualifying activity on 3 separate days (`securityConfig.minDays`) — all three adjustable live via `/security config threshold`
+- **Decoupled rank-progression XP from the display message counter**: new `xpMessageDays` Map feeds `monthlyActivityScore()`'s message component (rate-limited: 1 XP-eligible message/min via `lastXpMessageAt`, no duplicate/copied content via `recentMessageContent`, frozen during an open restriction or Discord timeout). The pre-existing `messageDays`/`messageCounts` stay an unthrottled raw counter for `/rank`, `/profile`, the leaderboard, and message milestones — unchanged from before this update
+- **Automatic spam containment**, all funneled through one shared primitive `applySecurityRestriction()` (timeout + open a Firestore-backed case + deduplicated mod-channel alert via `postOrUpdateIncidentAlert`, never an auto-ban):
+  - Message flooding (5 msgs/10s, `spamMsgWindow`)
+  - Cross-channel duplicate spam incl. edits (3 msgs/2+ channels/30s, `dupContentTrack`, fed by both `messageCreate` and a new `messageUpdate` listener)
+  - Repeated AutoMod link blocks (3/60s, `automodBlockTrack`, fed by a new `autoModerationActionExecution` listener — first use of this event; added `AutoModerationConfiguration`/`AutoModerationExecution` gateway intents)
+  - Rapid join surge (5 joins/60s) — alert only, suggests `/security lockdown`, never automatic
+- **New `botConfig/securityCases` doc** (single aggregate, `saveSecurityCases`/`loadSecurityCases`, mirrors the existing `tempBans` pattern) — written immediately on every mutation, not batched into the 60s cycle, so a case survives a restart and a timeout's own expiry never erases it. `restrictedMembers` is derived from it (`rebuildRestrictedMembers`) and gates XP, media-unlock, and rejoin auto-restore
+- **New `botConfig/securityConfig`** (tunable thresholds, live-editable) and **`botConfig/securityLockdown`** (survives a mid-incident restart) docs
+- **New `/security` command**: `restrict`/`release`/`lockdown`/`restore`/`config` subcommands, gated by the existing `isModerator()` check. `applyLockdown`/`restoreLockdown` only touch the specific permission overwrite fields they set (`LOCKDOWN_PERMS`), so unrelated overwrite changes made mid-incident survive the restore
+- **New `/report` command + `Report Message` context-menu command** (first context-menu command in the bot — added `ContextMenuCommandBuilder`/`ApplicationCommandType` imports) — shared `submitReport()` helper posts to the mod channel only, never copies attachments; DM category gets extra block/report guidance. New `/privacy-tips` command
+- **New standalone script** `scripts/setup-security-permissions.js` — dry-run-first, creates the Verified role, edits `@everyone`/Verified guild permissions, audits+strips VIP/booster bypasses, reports (without changing) other roles carrying restricted permissions, creates the AutoMod link-block rule, grandfathers existing Silver I+ members. Run once by hand, not by the bot at runtime
+- `/user-info` now shows a member's security status (Verified / not yet unlocked / restricted + case ID)
+
 ## [2026-09-04] — Announcements v2: select menu (dropdown) block
 
 - Added `handleAnnounceSelect()` to handle `announce:select:<blockId>` string select interactions

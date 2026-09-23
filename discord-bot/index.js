@@ -28,6 +28,7 @@ const {
     UserFlags, GuildMemberFlags,
     ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
     MediaGalleryBuilder, MediaGalleryItemBuilder,
+    ContextMenuCommandBuilder, ApplicationCommandType,
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 try { GlobalFonts.loadFontsFromDir('/usr/share/fonts'); } catch (_) {}
@@ -344,10 +345,12 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔽 Announcement Select Menus', value: 'Announcements v2 can now include a real Discord dropdown. Options can assign/remove a role, record a response (RSVP/poll), show ephemeral page content (e.g. rules/FAQ sections), or just acknowledge.' },
-    { name: '🐛 Fixed /announce-draft not updating', value: 'A too-long command description was silently breaking slash command registration entirely. /announce-draft now correctly reflects the auto-image/auto-button update from the last release.' },
-    { name: '🎨 AI-generated announcement banners', value: 'No more pasting image URLs — every AI-drafted announcement now gets a free auto-generated banner image matching the announcement.' },
-    { name: '🔘 Smarter announcement buttons', value: 'Announcements about a Twitch/YouTube stream, game night, or movie night now automatically get the right button(s) — Twitch, YouTube, Join Voice Chat, or Join Movie Night.' },
+    { name: '🔒 New members start text-only', value: 'Unranked and Bronze members can chat normally but can\'t post attachments, links, GIFs, voice messages, or use threads/soundboard until they unlock 🔓 Verified.' },
+    { name: '🔓 Media unlock is now earned, not instant', value: 'Reaching Silver I unlocks media/links (in designated channels) once you\'ve also been here 72+ hours and chatted on 3 separate days — not just XP alone.' },
+    { name: '🛡️ Automatic spam containment', value: 'Message flooding, cross-channel copy-paste spam, and repeated blocked-link attempts now trigger a short automatic timeout and a staff alert — no more waiting for a mod to notice.' },
+    { name: '📮 New /report command + right-click "Report Message"', value: 'Privately report a member or message to staff — includes a category for unwanted DMs with guidance on blocking and reporting to Discord directly.' },
+    { name: '🔐 New /privacy-tips command', value: 'Shows you how to stop non-friends on this server from DMing you, a setting only you control.' },
+    { name: '🧰 New mod tools: /security', value: 'Mods can now restrict/release a member\'s access, or temporarily lock down public channels during an incident and restore them exactly afterward.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1542,6 +1545,8 @@ const client = new Client({
         GatewayIntentBits.GuildWebhooks,
         GatewayIntentBits.GuildInvites,
         GatewayIntentBits.GuildIntegrations,
+        GatewayIntentBits.AutoModerationConfiguration,
+        GatewayIntentBits.AutoModerationExecution,
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
 });
@@ -1587,6 +1592,12 @@ const bumpCounts    = new Map(); // userId → { weeks: { [weekKey]: count }, al
 //   The /vip command already builds the perk panel — it just has nothing to show yet.
 
 const VIP_ROLE_ID = '1521840170264039605';
+
+// ── Security / Media Unlock ───────────────────────────────────────────────────
+// Permanent, non-cosmetic role granted once a member passes the gradual-unlock
+// checks (see checkMediaUnlockEligibility). Never removed by monthly rank resets —
+// only by a mod restriction. Created by scripts/setup-security-permissions.js.
+const MEDIA_UNLOCK_ROLE_ID = process.env.MEDIA_UNLOCK_ROLE_ID || '';
 
 // Twitch roles assigned by Discord's native Twitch integration (Server Settings → Integrations → Twitch)
 // The generic "Twitch Subscriber" role is given to ALL tiers — treated as a Tier 1 fallback.
@@ -1697,6 +1708,64 @@ const voiceEnhancements  = new Map(); // userId → { camera: boolean, stream: b
 // ── Moderation ────────────────────────────────────────────────────────────────
 const infractions = new Map(); // userId → [{ type, reason, modId, timestamp }]
 const tempBans    = new Map(); // userId → { guildId, expiresAt, reason }
+
+// ── Security: gradual access + spam containment ───────────────────────────────
+// Distinct calendar days ("YYYY-MM-DD") with real, rate-limited, non-duplicate activity —
+// part of the media-unlock eligibility check alongside XP and account age.
+const qualifyingDays  = new Map(); // userId → Set<"YYYY-MM-DD">
+const mediaUnlocked   = new Map(); // userId → true (cache once MEDIA_UNLOCK_ROLE_ID is granted)
+const lastXpMessageAt = new Map(); // userId → timestamp (60s XP cooldown)
+const recentMessageContent = new Map(); // userId → [normalizedContent, ...] (last 5) — duplicate/copied-message XP guard
+// XP-eligible message days only (rate-limited + deduped) — feeds monthlyActivityScore and
+// media-unlock eligibility. Kept separate from messageDays/messageCounts, which stay an
+// unthrottled raw counter so /rank, /profile, the leaderboard, and message milestones keep
+// counting every message exactly like before this security update.
+const xpMessageDays = new Map(); // userId → Map<"YYYY-MM-DD", count>
+
+// caseId → { id, userId, guildId, reason, modId, status: 'restricted'|'released',
+//            createdAt, releasedAt, releasedBy, timeoutDurationMs, triggerSource: 'auto'|'manual' }
+const securityCases     = new Map();
+let   _securityCasesLoaded = false; // guards writes until Firestore load completes
+// userId → caseId — derived from securityCases, rebuilt on load/mutation. An open entry here
+// freezes XP/rank progression and blocks auto-granting the media-unlock role (including on rejoin).
+const restrictedMembers = new Map();
+
+// De-duplicates automatic containment alerts into one incident per member while it's open.
+// userId → { caseId, alertMessageId, reasons: Set<string>, messageIds: Set<string> }
+const openSecurityIncidents = new Map();
+
+// Tunable thresholds — defaults here, overridden at startup by botConfig/securityConfig and
+// live-updated by /security config so changes don't need a redeploy.
+let securityConfig = {
+    xpThreshold:        VOICE_RANK_ROLES[2].minXp, // Silver I
+    minHours:           72,
+    minDays:            3,
+    mediaChannelIds:    [],   // designated media/meme/gaming channels — set via /security config media-channel
+    lockdownChannelIds: [],   // default targets for /security lockdown when no channels are given
+    restrictDurationMs: 10 * 60 * 1000, // default auto-containment timeout
+    floodMsgCount:      5,    floodWindowMs:    10 * 1000,
+    dupMsgCount:         3,    dupWindowMs:      30 * 1000, dupChannelCount: 2,
+    automodCount:        3,    automodWindowMs:  60 * 1000,
+    joinSurgeCount:      5,    joinSurgeWindowMs: 60 * 1000,
+};
+
+// Spam-containment tracking — separate from the existing quarantine-oriented userActivityTrack,
+// since these are lighter/faster triggers feeding a 10-min timeout, not a full role-strip.
+const spamMsgWindow     = new Map(); // userId → [{ ts, channelId, messageId }] — flood trigger
+const dupContentTrack   = new Map(); // userId → [{ channelId, hash, ts, messageId }] — cross-channel duplicate trigger
+const automodBlockTrack = new Map(); // userId → [ts, ...] — repeated AutoMod link-block trigger
+let joinTimestamps      = [];        // rolling window of recent join times — surge trigger
+let _lastJoinSurgeAlertAt = 0;
+
+// Server-wide temporary lockdown state — persisted so a restart doesn't lose an in-progress incident.
+let lockdownState = {
+    active:          false,
+    channelIds:      [],
+    savedOverwrites: {}, // channelId → { roleId → { allow: string|null, deny: string|null } } (only the fields lockdown itself touched)
+    startedBy:       null,
+    startedAt:       null,
+    reason:          null,
+};
 
 // ── Counting game ─────────────────────────────────────────────────────────────
 let countingState = {
@@ -2076,6 +2145,217 @@ async function checkQuarantineExpiry() {
     }
 }
 
+// ── Security containment + media-unlock helpers ───────────────────────────────
+// Shared by /security restrict and every automatic spam-containment trigger, so mods and
+// automation produce the exact same durable, reviewable case.
+async function applySecurityRestriction(member, reason, { durationMs = securityConfig.restrictDurationMs, triggerSource = 'auto', modId = null } = {}) {
+    const guild  = member.guild;
+    const userId = member.id;
+    let timeoutOk = true;
+    try {
+        await member.timeout(Math.min(durationMs, 28 * 24 * 60 * 60 * 1000), reason);
+    } catch (e) {
+        timeoutOk = false;
+        console.error(`[Security] Failed to timeout ${member.user?.tag || userId}:`, e.message);
+        await sendLog(guild, buildLogEmbed({
+            color: 0xFF0000, user: member.user,
+            description: `⚠️ **Security containment failed** for <@${userId}> — could not apply timeout.\nReason: ${reason}\nError: ${e.message}`,
+        })).catch(() => {});
+    }
+
+    // Reuse an existing open case instead of opening a duplicate for the same member.
+    const existingCaseId = restrictedMembers.get(userId);
+    let caseObj = existingCaseId ? securityCases.get(existingCaseId) : null;
+    if (!caseObj) {
+        caseObj = {
+            id: makeCaseId(), userId, guildId: guild.id, reason, modId,
+            status: 'restricted', createdAt: Date.now(), releasedAt: null, releasedBy: null,
+            timeoutDurationMs: durationMs, triggerSource,
+        };
+        securityCases.set(caseObj.id, caseObj);
+        restrictedMembers.set(userId, caseObj.id);
+        await saveSecurityCases();
+    }
+
+    await postOrUpdateIncidentAlert(guild, member, caseObj, reason);
+    await sendLog(guild, buildLogEmbed({
+        color: 0xFF6B00, user: member.user,
+        description: modId
+            ? `🔒 <@${userId}> was **restricted** by <@${modId}>\nReason: ${reason}`
+            : `🔒 <@${userId}> was **auto-restricted**\nReason: ${reason}${timeoutOk ? '' : ' (timeout failed — see above)'}`,
+    })).catch(() => {});
+
+    return caseObj;
+}
+
+// Posts a fresh incident embed, or edits the existing one for this member — de-dupes
+// multiple automatic triggers firing for the same person into a single alert.
+async function postOrUpdateIncidentAlert(guild, member, caseObj, reason, extraMessageIds = []) {
+    if (!MOD_CHANNEL_ID) return;
+    const userId = member.id;
+    const modCh  = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
+    if (!modCh) return;
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`secrelease:${caseObj.id}`).setLabel('✅ Release').setStyle(ButtonStyle.Success),
+    );
+
+    let incident = openSecurityIncidents.get(userId);
+    if (incident && incident.caseId === caseObj.id) {
+        incident.reasons.add(reason);
+        for (const id of extraMessageIds) incident.messageIds.add(id);
+        try {
+            const msg = await modCh.messages.fetch(incident.alertMessageId);
+            await msg.edit({
+                embeds: [buildLogEmbed({
+                    color: 0xFF6B00, user: member.user,
+                    description: `🚨 <@${userId}> — **security incident** (case \`${caseObj.id}\`)\n` +
+                        [...incident.reasons].map(r => `• ${r}`).join('\n') +
+                        (incident.messageIds.size ? `\nMessages flagged: ${incident.messageIds.size}` : '') +
+                        `\n\nClick Release below once reviewed.`,
+                })],
+                components: [row],
+            });
+            return;
+        } catch (_) { /* alert message gone — fall through and post a new one */ }
+    }
+
+    const sent = await modCh.send({
+        embeds: [buildLogEmbed({
+            color: 0xFF6B00, user: member.user,
+            description: `🚨 <@${userId}> — **security incident** (case \`${caseObj.id}\`)\nReason: ${reason}\n\nClick Release below once reviewed.`,
+        })],
+        components: [row],
+    }).catch(() => null);
+    if (sent) {
+        openSecurityIncidents.set(userId, { caseId: caseObj.id, alertMessageId: sent.id, reasons: new Set([reason]), messageIds: new Set(extraMessageIds) });
+    }
+}
+
+async function releaseSecurityRestriction(guild, userId, reason, modId) {
+    const caseId  = restrictedMembers.get(userId);
+    const caseObj = caseId ? securityCases.get(caseId) : null;
+    if (!caseObj) return null;
+
+    caseObj.status        = 'released';
+    caseObj.releasedAt    = Date.now();
+    caseObj.releasedBy    = modId;
+    caseObj.releaseReason = reason;
+    restrictedMembers.delete(userId);
+    openSecurityIncidents.delete(userId);
+    await saveSecurityCases();
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member?.communicationDisabledUntilTimestamp && member.communicationDisabledUntilTimestamp > Date.now()) {
+        await member.timeout(null, reason || 'Security restriction released').catch(() => {});
+    }
+    const user = member?.user || await client.users.fetch(userId).catch(() => null) || { id: userId, tag: userId, username: userId, displayAvatarURL: () => '' };
+    await sendLog(guild, buildLogEmbed({
+        color: 0x00CC44, user,
+        description: `✅ <@${userId}> was **released** from security restriction${modId ? ` by <@${modId}>` : ''}\nReason: ${reason || 'No reason provided'}`,
+    })).catch(() => {});
+
+    // Re-check media-unlock now that the case is closed — they may already qualify.
+    if (member) checkMediaUnlockEligibility(member).catch(() => {});
+
+    return caseObj;
+}
+
+// ── Media unlock eligibility ──────────────────────────────────────────────────
+function hasMediaUnlock(member) {
+    return !!MEDIA_UNLOCK_ROLE_ID && member.roles.cache.has(MEDIA_UNLOCK_ROLE_ID);
+}
+
+async function checkMediaUnlockEligibility(member) {
+    if (!MEDIA_UNLOCK_ROLE_ID || member.user?.bot) return;
+    const userId = member.id;
+    if (mediaUnlocked.get(userId)) return;
+    if (member.roles.cache.has(MEDIA_UNLOCK_ROLE_ID)) { mediaUnlocked.set(userId, true); return; }
+    if (restrictedMembers.has(userId)) return; // open case — never auto-restore, even on rejoin
+    if (!member.joinedTimestamp) return;
+    if (Date.now() - member.joinedTimestamp < securityConfig.minHours * 3600 * 1000) return;
+    const days = qualifyingDays.get(userId);
+    if (!days || days.size < securityConfig.minDays) return;
+    if (monthlyActivityScore(userId) < securityConfig.xpThreshold) return;
+
+    try {
+        await member.roles.add(MEDIA_UNLOCK_ROLE_ID, 'Security: gradual-unlock eligibility met');
+        mediaUnlocked.set(userId, true);
+        console.log(`[Security] 🔓 Granted media unlock to ${member.user?.tag || userId}`);
+    } catch (e) {
+        console.error(`[Security] Failed to grant media unlock to ${userId}:`, e.message);
+    }
+}
+
+// Periodic sweep (every 5 min) — catches members who become time-eligible without a fresh
+// message (XP + days already met earlier, only the 72h clock needed to run out).
+async function sweepMediaUnlockEligibility(guild) {
+    if (!MEDIA_UNLOCK_ROLE_ID) return;
+    for (const [userId, days] of qualifyingDays) {
+        if (mediaUnlocked.get(userId)) continue;
+        if (days.size < securityConfig.minDays) continue;
+        const member = guild.members.cache.get(userId) || await guild.members.fetch(userId).catch(() => null);
+        if (!member || member.user.bot) continue;
+        await checkMediaUnlockEligibility(member);
+    }
+}
+
+// ── Lockdown / restore ────────────────────────────────────────────────────────
+// Only touches the specific overwrite fields it sets — restore re-applies exactly those
+// saved field values, so unrelated overwrite edits made mid-incident by a mod aren't clobbered.
+const LOCKDOWN_PERMS = ['SendMessages', 'SendMessagesInThreads', 'CreatePublicThreads'];
+
+async function applyLockdown(guild, channelIds, reason, modId) {
+    const everyoneId = guild.roles.everyone.id;
+    const applied = [];
+    for (const chId of channelIds) {
+        const ch = guild.channels.cache.get(chId) || await guild.channels.fetch(chId).catch(() => null);
+        if (!ch?.permissionOverwrites) continue;
+        const existing = ch.permissionOverwrites.cache.get(everyoneId);
+        const savedFields = {};
+        for (const perm of LOCKDOWN_PERMS) {
+            const flag = PermissionFlagsBits[perm];
+            savedFields[perm] = existing?.deny.has(flag) ? false : (existing?.allow.has(flag) ? true : null);
+        }
+        lockdownState.savedOverwrites[chId] = lockdownState.savedOverwrites[chId] || {};
+        lockdownState.savedOverwrites[chId][everyoneId] = savedFields;
+        await ch.permissionOverwrites.edit(everyoneId, {
+            SendMessages: false, SendMessagesInThreads: false, CreatePublicThreads: false,
+        }, { reason: `Lockdown: ${reason}` }).catch(e => console.error(`[Security] Lockdown edit failed for ${chId}:`, e.message));
+        applied.push(chId);
+    }
+    lockdownState.active     = true;
+    lockdownState.channelIds = [...new Set([...lockdownState.channelIds, ...applied])];
+    lockdownState.startedBy  = modId;
+    lockdownState.startedAt  = Date.now();
+    lockdownState.reason     = reason;
+    await saveLockdownState();
+    return applied;
+}
+
+async function restoreLockdown(guild) {
+    if (!lockdownState.active) return [];
+    const restored = [];
+    for (const chId of lockdownState.channelIds) {
+        const ch    = guild.channels.cache.get(chId) || await guild.channels.fetch(chId).catch(() => null);
+        const saved = lockdownState.savedOverwrites[chId];
+        if (!ch || !saved) continue;
+        for (const [roleId, fields] of Object.entries(saved)) {
+            await ch.permissionOverwrites.edit(roleId, fields, { reason: 'Lockdown restore' })
+                .catch(e => console.error(`[Security] Restore edit failed for ${chId}/${roleId}:`, e.message));
+        }
+        restored.push(chId);
+    }
+    lockdownState.active          = false;
+    lockdownState.channelIds      = [];
+    lockdownState.savedOverwrites = {};
+    lockdownState.startedBy       = null;
+    lockdownState.startedAt       = null;
+    lockdownState.reason          = null;
+    await saveLockdownState();
+    return restored;
+}
+
 async function postMemberSpotlight() {
     try {
         const channel = await client.channels.fetch(SPOTLIGHT_CHANNEL_ID);
@@ -2417,6 +2697,51 @@ function formatDuration(ms) {
     return `${Math.round(ms / 604800000)}w`;
 }
 
+// ── Reporting ──────────────────────────────────────────────────────────────
+// Shared by /report and the "Report Message" context-menu modal. Posts to the mod channel
+// only — never copies attachments, and the reporter's own reply is always ephemeral.
+const REPORT_CATEGORY_LABELS = {
+    harassment: 'Harassment or bullying',
+    spam:       'Spam or scam',
+    dm:         'Unwanted or inappropriate DM',
+    other:      'Other',
+};
+
+async function submitReport({ interaction, reporterId, targetId, targetTag, category, explanation, messageLink }) {
+    const guild = interaction.guild;
+    const modCh = MOD_CHANNEL_ID ? await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null) : null;
+    if (modCh) {
+        await modCh.send({
+            embeds: [{
+                color: 0xF59E0B,
+                title: '📮 New Report',
+                fields: [
+                    { name: 'Reported member', value: `<@${targetId}> (${targetTag})`, inline: true },
+                    { name: 'Category', value: REPORT_CATEGORY_LABELS[category] || category, inline: true },
+                    { name: 'Reporter', value: `<@${reporterId}>`, inline: true },
+                    { name: 'Explanation', value: explanation.slice(0, 1000) },
+                    ...(messageLink ? [{ name: 'Relevant message', value: messageLink }] : []),
+                ],
+                timestamp: new Date().toISOString(),
+                footer: { text: 'Visible only to staff. No attachments were copied.' },
+            }],
+        }).catch(() => {});
+    }
+    if (guild) {
+        await sendLog(guild, buildLogEmbed({
+            color: 0xF59E0B, user: interaction.user,
+            description: `📮 <@${reporterId}> filed a **report** about <@${targetId}> (${REPORT_CATEGORY_LABELS[category] || category})`,
+        })).catch(() => {});
+    }
+
+    let followUp = `✅ Your report was sent privately to staff. Only you and the mod team can see it.`;
+    if (category === 'dm') {
+        followUp += `\n\n**For unwanted DMs:** block the sender in Discord, and use Discord's own **Report** action directly on the DM — the bot can't see or act on DMs between other members.`;
+    }
+    followUp += `\n\nTip: run \`/privacy-tips\` any time to see how to stop non-friends from DMing you on this server.`;
+    await interaction.editReply(followUp);
+}
+
 // ── Infraction Firestore ──────────────────────────────────────────────────────
 
 async function loadInfractions() {
@@ -2527,6 +2852,98 @@ async function loadTempBans() {
     } catch (e) { console.error('[BeastBot] loadTempBans error:', e.message); }
 }
 
+// ── Security Cases Firestore (single aggregate doc — mirrors tempBans) ───────
+// Written immediately on every mutation (never batched into the 60s cycle) so a case
+// can't be lost to a mistimed restart, and a timeout's own expiry never erases it.
+
+function rebuildRestrictedMembers() {
+    restrictedMembers.clear();
+    for (const [id, c] of securityCases) {
+        if (c.status === 'restricted') restrictedMembers.set(c.userId, id);
+    }
+}
+
+async function saveSecurityCases() {
+    // Guard against overwriting Firestore with an incomplete list if a restriction fires
+    // before the startup load (loadSecurityCases) has finished populating securityCases.
+    if (!_securityCasesLoaded) return;
+    const list = [...securityCases.values()];
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/securityCases?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=list`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { list: { stringValue: JSON.stringify(list) } } }),
+        });
+    } catch (e) { console.error('[BeastBot] saveSecurityCases error:', e.message); }
+}
+
+async function loadSecurityCases() {
+    const data = await firestoreGet('botConfig', 'securityCases');
+    securityCases.clear();
+    if (data?.list) {
+        try {
+            const list = JSON.parse(data.list);
+            for (const c of list) securityCases.set(c.id, c);
+        } catch (e) { console.error('[BeastBot] loadSecurityCases parse error:', e.message); }
+    }
+    rebuildRestrictedMembers();
+    _securityCasesLoaded = true;
+    console.log(`[BeastBot] Security cases loaded — ${securityCases.size} total, ${restrictedMembers.size} currently restricted`);
+}
+
+function makeCaseId() {
+    return `case${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+// ── Security Config Firestore (tunable thresholds — live-editable via /security config) ──
+
+async function saveSecurityConfig() {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/securityConfig?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=data`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { data: { stringValue: JSON.stringify(securityConfig) } } }),
+        });
+    } catch (e) { console.error('[BeastBot] saveSecurityConfig error:', e.message); }
+}
+
+async function loadSecurityConfig() {
+    const data = await firestoreGet('botConfig', 'securityConfig');
+    if (data?.data) {
+        try {
+            const parsed = JSON.parse(data.data);
+            securityConfig = { ...securityConfig, ...parsed };
+        } catch (e) { console.error('[BeastBot] loadSecurityConfig parse error:', e.message); }
+    }
+    console.log(`[BeastBot] Security config loaded — xpThreshold=${securityConfig.xpThreshold} minHours=${securityConfig.minHours} minDays=${securityConfig.minDays} mediaChannels=${securityConfig.mediaChannelIds.length}`);
+}
+
+// ── Lockdown state Firestore (survives restarts mid-incident) ────────────────
+
+async function saveLockdownState() {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/botConfig/securityLockdown?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=data`;
+    try {
+        await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: { data: { stringValue: JSON.stringify(lockdownState) } } }),
+        });
+    } catch (e) { console.error('[BeastBot] saveLockdownState error:', e.message); }
+}
+
+async function loadLockdownState() {
+    const data = await firestoreGet('botConfig', 'securityLockdown');
+    if (data?.data) {
+        try {
+            const parsed = JSON.parse(data.data);
+            lockdownState = { ...lockdownState, ...parsed };
+        } catch (e) { console.error('[BeastBot] loadLockdownState parse error:', e.message); }
+    }
+    if (lockdownState.active) console.log(`[BeastBot] ⚠️ Lockdown was active before restart — ${lockdownState.channelIds.length} channel(s), reason: ${lockdownState.reason}`);
+}
+
 async function saveMessageDays(userId, daysMap) {
     const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT}/databases/(default)/documents/messageCounts/${userId}?key=${FIREBASE_API_KEY}&updateMask.fieldPaths=days`;
     const dayFields = {};
@@ -2635,6 +3052,17 @@ function buildFullBackup() {
     const quarantine = {};
     for (const [uid, d] of quarantinedUsers) quarantine[uid] = { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: d.responded, roles: d.roles || [] };
 
+    const qd = {};
+    for (const [uid, days] of qualifyingDays) if (days.size > 0) qd[uid] = [...days];
+    const mu = {};
+    for (const [uid, unlocked] of mediaUnlocked) if (unlocked) mu[uid] = true;
+    const xmd = {};
+    for (const [uid, dMap] of xpMessageDays) {
+        const obj = {};
+        for (const [day, cnt] of dMap) if (cnt > 0) obj[day] = cnt;
+        if (Object.keys(obj).length) xmd[uid] = obj;
+    }
+
     return {
         savedAt: new Date().toISOString(),
         voiceMinutes: vm,
@@ -2682,6 +3110,9 @@ function buildFullBackup() {
             }
             return { weekKey, weekCounts: weeks, allTimeCounts: allTime, kingUserId: bumpKingUserId ?? null };
         })(),
+        qualifyingDays: qd,
+        mediaUnlocked:  mu,
+        xpMessageDays:  xmd,
     };
 }
 
@@ -2988,6 +3419,24 @@ function applyBackupToMemory(data) {
     for (const [uid, d] of Object.entries(data.quarantine || {})) {
         if (!d.responded) quarantinedUsers.set(uid, { timestamp: d.timestamp, guildId: d.guildId, reason: d.reason, responded: false, roles: d.roles || [] });
     }
+    // Media-unlock progress (qualifying days + granted flag) — eventual durability is fine here,
+    // same tier as XP itself. Restriction state is NOT here — see loadSecurityCases (durable, immediate).
+    qualifyingDays.clear();
+    for (const [uid, days] of Object.entries(data.qualifyingDays || {})) {
+        if (Array.isArray(days) && days.length) qualifyingDays.set(uid, new Set(days));
+    }
+    mediaUnlocked.clear();
+    for (const [uid, unlocked] of Object.entries(data.mediaUnlocked || {})) {
+        if (unlocked) mediaUnlocked.set(uid, true);
+    }
+    // XP-eligible message days (rate-limited/deduped) — separate from the raw messageDays restored
+    // above via the normal Object.entries(data.messageDays) block, unaffected by this change.
+    xpMessageDays.clear();
+    for (const [uid, days] of Object.entries(data.xpMessageDays || {})) {
+        const dMap = new Map();
+        for (const [day, cnt] of Object.entries(days)) dMap.set(day, cnt);
+        if (dMap.size) xpMessageDays.set(uid, dMap);
+    }
     // Unscramble all-time scores
     unscrambleScores.clear();
     for (const [uid, score] of Object.entries(data.unscrambleScores || {})) {
@@ -3142,19 +3591,54 @@ function getTotal(daysMap, total, period) {
 
 async function checkMessageMilestone(message) {
     const userId = message.author.id;
+    const member = message.member;
+    const now    = Date.now();
+    const today  = todayStr();
+
+    // ── Raw counter — always increments, exactly like before this security update.
+    // Powers /rank, /profile, the leaderboard, and message milestones below.
     const count  = (messageCounts.get(userId) || 0) + 1;
     messageCounts.set(userId, count);
-
-    // Update daily message count
-    const today = todayStr();
     let dMap = messageDays.get(userId);
     if (!dMap) { dMap = new Map(); messageDays.set(userId, dMap); }
     dMap.set(today, (dMap.get(today) ?? 0) + 1);
 
+    // ── XP-eligible counter — separate, rate-limited/deduped, feeds rank progression AND
+    // media-unlock eligibility via monthlyActivityScore(). Freezes during an open security
+    // restriction or an active Discord timeout ("freeze progression", not the raw stats above).
+    const isFrozen = restrictedMembers.has(userId) ||
+        (member?.communicationDisabledUntilTimestamp && member.communicationDisabledUntilTimestamp > now);
+    if (!isFrozen && now - (lastXpMessageAt.get(userId) ?? 0) >= 60_000) {
+        const normalized = message.content.trim().toLowerCase().replace(/\s+/g, ' ');
+        let isDuplicate = false;
+        if (normalized) {
+            const recent = recentMessageContent.get(userId) || [];
+            isDuplicate = recent.includes(normalized);
+            if (!isDuplicate) {
+                recent.push(normalized);
+                if (recent.length > 5) recent.shift();
+                recentMessageContent.set(userId, recent);
+            }
+        }
+        if (!isDuplicate) {
+            lastXpMessageAt.set(userId, now);
+
+            let xpDMap = xpMessageDays.get(userId);
+            if (!xpDMap) { xpDMap = new Map(); xpMessageDays.set(userId, xpDMap); }
+            xpDMap.set(today, (xpDMap.get(today) ?? 0) + 1);
+
+            // Record a qualifying day for media-unlock eligibility, then check it.
+            let qDays = qualifyingDays.get(userId);
+            if (!qDays) { qDays = new Set(); qualifyingDays.set(userId, qDays); }
+            qDays.add(today);
+            if (member) checkMediaUnlockEligibility(member).catch(() => {});
+        }
+    }
+
     // Every 10 messages: sync rank (messages contribute to activity score)
     // Data persisted via Discord backup every 60s — no per-message Firestore writes
     if (count % 10 === 0) {
-        if (message.member) assignVoiceRank(message.member, monthlyActivityScore(userId)).catch(() => {});
+        if (member) assignVoiceRank(member, monthlyActivityScore(userId)).catch(() => {});
     }
 
     const idx = MILESTONE_THRESHOLDS.indexOf(count);
@@ -4139,14 +4623,15 @@ function getXpMultiplier(uid) {
 function monthlyActivityScore(userId) {
     // Flush live session so the score always reflects current earned minutes
     if (voiceStartTimes.has(userId)) creditVoiceTime(userId);
-    const vcData = voiceMinutes.get(userId)  || { total: 0, days: new Map() };
-    const bData  = voiceBonusXp.get(userId)  || { total: 0, days: new Map() };
-    const dMap   = messageDays.get(userId)   || new Map();
-    const mCount = messageCounts.get(userId) || 0;
-    const rMap   = reactionDays.get(userId)  || new Map();
+    const vcData = voiceMinutes.get(userId)   || { total: 0, days: new Map() };
+    const bData  = voiceBonusXp.get(userId)   || { total: 0, days: new Map() };
+    // XP-eligible message days only (rate-limited/deduped) — NOT the raw messageDays/messageCounts
+    // counter, which stays unthrottled for /rank, /profile, the leaderboard, and milestones.
+    const xpDMap = xpMessageDays.get(userId)  || new Map();
+    const rMap   = reactionDays.get(userId)   || new Map();
     return getTotal(vcData.days, vcData.total, 'month')
          + getTotal(bData.days, bData.total, 'month')
-         + getTotal(dMap, mCount, 'month') * MSGS_TO_MIN
+         + getTotal(xpDMap, 0, 'month') * MSGS_TO_MIN
          + getTotal(rMap, 0, 'month');
 }
 
@@ -5677,6 +6162,7 @@ client.once('clientReady', async () => {
         setInterval(() => checkWeeklyBumpReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkUnscrambleWeeklyReset(guild).catch(() => {}), 60 * 60 * 1000);
         setInterval(() => checkQuarantineExpiry().catch(() => {}), 5 * 60 * 1000); // check every 5 min
+        setInterval(() => sweepMediaUnlockEligibility(guild).catch(() => {}), 5 * 60 * 1000); // check every 5 min
     setInterval(() => checkAnnounceSchedule().catch(() => {}), 60 * 60 * 1000); // check every hour
         pushDiscordWidget().catch(() => {});
         setInterval(() => pushDiscordWidget().catch(() => {}), 15 * 60 * 1000);
@@ -5890,6 +6376,78 @@ client.once('clientReady', async () => {
             new SlashCommandBuilder()
                 .setName('clear-all-infractions')
                 .setDescription('(Mod only) Clear all infractions for every member'),
+            // ── Security toolkit ─────────────────────────────────────────────
+            new SlashCommandBuilder()
+                .setName('security')
+                .setDescription('(Mod only) Gradual-access security toolkit')
+                .addSubcommand(sub => sub
+                    .setName('restrict')
+                    .setDescription('Timeout a member, freeze their progression, and open a case')
+                    .addUserOption(opt => opt.setName('member').setDescription('Member to restrict').setRequired(true))
+                    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true))
+                    .addStringOption(opt => opt.setName('duration').setDescription('Timeout duration e.g. 10m, 1h, 1d (default 10m)')))
+                .addSubcommand(sub => sub
+                    .setName('release')
+                    .setDescription('Remove a security restriction after review')
+                    .addUserOption(opt => opt.setName('member').setDescription('Member to release').setRequired(true))
+                    .addStringOption(opt => opt.setName('reason').setDescription('Reason')))
+                .addSubcommand(sub => sub
+                    .setName('lockdown')
+                    .setDescription('Temporarily stop ordinary posting in public channels')
+                    .addStringOption(opt => opt.setName('reason').setDescription('Reason').setRequired(true))
+                    .addChannelOption(opt => opt.setName('channel1').setDescription('Channel to lock (defaults to the configured list)'))
+                    .addChannelOption(opt => opt.setName('channel2').setDescription('Additional channel to lock'))
+                    .addChannelOption(opt => opt.setName('channel3').setDescription('Additional channel to lock')))
+                .addSubcommand(sub => sub
+                    .setName('restore')
+                    .setDescription('Restore permissions changed by the active lockdown'))
+                .addSubcommandGroup(group => group
+                    .setName('config')
+                    .setDescription('Tune security thresholds — adjustable without a redeploy')
+                    .addSubcommand(sub => sub
+                        .setName('media-channel')
+                        .setDescription('Add/remove a designated media/meme/gaming channel')
+                        .addStringOption(opt => opt.setName('action').setDescription('Add or remove').setRequired(true)
+                            .addChoices({ name: 'Add', value: 'add' }, { name: 'Remove', value: 'remove' }))
+                        .addChannelOption(opt => opt.setName('channel').setDescription('Channel').setRequired(true)))
+                    .addSubcommand(sub => sub
+                        .setName('lockdown-channel')
+                        .setDescription('Add/remove a default /security lockdown target channel')
+                        .addStringOption(opt => opt.setName('action').setDescription('Add or remove').setRequired(true)
+                            .addChoices({ name: 'Add', value: 'add' }, { name: 'Remove', value: 'remove' }))
+                        .addChannelOption(opt => opt.setName('channel').setDescription('Channel').setRequired(true)))
+                    .addSubcommand(sub => sub
+                        .setName('threshold')
+                        .setDescription('Adjust a media-unlock threshold')
+                        .addStringOption(opt => opt.setName('type').setDescription('Which threshold').setRequired(true)
+                            .addChoices(
+                                { name: 'XP (Silver I default)', value: 'xp' },
+                                { name: 'Hours in server', value: 'hours' },
+                                { name: 'Distinct active days', value: 'days' },
+                            ))
+                        .addIntegerOption(opt => opt.setName('value').setDescription('New value').setRequired(true).setMinValue(0)))
+                    .addSubcommand(sub => sub
+                        .setName('show')
+                        .setDescription('Show the current security config'))),
+            new SlashCommandBuilder()
+                .setName('report')
+                .setDescription('Privately report a member to staff')
+                .addUserOption(opt => opt.setName('member').setDescription('Who are you reporting?').setRequired(true))
+                .addStringOption(opt => opt.setName('category').setDescription('Category').setRequired(true)
+                    .addChoices(
+                        { name: 'Harassment or bullying', value: 'harassment' },
+                        { name: 'Spam or scam', value: 'spam' },
+                        { name: 'Unwanted or inappropriate DM', value: 'dm' },
+                        { name: 'Other', value: 'other' },
+                    ))
+                .addStringOption(opt => opt.setName('explanation').setDescription('What happened?').setRequired(true).setMaxLength(1000))
+                .addStringOption(opt => opt.setName('message_link').setDescription('Link or ID of a relevant message (optional)')),
+            new SlashCommandBuilder()
+                .setName('privacy-tips')
+                .setDescription('How to control who can DM you on this server'),
+            new ContextMenuCommandBuilder()
+                .setName('Report Message')
+                .setType(ApplicationCommandType.Message),
             new SlashCommandBuilder()
                 .setName('clear')
                 .setDescription('Delete messages in a channel')
@@ -6221,6 +6779,11 @@ client.once('clientReady', async () => {
     // Load infractions + temp bans
     await loadInfractions();
     await loadTempBans();
+
+    // Load security cases, tunable config, and any in-progress lockdown
+    await loadSecurityCases();
+    await loadSecurityConfig();
+    await loadLockdownState();
 
     // Clean up daily snapshots older than 14 days
     cleanupOldSnapshots().catch(e => console.error('[BeastBot] Snapshot cleanup failed:', e.message));
@@ -9242,6 +9805,64 @@ client.on('interactionCreate', async (interaction) => {
         return handleRolePick(interaction);
     }
 
+    // ── Security: mod-channel Release button ──────────────────────────────────
+    if (interaction.isButton() && interaction.customId.startsWith('secrelease:')) {
+        if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+        const caseId  = interaction.customId.slice('secrelease:'.length);
+        const caseObj = securityCases.get(caseId);
+        if (!caseObj) { await interaction.reply({ content: '❌ Case not found (may already be released).', flags: 64 }); return; }
+        await interaction.deferUpdate();
+        await releaseSecurityRestriction(interaction.guild, caseObj.userId, 'Released via mod-channel button', interaction.user.id);
+        await interaction.message.edit({ components: [] }).catch(() => {});
+        await interaction.followUp({ content: `✅ Released <@${caseObj.userId}>.`, flags: 64 }).catch(() => {});
+        return;
+    }
+
+    // ── Security: "Report Message" context-menu command opens a modal ────────
+    if (interaction.isMessageContextMenuCommand() && interaction.commandName === 'Report Message') {
+        const msg = interaction.targetMessage;
+        const modal = new ModalBuilder()
+            .setCustomId(`report_modal:${msg.author.id}:${msg.id}`)
+            .setTitle('Report this message')
+            .addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('category')
+                        .setLabel('Category: harassment, spam, dm, or other')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('harassment / spam / dm / other')
+                        .setRequired(true),
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                        .setCustomId('explanation')
+                        .setLabel('What happened?')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setMaxLength(1000)
+                        .setRequired(true),
+                ),
+            );
+        await interaction.showModal(modal);
+        return;
+    }
+
+    // ── Security: report-modal submit ─────────────────────────────────────────
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('report_modal:')) {
+        const [, targetId, msgId] = interaction.customId.split(':');
+        const categoryRaw  = interaction.fields.getTextInputValue('category').trim().toLowerCase();
+        const category     = ['harassment', 'spam', 'dm', 'other'].includes(categoryRaw) ? categoryRaw : 'other';
+        const explanation  = interaction.fields.getTextInputValue('explanation');
+        const targetUser   = await client.users.fetch(targetId).catch(() => null);
+        const messageLink  = interaction.guildId ? `https://discord.com/channels/${interaction.guildId}/${interaction.channelId}/${msgId}` : null;
+        await interaction.deferReply({ flags: 64 });
+        await submitReport({
+            interaction, reporterId: interaction.user.id, targetId,
+            targetTag: targetUser?.tag || targetUser?.username || targetId,
+            category, explanation, messageLink,
+        });
+        return;
+    }
+
     // ── Slash commands ───────────────────────────────────────────────────────
     if (interaction.isChatInputCommand()) {
 
@@ -11044,6 +11665,155 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        // ── /security ────────────────────────────────────────────────────────
+        if (interaction.commandName === 'security') {
+            if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
+            const group = interaction.options.getSubcommandGroup(false);
+            const sub   = interaction.options.getSubcommand();
+
+            if (group === 'config') {
+                await interaction.deferReply({ flags: 64 });
+                if (sub === 'media-channel' || sub === 'lockdown-channel') {
+                    const action  = interaction.options.getString('action');
+                    const channel = interaction.options.getChannel('channel');
+                    const list    = sub === 'media-channel' ? 'mediaChannelIds' : 'lockdownChannelIds';
+                    if (action === 'add') {
+                        if (!securityConfig[list].includes(channel.id)) securityConfig[list].push(channel.id);
+                    } else {
+                        securityConfig[list] = securityConfig[list].filter(id => id !== channel.id);
+                    }
+                    await saveSecurityConfig();
+                    const note = sub === 'media-channel'
+                        ? `\n\n⚠️ This only tracks the list — remember to also grant \`Attach Files\`/\`Embed Links\` to \`🔓 Verified\` on that channel's permission overwrites in Discord.`
+                        : '';
+                    await interaction.editReply(`✅ ${action === 'add' ? 'Added' : 'Removed'} <#${channel.id}> ${action === 'add' ? 'to' : 'from'} the ${sub === 'media-channel' ? 'designated media channels' : 'default lockdown channels'} list.${note}`);
+                    return;
+                }
+                if (sub === 'threshold') {
+                    const type  = interaction.options.getString('type');
+                    const value = interaction.options.getInteger('value');
+                    if (type === 'xp')    securityConfig.xpThreshold = value;
+                    if (type === 'hours') securityConfig.minHours    = value;
+                    if (type === 'days')  securityConfig.minDays     = value;
+                    await saveSecurityConfig();
+                    await interaction.editReply(`✅ Updated **${type}** threshold to **${value}**.`);
+                    return;
+                }
+                if (sub === 'show') {
+                    await interaction.editReply({ embeds: [{
+                        color: 0x3b82f6,
+                        title: 'Security config',
+                        fields: [
+                            { name: 'XP threshold', value: String(securityConfig.xpThreshold), inline: true },
+                            { name: 'Min hours in server', value: String(securityConfig.minHours), inline: true },
+                            { name: 'Min distinct active days', value: String(securityConfig.minDays), inline: true },
+                            { name: 'Media channels', value: securityConfig.mediaChannelIds.length ? securityConfig.mediaChannelIds.map(id => `<#${id}>`).join(', ') : '*none set*' },
+                            { name: 'Lockdown channels (default)', value: securityConfig.lockdownChannelIds.length ? securityConfig.lockdownChannelIds.map(id => `<#${id}>`).join(', ') : '*none set*' },
+                            { name: 'Flood trigger', value: `${securityConfig.floodMsgCount} msgs / ${Math.round(securityConfig.floodWindowMs / 1000)}s`, inline: true },
+                            { name: 'Duplicate-spam trigger', value: `${securityConfig.dupMsgCount} msgs / ${securityConfig.dupChannelCount}+ channels / ${Math.round(securityConfig.dupWindowMs / 1000)}s`, inline: true },
+                            { name: 'AutoMod-block trigger', value: `${securityConfig.automodCount} blocks / ${Math.round(securityConfig.automodWindowMs / 1000)}s`, inline: true },
+                            { name: 'Join-surge trigger', value: `${securityConfig.joinSurgeCount} joins / ${Math.round(securityConfig.joinSurgeWindowMs / 1000)}s`, inline: true },
+                            { name: 'Default restrict duration', value: formatDuration(securityConfig.restrictDurationMs), inline: true },
+                        ],
+                    }] });
+                    return;
+                }
+                return;
+            }
+
+            if (sub === 'restrict') {
+                await interaction.deferReply({ flags: 64 });
+                const member = interaction.options.getMember('member');
+                const reason = interaction.options.getString('reason');
+                const durStr = interaction.options.getString('duration');
+                if (!member) { await interaction.editReply('❌ User not found in server.'); return; }
+                const durationMs = durStr ? parseDuration(durStr) : securityConfig.restrictDurationMs;
+                if (durStr && !durationMs) { await interaction.editReply('❌ Invalid duration. Use e.g. `10m`, `1h`, `1d`.'); return; }
+                try {
+                    const caseObj = await applySecurityRestriction(member, reason, { durationMs, triggerSource: 'manual', modId: interaction.user.id });
+                    await interaction.editReply(`✅ **${member.user.tag || member.user.username}** was restricted for ${formatDuration(durationMs)}. Case \`${caseObj.id}\`${MOD_CHANNEL_ID ? ` opened in <#${MOD_CHANNEL_ID}>` : ''}.`);
+                } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+                return;
+            }
+
+            if (sub === 'release') {
+                await interaction.deferReply({ flags: 64 });
+                const target  = interaction.options.getUser('member');
+                const reason  = interaction.options.getString('reason') || 'Reviewed by staff';
+                try {
+                    const caseObj = await releaseSecurityRestriction(interaction.guild, target.id, reason, interaction.user.id);
+                    if (!caseObj) { await interaction.editReply(`⚠️ **${target.tag || target.username}** has no open security restriction.`); return; }
+                    await interaction.editReply(`✅ **${target.tag || target.username}** was released. Case \`${caseObj.id}\` closed.`);
+                } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+                return;
+            }
+
+            if (sub === 'lockdown') {
+                await interaction.deferReply({ flags: 64 });
+                const reason   = interaction.options.getString('reason');
+                const explicit = [1, 2, 3].map(n => interaction.options.getChannel(`channel${n}`)).filter(Boolean).map(c => c.id);
+                const targets  = explicit.length ? explicit : securityConfig.lockdownChannelIds;
+                if (targets.length === 0) { await interaction.editReply('❌ No channels specified and no default lockdown channels configured — use `/security config lockdown-channel add` first, or pass channels directly.'); return; }
+                try {
+                    const applied = await applyLockdown(interaction.guild, targets, reason, interaction.user.id);
+                    await sendLog(interaction.guild, buildLogEmbed({
+                        color: 0xFF0000, user: interaction.user,
+                        description: `🔒 **Lockdown started** by <@${interaction.user.id}> on ${applied.map(id => `<#${id}>`).join(', ')}\nReason: ${reason}`,
+                    })).catch(() => {});
+                    await interaction.editReply(`✅ Locked down ${applied.map(id => `<#${id}>`).join(', ') || '(none — check channel permissions)'}. Run \`/security restore\` once the incident is resolved.`);
+                } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+                return;
+            }
+
+            if (sub === 'restore') {
+                await interaction.deferReply({ flags: 64 });
+                if (!lockdownState.active) { await interaction.editReply('⚠️ No active lockdown to restore.'); return; }
+                try {
+                    const restored = await restoreLockdown(interaction.guild);
+                    await sendLog(interaction.guild, buildLogEmbed({
+                        color: 0x00CC44, user: interaction.user,
+                        description: `🔓 **Lockdown restored** by <@${interaction.user.id}> on ${restored.map(id => `<#${id}>`).join(', ')}`,
+                    })).catch(() => {});
+                    await interaction.editReply(`✅ Restored permissions on ${restored.map(id => `<#${id}>`).join(', ') || '(none)'}.`);
+                } catch (e) { await interaction.editReply(`❌ Failed: ${e.message}`); }
+                return;
+            }
+            return;
+        }
+
+        // ── /report ──────────────────────────────────────────────────────────
+        if (interaction.commandName === 'report') {
+            const target      = interaction.options.getUser('member');
+            const category    = interaction.options.getString('category');
+            const explanation = interaction.options.getString('explanation');
+            const messageLink = interaction.options.getString('message_link') || null;
+            await interaction.deferReply({ flags: 64 });
+            await submitReport({
+                interaction, reporterId: interaction.user.id, targetId: target.id,
+                targetTag: target.tag || target.username,
+                category, explanation, messageLink,
+            });
+            return;
+        }
+
+        // ── /privacy-tips ────────────────────────────────────────────────────
+        if (interaction.commandName === 'privacy-tips') {
+            await interaction.reply({
+                embeds: [{
+                    color: 0x3b82f6,
+                    title: '🔒 Controlling who can DM you here',
+                    description:
+                        `Discord lets you block **direct messages from other members of this server** while still allowing messages from friends.\n\n` +
+                        `**Desktop/web:** right-click the server icon → **Privacy Settings** → turn off **"Allow direct messages from server members"**.\n` +
+                        `**Mobile:** tap the server icon → the settings/shield icon → **Privacy Settings** → same toggle.\n\n` +
+                        `This is a setting only you control — the bot can't see or change it for you, and it can't read DMs between other members.\n\n` +
+                        `If someone DMs you something unwanted: **block them**, use Discord's own **Report** action on the DM, and feel free to also run \`/report\` here so staff are aware.`,
+                }],
+                flags: 64,
+            });
+            return;
+        }
+
         // ── /clear ────────────────────────────────────────────────────────────
         if (interaction.commandName === 'clear') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
@@ -11160,6 +11930,12 @@ client.on('interactionCreate', async (interaction) => {
             const member = interaction.guild.members.cache.get(target.id);
             const avatarUrl = target.displayAvatarURL({ size: 256, extension: 'png' });
             const roles = member?.roles?.cache?.filter(r => r.name !== '@everyone').map(r => `<@&${r.id}>`).join(', ') || 'None';
+            const openCaseId = restrictedMembers.get(target.id);
+            const securityField = member
+                ? (openCaseId
+                    ? `🔒 Restricted (case \`${openCaseId}\`)`
+                    : `${hasMediaUnlock(member) ? '🔓 Verified' : '🔐 Not yet unlocked'}`)
+                : 'Not in server';
             await interaction.reply({ embeds: [{
                 color: LOG_COLORS.info,
                 author: { name: target.username || target.tag, icon_url: avatarUrl },
@@ -11171,6 +11947,7 @@ client.on('interactionCreate', async (interaction) => {
                     { name: 'Joined Server', value: member ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>` : 'Not in server', inline: true },
                     { name: 'Nickname', value: member?.nickname || 'None', inline: true },
                     { name: 'Bot', value: target.bot ? 'Yes' : 'No', inline: true },
+                    { name: 'Security status', value: securityField, inline: true },
                     { name: 'Roles', value: roles.slice(0, 1024) || 'None' },
                 ],
                 timestamp: new Date().toISOString(),
@@ -12973,6 +13750,10 @@ client.on('messageCreate', async (message) => {
 
     if (message.author.bot) return;
 
+    // Set by the automatic spam-containment triggers below — when true, this message was
+    // part of a flagged incident, so it's skipped for XP ("ignore blocked/deleted spam").
+    let containmentTriggered = false;
+
     // ── Quarantine: mark as responded / detect unusual activity ──────────────
     if (message.guild) {
         const uid = message.author.id;
@@ -13073,6 +13854,43 @@ client.on('messageCreate', async (message) => {
             // Clean up tracking for long-idle users
             if (track.msgs.length === 0 && now - track.mentionWindowStart > 10 * 60 * 1000) {
                 userActivityTrack.delete(uid);
+            }
+
+            // ── Automatic spam containment (light/fast: timeout + alert, not full quarantine) ──
+            // Only runs if the heavier quarantine checks above didn't already act on this message.
+            if (!quarantinedUsers.has(uid) && !restrictedMembers.has(uid)) {
+                // Trigger: N messages within a short window (default 5/10s)
+                let flood = spamMsgWindow.get(uid) || [];
+                flood = flood.filter(m => now - m.ts < securityConfig.floodWindowMs);
+                flood.push({ ts: now, channelId: message.channelId, messageId: message.id });
+                spamMsgWindow.set(uid, flood);
+                if (flood.length >= securityConfig.floodMsgCount) {
+                    containmentTriggered = true;
+                    spamMsgWindow.delete(uid);
+                    await applySecurityRestriction(message.member,
+                        `Message flooding: ${flood.length} messages within ${Math.round(securityConfig.floodWindowMs / 1000)}s`,
+                        { triggerSource: 'auto' }).catch(() => {});
+                }
+
+                // Trigger: N near-identical messages across 2+ channels within a short window
+                if (!containmentTriggered) {
+                    const normalizedDup = message.content.trim().toLowerCase().replace(/\s+/g, ' ');
+                    if (normalizedDup) {
+                        let dup = dupContentTrack.get(uid) || [];
+                        dup = dup.filter(m => now - m.ts < securityConfig.dupWindowMs);
+                        dup.push({ ts: now, channelId: message.channelId, hash: normalizedDup, messageId: message.id });
+                        dupContentTrack.set(uid, dup);
+                        const matching = dup.filter(m => m.hash === normalizedDup);
+                        const distinctChannels = new Set(matching.map(m => m.channelId));
+                        if (matching.length >= securityConfig.dupMsgCount && distinctChannels.size >= securityConfig.dupChannelCount) {
+                            containmentTriggered = true;
+                            dupContentTrack.delete(uid);
+                            await applySecurityRestriction(message.member,
+                                `Cross-channel duplicate spam: ${matching.length} identical messages across ${distinctChannels.size} channels`,
+                                { triggerSource: 'auto' }).catch(() => {});
+                        }
+                    }
+                }
             }
         }
     }
@@ -13217,8 +14035,8 @@ client.on('messageCreate', async (message) => {
             return;
         }
 
-        // Track message count for milestones
-        await checkMessageMilestone(message);
+        // Track message count for milestones — skipped if this message triggered spam containment above
+        if (!containmentTriggered) await checkMessageMilestone(message);
     }
 
     // ── Owner DMs — active answering session ─────────────────────────────────
@@ -13542,6 +14360,31 @@ client.on('guildMemberAdd', async (member) => {
         description: `📥 <@${user.id}> **joined the server**\n**Account creation**\n${ageStr}`,
     }));
 
+    // ── Rapid join surge detection — alert only, never an automatic mass ban ─────
+    const nowJoin = Date.now();
+    joinTimestamps = joinTimestamps.filter(ts => nowJoin - ts < securityConfig.joinSurgeWindowMs);
+    joinTimestamps.push(nowJoin);
+    if (joinTimestamps.length >= securityConfig.joinSurgeCount && nowJoin - _lastJoinSurgeAlertAt > securityConfig.joinSurgeWindowMs) {
+        _lastJoinSurgeAlertAt = nowJoin;
+        if (MOD_CHANNEL_ID) {
+            const modCh = await client.channels.fetch(MOD_CHANNEL_ID).catch(() => null);
+            if (modCh) {
+                await modCh.send({
+                    content: MOD_ROLE_ID ? `<@&${MOD_ROLE_ID}>` : undefined,
+                    embeds: [{
+                        color: 0xFF0000,
+                        title: '🚨 Rapid join surge detected',
+                        description: `**${joinTimestamps.length} members joined** in the last ${Math.round(securityConfig.joinSurgeWindowMs / 1000)}s.\n\nConsider running \`/security lockdown\` if this looks like a raid. No automatic action has been taken.`,
+                        timestamp: new Date().toISOString(),
+                    }],
+                }).catch(() => {});
+            }
+        }
+    }
+
+    // Restriction survives rejoin — never silently re-grant media unlock to a member with
+    // an open security case (see checkMediaUnlockEligibility, called via the message path).
+
     // Welcome DM — feature-gated
     if (botFeatures.welcomeMessages !== false) {
         try {
@@ -13576,6 +14419,65 @@ client.on('guildMemberAdd', async (member) => {
         if (shouldQuarantine) {
             setTimeout(() => quarantineUser(member.guild, member, suspiciousFlags.join('; ')).catch(() => {}), 3000);
         }
+    }
+});
+
+// ── Security: message edits feed the same cross-channel duplicate-spam trigger ────
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+    try {
+        if (!newMessage.guild || newMessage.author?.bot) return;
+        if (SPAM_EXEMPT_CHANNEL_IDS.has(newMessage.channelId)) return;
+        const uid = newMessage.author.id;
+        if (quarantinedUsers.has(uid) || restrictedMembers.has(uid)) return;
+        const normalized = (newMessage.content || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        if (!normalized) return;
+
+        const now = Date.now();
+        let dup = dupContentTrack.get(uid) || [];
+        dup = dup.filter(m => now - m.ts < securityConfig.dupWindowMs);
+        dup.push({ ts: now, channelId: newMessage.channelId, hash: normalized, messageId: newMessage.id });
+        dupContentTrack.set(uid, dup);
+
+        const matching = dup.filter(m => m.hash === normalized);
+        const distinctChannels = new Set(matching.map(m => m.channelId));
+        if (matching.length >= securityConfig.dupMsgCount && distinctChannels.size >= securityConfig.dupChannelCount) {
+            dupContentTrack.delete(uid);
+            const member = await newMessage.guild.members.fetch(uid).catch(() => null);
+            if (member) {
+                await applySecurityRestriction(member,
+                    `Cross-channel duplicate spam (via edits): ${matching.length} identical messages across ${distinctChannels.size} channels`,
+                    { triggerSource: 'auto' });
+            }
+        }
+    } catch (e) {
+        console.error('[Security] messageUpdate handler failed:', e.message);
+    }
+});
+
+// ── Security: repeated AutoMod link violations (the rule created by setup-security-permissions.js) ──
+client.on('autoModerationActionExecution', async (execution) => {
+    try {
+        if (execution.action?.type !== 1 /* BlockMessage */) return;
+        const userId = execution.userId;
+        if (!userId || quarantinedUsers.has(userId) || restrictedMembers.has(userId)) return;
+
+        const now = Date.now();
+        let hits = (automodBlockTrack.get(userId) || []).filter(ts => now - ts < securityConfig.automodWindowMs);
+        hits.push(now);
+        automodBlockTrack.set(userId, hits);
+
+        if (hits.length >= securityConfig.automodCount) {
+            automodBlockTrack.delete(userId);
+            const guild = execution.guild;
+            const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+            if (member) {
+                await applySecurityRestriction(member,
+                    `Repeated AutoMod link violations: ${hits.length} blocked attempts within ${Math.round(securityConfig.automodWindowMs / 1000)}s`,
+                    { triggerSource: 'auto' });
+            }
+        }
+    } catch (e) {
+        console.error('[Security] autoModerationActionExecution handler failed:', e.message);
     }
 });
 
