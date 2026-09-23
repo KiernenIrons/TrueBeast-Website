@@ -1737,7 +1737,9 @@ const openSecurityIncidents = new Map();
 // Tunable thresholds — defaults here, overridden at startup by botConfig/securityConfig and
 // live-updated by /security config so changes don't need a redeploy.
 let securityConfig = {
-    xpThreshold:        VOICE_RANK_ROLES[2].minXp, // Silver I
+    xpThreshold:        240, // Silver I's XP threshold (VOICE_RANK_ROLES[2].minXp — hardcoded here since
+                              // VOICE_RANK_ROLES is declared later in the file and this object literal
+                              // is evaluated at module load, before that const would be initialized)
     minHours:           72,
     minDays:            3,
     mediaChannelIds:    [],   // designated media/meme/gaming channels — set via /security config media-channel
