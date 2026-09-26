@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-09-26] — Add /verified-tutorial
+
+- New `/verified-tutorial` command, mirroring the existing `/rank-tutorial` pattern — explains the three unlock criteria (Silver I XP, `securityConfig.minHours` in server, `securityConfig.minDays` active days) and, unlike the static rank tutorial, shows the caller's own live progress against each (reads `monthlyActivityScore`, `qualifyingDays`, `member.joinedTimestamp`). Shows a distinct message if already Verified, or if progression is currently paused under an open restriction (`restrictedMembers`)
+
 ## [2026-09-23] — Fix VM OOM; close NSFW link gap; bumped memory to 1GB
 
 - **Production incident**: the previous deploy's NSFW model load OOM-crashed the bot on the 512MB Fly machine — confirmed by watching live logs post-deploy (crashed twice, ~45-70s apart). Bumped to 1024MB via `flyctl scale memory 1024` and made it permanent in `fly.toml` (the scale command alone would've been reverted by the next `fly deploy`). Confirmed stable afterward: model loads, bot runs normally, no further restarts

@@ -347,7 +347,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔞 Links to adult sites are now blocked too', value: 'Not just uploaded images — a link to a known adult site (or a direct GIF/image link that scans as explicit) gets deleted and treated the same as an explicit image, for everyone, regardless of rank.' },
+    { name: '🔓 New /verified-tutorial command', value: 'Explains how to unlock media & links, and shows your personal progress toward it — XP, time in server, and active days.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -6451,6 +6451,9 @@ client.once('clientReady', async () => {
                 .setName('rank-tutorial')
                 .setDescription('Learn how the TrueBeast ranking system works'),
             new SlashCommandBuilder()
+                .setName('verified-tutorial')
+                .setDescription('Learn how to unlock media & links (get 🔓 Verified) — shows your progress'),
+            new SlashCommandBuilder()
                 .setName('wall-of-shame')
                 .setDescription('View counting game stats and wall of shame'),
             new SlashCommandBuilder()
@@ -10533,6 +10536,56 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.commandName === 'rank-tutorial') {
             await interaction.reply({ embeds: [buildRanksEmbed()], ephemeral: true });
+            return;
+        }
+
+        if (interaction.commandName === 'verified-tutorial') {
+            const member   = interaction.member;
+            const userId   = interaction.user.id;
+            const isVerified = !!MEDIA_UNLOCK_ROLE_ID && !!member?.roles?.cache?.has(MEDIA_UNLOCK_ROLE_ID);
+            const isRestricted = restrictedMembers.has(userId);
+
+            const xpNow      = Math.floor(monthlyActivityScore(userId));
+            const xpNeeded   = securityConfig.xpThreshold;
+            const daysNow    = qualifyingDays.get(userId)?.size || 0;
+            const daysNeeded = securityConfig.minDays;
+            const hoursIn    = member?.joinedTimestamp ? Math.floor((Date.now() - member.joinedTimestamp) / 3600000) : 0;
+            const hoursNeeded = securityConfig.minHours;
+            const check = (met) => met ? '✅' : '⬜';
+
+            let statusField;
+            if (isVerified) {
+                statusField = { name: 'Your status', value: '🔓 **You\'re already Verified!** Media and links are unlocked in designated channels, plus the usual community features everywhere.' };
+            } else if (isRestricted) {
+                statusField = { name: 'Your status', value: '⏸️ Your progress is currently **paused** under an active moderation restriction. It resumes once that\'s reviewed and released.' };
+            } else {
+                statusField = {
+                    name: 'Your progress',
+                    value: [
+                        `${check(xpNow >= xpNeeded)} XP: **${xpNow} / ${xpNeeded}** (reach Silver I — see \`/rank-tutorial\`)`,
+                        `${check(hoursIn >= hoursNeeded)} Time in server: **${hoursIn} / ${hoursNeeded} hours**`,
+                        `${check(daysNow >= daysNeeded)} Active days: **${daysNow} / ${daysNeeded} separate days**`,
+                    ].join('\n'),
+                };
+            }
+
+            await interaction.reply({
+                embeds: [{
+                    color: 0x22c55e,
+                    title: '🔓 How to get Verified',
+                    description: 'New members start **text-only** — no attachments, links, GIFs, voice messages, threads, or soundboard — until they unlock 🔓 Verified. It unlocks automatically once you meet **all three**:',
+                    fields: [
+                        { name: '1️⃣ Reach Silver I', value: `Earn **${xpNeeded} XP** through voice chat, messages, and reactions.` },
+                        { name: '2️⃣ Be in the server a while', value: `At least **${hoursNeeded} hours** since you joined.` },
+                        { name: '3️⃣ Chat on separate days', value: `Real activity on **${daysNeeded} different days** — not all in one sitting.` },
+                        statusField,
+                        { name: 'Once you\'re Verified', value: 'Media and links unlock in designated channels, plus threads, voice messages, polls, and more everywhere else.' },
+                        { name: 'Good to know', value: 'Only one message per minute counts toward this (no spamming your way there), and progress pauses if you\'re timed out or under review.' },
+                    ],
+                    footer: { text: 'Run this again anytime to check your progress.' },
+                }],
+                ephemeral: true,
+            });
             return;
         }
 
