@@ -348,6 +348,7 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
     { name: '🔓 New /verified-tutorial command', value: 'Explains how to unlock media & links, and shows your personal progress toward it — XP, time in server, and active days.' },
+    { name: '📢 More commands post publicly now', value: '/rank-tutorial, /verified-tutorial, /xp, /leavetimer, /canceltimer, /clear, /clear-all-infractions, /slowmode, and /role-info now post to the channel instead of hiding the result from everyone but you.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -10535,7 +10536,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (interaction.commandName === 'rank-tutorial') {
-            await interaction.reply({ embeds: [buildRanksEmbed()], ephemeral: true });
+            await interaction.reply({ embeds: [buildRanksEmbed()] });
             return;
         }
 
@@ -10584,7 +10585,6 @@ client.on('interactionCreate', async (interaction) => {
                     ],
                     footer: { text: 'Run this again anytime to check your progress.' },
                 }],
-                ephemeral: true,
             });
             return;
         }
@@ -10601,7 +10601,7 @@ client.on('interactionCreate', async (interaction) => {
                     { name: '🏆 All-Time Record', value: `**${countingState.record}**`, inline: true },
                     { name: '🪦 Wall of Shame', value: shameList },
                 ],
-            }], ephemeral: true });
+            }] });
             return;
         }
 
@@ -10654,8 +10654,7 @@ client.on('interactionCreate', async (interaction) => {
                 const newTotal = monthlyActivityScore(target.id);
                 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
                 if (member) assignVoiceRank(member, newTotal).catch(() => {});
-                await interaction.reply({ content: `✅ Gave **${amount} XP** to <@${target.id}>. They now have **${newTotal} XP** this month.`, ephemeral: true });
-                setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
+                await interaction.reply({ content: `✅ Gave **${amount} XP** to <@${target.id}>. They now have **${newTotal} XP** this month.` });
             } else {
                 const deduct = Math.min(amount, bData.total);
                 bData.total = Math.max(0, bData.total - amount);
@@ -10665,8 +10664,7 @@ client.on('interactionCreate', async (interaction) => {
                 const newTotal = monthlyActivityScore(target.id);
                 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
                 if (member) assignVoiceRank(member, newTotal).catch(() => {});
-                await interaction.reply({ content: `✅ Removed **${deduct} XP** from <@${target.id}>. They now have **${newTotal} XP** this month.`, ephemeral: true });
-                setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
+                await interaction.reply({ content: `✅ Removed **${deduct} XP** from <@${target.id}>. They now have **${newTotal} XP** this month.` });
             }
             return;
         }
@@ -11189,10 +11187,8 @@ client.on('interactionCreate', async (interaction) => {
                 minutes,
             });
 
-            // Reply ephemerally to the user
             await interaction.reply({
                 content: `✅ Timer set! You'll be disconnected in **${minutes} minute${minutes > 1 ? 's' : ''}**.`,
-                ephemeral: true,
             });
 
             // Announce to the channel
@@ -11211,7 +11207,7 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.commandName === 'canceltimer') {
             if (leaveTimers.has(interaction.user.id)) {
                 cancelLeaveTimer(interaction.user.id);
-                await interaction.reply({ content: '✅ Your leave timer has been cancelled.', ephemeral: true });
+                await interaction.reply({ content: '✅ Your leave timer has been cancelled.' });
             } else {
                 await interaction.reply({ content: '❌ You don\'t have an active leave timer.', ephemeral: true });
             }
@@ -11913,7 +11909,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /clear-all-infractions ────────────────────────────────────────────
         if (interaction.commandName === 'clear-all-infractions') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             await clearAllInfractions();
             await interaction.editReply('✅ All infractions cleared.');
             return;
@@ -12090,7 +12086,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /clear ────────────────────────────────────────────────────────────
         if (interaction.commandName === 'clear') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const amount = interaction.options.getInteger('amount');
             const ch = interaction.options.getChannel('channel') || interaction.channel;
             try {
@@ -12180,7 +12176,7 @@ client.on('interactionCreate', async (interaction) => {
         // ── /slowmode ─────────────────────────────────────────────────────────
         if (interaction.commandName === 'slowmode') {
             if (!isModerator(interaction)) { await interaction.reply({ content: '❌ Mods only.', flags: 64 }); return; }
-            await interaction.deferReply({ flags: 64 });
+            await interaction.deferReply();
             const seconds = interaction.options.getInteger('seconds');
             const ch = interaction.options.getChannel('channel') || interaction.channel;
             try {
@@ -12247,7 +12243,7 @@ client.on('interactionCreate', async (interaction) => {
                 ],
                 timestamp: new Date().toISOString(),
                 footer: { text: `ID: ${role.id}` },
-            }], flags: 64 });
+            }] });
             return;
         }
 

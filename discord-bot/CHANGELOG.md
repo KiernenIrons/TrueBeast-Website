@@ -1,5 +1,19 @@
 # Beast Bot Changelog
 
+## [2026-09-28] — Broader public-reply sweep
+
+- `/verified-tutorial` no longer replies ephemerally
+- Went through every top-level slash command handler individually (not a blind find/replace — the interactionCreate dispatcher is ~4000 lines and includes secret-role-reveal game logic that a blanket regex could easily have broken) and flipped the following from ephemeral to a normal public reply: `/rank-tutorial`, `/xp` (give/remove — also dropped their auto-delete `setTimeout`, which only made sense when the reply was ephemeral), `/leavetimer`, `/canceltimer`, `/clear-all-infractions`, `/clear`, `/slowmode`, `/role-info`
+- Deliberately left ephemeral, with reasons:
+  - **Game commands** (`/imposter`, `/traitors`, `/escaperoom`, `/unscramble-duel` and their `imp:`/`trt:`/`esc:`/`duel:` buttons) — these reveal a secret to one specific player (who's the Imposter, who the Traitors are, individual clues); posting that publicly would leak the secret to the whole channel and break the game outright
+  - `/report` + "Report Message" — a stated privacy requirement, not an oversight
+  - `/infractions`, `/user-info` — show one specific member's history/details to whoever ran the command; kept private to avoid turning it into public shaming of a third party
+  - `/security config *` (media-channel/lockdown-channel/threshold/nsfw-domain/show) — reveals exact detection thresholds; kept private so it's harder for someone probing the bot's limits to calibrate around them. (`/security restrict/release/lockdown/restore` were already public from the previous update — this only applies to the config-tuning subcommands)
+  - `/vip` — includes interactive perk-selection buttons tied to the invoker's own identity; kept private the same way a personal settings panel would be
+  - `/dm`, `/announce-draft` — confirmations for actions whose *content* is meant to stay behind the scenes (an anonymous DM's content, an unapproved announcement draft)
+  - All owner-only administrative/maintenance commands (backups, `/ai-context`, stat-correction tools, `/restart`, `/redeploy`, `/role-panel`, `/widget-refresh`, `/purge-app`, `/kick-app`, `/cleanvcs`, `/assignbronze`, `/say`, etc.) — internal tooling output, not community-facing
+- Validation/permission-denied replies ("❌ Mods only", "you're not in a voice channel", etc.) were left ephemeral throughout — the ask was about hiding successful results, not channel-cluttering every rejected attempt
+
 ## [2026-09-26] — Add /verified-tutorial
 
 - New `/verified-tutorial` command, mirroring the existing `/rank-tutorial` pattern — explains the three unlock criteria (Silver I XP, `securityConfig.minHours` in server, `securityConfig.minDays` active days) and, unlike the static rank tutorial, shows the caller's own live progress against each (reads `monthlyActivityScore`, `qualifyingDays`, `member.joinedTimestamp`). Shows a distinct message if already Verified, or if progression is currently paused under an open restriction (`restrictedMembers`)
