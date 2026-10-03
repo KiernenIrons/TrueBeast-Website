@@ -84,14 +84,14 @@ type Feedback = { type: 'success' | 'error'; message: string } | null;
 
 interface BotData {
   ready: boolean; loading: boolean;
-  channels: DiscordChannel[]; threads: DiscordChannel[]; emojis: DiscordEmoji[];
+  channels: DiscordChannel[]; threads: DiscordChannel[]; voiceChannels: DiscordChannel[]; emojis: DiscordEmoji[];
   roles: DiscordRole[]; members: Record<string, string>;
   fetch: () => Promise<void>;
 }
 
 const BotCtx = createContext<BotData>({
   ready: false, loading: false,
-  channels: [], threads: [], emojis: [], roles: [], members: {},
+  channels: [], threads: [], voiceChannels: [], emojis: [], roles: [], members: {},
   fetch: async () => {},
 });
 
@@ -100,6 +100,7 @@ function BotProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [channels, setChannels] = useState<DiscordChannel[]>([]);
   const [threads, setThreads] = useState<DiscordChannel[]>([]);
+  const [voiceChannels, setVoiceChannels] = useState<DiscordChannel[]>([]);
   const [emojis, setEmojis] = useState<DiscordEmoji[]>([]);
   const [roles, setRoles] = useState<DiscordRole[]>([]);
   const [members, setMembers] = useState<Record<string, string>>({});
@@ -121,6 +122,10 @@ function BotProvider({ children }: { children: React.ReactNode }) {
           .filter((c: any) => c.type === 0 || c.type === 5)
           .sort((a: any, b: any) => a.position - b.position);
         setChannels(textChannels);
+        // Voice + stage channels have their own text chat the bot can post into
+        setVoiceChannels(chRes
+          .filter((c: any) => c.type === 2 || c.type === 13)
+          .sort((a: any, b: any) => a.position - b.position));
       }
       if (Array.isArray(emRes)) setEmojis(emRes);
       if (Array.isArray(roRes)) setRoles(roRes.filter((r: any) => r.id !== roRes.find((x: any) => x.name === '@everyone')?.id));
@@ -147,7 +152,7 @@ function BotProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { fetchBot(); }, [fetchBot]);
 
   return (
-    <BotCtx.Provider value={{ ready, loading, channels, threads, emojis, roles, members, fetch: fetchBot }}>
+    <BotCtx.Provider value={{ ready, loading, channels, threads, voiceChannels, emojis, roles, members, fetch: fetchBot }}>
       {children}
     </BotCtx.Provider>
   );
@@ -158,6 +163,42 @@ function BotProvider({ children }: { children: React.ReactNode }) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CHANNEL_KEY = 'tb_dc_channel_id';
+const CUSTOM_CHANNEL = '__custom__';
+
+/** Name lookup across text channels, voice channels and threads. */
+function findAnyChannel(bot: BotData, id: string) {
+  return bot.channels.find((c) => c.id === id) || bot.voiceChannels.find((c) => c.id === id) || bot.threads.find((c) => c.id === id);
+}
+
+/** <option>s for every place the bot can post: text/announcement channels, active threads & forum posts, voice/stage text chat. */
+function AnyChannelOptions({ bot, selectedId }: { bot: BotData; selectedId?: string }) {
+  const optCls = 'bg-[#1e1f22]';
+  const known = !selectedId || selectedId === CUSTOM_CHANNEL || !!findAnyChannel(bot, selectedId);
+  return (
+    <>
+      {bot.channels.length > 0 && (
+        <optgroup label="Channels" className={optCls}>
+          {bot.channels.map((c) => <option key={c.id} value={c.id} className={optCls}>{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
+        </optgroup>
+      )}
+      {bot.threads.length > 0 && (
+        <optgroup label="Threads & forum posts" className={optCls}>
+          {bot.threads.map((t) => {
+            const parent = bot.channels.find((c) => c.id === (t as any).parent_id);
+            return <option key={t.id} value={t.id} className={optCls}>💬 {t.name}{parent ? ` (in #${parent.name})` : ''}</option>;
+          })}
+        </optgroup>
+      )}
+      {bot.voiceChannels.length > 0 && (
+        <optgroup label="Voice channel chat" className={optCls}>
+          {bot.voiceChannels.map((c) => <option key={c.id} value={c.id} className={optCls}>🔊 {c.name}</option>)}
+        </optgroup>
+      )}
+      {!known && <option value={selectedId} className={optCls}>🆔 {selectedId}</option>}
+      <option value={CUSTOM_CHANNEL} className={optCls}>✏️ Paste a channel / thread ID…</option>
+    </>
+  );
+}
 const CARD_GRADIENT_PRESETS = [
   { label: 'Teal',   from: '#1a2744', to: '#0d3d52' },
   { label: 'Green',  from: '#0d2e1c', to: '#0a4020' },
@@ -5117,6 +5158,17 @@ function AnnouncementsV2Tab() {
 
   const totalBlocks = state.containers.reduce((n, c) => n + c.blocks.length, 0);
 
+  // Archived threads and forum posts aren't in the active-threads list — let the user paste any ID
+  // (right-click → Copy ID in Discord with Developer Mode on). Posting to an archived thread reopens it.
+  const pickChannel = (value: string, set: (id: string) => void) => {
+    if (value !== CUSTOM_CHANNEL) { set(value); return; }
+    const raw = window.prompt('Paste the channel or thread ID (or a link to the thread itself):')?.trim();
+    if (!raw) return;
+    const id = raw.match(/(\d{17,20})\/?$/)?.[1];
+    if (!id) { setFeedback({ type: 'error', message: "That doesn't look like a Discord channel/thread ID." }); return; }
+    set(id);
+  };
+
   const loadTemplate = (tpl: typeof V2_TEMPLATES[0]) => {
     if (totalBlocks > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
     setState((s) => ({ content: s.content, reactions: [], containers: [{ id: uid(), accentColor: tpl.accentColor, showAccent: true, spoilerContainer: false, blocks: tpl.make() }] }));
@@ -5244,7 +5296,7 @@ function AnnouncementsV2Tab() {
         if (data?.errors) errMsg += ' — ' + JSON.stringify(data.errors);
         throw new Error(errMsg);
       }
-      const ch2 = bot.channels.find((c) => c.id === channelId);
+      const ch2 = findAnyChannel(bot, channelId);
       const reactionErrors = data._reactionErrors;
       const entry2: HistEntryV2 = { id: uid(), ts: Date.now(), channelId, channelName: ch2?.name || channelId, messageId: data.id, state: JSON.parse(JSON.stringify(state)) };
       FirebaseDB.saveAnnouncementHistoryEntry('v2', entry2 as unknown as AnnouncementHistoryRecord).catch((err) => console.error('Failed to sync history to Firestore:', err));
@@ -5434,10 +5486,10 @@ function AnnouncementsV2Tab() {
               </button>
             </div>
             <div className="flex-1 min-w-[200px]">
-              <select value={channelId} onChange={(e) => setChannelId(e.target.value)}
+              <select value={channelId} onChange={(e) => pickChannel(e.target.value, setChannelId)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer appearance-none">
-                <option value="" className="bg-[#1e1f22]">— Select channel —</option>
-                {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
+                <option value="" className="bg-[#1e1f22]">— Select channel or thread —</option>
+                <AnyChannelOptions bot={bot} selectedId={channelId} />
               </select>
             </div>
           </div>
@@ -5454,10 +5506,10 @@ function AnnouncementsV2Tab() {
                 <textarea value={draftPrompt} onChange={(e) => setDraftPrompt(e.target.value)} rows={2} placeholder="What should the announcement say? e.g. &quot;New card set MYTHIC drops Friday, 20% off with code BEAST20&quot;"
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none" />
                 <div className="flex items-center gap-2">
-                  <select value={draftChannelId} onChange={(e) => setDraftChannelId(e.target.value)}
+                  <select value={draftChannelId} onChange={(e) => pickChannel(e.target.value, setDraftChannelId)}
                     className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer appearance-none">
-                    <option value="" className="bg-[#1e1f22]">— Post to channel —</option>
-                    {bot.channels.map((c) => <option key={c.id} value={c.id} className="bg-[#1e1f22]">{c.type === 5 ? '📢' : '#'} {c.name}</option>)}
+                    <option value="" className="bg-[#1e1f22]">— Post to channel or thread —</option>
+                    <AnyChannelOptions bot={bot} selectedId={draftChannelId} />
                   </select>
                   <button type="button" disabled={draftQueuing || !draftPrompt.trim() || !draftChannelId}
                     onClick={async () => {
