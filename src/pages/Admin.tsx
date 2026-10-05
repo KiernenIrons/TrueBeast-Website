@@ -5129,6 +5129,232 @@ const V2_TEMPLATES: { id: string; label: string; desc: string; emoji: string; ac
   },
 ];
 
+// ── New Post auto-fill ─────────────────────────────────────────────────────
+// YouTube is fetched via the Data API; Instagram + TikTok links are pasted because neither
+// exposes a public feed without login (and pasting means trial reels never sneak in).
+// The thumbnail always comes from YouTube — i.ytimg.com URLs never expire, unlike IG/TikTok CDN links.
+interface YtUpload { id: string; title: string; publishedAt: string; isShort: boolean }
+type NewPostLinks = { instagram: string; tiktok: string; youtube: string };
+
+function parseIsoDuration(iso?: string) {
+  const m = iso?.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  return m ? (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0)) : 0;
+}
+
+async function fetchRecentYtUploads(): Promise<YtUpload[]> {
+  const cfg = SITE_CONFIG.youtube;
+  const uploadsId = cfg.channelId.replace(/^UC/, 'UU');
+  const pl = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=10&key=${cfg.apiKey}`).then((r) => r.json());
+  if (pl.error) throw new Error(pl.error.message || 'YouTube API error');
+  const items: any[] = pl.items || [];
+  if (!items.length) return [];
+  const vd = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,liveStreamingDetails&id=${items.map((it) => it.contentDetails.videoId).join(',')}&key=${cfg.apiKey}`).then((r) => r.json());
+  if (vd.error) throw new Error(vd.error.message || 'YouTube API error');
+  const details = new Map<string, any>((vd.items || []).map((v: any) => [v.id, v]));
+  return items
+    .filter((it) => details.has(it.contentDetails.videoId) && !details.get(it.contentDetails.videoId).liveStreamingDetails)
+    .map((it) => {
+      const id = it.contentDetails.videoId;
+      const dur = parseIsoDuration(details.get(id).contentDetails?.duration);
+      return { id, title: it.snippet.title, publishedAt: it.contentDetails.videoPublishedAt || it.snippet.publishedAt, isShort: dur > 0 && dur <= 180 };
+    })
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+}
+
+function normalizeInstagramUrl(raw: string) {
+  const m = raw.match(/instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(p|reels?|tv)\/([A-Za-z0-9_-]+)/i);
+  if (!m) return null;
+  return `https://www.instagram.com/${m[1].toLowerCase() === 'reels' ? 'reel' : m[1].toLowerCase()}/${m[2]}/`;
+}
+
+function normalizeTikTokUrl(raw: string) {
+  const full = raw.match(/tiktok\.com\/(@[A-Za-z0-9_.]+)\/(video|photo)\/(\d+)/i);
+  if (full) return `https://www.tiktok.com/${full[1]}/${full[2]}/${full[3]}`;
+  const short = raw.match(/https?:\/\/(?:vm|vt|www)\.tiktok\.com\/(?:t\/)?[A-Za-z0-9]+\/?/i);
+  return short ? short[0] : null;
+}
+
+function fillNewPostTemplate(tpl: CustomTemplate, links: NewPostLinks, thumbnailUrl: string): V2Container {
+  let imageSet = false;
+  const blocks = (JSON.parse(JSON.stringify(tpl.blocks)) as V2Block[]).map(patchSectionBlock).map((b): V2Block => {
+    if (b.kind === 'media_gallery' && !imageSet) {
+      imageSet = true;
+      return { ...b, items: [{ description: b.items[0]?.description ?? '', spoiler: b.items[0]?.spoiler, url: thumbnailUrl, mediaType: 'image' }] };
+    }
+    if (b.kind === 'buttons') {
+      // Match each button to a platform by its label/emoji; a platform left blank drops its button
+      const row = b.row.flatMap((btn) => {
+        const key = `${btn.label} ${btn.emoji}`.toLowerCase();
+        const platform = (['instagram', 'tiktok', 'youtube'] as const).find((p) => key.includes(p));
+        if (!platform) return [btn];
+        return links[platform] ? [{ ...btn, url: links[platform] }] : [];
+      });
+      return { ...b, row };
+    }
+    return b;
+  });
+  return { id: uid(), accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks };
+}
+
+function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
+  customTpls: CustomTemplate[];
+  histEntries: HistEntryV2[];
+  onFill: (container: V2Container) => boolean;
+  setFeedback: (f: Feedback) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [uploads, setUploads] = useState<YtUpload[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [videoId, setVideoId] = useState('');
+  const [vertical, setVertical] = useState(true);
+  const [igRaw, setIgRaw] = useState('');
+  const [ttRaw, setTtRaw] = useState('');
+  const [ttInfo, setTtInfo] = useState<{ ok: boolean; title?: string } | null>(null);
+  const [tplId, setTplId] = useState('');
+
+  const defaultTpl = customTpls.find((t) => /new post/i.test(t.label));
+  const tpl = customTpls.find((t) => t.id === tplId) ?? defaultTpl;
+  const video = uploads?.find((u) => u.id === videoId);
+  const igUrl = igRaw.trim() ? normalizeInstagramUrl(igRaw.trim()) : '';
+  const ttUrl = ttRaw.trim() ? normalizeTikTokUrl(ttRaw.trim()) : '';
+  const announcedIds = useMemo(() => {
+    const blob = histEntries.map((e) => JSON.stringify(e.state)).join('\n');
+    return new Set((uploads ?? []).filter((u) => blob.includes(u.id)).map((u) => u.id));
+  }, [histEntries, uploads]);
+
+  const loadUploads = async () => {
+    setLoading(true); setError('');
+    try {
+      const list = await fetchRecentYtUploads();
+      setUploads(list);
+      if (list[0]) { setVideoId(list[0].id); setVertical(list[0].isShort); }
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? 'Failed to load YouTube uploads.');
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { if (open && !uploads && !loading) loadUploads(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // TikTok's oEmbed is CORS-open — use it to confirm the pasted link is the right video
+  useEffect(() => {
+    if (!ttUrl) { setTtInfo(null); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(ttUrl)}`)
+        .then((r) => r.ok ? r.json() : Promise.reject())
+        .then((d) => { if (!cancelled) setTtInfo({ ok: true, title: d.title }); })
+        .catch(() => { if (!cancelled) setTtInfo({ ok: false }); });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [ttUrl]);
+
+  const handleFill = () => {
+    if (!video) { setFeedback({ type: 'error', message: 'Pick a YouTube video first.' }); return; }
+    if (!tpl) { setFeedback({ type: 'error', message: 'No "New Post" template found — save one via Load Template → Save current as template.' }); return; }
+    if (igRaw.trim() && !igUrl) { setFeedback({ type: 'error', message: "That Instagram link doesn't look like a post/reel URL." }); return; }
+    if (ttRaw.trim() && !ttUrl) { setFeedback({ type: 'error', message: "That TikTok link doesn't look like a video URL." }); return; }
+    const links: NewPostLinks = {
+      instagram: igUrl || '',
+      tiktok: ttUrl || '',
+      youtube: video.isShort ? `https://youtube.com/shorts/${video.id}` : `https://www.youtube.com/watch?v=${video.id}`,
+    };
+    const thumb = `https://i.ytimg.com/vi/${video.id}/${vertical ? 'oardefault' : 'maxresdefault'}.jpg`;
+    if (!onFill(fillNewPostTemplate(tpl, links, thumb))) return;
+    const missing = [!links.instagram && 'Instagram', !links.tiktok && 'TikTok'].filter(Boolean);
+    setFeedback({ type: 'success', message: `Filled "${tpl.label}"${missing.length ? ` (no ${missing.join(' / ')} button)` : ''} — check the preview, pick the channel and hit Send.` });
+    setIgRaw(''); setTtRaw(''); setOpen(false);
+  };
+
+  const input = 'w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-pink-500/50';
+
+  return (
+    <div className="rounded-xl border border-pink-500/20 bg-pink-500/5 p-3">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between text-left cursor-pointer">
+        <span className="text-xs font-semibold text-pink-300 flex items-center gap-1.5">📯 New Post — auto-fill from your latest video</span>
+        <span className="text-[10px] text-gray-500">{open ? 'Hide' : 'YouTube thumbnail + IG / TikTok / YouTube buttons'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-gray-500 uppercase tracking-wider">YouTube video</span>
+              <button type="button" onClick={loadUploads} disabled={loading} className="text-gray-500 hover:text-gray-300 transition-colors cursor-pointer" title="Refresh">
+                <RefreshCw01 className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            {error && <p className="text-[11px] text-red-400">{error}</p>}
+            {loading && !uploads && <p className="text-[11px] text-gray-500">Loading latest uploads…</p>}
+            {uploads && uploads.length === 0 && <p className="text-[11px] text-gray-500">No public uploads found.</p>}
+            {uploads && uploads.length > 0 && (
+              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                {uploads.map((u) => (
+                  <button key={u.id} type="button" onClick={() => { setVideoId(u.id); setVertical(u.isShort); }}
+                    className={`w-full flex items-center gap-2.5 p-1.5 rounded-lg text-left transition-colors cursor-pointer border ${videoId === u.id ? 'bg-pink-500/15 border-pink-500/40' : 'border-transparent hover:bg-white/5'}`}>
+                    <img src={`https://i.ytimg.com/vi/${u.id}/mqdefault.jpg`} alt="" className="w-16 h-9 rounded object-cover flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-gray-200 truncate">{u.title}</p>
+                      <p className="text-[10px] text-gray-500">
+                        {u.isShort ? 'Short' : 'Video'} · {new Date(u.publishedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                        {announcedIds.has(u.id) && <span className="ml-1.5 text-amber-400">· already announced</span>}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {video && (
+            <div className="flex items-center gap-3">
+              <img src={`https://i.ytimg.com/vi/${video.id}/${vertical ? 'oardefault' : 'maxresdefault'}.jpg`} alt=""
+                className={`rounded-lg object-cover flex-shrink-0 border border-white/10 ${vertical ? 'w-14 h-24' : 'w-28 h-16'}`} />
+              <div className="space-y-1">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Image</span>
+                <div className="flex gap-1">
+                  {([['Vertical', true], ['Wide', false]] as const).map(([label, v]) => (
+                    <button key={label} type="button" onClick={() => setVertical(v)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] border transition-colors cursor-pointer ${vertical === v ? 'bg-pink-500/20 border-pink-500/40 text-pink-200' : 'border-white/10 text-gray-400 hover:text-white'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider block">Instagram post / reel link</span>
+            <input value={igRaw} onChange={(e) => setIgRaw(e.target.value)} placeholder="https://www.instagram.com/reel/…  (leave blank to drop the button)" className={input} />
+            {igRaw.trim() && <p className={`text-[10px] ${igUrl ? 'text-gray-500' : 'text-red-400'}`}>{igUrl ? `→ ${igUrl}` : 'Not a post/reel link'}</p>}
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wider block">TikTok video link</span>
+            <input value={ttRaw} onChange={(e) => setTtRaw(e.target.value)} placeholder="https://www.tiktok.com/@realtruebeast/video/…  (leave blank to drop the button)" className={input} />
+            {ttRaw.trim() && (
+              <p className={`text-[10px] truncate ${!ttUrl ? 'text-red-400' : ttInfo?.ok ? 'text-green-400' : 'text-gray-500'}`}>
+                {!ttUrl ? 'Not a TikTok video link' : ttInfo?.ok ? `✓ ${ttInfo.title || 'Found video'}` : ttInfo ? "Couldn't verify — the link will still be used" : 'Checking…'}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <select value={tpl?.id ?? ''} onChange={(e) => setTplId(e.target.value)}
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-pink-500/50 cursor-pointer appearance-none">
+              {!tpl && <option value="" className="bg-[#1e1f22]">— No "New Post" template found —</option>}
+              {customTpls.map((t) => <option key={t.id} value={t.id} className="bg-[#1e1f22]">{t.emoji} {t.label}</option>)}
+            </select>
+            <button type="button" onClick={handleFill} disabled={!video || !tpl}
+              className="px-3 py-2 rounded-lg text-xs font-medium bg-pink-500 text-white hover:bg-pink-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+              Fill Template
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnnouncementsV2Tab() {
   const bot = useContext(BotCtx);
   const { user } = useAuth();
@@ -5529,6 +5755,14 @@ function AnnouncementsV2Tab() {
               </div>
             )}
           </div>
+
+          <NewPostPanel customTpls={customTpls} histEntries={histEntries2} setFeedback={setFeedback}
+            onFill={(container) => {
+              if (totalBlocks > 0 && !window.confirm('Replace your current blocks with the New Post announcement?')) return false;
+              setState((s) => ({ content: s.content, reactions: [], containers: [container] }));
+              setEditingEntry(null);
+              return true;
+            }} />
 
           <hr className="border-white/5" />
 
