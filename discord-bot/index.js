@@ -41,6 +41,7 @@ const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
+const { streakCommands, isStreakCommand, isStreakButton, handleStreakCommand, handleStreakAutocomplete, handleStreakButton, streakTick, initStreaks, serializeStreaks, saveStreakMirror } = require('./streaks');
 // Curated common English words for the Unscramble game (4–6 letters, universally known)
 const UNSCRAMBLE_WORDS = [
     // 4-letter words
@@ -347,8 +348,10 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔓 New /verified-tutorial command', value: 'Explains how to unlock media & links, and shows your personal progress toward it — XP, time in server, and active days.' },
-    { name: '📢 More commands post publicly now', value: '/rank-tutorial, /verified-tutorial, /xp, /leavetimer, /canceltimer, /clear, /clear-all-infractions, /slowmode, and /role-info now post to the channel instead of hiding the result from everyone but you.' },
+    { name: '🔥 NEW: Voice Streaks', value: 'Spend 30 min in voice each day to build a streak! Time adds up across sessions, and days reset at YOUR midnight. Check yours with /streak.' },
+    { name: '🧊 Streak freezes', value: 'Miss a day and a freeze saves your streak automatically. Start with 1, earn +1 every 7 streak days (hold up to 3). Bot downtime never costs you a streak.' },
+    { name: '⚙️ /streak-settings & /streak-leaderboard', value: 'Set your timezone, toggle reminder DMs and voice-chat celebrations, and see who has the longest active streak.' },
+    { name: '📸 Instagram previews fixed', value: 'Instagram links now get a proper preview in every channel again. Reels upload as playable videos, and carousels show multiple photos.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -365,6 +368,7 @@ let botFeatures = {
     pondFrogs:           true,
     unscrambleGame:      true,
     instagramPreviews:   true,
+    voiceStreaks:        true, // daily 30-min voice streaks (streaks.js)
     announceDrafts:      true, // approval-queue announcement automation
     nsfwDetection:       true, // self-hosted image content scanning (see loadNsfwModel/checkMessageForNsfwContent)
 };
@@ -1125,47 +1129,247 @@ async function fetchTikTokStats() {
 
 // ── Instagram link previews ───────────────────────────────────────────────────
 // No official Graph API access needed: Instagram's own public embed page
-// (used for the "Embed" widget on the web) exposes a `contextJSON` blob with
-// the post's media/caption/stats. Works for public posts only.
-const INSTAGRAM_LINK_REGEX = /https?:\/\/(?:www\.)?instagram\.com\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/gi;
+// (used for the "Embed" widget on the web) usually exposes a `contextJSON` blob with
+// the post's media/caption/stats. Instagram now serves `contextJSON: null` for a good
+// share of posts, so when that's missing we fall back to parsing the rendered embed
+// HTML (image, username, caption, likes, comments). Works for public posts only.
+// Matches /p/, /reel/, /reels/, /tv/ — including the newer `instagram.com/<user>/reel/<code>`
+// form and `instagram.com/share/reel/<id>` share links (resolved via redirect).
+const INSTAGRAM_LINK_REGEX = /https?:\/\/(?:www\.|m\.)?(?:instagram\.com|instagr\.am)\/(?:([A-Za-z0-9_.]+)\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/gi;
+const INSTAGRAM_PREVIEW_TTL_MS  = 15 * 60 * 1000;
+const INSTAGRAM_FAILURE_TTL_MS  = 2 * 60 * 1000;
+const instagramPreviewCache = new Map(); // shortcode → { data, expires } — avoids re-scraping a link posted twice
+
+function decodeHtmlEntities(str) {
+    return str
+        .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+        .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+        .replace(/&quot;/g, '"').replace(/&#039;|&apos;/g, "'")
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&');
+}
+
+function parseInstagramCount(str) {
+    if (!str) return null;
+    const m = str.replace(/,/g, '').match(/^([\d.]+)\s*([KkMm]?)$/);
+    if (!m) return null;
+    const mult = { k: 1e3, m: 1e6 }[m[2].toLowerCase()] || 1;
+    return Math.round(parseFloat(m[1]) * mult);
+}
+
+// Share links (instagram.com/share/reel/<id>) are opaque IDs that 302 to the real post URL.
+async function resolveInstagramShareLink(type, id) {
+    try {
+        const res = await fetch(`https://www.instagram.com/share/${type}/${id}/`, { headers: SCRAPE_HEADERS, redirect: 'follow' });
+        const m = res.url.match(/instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]+)/);
+        return m && m[2] !== id ? { type: m[1], shortcode: m[2] } : null;
+    } catch (e) {
+        console.warn(`[Instagram Preview] share link resolve failed for ${id}:`, e.message);
+        return null;
+    }
+}
+
+function parseInstagramContextJson(html) {
+    const match = html.match(/contextJSON":"((?:\\.|[^"\\])*)"/);
+    if (!match) return null;
+    const context = JSON.parse(JSON.parse(`"${match[1]}"`));
+    const media = context?.gql_data?.shortcode_media;
+    if (!media) return null;
+
+    const children = media.__typename === 'GraphSidecar'
+        ? (media.edge_sidecar_to_children?.edges ?? []).map(e => e.node)
+        : [media];
+    const first = children[0] ?? media;
+
+    return {
+        owner:        media.owner?.username ?? null,
+        caption:      media.edge_media_to_caption?.edges?.[0]?.node?.text ?? '',
+        likeCount:    media.edge_media_preview_like?.count ?? media.edge_liked_by?.count ?? null,
+        commentCount: media.edge_media_to_comment?.count ?? null,
+        isVideo:      !!first.is_video,
+        displayUrl:   first.display_url ?? media.display_url ?? null,
+        videoUrl:     first.is_video ? (first.video_url ?? null) : null,
+        imageUrls:    children.filter(c => !c.is_video && c.display_url).map(c => c.display_url).slice(0, 4),
+        mediaCount:   Math.max(1, children.length),
+    };
+}
+
+function parseInstagramEmbedHtml(html, pathType) {
+    const imgTag     = html.match(/<img[^>]*class="EmbeddedMediaImage"[^>]*>/)?.[0];
+    const displayUrl = imgTag?.match(/\ssrc="([^"]+)"/)?.[1];
+    const owner      = html.match(/class="(?:CaptionUsername|Username)"[^>]*>(?:<span[^>]*>)?([^<]+)</)?.[1];
+    if (!displayUrl && !owner) return null;
+
+    let caption = '';
+    const captionBlock = html.match(/<div class="Caption">([\s\S]*?)<div class="CaptionComments">/)?.[1]
+        ?? html.match(/<div class="Caption">([\s\S]*?)<\/div>/)?.[1];
+    if (captionBlock) {
+        caption = decodeHtmlEntities(captionBlock
+            .replace(/<a class="CaptionUsername"[\s\S]*?<\/a>/, '')
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<[^>]+>/g, ''))
+            .trim();
+    }
+
+    const likes    = html.match(/>([\d,.]+[KkMm]?) likes?</)?.[1];
+    const comments = html.match(/View all ([\d,.]+[KkMm]?) comments?/)?.[1];
+
+    return {
+        owner:        owner ? decodeHtmlEntities(owner.trim()) : null,
+        caption,
+        likeCount:    parseInstagramCount(likes),
+        commentCount: parseInstagramCount(comments),
+        isVideo:      pathType === 'reel' || pathType === 'tv',
+        displayUrl:   displayUrl ? decodeHtmlEntities(displayUrl) : null,
+        videoUrl:     null, // the HTML embed only ships a poster frame, not the mp4
+        imageUrls:    displayUrl ? [decodeHtmlEntities(displayUrl)] : [],
+        mediaCount:   1,
+    };
+}
 
 async function fetchInstagramPreview(type, shortcode) {
     const pathType = type === 'reels' ? 'reel' : type;
+    const cached = instagramPreviewCache.get(shortcode);
+    if (cached && cached.expires > Date.now()) return cached.data;
+
+    let data = null;
+    // The captioned embed has the most detail; the plain embed is a second chance when
+    // Instagram serves a stripped-down page for the first.
+    for (const variant of ['embed/captioned/', 'embed/']) {
+        try {
+            const res = await fetch(`https://www.instagram.com/${pathType}/${shortcode}/${variant}`, { headers: SCRAPE_HEADERS });
+            if (!res.ok) { console.warn(`[Instagram Preview] HTTP ${res.status} for ${shortcode} (${variant})`); continue; }
+            const html = await res.text();
+            let parsed = null;
+            try { parsed = parseInstagramContextJson(html); } catch (e) { console.warn(`[Instagram Preview] contextJSON parse failed for ${shortcode}:`, e.message); }
+            const fromHtml = parseInstagramEmbedHtml(html, pathType);
+            if (parsed && fromHtml) {
+                // contextJSON is richer, but backfill anything it left blank from the HTML
+                for (const k of ['owner', 'caption', 'likeCount', 'commentCount', 'displayUrl']) {
+                    if (parsed[k] == null || parsed[k] === '') parsed[k] = fromHtml[k];
+                }
+                if (!parsed.imageUrls.length) parsed.imageUrls = fromHtml.imageUrls;
+            }
+            data = parsed ?? fromHtml;
+            if (data) break;
+            console.warn(`[Instagram Preview] no usable data for ${shortcode} (${variant})`);
+        } catch (e) {
+            console.warn(`[Instagram Preview] scrape failed for ${shortcode} (${variant}):`, e.message);
+        }
+    }
+
+    if (instagramPreviewCache.size > 200) instagramPreviewCache.clear();
+    instagramPreviewCache.set(shortcode, { data, expires: Date.now() + (data ? INSTAGRAM_PREVIEW_TTL_MS : INSTAGRAM_FAILURE_TTL_MS) });
+    return data;
+}
+
+// Discord upload ceiling for bots by server boost tier, capped at 50MB to keep memory sane.
+function maxUploadBytesForGuild(guild) {
+    const byTier = { 0: 10, 1: 10, 2: 50, 3: 100 }[guild?.premiumTier ?? 0] ?? 10;
+    return Math.min(byTier, 50) * 1024 * 1024 - 512 * 1024; // leave headroom for the rest of the payload
+}
+
+// Streams the reel's mp4 into memory, bailing out as soon as it exceeds maxBytes.
+async function downloadInstagramVideo(url, maxBytes) {
     try {
-        const res = await fetch(`https://www.instagram.com/${pathType}/${shortcode}/embed/captioned/`, { headers: SCRAPE_HEADERS });
-        if (!res.ok) { console.warn(`[Instagram Preview] HTTP ${res.status} for ${shortcode}`); return null; }
-        const html = await res.text();
-        const match = html.match(/contextJSON":"((?:\\.|[^"\\])*)"/);
-        if (!match) { console.warn(`[Instagram Preview] contextJSON not found for ${shortcode}`); return null; }
+        const res = await fetch(url, { headers: SCRAPE_HEADERS });
+        if (!res.ok || !res.body) return null;
+        const declared = Number(res.headers.get('content-length') || 0);
+        if (declared && declared > maxBytes) { await res.body.cancel().catch(() => {}); return null; }
+        const reader = res.body.getReader();
+        const chunks = [];
+        let total = 0;
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.length;
+            if (total > maxBytes) { await reader.cancel().catch(() => {}); return null; }
+            chunks.push(value);
+        }
+        return Buffer.concat(chunks);
+    } catch (e) {
+        console.warn('[Instagram Preview] video download failed:', e.message);
+        return null;
+    }
+}
 
-        const context = JSON.parse(JSON.parse(`"${match[1]}"`));
-        const media = context?.gql_data?.shortcode_media;
-        if (!media) return null;
+async function handleInstagramPreviews(message) {
+    const seen = new Set();
+    const links = [];
+    for (const [, prefix, type, id] of message.content.matchAll(INSTAGRAM_LINK_REGEX)) {
+        let resolved = { type, shortcode: id };
+        if (prefix === 'share') resolved = await resolveInstagramShareLink(type, id);
+        if (!resolved || seen.has(resolved.shortcode)) continue;
+        seen.add(resolved.shortcode);
+        links.push(resolved);
+        if (links.length >= 3) break;
+    }
+    if (!links.length) return;
 
-        let displayUrl  = media.display_url ?? null;
-        let videoUrl    = media.is_video ? (media.video_url ?? null) : null;
-        let mediaCount  = 1;
+    // Reels take a few seconds to download — show "Beast Bot is typing…" so it doesn't look ignored.
+    message.channel.sendTyping?.().catch(() => {});
 
-        if (media.__typename === 'GraphSidecar' && media.edge_sidecar_to_children?.edges?.length) {
-            const first = media.edge_sidecar_to_children.edges[0].node;
-            displayUrl = first.display_url ?? displayUrl;
-            videoUrl   = first.is_video ? (first.video_url ?? null) : null;
-            mediaCount = media.edge_sidecar_to_children.edges.length;
+    let postedAny = false;
+    for (const { type, shortcode } of links) {
+        const preview = await fetchInstagramPreview(type, shortcode);
+        if (!preview) continue;
+
+        const pathType     = type === 'reels' ? 'reel' : type;
+        const canonicalUrl = `https://www.instagram.com/${pathType}/${shortcode}/`;
+        const caption = preview.caption
+            ? preview.caption.slice(0, 350) + (preview.caption.length > 350 ? '…' : '')
+            : null;
+
+        // Attach the actual mp4 so reels play inline in Discord instead of being a dead thumbnail.
+        let videoFile = null;
+        if (preview.videoUrl) {
+            const buf = await downloadInstagramVideo(preview.videoUrl, maxUploadBytesForGuild(message.guild));
+            if (buf) videoFile = new AttachmentBuilder(buf, { name: `instagram-${shortcode}.mp4` });
         }
 
-        return {
-            owner:        media.owner?.username ?? null,
-            caption:      media.edge_media_to_caption?.edges?.[0]?.node?.text ?? '',
-            likeCount:    media.edge_media_preview_like?.count ?? media.edge_liked_by?.count ?? null,
-            commentCount: media.edge_media_to_comment?.count ?? null,
-            isVideo:      !!videoUrl,
-            displayUrl,
-            videoUrl,
-            mediaCount,
+        const statsParts = [];
+        if (preview.likeCount    != null) statsParts.push(`❤️ ${formatStatCount(preview.likeCount)}`);
+        if (preview.commentCount != null) statsParts.push(`💬 ${formatStatCount(preview.commentCount)}`);
+        if (preview.mediaCount > 1)       statsParts.push(`🖼️ ${preview.mediaCount} photos/videos`);
+
+        const embed = {
+            color:       0xE1306C,
+            url:         canonicalUrl,
+            title:       preview.isVideo ? '🎬 Instagram Reel' : '📸 Instagram Post',
+            description: caption || undefined,
+            image:       !videoFile && preview.displayUrl ? { url: preview.displayUrl } : undefined,
+            author:      preview.owner ? { name: `@${preview.owner}`, url: `https://www.instagram.com/${preview.owner}/` } : undefined,
+            footer:      statsParts.length ? { text: statsParts.join('   ') } : undefined,
         };
-    } catch (e) {
-        console.warn(`[Instagram Preview] scrape failed for ${shortcode}:`, e.message);
-        return null;
+        // Embeds sharing the same `url` render as one image grid — shows up to 4 carousel photos.
+        const extraEmbeds = videoFile ? [] : preview.imageUrls
+            .filter(u => u !== preview.displayUrl)
+            .slice(0, 3)
+            .map(u => ({ url: canonicalUrl, image: { url: u } }));
+
+        const buttons = [
+            new ButtonBuilder().setLabel('View on Instagram').setStyle(ButtonStyle.Link).setURL(canonicalUrl),
+        ];
+        // Only fall back to a link when the video was too big to upload (CDN links expire after a while).
+        if (preview.videoUrl && !videoFile && preview.videoUrl.length <= 512) {
+            buttons.push(new ButtonBuilder().setLabel('▶️ Watch video').setStyle(ButtonStyle.Link).setURL(preview.videoUrl));
+        }
+
+        const sent = await message.reply({
+            embeds: [embed, ...extraEmbeds],
+            files: videoFile ? [videoFile] : [],
+            components: [new ActionRowBuilder().addComponents(buttons)],
+            allowedMentions: { repliedUser: false },
+        }).catch(e => { console.warn('[Instagram Preview] failed to send reply:', e.message); return null; });
+        if (sent) postedAny = true;
+    }
+
+    // Where members have Embed Links, Discord also renders its own (usually image-less) Instagram
+    // card — hide it so there's one clean preview, but only if every link in the message was ours.
+    if (postedAny) {
+        const allUrls = message.content.match(/https?:\/\/\S+/gi) || [];
+        const igOnly = allUrls.every(u => /^https?:\/\/(?:www\.|m\.)?(?:instagram\.com|instagr\.am)\//i.test(u));
+        if (igOnly) await message.suppressEmbeds(true).catch(() => {});
     }
 }
 
@@ -3293,6 +3497,7 @@ function buildFullBackup() {
         mediaUnlocked:  mu,
         xpMessageDays:  xmd,
         nsfwViolations: nsfwV,
+        voiceStreaks:   serializeStreaks(),
     };
 }
 
@@ -3487,6 +3692,8 @@ async function loadState() {
     return data ? 'discord-live' : 'fresh';
 }
 
+let _loadedBackupMeta = { voiceStreaks: null, savedAt: null }; // handed to initStreaks() after loadState()
+
 // Applies a backup snapshot to in-memory maps (SET — overwrites, backup IS the source of truth)
 function applyBackupToMemory(data) {
     if (!data) return;
@@ -3594,6 +3801,8 @@ function applyBackupToMemory(data) {
     for (const [pid, panel] of Object.entries(data.reactionRoles || {})) {
         reactionRoles.set(pid, panel);
     }
+    // Voice streaks are restored by initStreaks() (it also compares against its Firestore mirror)
+    _loadedBackupMeta = { voiceStreaks: data.voiceStreaks ?? null, savedAt: data.savedAt ?? null };
     // Quarantine state — only restore pending (not yet responded) entries
     quarantinedUsers.clear();
     for (const [uid, d] of Object.entries(data.quarantine || {})) {
@@ -6200,6 +6409,17 @@ client.once('clientReady', async () => {
     const stateSource = await loadState();
     console.log(`[BeastBot] State loaded from: ${stateSource}`);
 
+    // Voice streaks — restored from the main backup or its Firestore mirror, whichever is newer
+    await initStreaks({
+        client,
+        getGuild:         () => client.guilds.cache.first(),
+        getActiveUserIds: () => [...voiceStartTimes.keys()],
+        firestoreGet,
+        firestoreSet,
+        isModerator,
+        isEnabled:        () => botFeatures.voiceStreaks !== false && botFeatures.vcTracking !== false,
+    }, _loadedBackupMeta.voiceStreaks, _loadedBackupMeta.savedAt).catch(e => console.error('[Streaks] init failed:', e.message));
+
     // One-time wall of shame restore — seed historical data if nothing loaded
     if (countingState.record === 0 && countingState.wallOfShame.length === 0) {
         console.log('[BeastBot] Seeding wall of shame from historical data...');
@@ -6390,6 +6610,9 @@ client.once('clientReady', async () => {
                 const member = guild.members.cache.get(uid);
                 if (member) assignVoiceRank(member, monthlyActivityScore(uid)).catch(() => {});
             }
+
+            // Voice streaks — +1 minute toward today's goal for everyone earning voice time
+            await streakTick([...voiceStartTimes.keys()]).catch(e => console.error('[Streaks] tick failed:', e.message));
 
             // Save snapshot immediately after crediting — guarantees fresh data in backup
             await saveDiscordBackup().catch(e => console.error('[BeastBot] 60s backup failed:', e.message));
@@ -6799,6 +7022,7 @@ client.once('clientReady', async () => {
                 .setName('widget-refresh')
                 .setDescription('(Owner only) Manually refresh the Discord profile widget stats'),
             ...pondCommands,
+            ...streakCommands,
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -9958,6 +10182,23 @@ async function handleRolePick(interaction) {
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
+    // ── Voice streaks ────────────────────────────────────────────────────────
+    if (interaction.isAutocomplete() && isStreakCommand(interaction.commandName)) {
+        return handleStreakAutocomplete(interaction).catch(e => console.error('[Streaks] autocomplete failed:', e.message));
+    }
+    if (interaction.isChatInputCommand() && isStreakCommand(interaction.commandName)) {
+        if (botFeatures.voiceStreaks === false) {
+            return interaction.reply({ content: 'Voice streaks are currently disabled.', flags: 64 });
+        }
+        return handleStreakCommand(interaction).catch(e => {
+            console.error('[Streaks] command failed:', e);
+            if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong — try again in a moment.', flags: 64 }).catch(() => {});
+        });
+    }
+    if (interaction.isButton() && isStreakButton(interaction.customId)) {
+        return handleStreakButton(interaction).catch(e => console.error('[Streaks] button failed:', e.message));
+    }
+
     // ── The Pond ─────────────────────────────────────────────────────────────
     if (interaction.isChatInputCommand() && isPondCommand(interaction.commandName)) {
         if (botFeatures.pondFrogs === false) {
@@ -14193,46 +14434,10 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // ── Instagram link previews ────────────────────────────────────────────────
-    if (message.guild && botFeatures.instagramPreviews) {
-        const igMatches = [...message.content.matchAll(INSTAGRAM_LINK_REGEX)].slice(0, 3);
-        for (const [, type, shortcode] of igMatches) {
-            const preview = await fetchInstagramPreview(type, shortcode);
-            if (!preview) continue;
-
-            const canonicalUrl = `https://www.instagram.com/${type === 'reels' ? 'reel' : type}/${shortcode}/`;
-            const caption = preview.caption
-                ? preview.caption.slice(0, 300) + (preview.caption.length > 300 ? '…' : '')
-                : null;
-
-            const statsParts = [];
-            if (preview.likeCount    != null) statsParts.push(`❤️ ${formatStatCount(preview.likeCount)}`);
-            if (preview.commentCount != null) statsParts.push(`💬 ${formatStatCount(preview.commentCount)}`);
-            if (preview.mediaCount > 1)       statsParts.push(`🖼️ 1/${preview.mediaCount}`);
-
-            const embed = {
-                color:       0xE1306C,
-                url:         canonicalUrl,
-                title:       preview.isVideo ? '🎬 Instagram Reel' : '📸 Instagram Post',
-                description: caption,
-                image:       preview.displayUrl ? { url: preview.displayUrl } : undefined,
-                author:      preview.owner ? { name: `@${preview.owner}`, url: `https://www.instagram.com/${preview.owner}/` } : undefined,
-                footer:      statsParts.length ? { text: statsParts.join('   ') } : undefined,
-            };
-
-            const buttons = [
-                new ButtonBuilder().setLabel('View on Instagram').setStyle(ButtonStyle.Link).setURL(canonicalUrl),
-            ];
-            if (preview.videoUrl) {
-                buttons.push(new ButtonBuilder().setLabel('▶️ Watch video').setStyle(ButtonStyle.Link).setURL(preview.videoUrl));
-            }
-
-            await message.reply({
-                embeds: [embed],
-                components: [new ActionRowBuilder().addComponents(buttons)],
-                allowedMentions: { repliedUser: false },
-            }).catch(e => console.warn('[Instagram Preview] failed to send reply:', e.message));
-        }
+    // ── Instagram link previews (any channel, thread, forum post or VC chat) ───
+    // Fire-and-forget: a slow scrape or reel download must never hold up XP/AFK/etc.
+    if (message.guild && botFeatures.instagramPreviews && message.content) {
+        handleInstagramPreviews(message).catch(e => console.warn('[Instagram Preview] handler failed:', e.message));
     }
 
     // ── AFK system ───────────────────────────────────────────────────────────
@@ -15211,6 +15416,8 @@ async function flushBeforeExit() {
     // Firestore is written once daily by saveFirestoreDaily() during normal operation.
     // Writing on shutdown was causing deploys to overwrite recovery data.
     await saveDiscordBackup().catch(e => console.error('[BeastBot] Shutdown Discord backup failed:', e.message));
+    // Streaks have their own Firestore mirror doc (guarded until loaded), safe to write on shutdown
+    await saveStreakMirror().catch(e => console.error('[Streaks] Shutdown mirror save failed:', e.message));
     console.log('[BeastBot] Flush complete');
 }
 

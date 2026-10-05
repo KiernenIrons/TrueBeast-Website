@@ -1,5 +1,26 @@
 # Beast Bot Changelog
 
+## [2026-10-05] — Voice streaks + fix Instagram previews
+
+**Instagram previews**
+- Root cause: Instagram's embed page now often serves `contextJSON: null`, so `fetchInstagramPreview` silently returned null in *every* channel. It only looked like it worked in #self-promotion because members have Embed Links there, so Discord's native card showed instead (members lost Embed Links guild-wide in the security overhaul)
+- `contextJSON` is still parsed first; new fallback parses the rendered embed HTML (`EmbeddedMediaImage`, `CaptionUsername`, caption, "N likes", "View all N comments"), and retries `/embed/` if `/embed/captioned/` has nothing usable
+- Reels: the mp4 is streamed and attached (capped by boost-tier upload limit, max 50MB) so it plays inline. Too-large videos fall back to the thumbnail plus a "Watch video" button
+- Carousels: up to 4 images shown as a grid (multiple embeds sharing one `url`)
+- Regex now also matches `m.instagram.com`, `instagr.am`, `instagram.com/<user>/reel/<code>`, and `instagram.com/share/...` (resolved via redirect)
+- Discord's native IG embed on the source message is suppressed once our preview posts, but only when every link in the message is an Instagram link
+- Handler moved to `handleInstagramPreviews()` and runs fire-and-forget, so slow scrapes/downloads no longer block XP/AFK processing for the message; 15-min result cache (2-min negative cache)
+
+**Voice streaks (new `streaks.js` module)**
+- 30 min of XP-eligible voice time per local calendar day keeps a streak alive. It reuses `voiceStartTimes` membership via the existing 60s tick (`streakTick`), so AFK/no-XP/trigger channels are excluded exactly like voice XP
+- Per-user IANA timezone (default `Europe/London`); `/streak-settings timezone` with autocomplete (city names + aliases like `est`, `uk`, `ist`). Today's progress carries over when switching zones
+- Freezes: start with 1, +1 every 7 streak days, max 3, auto-consumed on a missed day; every new streak starts with at least 1 (comeback safety net). Freezes are never burned while the streak is 0
+- Outage protection: downtime of 10 min or more (from the last backup `savedAt` to boot) is recorded as an outage window; missed days overlapping it are marked `g` (forgiven, no freeze used)
+- Notifications: celebration in the VC's text chat on goal hit (milestones 3/7/14/30/50/100/365…); DM reminder 3h before local midnight if the streak is at risk; DMs when a freeze is used or a streak is lost. Every DM has a "Stop streak DMs" button
+- Commands: `/streak [user]` (public card with progress bar, 14-day calendar, freezes, help/settings buttons), `/streak-settings`, `/streak-leaderboard`, `/streak-admin restore|give-freeze|set` (mods)
+- Persistence: `voiceStreaks` key in the main backup plus a Firestore mirror at `botConfig/voiceStreaks` (saved every 5 min when dirty and on shutdown). On boot the newer copy wins. `serializeStreaks()` returns null until loaded, so an early backup can't wipe it
+- New feature flag `botFeatures.voiceStreaks`; first `isAutocomplete()` routing in `interactionCreate`
+
 ## [2026-09-28] — Broader public-reply sweep
 
 - `/verified-tutorial` no longer replies ephemerally
