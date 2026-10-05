@@ -4397,6 +4397,19 @@ interface CustomTemplate {
   id: string; label: string; desc: string; emoji: string;
   accentColor: string; showAccent: boolean; spoilerContainer: boolean;
   blocks: V2Block[]; createdAt: string;
+  // Added later — older templates only have the first container's blocks above
+  content?: string; reactions?: string[]; containers?: V2Container[];
+}
+
+// Rebuilds a saved template into editor state with fresh ids, so loading it twice never shares ids
+function customTemplateToState(tpl: CustomTemplate): V2State {
+  const source = tpl.containers?.length
+    ? tpl.containers
+    : [{ id: '', accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: tpl.blocks }];
+  const containers = (JSON.parse(JSON.stringify(source)) as V2Container[]).map((c) => ({
+    ...c, id: uid(), blocks: c.blocks.map(patchSectionBlock),
+  }));
+  return { content: tpl.content ?? '', reactions: [...(tpl.reactions ?? [])], containers };
 }
 
 function emptyV2State(): V2State {
@@ -5174,9 +5187,9 @@ function normalizeTikTokUrl(raw: string) {
   return short ? short[0] : null;
 }
 
-function fillNewPostTemplate(tpl: CustomTemplate, links: NewPostLinks, thumbnailUrl: string): V2Container {
+function fillNewPostTemplate(tpl: CustomTemplate, links: NewPostLinks, thumbnailUrl: string): V2State {
   let imageSet = false;
-  const blocks = (JSON.parse(JSON.stringify(tpl.blocks)) as V2Block[]).map(patchSectionBlock).map((b): V2Block => {
+  const fillBlock = (b: V2Block): V2Block => {
     if (b.kind === 'media_gallery' && !imageSet) {
       imageSet = true;
       return { ...b, items: [{ description: b.items[0]?.description ?? '', spoiler: b.items[0]?.spoiler, url: thumbnailUrl, mediaType: 'image' }] };
@@ -5192,14 +5205,15 @@ function fillNewPostTemplate(tpl: CustomTemplate, links: NewPostLinks, thumbnail
       return { ...b, row };
     }
     return b;
-  });
-  return { id: uid(), accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks };
+  };
+  const state = customTemplateToState(tpl);
+  return { ...state, containers: state.containers.map((c) => ({ ...c, blocks: c.blocks.map(fillBlock) })) };
 }
 
 function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
   customTpls: CustomTemplate[];
   histEntries: HistEntryV2[];
-  onFill: (container: V2Container) => boolean;
+  onFill: (state: V2State) => boolean;
   setFeedback: (f: Feedback) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -5403,7 +5417,9 @@ function AnnouncementsV2Tab() {
 
   const loadCustomTemplate = (tpl: CustomTemplate) => {
     if (totalBlocks > 0 && !window.confirm(`Load "${tpl.label}" template? This will replace your current blocks.`)) return;
-    setState((s) => ({ content: s.content, reactions: [], containers: [{ id: uid(), accentColor: tpl.accentColor, showAccent: tpl.showAccent, spoilerContainer: tpl.spoilerContainer, blocks: JSON.parse(JSON.stringify(tpl.blocks)).map(patchSectionBlock) }] }));
+    // Older templates have no saved message content — keep whatever is already typed in that case
+    const loaded = customTemplateToState(tpl);
+    setState((s) => ({ ...loaded, content: tpl.content !== undefined ? loaded.content : s.content }));
     setTemplateMenuOpen(false);
   };
 
@@ -5422,6 +5438,7 @@ function AnnouncementsV2Tab() {
       id: uid(), label: saveName.trim(), desc: saveDesc.trim(), emoji: saveEmoji || '📋',
       accentColor: firstC.accentColor, showAccent: firstC.showAccent, spoilerContainer: firstC.spoilerContainer,
       blocks: JSON.parse(JSON.stringify(firstC.blocks)), createdAt: new Date().toISOString(),
+      content: state.content, reactions: [...state.reactions], containers: JSON.parse(JSON.stringify(state.containers)),
     };
     setCustomTpls((tpls) => [...tpls, tpl]);
     FirebaseDB.saveAnnouncementTemplate(tpl as unknown as AnnouncementTemplateRecord).catch((err) => {
@@ -5577,7 +5594,7 @@ function AnnouncementsV2Tab() {
             <div className="flex gap-3 items-start">
               <div className="flex-shrink-0">
                 <label className="text-[10px] text-gray-500 uppercase tracking-wider block mb-1">Emoji</label>
-                <input type="text" value={saveEmoji} onChange={(e) => setSaveEmoji(e.target.value.slice(-2) || e.target.value)}
+                <input type="text" value={saveEmoji} onChange={(e) => setSaveEmoji(([...new (Intl as any).Segmenter().segment(e.target.value)] as { segment: string }[]).pop()?.segment ?? '')}
                   className="w-14 h-10 bg-white/5 border border-white/10 rounded-xl text-center text-xl focus:outline-none focus:ring-1 focus:ring-indigo-500/50 cursor-text" />
               </div>
               <div className="flex-1 min-w-0">
@@ -5593,7 +5610,7 @@ function AnnouncementsV2Tab() {
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: state.containers[0]?.accentColor || '#5865f2' }} />
-              <span>Saves first container ({(state.containers[0]?.blocks.length ?? 0)} block{(state.containers[0]?.blocks.length ?? 0) !== 1 ? 's' : ''}) settings</span>
+              <span>Saves message content, {state.containers.length} container{state.containers.length !== 1 ? 's' : ''} ({totalBlocks} block{totalBlocks !== 1 ? 's' : ''}) and {state.reactions.length} auto reaction{state.reactions.length !== 1 ? 's' : ''}</span>
             </div>
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setSaveModalOpen(false)}
@@ -5757,9 +5774,9 @@ function AnnouncementsV2Tab() {
           </div>
 
           <NewPostPanel customTpls={customTpls} histEntries={histEntries2} setFeedback={setFeedback}
-            onFill={(container) => {
+            onFill={(filled) => {
               if (totalBlocks > 0 && !window.confirm('Replace your current blocks with the New Post announcement?')) return false;
-              setState((s) => ({ content: s.content, reactions: [], containers: [container] }));
+              setState((s) => ({ ...filled, content: filled.content || s.content }));
               setEditingEntry(null);
               return true;
             }} />
