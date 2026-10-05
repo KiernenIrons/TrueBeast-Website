@@ -20,7 +20,8 @@ const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = re
 
 const STREAK_GOAL_MINUTES   = 30;
 const FREEZE_EVERY_DAYS     = 7;
-const MAX_FREEZES           = 3;
+const MAX_FREEZES           = 1; // regular members
+const VIP_MAX_FREEZES       = 5; // VIP role holders
 const STARTING_FREEZES      = 1;
 const DEFAULT_TZ            = 'Europe/London';
 const REMINDER_BEFORE_MS    = 3 * 60 * 60 * 1000; // DM reminder 3h before local midnight
@@ -126,7 +127,7 @@ function normalizeRecord(r) {
     if (!isValidTimeZone(out.tz)) out.tz = DEFAULT_TZ;
     if (typeof out.history !== 'object' || !out.history) out.history = {};
     for (const k of ['current', 'best', 'totalDays', 'freezes', 'progressMins', 'tzChangedAt']) out[k] = Number(out[k]) || 0;
-    out.freezes = Math.min(Math.max(out.freezes, 0), MAX_FREEZES);
+    out.freezes = Math.min(Math.max(out.freezes, 0), VIP_MAX_FREEZES);
     return out;
 }
 
@@ -186,8 +187,14 @@ function progressBar(mins, goal = STREAK_GOAL_MINUTES, size = 10) {
     return '🟧'.repeat(filled) + '⬛'.repeat(size - filled);
 }
 
-function freezeIcons(n) {
-    return '❄️'.repeat(n) + '▫️'.repeat(Math.max(0, MAX_FREEZES - n));
+// How many freezes this member can hold — VIPs get a bigger stash. Freezes already held
+// above the cap (e.g. after VIP lapses) are kept until used; they just can't earn more.
+function freezeCap(uid) {
+    return ctx?.isVip?.(uid) ? VIP_MAX_FREEZES : MAX_FREEZES;
+}
+
+function freezeIcons(n, cap) {
+    return '❄️'.repeat(n) + '▫️'.repeat(Math.max(0, cap - n));
 }
 
 function todayMinutes(r, today) {
@@ -208,8 +215,8 @@ function calendarRows(r, today) {
     return cells.slice(0, 7).join('') + '\n' + cells.slice(7).join('');
 }
 
-function daysToNextFreeze(r) {
-    if (r.freezes >= MAX_FREEZES) return null;
+function daysToNextFreeze(r, cap) {
+    if (r.freezes >= cap) return null;
     const into = r.current % FREEZE_EVERY_DAYS;
     return FREEZE_EVERY_DAYS - into;
 }
@@ -239,9 +246,11 @@ function buildStreakEmbed(user, r, now = Date.now()) {
                 : `Spend **${left} more min** in voice to ${r.best > 0 ? 'start a new' : 'start your first'} streak — day ends <t:${resetAt}:R>`);
     }
 
-    const next = daysToNextFreeze(r);
-    const freezeLine = `${freezeIcons(r.freezes)}  **${r.freezes}/${MAX_FREEZES}**` +
-        (next ? ` · next one in **${next} streak day${next === 1 ? '' : 's'}**` : ' · full!');
+    const cap  = freezeCap(user.id);
+    const next = daysToNextFreeze(r, cap);
+    const freezeLine = `${freezeIcons(r.freezes, cap)}  **${r.freezes}/${cap}**` +
+        (next ? ` · next one in **${next} streak day${next === 1 ? '' : 's'}**` : ' · full!') +
+        (cap === MAX_FREEZES ? `\n-# 💛 VIPs can hold up to ${VIP_MAX_FREEZES} freezes` : '');
 
     const title = r.current > 0
         ? `${flameFor(r.current)} ${r.current}-day streak${doneToday ? '' : ' — keep it alive today!'}`
@@ -274,7 +283,7 @@ const HELP_TEXT = [
     `**1.** Spend **${STREAK_GOAL_MINUTES} minutes** in any voice channel in a day — it can be split across as many sessions as you like.`,
     `**2.** Do it again tomorrow and your streak grows. Days reset at **your** midnight — set your timezone with \`/streak-settings timezone\`.`,
     `**3.** Miss a day? A **🧊 streak freeze** is used automatically and your streak survives.`,
-    `**4.** You start with **${STARTING_FREEZES}** freeze and earn **+1 every ${FREEZE_EVERY_DAYS} streak days** (hold up to ${MAX_FREEZES}).`,
+    `**4.** You start with **${STARTING_FREEZES}** freeze and earn **+1 every ${FREEZE_EVERY_DAYS} streak days** (hold up to ${MAX_FREEZES} — or **${VIP_MAX_FREEZES} as a 💛 VIP**).`,
     `**5.** No freezes left and you miss a day → the streak resets, but your **best streak** is kept forever — and your next streak starts with a fresh freeze.`,
     ``,
     `🛡️ If the bot is ever offline for a while, that day is **forgiven automatically** — no freeze used.`,
@@ -332,7 +341,7 @@ async function handleSettleEvents(uid, r, events) {
     } else if (freezesUsed.length) {
         await sendDm(uid, { content:
             `🧊 You missed ${freezesUsed.length === 1 ? 'a day' : `${freezesUsed.length} days`}, so ${freezesUsed.length === 1 ? 'a streak freeze was' : 'streak freezes were'} used — your **${r.current}-day streak is safe!**\n` +
-            `Freezes left: ${freezeIcons(r.freezes)} **${r.freezes}/${MAX_FREEZES}**. Spend ${STREAK_GOAL_MINUTES} min in voice today to keep it going.`,
+            `Freezes left: ${freezeIcons(r.freezes, freezeCap(uid))} **${r.freezes}/${freezeCap(uid)}**. Spend ${STREAK_GOAL_MINUTES} min in voice today to keep it going.`,
         });
     }
 }
@@ -352,7 +361,7 @@ async function celebrate(member, r, { earnedFreeze }) {
     } else {
         line = `🔥 <@${member.id}> kept their streak alive — **day ${n}!**`;
     }
-    if (earnedFreeze) line += `\n🧊 +1 streak freeze earned (${r.freezes}/${MAX_FREEZES})`;
+    if (earnedFreeze) line += `\n🧊 +1 streak freeze earned (${r.freezes}/${freezeCap(member.id)})`;
     await channel.send({ content: line, allowedMentions: { parse: [] } }).catch(() => {});
 }
 
@@ -383,7 +392,7 @@ async function streakTick(activeUserIds) {
         r.totalDays += 1;
         r.best       = Math.max(r.best, r.current);
         let earnedFreeze = false;
-        if (r.current % FREEZE_EVERY_DAYS === 0 && r.freezes < MAX_FREEZES) { r.freezes += 1; earnedFreeze = true; }
+        if (r.current % FREEZE_EVERY_DAYS === 0 && r.freezes < freezeCap(uid)) { r.freezes += 1; earnedFreeze = true; }
         // Comeback safety net: every new streak starts with at least one freeze
         if (r.current === 1 && r.freezes < STARTING_FREEZES) { r.freezes = STARTING_FREEZES; earnedFreeze = r.totalDays > 1; }
         if (member) celebrate(member, r, { earnedFreeze }).catch(() => {});
@@ -521,9 +530,9 @@ const streakCommands = [
         .setDescription('(Mods) Manage someone\'s voice streak')
         .addSubcommand(s => s.setName('restore').setDescription('Undo the last time this member lost their streak')
             .addUserOption(o => o.setName('user').setDescription('Member').setRequired(true)))
-        .addSubcommand(s => s.setName('give-freeze').setDescription('Give streak freezes (max 3 held)')
+        .addSubcommand(s => s.setName('give-freeze').setDescription('Give streak freezes (members hold 1, VIPs up to 5)')
             .addUserOption(o => o.setName('user').setDescription('Member').setRequired(true))
-            .addIntegerOption(o => o.setName('amount').setDescription('How many (default 1)').setMinValue(1).setMaxValue(MAX_FREEZES)))
+            .addIntegerOption(o => o.setName('amount').setDescription('How many (default 1)').setMinValue(1).setMaxValue(VIP_MAX_FREEZES)))
         .addSubcommand(s => s.setName('set').setDescription('Set a member\'s current streak (counts today as done)')
             .addUserOption(o => o.setName('user').setDescription('Member').setRequired(true))
             .addIntegerOption(o => o.setName('days').setDescription('Streak length').setRequired(true).setMinValue(0).setMaxValue(5000))),
@@ -702,9 +711,9 @@ async function handleStreakCommand(interaction) {
         if (sub === 'give-freeze') {
             const amount = interaction.options.getInteger('amount') ?? 1;
             const before = r.freezes;
-            r.freezes = Math.min(MAX_FREEZES, r.freezes + amount);
+            r.freezes = Math.min(freezeCap(target.id), r.freezes + amount);
             _dirty = true;
-            return interaction.reply({ content: `✅ <@${target.id}> now has **${r.freezes}/${MAX_FREEZES}** freezes (+${r.freezes - before}).`, flags: 64 });
+            return interaction.reply({ content: `✅ <@${target.id}> now has **${r.freezes}/${freezeCap(target.id)}** freezes (+${r.freezes - before}).`, flags: 64 });
         }
         if (sub === 'set') {
             const days = interaction.options.getInteger('days');

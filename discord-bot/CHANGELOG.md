@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-10-05] — VIP streak freezes + new Unscramble word set
+
+- Streak freezes: regular members now hold max 1 (`MAX_FREEZES`), VIP role holders up to 5 (`VIP_MAX_FREEZES`). Cap resolved per user via the new `ctx.isVip(uid)` (checks `VIP_ROLE_ID`). Earning is still +1 per 7 streak days up to the member's cap; freezes held above the cap (e.g. VIP lapses) are kept until used. `/streak` card shows the cap and a VIP upsell line; `/streak-admin give-freeze` respects the target's cap
+- Unscramble: new `UNSCRAMBLE_BANNED_WORDS` set (`partnership`), filtered at pick time into `UNSCRAMBLE_POOL` / `UNSCRAMBLE_EXPERT_POOL`, so banned words stay out even if re-added to a list
+- Unscramble: replaced both word lists with a fresh hand-curated set — 1,613 regular (4–6 letters) and 843 expert (7–12 letters), zero overlap with the old lists. Filtered to real dictionary words, and to words with no anagram among ~20k common English words (exact-match guessing would otherwise reject valid alternatives like lemon/melon). Names, brands, and adult/political/religious terms excluded. Active puzzles aren't persisted, so no live "partnership" puzzle survives the deploy
+
 ## [2026-10-05] — Voice streaks + fix Instagram previews
 
 **Instagram previews**
