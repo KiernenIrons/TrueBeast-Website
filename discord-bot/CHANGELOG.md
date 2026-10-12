@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-10-12] — Party reactions: !party, ?party, /party, "Party!" app
+
+- New `PARTY_EMOJIS` constant (13 emojis: 🥳 + 12 animated server emojis) and `partyReact(msg)` helper that reacts sequentially (keeps order) and silently skips failures (e.g. a deleted emoji)
+- 11 animated emojis copied from another server (posted in Bot Features/Suggestions) and uploaded to the TrueBeast guild via the API; the 2nd `da_dance` was renamed `da_dance2`; `GGamongusdance` already existed and is reused
+- `!party` / `?party` (prefix, case-insensitive): reacts to the replied-to message, or the message just before the command if it's not a reply; the command message is deleted afterwards
+- `/party [message]`: optional message link or bare ID (defaults to the latest message in the channel). Links are limited to channels in the same guild that the invoking user can view, so it can't be used to react in hidden channels or other servers
+- "Party!" message context-menu command (right-click → Apps → Party!)
+
 ## [2026-10-05] — VIP streak freezes + new Unscramble word set
 
 - Streak freezes: regular members now hold max 1 (`MAX_FREEZES`), VIP role holders up to 5 (`VIP_MAX_FREEZES`). Cap resolved per user via the new `ctx.isVip(uid)` (checks `VIP_ROLE_ID`). Earning is still +1 per 7 streak days up to the member's cap; freezes held above the cap (e.g. VIP lapses) are kept until used. `/streak` card shows the cap and a VIP upsell line; `/streak-admin give-freeze` respects the target's cap
