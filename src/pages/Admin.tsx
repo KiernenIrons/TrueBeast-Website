@@ -5174,6 +5174,11 @@ async function fetchRecentYtUploads(): Promise<YtUpload[]> {
     .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
 }
 
+function parseYouTubeId(raw: string) {
+  const m = raw.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/i);
+  return m ? { id: m[1], isShort: /\/shorts\//i.test(raw) } : null;
+}
+
 function normalizeInstagramUrl(raw: string) {
   const m = raw.match(/instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(p|reels?|tv)\/([A-Za-z0-9_-]+)/i);
   if (!m) return null;
@@ -5222,6 +5227,8 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
   const [error, setError] = useState('');
   const [videoId, setVideoId] = useState('');
   const [vertical, setVertical] = useState(true);
+  const [ytRaw, setYtRaw] = useState('');
+  const [ytTitle, setYtTitle] = useState('');
   const [igRaw, setIgRaw] = useState('');
   const [ttRaw, setTtRaw] = useState('');
   const [ttInfo, setTtInfo] = useState<{ ok: boolean; title?: string } | null>(null);
@@ -5229,7 +5236,11 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
 
   const defaultTpl = customTpls.find((t) => /new post/i.test(t.label));
   const tpl = customTpls.find((t) => t.id === tplId) ?? defaultTpl;
-  const video = uploads?.find((u) => u.id === videoId);
+  // A pasted YouTube link works even when the Data API quota is used up
+  const pasted = ytRaw.trim() ? parseYouTubeId(ytRaw.trim()) : null;
+  const video: YtUpload | undefined = pasted
+    ? { id: pasted.id, title: ytTitle || 'Pasted video', publishedAt: '', isShort: pasted.isShort }
+    : uploads?.find((u) => u.id === videoId);
   const igUrl = igRaw.trim() ? normalizeInstagramUrl(igRaw.trim()) : '';
   const ttUrl = ttRaw.trim() ? normalizeTikTokUrl(ttRaw.trim()) : '';
   const announcedIds = useMemo(() => {
@@ -5250,6 +5261,18 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
 
   useEffect(() => { if (open && !uploads && !loading) loadUploads(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    setYtTitle('');
+    if (!pasted) return;
+    setVertical(pasted.isShort);
+    let cancelled = false;
+    fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(`https://www.youtube.com/watch?v=${pasted.id}`)}`)
+      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((d) => { if (!cancelled) setYtTitle(d.title || ''); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [pasted?.id, pasted?.isShort]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // TikTok's oEmbed is CORS-open — use it to confirm the pasted link is the right video
   useEffect(() => {
     if (!ttUrl) { setTtInfo(null); return; }
@@ -5264,7 +5287,8 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
   }, [ttUrl]);
 
   const handleFill = () => {
-    if (!video) { setFeedback({ type: 'error', message: 'Pick a YouTube video first.' }); return; }
+    if (ytRaw.trim() && !pasted) { setFeedback({ type: 'error', message: "That YouTube link doesn't look like a video URL." }); return; }
+    if (!video) { setFeedback({ type: 'error', message: 'Pick a YouTube video (or paste its link) first.' }); return; }
     if (!tpl) { setFeedback({ type: 'error', message: 'No "New Post" template found — save one via Load Template → Save current as template.' }); return; }
     if (igRaw.trim() && !igUrl) { setFeedback({ type: 'error', message: "That Instagram link doesn't look like a post/reel URL." }); return; }
     if (ttRaw.trim() && !ttUrl) { setFeedback({ type: 'error', message: "That TikTok link doesn't look like a video URL." }); return; }
@@ -5277,7 +5301,7 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
     if (!onFill(fillNewPostTemplate(tpl, links, thumb))) return;
     const missing = [!links.instagram && 'Instagram', !links.tiktok && 'TikTok'].filter(Boolean);
     setFeedback({ type: 'success', message: `Filled "${tpl.label}"${missing.length ? ` (no ${missing.join(' / ')} button)` : ''} — check the preview, pick the channel and hit Send.` });
-    setIgRaw(''); setTtRaw(''); setOpen(false);
+    setIgRaw(''); setTtRaw(''); setYtRaw(''); setOpen(false);
   };
 
   const input = 'w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:ring-2 focus:ring-pink-500/50';
@@ -5297,14 +5321,14 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
                 <RefreshCw01 className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
-            {error && <p className="text-[11px] text-red-400">{error}</p>}
+            {error && <p className="text-[11px] text-red-400">{/quota/i.test(error) ? 'YouTube API daily quota used up (resets at midnight Pacific) — paste the video link below instead.' : error}</p>}
             {loading && !uploads && <p className="text-[11px] text-gray-500">Loading latest uploads…</p>}
             {uploads && uploads.length === 0 && <p className="text-[11px] text-gray-500">No public uploads found.</p>}
             {uploads && uploads.length > 0 && (
               <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
                 {uploads.map((u) => (
-                  <button key={u.id} type="button" onClick={() => { setVideoId(u.id); setVertical(u.isShort); }}
-                    className={`w-full flex items-center gap-2.5 p-1.5 rounded-lg text-left transition-colors cursor-pointer border ${videoId === u.id ? 'bg-pink-500/15 border-pink-500/40' : 'border-transparent hover:bg-white/5'}`}>
+                  <button key={u.id} type="button" onClick={() => { setVideoId(u.id); setVertical(u.isShort); setYtRaw(''); }}
+                    className={`w-full flex items-center gap-2.5 p-1.5 rounded-lg text-left transition-colors cursor-pointer border ${!pasted && videoId === u.id ? 'bg-pink-500/15 border-pink-500/40' : 'border-transparent hover:bg-white/5'}`}>
                     <img src={`https://i.ytimg.com/vi/${u.id}/mqdefault.jpg`} alt="" className="w-16 h-9 rounded object-cover flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-gray-200 truncate">{u.title}</p>
@@ -5317,6 +5341,11 @@ function NewPostPanel({ customTpls, histEntries, onFill, setFeedback }: {
                 ))}
               </div>
             )}
+            <input value={ytRaw} onChange={(e) => setYtRaw(e.target.value)} className={`${input} mt-2`}
+              placeholder={uploads?.length ? 'Or paste a YouTube link (watch / shorts / youtu.be)' : 'Paste the YouTube link (watch / shorts / youtu.be)'} />
+            {ytRaw.trim() && (pasted
+              ? <p className="text-[10px] text-green-400 mt-1 truncate">✓ {ytTitle || pasted.id}</p>
+              : <p className="text-[10px] text-red-400 mt-1">Not a YouTube video link.</p>)}
           </div>
 
           {video && (
