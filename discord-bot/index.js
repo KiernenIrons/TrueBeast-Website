@@ -372,13 +372,31 @@ if (!TOKEN || !ANTHROPIC_API_KEY || !FIREBASE_PROJECT || !FIREBASE_API_KEY || CH
     process.exit(1);
 }
 
+// ── Party reactions (!party, ?party, /party, "Party!" app command) ───────────
+// Animated emojis live on the TrueBeast server — re-upload + update IDs if any get deleted.
+const PARTY_EMOJIS = [
+    '<a:party:1559077992251002923>', '<a:partycat:1559078001759621130>', '🥳',
+    '<a:f_duckyparty:1559078010064216174>', '<a:f_partycat:1559078019015114783>',
+    '<a:da_blobdance:1559078027692998736>', '<a:da_dance:1559078036798832710>',
+    '<a:dance:1559078046374297610>', '<a:Doggo_dance:1559078054817566720>',
+    '<a:GGamongusdance:1474392791315386533>', '<a:f_dinodance:1559078066171551795>',
+    '<a:vibedance:1559078076514574338>', '<a:da_dance2:1559078086941605950>',
+];
+
+// Reacts sequentially so the emojis land in order; skips any that fail (deleted emoji, etc.)
+async function partyReact(msg) {
+    let added = 0;
+    for (const e of PARTY_EMOJIS) {
+        try { await msg.react(e); added++; } catch (_) {}
+    }
+    return added;
+}
+
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔥 NEW: Voice Streaks', value: 'Spend 30 min in voice each day to build a streak! Time adds up across sessions, and days reset at YOUR midnight. Check yours with /streak.' },
-    { name: '🧊 Streak freezes', value: 'Miss a day and a freeze saves your streak automatically. Everyone holds 1 (refilled every 7 streak days) — 💛 VIPs can stock up to 5! Bot downtime never costs you a streak.' },
-    { name: '⚙️ /streak-settings & /streak-leaderboard', value: 'Set your timezone, toggle reminder DMs and voice-chat celebrations, and see who has the longest active streak.' },
-    { name: '🔤 Brand-new Unscramble words', value: '1,600+ regular and 840+ expert words, none repeated from before. Every word now has only one correct answer — no more "lemon vs melon" moments.' },
-    { name: '📸 Instagram previews fixed', value:'Instagram links now get a proper preview in every channel again. Reels upload as playable videos, and carousels show multiple photos.' },
+    { name: '🥳 NEW: !party, ?party & /party', value: 'Throw a party on any message! Reply to a message with !party or ?party (or send it on its own to party the message above) and the bot piles on 13 party emojis.' },
+    { name: '🎉 /party & "Party!" app', value: 'Use /party with a message link or ID (or leave it blank for the latest message), or right-click any message → Apps → Party!' },
+    { name: '💃 New dancing emojis', value: '11 new animated party & dance emojis have been added to the server — use them anywhere!' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -6895,6 +6913,13 @@ client.once('clientReady', async () => {
             new ContextMenuCommandBuilder()
                 .setName('Report Message')
                 .setType(ApplicationCommandType.Message),
+            new ContextMenuCommandBuilder()
+                .setName('Party!')
+                .setType(ApplicationCommandType.Message),
+            new SlashCommandBuilder()
+                .setName('party')
+                .setDescription('Throw a party on a message with a pile of party emojis 🥳')
+                .addStringOption(opt => opt.setName('message').setDescription('Message link or ID (defaults to the latest message here)')),
             new SlashCommandBuilder()
                 .setName('clear')
                 .setDescription('Delete messages in a channel')
@@ -10290,6 +10315,13 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
+    // ── "Party!" context-menu command ─────────────────────────────────────────
+    if (interaction.isMessageContextMenuCommand() && interaction.commandName === 'Party!') {
+        await interaction.reply({ content: '🥳 Party time!', flags: MessageFlags.Ephemeral });
+        await partyReact(interaction.targetMessage);
+        return;
+    }
+
     // ── Security: "Report Message" context-menu command opens a modal ────────
     if (interaction.isMessageContextMenuCommand() && interaction.commandName === 'Report Message') {
         const msg = interaction.targetMessage;
@@ -12592,6 +12624,30 @@ client.on('interactionCreate', async (interaction) => {
             return;
         }
 
+        if (interaction.commandName === 'party') {
+            const raw = interaction.options.getString('message')?.trim();
+            let target = null;
+            if (raw) {
+                // Accept a full message link (…/channels/guild/channel/message) or a bare ID in this channel
+                const link = raw.match(/channels\/\d+\/(\d+)\/(\d+)/);
+                const chId = link ? link[1] : interaction.channelId;
+                const msgId = link ? link[2] : raw.match(/^\d{17,20}$/)?.[0];
+                const ch = msgId ? await client.channels.fetch(chId).catch(() => null) : null;
+                // Only this server, and only channels the user can actually see
+                const canView = ch?.guildId === interaction.guildId && ch.permissionsFor?.(interaction.user)?.has(PermissionFlagsBits.ViewChannel);
+                target = canView && ch.messages ? await ch.messages.fetch(msgId).catch(() => null) : null;
+            } else {
+                target = (await interaction.channel?.messages.fetch({ limit: 1 }).catch(() => null))?.first() ?? null;
+            }
+            if (!target) {
+                await interaction.reply({ content: "❌ Couldn't find that message.", flags: MessageFlags.Ephemeral });
+                return;
+            }
+            await interaction.reply({ content: '🥳 Party time!', flags: MessageFlags.Ephemeral });
+            await partyReact(target);
+            return;
+        }
+
         if (interaction.commandName === 'bump-leaderboard') {
             const weekKey = getISOWeekKey();
             const entries = [];
@@ -14538,6 +14594,19 @@ client.on('messageCreate', async (message) => {
                 components: [row],
             });
             await message.react('✅');
+            return;
+        }
+
+        // !party / ?party — party-react the replied-to message, or the previous message if not a reply
+        if (/^[!?]party$/i.test(msgContent)) {
+            let target = null;
+            if (message.reference?.messageId) {
+                target = await message.channel.messages.fetch(message.reference.messageId).catch(() => null);
+            } else {
+                target = (await message.channel.messages.fetch({ limit: 1, before: message.id }).catch(() => null))?.first() ?? null;
+            }
+            await message.delete().catch(() => {});
+            if (target) await partyReact(target);
             return;
         }
 
