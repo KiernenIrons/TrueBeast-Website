@@ -396,7 +396,8 @@ async function partyReact(msg) {
 const UPDATE_NOTES = [
     { name: '🔊 NEW: Voice Rooms', value: 'Join to Create is gone. Hop in ⏳ Waiting Room, then use the panel in #create-a-vc to make your own room with a name and a people limit.' },
     { name: '🔓 Public or 🔒 private', value: 'Public rooms: anyone can join. Private rooms: everyone can see them, but you have to ask someone inside to let you in.' },
-    { name: '🙋 Ask to join', value: 'Pick someone from the "Ask to join" dropdown, or use !vcreq @name or /vcreq. They get Accept/Decline buttons, and if they accept you get pulled right in.' },
+    { name: '🙋 Ask to join', value: 'Be in any voice channel, then pick someone from the "Ask to join" dropdown (or !vcreq @name / /vcreq). Full rooms are fine; the bot squeezes you in.' },
+    { name: '🚪 Once or 🔑 always', value: 'Whoever you ask picks: Let in once (leave a private room and you have to ask again), Always allow (come and go whenever), or Decline.' },
     { name: '👑 Room owners', value: 'Rename your room, change the limit, lock/unlock it or hand it to someone else from the panel. If you leave, the person who has been in longest becomes owner.' },
 ];
 
@@ -4449,7 +4450,7 @@ function cvcBuildPanel(guild) {
         .setAccentColor(CVC_ACCENT)
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(
             `## 🔊 Voice Rooms\nHop in <#${TEMP_VC_TRIGGER_ID}>, then make your own space.\n` +
-            '-# 🔓 public: anyone can join · 🔒 private: ask someone inside',
+            '-# 🔓 public: anyone can join · 🔒 private: ask someone inside (be in voice so I can move you)',
         ))
         .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(list))
@@ -4630,8 +4631,25 @@ async function createCustomVC(member, name, limit, isPrivate) {
     return ch;
 }
 
+// Does this member have a standing Connect overwrite on the room ("Always allow")?
+function cvcHasPermanentAccess(ch, userId) {
+    return !!ch.permissionOverwrites.cache.get(userId)?.allow.has(PermissionFlagsBits.Connect);
+}
+
+// Move someone into a room even if it's private or full. The bot's Move Members permission
+// bypasses the user limit; a short-lived Connect overwrite covers private rooms, and it's
+// removed again afterwards unless they had permanent access, so they can't rejoin by themselves.
+async function cvcDragIn(ch, member) {
+    const hadAccess = cvcHasPermanentAccess(ch, member.id);
+    if (!hadAccess) await ch.permissionOverwrites.edit(member.id, { Connect: true, ViewChannel: true });
+    const moved = await member.voice.setChannel(ch).then(() => true).catch(() => false);
+    if (!hadAccess) await ch.permissionOverwrites.delete(member.id).catch(() => {});
+    return moved;
+}
+
 // ── Join requests ────────────────────────────────────────────────────────────
 // Works out what should happen when `requester` asks `targetId` to let them in.
+// The requester has to be in voice (any channel) so the bot can move them.
 // Returns { kind: 'error' | 'done' | 'request', content, components?, pingIds? }
 async function cvcBuildJoinRequest(guild, requester, targetId) {
     const target = guild.members.cache.get(targetId) || await guild.members.fetch(targetId).catch(() => null);
@@ -4643,29 +4661,37 @@ async function cvcBuildJoinRequest(guild, requester, targetId) {
     const ch   = d && guild.channels.cache.get(vcId);
     if (!ch) return { kind: 'error', content: `❌ **${target.displayName}** isn't in a room right now.` };
     if (requester.voice.channelId === vcId) return { kind: 'error', content: `You're already in **${ch.name}** 🙂` };
-    if (cvcIsFull(ch)) return { kind: 'error', content: `🚫 **${ch.name}** is full (${cvcHumans(ch).length}/${ch.userLimit}).` };
+    if (!requester.voice.channelId) {
+        return { kind: 'error', content: `🎧 ${requester}, join a voice channel first (<#${TEMP_VC_TRIGGER_ID}> works) so I can move you in.` };
+    }
 
-    if (!d.private) {
-        if (requester.voice.channelId) {
-            const moved = await requester.voice.setChannel(ch).then(() => true).catch(() => false);
-            if (moved) return { kind: 'done', content: `🔓 **${ch.name}** is public, so ${requester} has been moved right in.` };
-        }
-        return { kind: 'done', content: `🔓 **${ch.name}** is public, ${requester}. Just hop in!` };
+    // Public with space, or private but they already have permanent access → straight in
+    const full = cvcIsFull(ch);
+    if (!full && (!d.private || cvcHasPermanentAccess(ch, requester.id))) {
+        const moved = await requester.voice.setChannel(ch).then(() => true).catch(() => false);
+        if (moved) return { kind: 'done', content: d.private
+            ? `🔑 ${requester} has permanent access to **${ch.name}**, so they've been moved right in.`
+            : `🔓 **${ch.name}** is public, so ${requester} has been moved right in.` };
+        return { kind: 'error', content: `❌ Couldn't move ${requester} into **${ch.name}**. Try again in a moment.` };
     }
 
     if (cvcPendingRequests.has(`${requester.id}:${target.id}`)) {
         return { kind: 'error', content: `⏳ You've already asked **${target.displayName}**. Hang tight.` };
     }
 
+    const ids = `${requester.id}:${target.id}:${vcId}`;
     return {
         kind: 'request',
         vcId,
         targetId: target.id,
-        content: `🙋 ${target}, **${requester.displayName}** wants to join **${ch.name}**.\n-# Only ${target.displayName} can answer · expires in 2 min`,
+        content: `🙋 ${target}, **${requester.displayName}** wants to join **${ch.name}**` +
+            (full ? ` (it's full, ${cvcHumans(ch).length}/${ch.userLimit}, but I can squeeze them in)` : '') + '.\n' +
+            `-# Only ${target.displayName} can answer · 🚪 once: can't rejoin after leaving · 🔑 always: can come and go · expires in 2 min`,
         pingIds: [target.id],
         components: [new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`cvc:acc:${requester.id}:${target.id}:${vcId}`).setLabel('Accept').setEmoji('✅').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`cvc:dec:${requester.id}:${target.id}:${vcId}`).setLabel('Decline').setEmoji('✖️').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId(`cvc:once:${ids}`).setLabel('Let in once').setEmoji('🚪').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`cvc:perm:${ids}`).setLabel('Always allow').setEmoji('🔑').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`cvc:dec:${ids}`).setLabel('Decline').setEmoji('✖️').setStyle(ButtonStyle.Danger),
         )],
     };
 }
@@ -4723,18 +4749,29 @@ async function cvcHandleRequestAnswer(interaction) {
 
     if (action === 'dec') return finish(`✖️ <@${targetId}> passed on <@${requesterId}>'s request to join **${ch.name}**.`);
 
-    if (cvcIsFull(ch)) return finish(`🚫 **${ch.name}** filled up before this was accepted.`);
+    const requester = interaction.guild.members.cache.get(requesterId) || await interaction.guild.members.fetch(requesterId).catch(() => null);
+    const inVoice   = !!requester?.voice.channelId;
+
     try {
-        await ch.permissionOverwrites.edit(requesterId, { Connect: true, ViewChannel: true });
+        if (action === 'perm') {
+            // Permanent: a standing Connect overwrite, so they can leave and come back (even if not in voice now)
+            await ch.permissionOverwrites.edit(requesterId, { Connect: true, ViewChannel: true });
+            const moved = inVoice && requester.voice.channelId !== vcId
+                ? await requester.voice.setChannel(ch).then(() => true).catch(() => false)
+                : false;
+            return finish(`🔑 <@${targetId}> gave <@${requesterId}> permanent access to **${ch.name}**` +
+                (moved ? ', and moved them in.' : '. They can hop in anytime.'));
+        }
+
+        // One time: they need to be in voice so the bot can drag them in (works even if the room is full)
+        if (!inVoice) return finish(`🎧 <@${requesterId}> left voice, so they couldn't be moved in. They'll need to ask again.`);
+        const moved = await cvcDragIn(ch, requester);
+        if (!moved) return finish(`❌ Couldn't move <@${requesterId}> into **${ch.name}**. They can ask again.`);
+        return finish(`🚪 <@${targetId}> let <@${requesterId}> into **${ch.name}** (one time).`);
     } catch (e) {
-        console.error('[CustomVC] grant failed:', e.message);
+        console.error('[CustomVC] accept failed:', e.message);
         return finish("❌ Couldn't let them in. Try again in a moment.");
     }
-    const requester = interaction.guild.members.cache.get(requesterId) || await interaction.guild.members.fetch(requesterId).catch(() => null);
-    const moved = requester?.voice.channelId
-        ? await requester.voice.setChannel(ch).then(() => true).catch(() => false)
-        : false;
-    return finish(`✅ <@${targetId}> let <@${requesterId}> into **${ch.name}**${moved ? '.' : '. Hop in whenever you\'re ready!'}`);
 }
 
 // ── Panel interactions (customId prefix `cvc:`) ─────────────────────────────
@@ -4848,8 +4885,7 @@ async function handleCustomVcInteraction(interaction) {
             if (d.private) {
                 await ch.permissionOverwrites.edit(everyone, { Connect: null });
             } else {
-                // Everyone already inside keeps access so they can drop and rejoin
-                for (const m of cvcHumans(ch)) await ch.permissionOverwrites.edit(m.id, { Connect: true, ViewChannel: true }).catch(() => {});
+                // Only the owner and 🔑 permanent guests can rejoin; anyone else inside has to ask if they leave
                 await ch.permissionOverwrites.edit(everyone, { Connect: false });
             }
         } catch (e) {
@@ -4884,7 +4920,7 @@ async function handleCustomVcInteraction(interaction) {
         return;
     }
 
-    if (interaction.isButton() && (id.startsWith('cvc:acc:') || id.startsWith('cvc:dec:'))) {
+    if (interaction.isButton() && /^cvc:(once|perm|dec):/.test(id)) {
         return cvcHandleRequestAnswer(interaction);
     }
 }

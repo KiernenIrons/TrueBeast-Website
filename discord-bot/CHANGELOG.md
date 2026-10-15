@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Custom VC requests: let in once / always allow / decline
+
+- Requesters must be in a voice channel (any) to ask, so the bot can move them; otherwise there's a public "join a voice channel first" reply
+- Request buttons are now `cvc:once` (🚪 blue), `cvc:perm` (🔑 green) and `cvc:dec` (✖️ red), replacing Accept/Decline
+- Once: `cvcDragIn` adds a temporary Connect overwrite, moves them in, then deletes the overwrite (unless they already had permanent access), so they can't rejoin a private room after leaving. If the requester has left voice by the time it's clicked, it fails with "ask again"
+- Always: a standing Connect overwrite; moves them in if they're in voice, otherwise they can join anytime
+- Full rooms no longer block requests. Move Members bypasses the user limit, so accepted people are squeezed in. Public rooms with space, and private rooms where the requester already has permanent access, still move them straight in
+- Locking a room no longer gives everyone inside permanent access; only the owner and 🔑 guests can rejoin
+
 ## [2026-10-15] — Custom VC system: Waiting Room + #create-a-vc panel
 
 - Join to Create is removed. `TEMP_VC_TRIGGER_ID` is now the Waiting Room: `cvcInit` renames it to `⏳ Waiting Room` on startup, and joining it no longer creates anything
