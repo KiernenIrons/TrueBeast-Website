@@ -395,11 +395,11 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔊 NEW: Voice Rooms', value: 'Join to Create is gone. Hop in ⏳ Waiting Room, then use the panel in #create-a-vc to make your own room with a name and a people limit.' },
-    { name: '🔓 Public or 🔒 private', value: 'Public rooms: anyone can join. Private rooms: everyone can see them, but you have to ask someone inside to let you in.' },
-    { name: '🙋 Ask to join', value: 'Be in any voice channel, then pick someone from the "Ask to join" dropdown (or !vcreq @name / /vcreq). Full rooms are fine; the bot squeezes you in.' },
-    { name: '🚪 Once or 🔑 always', value: 'Whoever you ask picks: Let in once (leave a private room and you have to ask again), Always allow (come and go whenever), or Decline.' },
-    { name: '👑 Room owners', value: 'Rename your room, change the limit, lock/unlock it, delete it or hand it to someone else from the panel. If you leave, the person who has been in longest becomes owner.' },
+    { name: '🎰 NEW: The Casino', value: 'Head to #casino and use the panel there. No commands, just buttons. Everyone starts with 🪙 1,000 fake coins.' },
+    { name: '💼 Earn', value: 'Claim your 🎁 Daily (bigger every day you keep your streak), 💼 Work, or risk a 🦹 Crime.' },
+    { name: '🃏 Gamble', value: 'Blackjack, Slots, Roulette, Coinflip, Mines and Crash. Only you can see your games; big wins get announced.' },
+    { name: '🥷 Rob your friends', value: "Steal from someone's cash, but get caught and you pay them. Keep your coins safe in the 🏦 Bank or buy a 🔒 padlock from the 🛒 Shop." },
+    { name: '🏆 Flex', value: 'Buy titles in the shop and climb the leaderboard for richest player.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──

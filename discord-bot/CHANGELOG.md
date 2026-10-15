@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Casino goes public
+
+- `#casino` was made public manually in Discord (no code change to permissions)
+- UPDATE_NOTES now announce the casino (earning, games, robbing, bank/padlocks, titles)
+
 ## [2026-10-15] — Casino: stop reposting the panel
 
 - The panel is never deleted/re-sent any more (each repost was a fresh notification). It's posted once and only edited in place; it's re-sent only if it goes missing
