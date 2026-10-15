@@ -192,8 +192,11 @@ async function respond(ix, payload, mode) {
     return ix.reply({ ...payload, flags: 64 });
 }
 
-function errorReply(ix, content) {
-    const payload = { content, embeds: [], components: [], flags: 64 };
+// Every casino message is a titled card: GREY = "not yet / can't", GREEN = good, RED = bad
+const card = (color, title, desc) => ({ content: '', embeds: [embed(color, title, desc)], components: [] });
+
+function errorReply(ix, title, text) {
+    const payload = { ...card(GREY, title, text.replace(/^❌ /, '')), flags: 64 };
     return (ix.deferred || ix.replied) ? ix.followUp(payload) : ix.reply(payload);
 }
 
@@ -280,7 +283,7 @@ function betModal(type) {
 async function startGame(ix, type, amountStr, extraStr, mode) {
     const p = player(ix);
     const bet = parseBet(amountStr, p);
-    if (bet.error) return errorReply(ix, bet.error);
+    if (bet.error) return errorReply(ix, `${GAMES[type].emoji} ${GAMES[type].name}`, bet.error);
     switch (type) {
         case 'bj':       return bjStart(ix, p, bet.amount, mode);
         case 'slots':    return slotsPlay(ix, p, bet.amount, mode);
@@ -288,14 +291,14 @@ async function startGame(ix, type, amountStr, extraStr, mode) {
         case 'coinflip': return choiceStart(ix, 'coinflip', bet.amount, mode);
         case 'mines': {
             const m = extraStr ? parseInt(extraStr, 10) : 3;
-            if (!Number.isInteger(m) || m < 1 || m > 15) return errorReply(ix, '❌ Mines must be a number from 1 to 15.');
+            if (!Number.isInteger(m) || m < 1 || m > 15) return errorReply(ix, '💣 Mines', '❌ Mines must be a number from 1 to 15.');
             return minesStart(ix, bet.amount, m, mode);
         }
         case 'crash': {
             let auto = null;
             if (extraStr) {
                 auto = Math.floor(parseFloat(String(extraStr).replace(/x/i, '')) * 100) / 100;
-                if (!Number.isFinite(auto) || auto < 1.01 || auto > 1000) return errorReply(ix, '❌ Auto cash out must be between 1.01 and 1000.');
+                if (!Number.isFinite(auto) || auto < 1.01 || auto > 1000) return errorReply(ix, '📈 Crash', '❌ Auto cash out must be between 1.01 and 1000.');
             }
             return crashStart(ix, bet.amount, auto, mode);
         }
@@ -374,7 +377,7 @@ async function bjAction(ix, g, action) {
         return ix.update(bjView(g, p));
     }
     if (action === 'double') {
-        if (g.player.length !== 2 || p.cash < g.baseBet) return errorReply(ix, '❌ You can\'t double right now.');
+        if (g.player.length !== 2 || p.cash < g.baseBet) return errorReply(ix, '🃏 Blackjack', '❌ You can\'t double right now.');
         p.cash -= g.baseBet; p.escrow += g.baseBet; g.bet += g.baseBet;
         g.player.push(g.deck.pop());
         return ix.update(bjView(g, p, true, bjFinish(g, p)));
@@ -525,7 +528,7 @@ function minesCashOut(g) { return settle(g, Math.floor(g.bet * minesMult(g.mineC
 async function minesAction(ix, g, action) {
     const p = players.get(g.userId);
     if (action === 'cash') {
-        if (!g.revealed.size) return errorReply(ix, '❌ Reveal at least one tile first.');
+        if (!g.revealed.size) return errorReply(ix, '💣 Mines', '❌ Reveal at least one tile first.');
         return ix.update(minesView(g, p, true, minesCashOut(g)));
     }
     const i = Number(action.slice(1));
@@ -682,19 +685,26 @@ function moveMoney(p, dir, str) {
 }
 
 // ── Rob & Give ──────────────────────────────────────────────────────────────
-function userPicker(id, placeholder, text) {
-    return { content: text, embeds: [], components: [row(new UserSelectMenuBuilder().setCustomId(id).setPlaceholder(placeholder).setMinValues(1).setMaxValues(1))] };
+function userPicker(id, placeholder, title, text) {
+    return { ...card(GOLD, title, text), components: [row(new UserSelectMenuBuilder().setCustomId(id).setPlaceholder(placeholder).setMinValues(1).setMaxValues(1))] };
+}
+
+// Shared by the panel button (before picking) and the picker (after)
+function robBlocked(p) {
+    if (cooldownLeft(p.lastRob, ROB_COOLDOWN)) return `You're still lying low. Rob again ${rel(p.lastRob + ROB_COOLDOWN)}.`;
+    if (p.cash < ROB_MIN_CASH) return `You need at least ${fmt(ROB_MIN_CASH)} cash on you to rob someone, in case you get caught.`;
+    return null;
 }
 
 async function doRob(ix, p, targetId) {
     const target = players.get(targetId);
-    const fail = msg => ix.update({ content: msg, embeds: [], components: [] });
-    if (targetId === ix.user.id) return fail('❌ You can\'t rob yourself.');
-    if (cooldownLeft(p.lastRob, ROB_COOLDOWN)) return fail(`❌ You can rob again ${rel(p.lastRob + ROB_COOLDOWN)}.`);
-    if (p.cash < ROB_MIN_CASH) return fail(`❌ You need at least ${fmt(ROB_MIN_CASH)} cash on you to rob someone (in case you get caught).`);
-    if (!target) return fail('❌ They\'ve never been to the casino — nothing to steal.');
-    if (target.cash < ROB_MIN_CASH) return fail(`❌ **${target.name}** has less than ${fmt(ROB_MIN_CASH)} in cash. Not worth it.`);
-    if (cooldownLeft(target.robbedAt, ROB_PROTECT)) return fail(`❌ **${target.name}** was robbed recently. Leave them alone until ${rel(target.robbedAt + ROB_PROTECT)}.`);
+    const fail = msg => ix.update(card(GREY, '🥷 Rob', msg));
+    if (targetId === ix.user.id) return fail('You can\'t rob yourself.');
+    const blocked = robBlocked(p);
+    if (blocked) return fail(blocked);
+    if (!target) return fail('They\'ve never been to the casino. Nothing to steal.');
+    if (target.cash < ROB_MIN_CASH) return fail(`**${target.name}** has less than ${fmt(ROB_MIN_CASH)} in cash. Not worth it.`);
+    if (cooldownLeft(target.robbedAt, ROB_PROTECT)) return fail(`**${target.name}** was robbed recently. Leave them alone until ${rel(target.robbedAt + ROB_PROTECT)}.`);
 
     p.lastRob = Date.now();
     markDirty();
@@ -702,7 +712,7 @@ async function doRob(ix, p, targetId) {
         target.items.padlock--;
         const fine = Math.max(100, Math.floor(p.cash * 0.15));
         p.cash -= Math.min(p.cash, fine);
-        await ix.update({ content: `🔒 **${target.name}** had a padlock! You broke your crowbar on it and lost ${fmt(fine)}.`, components: [] });
+        await ix.update(card(RED, '🔒 Padlocked', `**${target.name}** had a padlock! You broke your crowbar on it and lost **${fmt(fine)}**.\nCash: ${fmt(p.cash)}`));
         return post(`🔒 **${p.name}** tried to rob <@${targetId}> but got stopped by a padlock! (${target.items.padlock} left)`, [targetId]);
     }
     let chance = 0.40;
@@ -711,13 +721,13 @@ async function doRob(ix, p, targetId) {
     if (Math.random() < chance) {
         const stolen = Math.floor(target.cash * (rand(15, 45) / 100));
         target.cash -= stolen; p.cash += stolen; target.robbedAt = Date.now();
-        await ix.update({ content: `🥷${gloves} You robbed **${target.name}** for **${fmt(stolen)}**! Cash: ${fmt(p.cash)}`, components: [] });
+        await ix.update(card(GREEN, `🥷 Rob${gloves}`, `You robbed **${target.name}** for **${fmt(stolen)}**!\nCash: ${fmt(p.cash)}`));
         return post(`🥷 **${p.name}** robbed <@${targetId}> for **${fmt(stolen)}**! Should've used the 🏦 bank.`, [targetId]);
     }
     const fine = Math.max(100, Math.floor(p.cash * 0.20));
     const paid = Math.min(p.cash, fine);
     p.cash -= paid; target.cash += paid;
-    await ix.update({ content: `🚨${gloves} You got caught robbing **${target.name}** and had to pay them ${fmt(paid)}. Cash: ${fmt(p.cash)}`, components: [] });
+    await ix.update(card(RED, `🚨 Busted${gloves}`, `You got caught robbing **${target.name}** and had to pay them **${fmt(paid)}**.\nCash: ${fmt(p.cash)}`));
     return post(`🚨 **${p.name}** got caught trying to rob <@${targetId}> and paid them **${fmt(paid)}** in damages.`, [targetId]);
 }
 
@@ -829,7 +839,7 @@ function refreshPanel() {
 function isCasinoInteraction(ix) { return typeof ix.customId === 'string' && ix.customId.startsWith('cas:'); }
 
 async function handleCasinoInteraction(ix) {
-    if (!loaded) return ix.reply({ content: '🎰 The casino is still opening its doors — try again in a minute.', flags: 64 });
+    if (!loaded) return ix.reply({ ...card(GREY, '🎰 Casino', 'The casino is still opening its doors. Try again in a minute.'), flags: 64 });
     const id = ix.customId;
     const p = player(ix);
 
@@ -844,11 +854,11 @@ async function handleCasinoInteraction(ix) {
         if (what === 'bank') return ix.reply({ ...bankView(p), flags: 64 });
         if (what === 'shop') return ix.reply({ ...shopView(p), flags: 64 });
         if (what === 'lb') return ix.reply({ ...leaderboardView(ix.user.id), flags: 64 });
-        if (what === 'give') return ix.reply({ ...userPicker('cas:give:pick', 'Who are you giving coins to?', `🤝 Pick someone to give cash to. You have ${fmt(p.cash)}.`), flags: 64 });
+        if (what === 'give') return ix.reply({ ...userPicker('cas:give:pick', 'Who are you giving coins to?', '🤝 Give', `Pick someone to give cash to. You have ${fmt(p.cash)}.`), flags: 64 });
         if (what === 'rob') {
-            if (cooldownLeft(p.lastRob, ROB_COOLDOWN)) return ix.reply({ content: `❌ You can rob again ${rel(p.lastRob + ROB_COOLDOWN)}.`, flags: 64 });
-            if (p.cash < ROB_MIN_CASH) return ix.reply({ content: `❌ You need at least ${fmt(ROB_MIN_CASH)} cash on you to rob someone (in case you get caught).`, flags: 64 });
-            return ix.reply({ ...userPicker('cas:rob:pick', 'Who are you robbing?', `🥷 Pick a target. 40% success — steal 15-45% of their cash. Get caught and you pay them 20% of yours.${p.items.gloves ? '\n🧤 Your gloves will add +20%.' : ''}`), flags: 64 });
+            const blocked = robBlocked(p);
+            if (blocked) return ix.reply({ ...card(GREY, '🥷 Rob', blocked), flags: 64 });
+            return ix.reply({ ...userPicker('cas:rob:pick', 'Who are you robbing?', '🥷 Rob', `Pick a target. 40% success — steal 15-45% of their cash. Get caught and you pay them 20% of yours.${p.items.gloves ? '\n🧤 Your gloves will add +20%.' : ''}`), flags: 64 });
         }
         return;
     }
@@ -872,8 +882,8 @@ async function handleCasinoInteraction(ix) {
     if (id.startsWith('cas:g:')) {
         const [, , gameId, action] = id.split(':');
         const g = games.get(gameId);
-        if (!g || g.done) return ix.reply({ content: '⌛ This game is over or expired.', flags: 64 });
-        if (g.userId !== ix.user.id) return ix.reply({ content: '❌ That\'s not your game.', flags: 64 });
+        if (!g || g.done) return ix.reply({ ...card(GREY, '🎰 Casino', 'This game is over or expired.'), flags: 64 });
+        if (g.userId !== ix.user.id) return ix.reply({ ...card(GREY, '🎰 Casino', 'That\'s not your game.'), flags: 64 });
         g.ix = ix;
         touch(g);
         if (g.type === 'bj') return bjAction(ix, g, action);
@@ -898,23 +908,23 @@ async function handleCasinoInteraction(ix) {
     // Rob
     if (id === 'cas:rob:pick') {
         const target = ix.users.first();
-        if (target?.bot) return ix.update({ content: '❌ Bots don\'t carry cash.', components: [] });
+        if (target?.bot) return ix.update(card(GREY, '🥷 Rob', 'Bots don\'t carry cash.'));
         return doRob(ix, p, ix.values[0]);
     }
 
     // Give: pick a user, then an amount
     if (id === 'cas:give:pick') {
         const target = ix.users.first();
-        if (!target || target.bot) return ix.update({ content: '❌ Pick a real person.', components: [] });
-        if (target.id === ix.user.id) return ix.update({ content: '❌ You can\'t give coins to yourself.', components: [] });
+        if (!target || target.bot) return ix.update(card(GREY, '🤝 Give', 'Pick a real person.'));
+        if (target.id === ix.user.id) return ix.update(card(GREY, '🤝 Give', 'You can\'t give coins to yourself.'));
         return ix.showModal(amountModal(`cas:m:give:${target.id}`, `🤝 Give to ${(ix.members?.first()?.displayName || target.username).slice(0, 30)}`, 'How much cash?'));
     }
     if (id.startsWith('cas:m:give:')) {
         const targetId = id.slice(11);
         const amt = parseAmount(ix.fields.getTextInputValue('amount'), p.cash);
-        const done = content => ix.isFromMessage() ? ix.update({ content, components: [] }) : ix.reply({ content, flags: 64 });
-        if (!Number.isFinite(amt) || amt <= 0) return done('❌ That isn\'t a valid amount.');
-        if (amt > p.cash) return done(`❌ You only have ${fmt(p.cash)} in cash.`);
+        const done = (color, text) => ix.isFromMessage() ? ix.update(card(color, '🤝 Give', text)) : ix.reply({ ...card(color, '🤝 Give', text), flags: 64 });
+        if (!Number.isFinite(amt) || amt <= 0) return done(GREY, 'That isn\'t a valid amount. Try `500`, `2k`, `half` or `all`.');
+        if (amt > p.cash) return done(GREY, `You only have ${fmt(p.cash)} in cash.`);
         let target = players.get(targetId);
         if (!target) {
             target = newPlayer();
@@ -923,7 +933,8 @@ async function handleCasinoInteraction(ix) {
             players.set(targetId, target);
         }
         p.cash -= amt; target.cash += amt; markDirty();
-        await done(`✅ Gave ${fmt(amt)} to **${target.name}**. Cash: ${fmt(p.cash)}`);
+        await done(GREEN, `You gave **${fmt(amt)}** to **${target.name}**.
+Cash: ${fmt(p.cash)}`);
         return post(`🤝 **${p.name}** gave <@${targetId}> **${fmt(amt)}**!`, [targetId]);
     }
 }

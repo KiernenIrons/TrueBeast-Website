@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Casino: consistent reply cards
+
+- Every ephemeral casino reply is now a titled embed card (new `card()` helper), matching Work/Crime: grey for cooldowns and "can't do that", green for success, red for getting caught
+- Converted: rob cooldown/requirement denials (shared `robBlocked()`), rob results (success / busted / padlocked), rob and give pickers, give errors and confirmation, bet errors (`errorReply(ix, title, text)`), expired/not-your-game and still-loading notices
+- Public robbery/gift/big-win posts stay plain text so the ping still works
+
 ## [2026-10-15] — Casino goes public
 
 - `#casino` was made public manually in Discord (no code change to permissions)
