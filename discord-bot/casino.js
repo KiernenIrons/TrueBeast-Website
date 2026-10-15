@@ -32,7 +32,8 @@ const ROB_PROTECT     = 1 * HOUR;    // a victim can't be robbed again for this 
 const ROB_MIN_CASH    = 250;         // both robber and victim need this much cash
 const GAME_IDLE_MS    = 10 * MIN;    // idle games auto-resolve after this
 const BIG_WIN         = 10_000;      // net wins at or above this get announced
-const PANEL_REPOST_MS = 20 * 1000;   // keep the panel at the bottom after chatter
+const BOT_POST_TTL    = 60 * MIN;    // robbery/gift/big-win posts get cleaned up after this
+const CHAT_TTL        = 5 * MIN;     // anything else said in the channel
 
 const GAMES = {
     bj:       { name: 'Blackjack', emoji: '🃏' },
@@ -79,7 +80,6 @@ let client = null;
 let channelId = null;
 let panelMessageId = null;
 let saveTimer = null;
-let repostTimer = null;
 let panelDirty = false;
 let panelQueue = Promise.resolve();
 
@@ -791,16 +791,22 @@ function panelPayload() {
 
 const isPanelMessage = msg => msg.author?.id === client.user.id && msg.embeds?.[0]?.title === PANEL_TITLE;
 
+function scheduleCleanup(msg) {
+    if (msg.id === panelMessageId || isPanelMessage(msg)) return;
+    const ttl = msg.author?.id === client.user.id ? BOT_POST_TTL : CHAT_TTL;
+    setTimeout(() => msg.delete().catch(() => {}), Math.max(0, msg.createdTimestamp + ttl - Date.now()));
+}
+
 function queuePanel(fn) {
     panelQueue = panelQueue.then(fn).catch(e => console.error('[Casino] panel update failed:', e.message));
     return panelQueue;
 }
 
-function repostPanel() {
+// Only used when the panel is missing — otherwise it's edited in place (no notifications)
+function postPanel() {
     return queuePanel(async () => {
         const ch = await client.channels.fetch(channelId).catch(() => null);
         if (!ch) return;
-        if (panelMessageId) await ch.messages.delete(panelMessageId).catch(() => {});
         const msg = await ch.send(panelPayload());
         panelMessageId = msg.id;
         panelDirty = false;
@@ -924,7 +930,7 @@ async function handleCasinoInteraction(ix) {
 
 // ── Startup ─────────────────────────────────────────────────────────────────
 // Finds or creates #casino (private: @everyone can't see it) in the same category as
-// `testingChannelId`, restores balances, and keeps the panel as the newest message.
+// `testingChannelId`, restores balances, and posts (or edits) the one panel message.
 async function startCasino(discordClient, { testingChannelId }) {
     client = discordClient;
     let state = null;
@@ -969,16 +975,15 @@ async function startCasino(discordClient, { testingChannelId }) {
     channelId = ch.id;
 
     const existing = panelMessageId ? await ch.messages.fetch(panelMessageId).catch(() => null) : null;
-    if (existing && ch.lastMessageId === existing.id) await refreshPanel();
-    else { if (!existing) panelMessageId = null; await repostPanel(); }
+    if (existing) await refreshPanel();
+    else { panelMessageId = null; await postPanel(); }
     saveState();
 
-    // Keep the panel as the newest message, and the Richest list fresh
-    client.on('messageCreate', msg => {
-        if (msg.channelId !== channelId || isPanelMessage(msg)) return;
-        clearTimeout(repostTimer);
-        repostTimer = setTimeout(() => repostPanel(), PANEL_REPOST_MS);
-    });
+    // The panel never moves; everything else in the channel deletes itself after a while.
+    // Sweep what's already there (timers don't survive a restart), then watch new messages.
+    const recent = await ch.messages.fetch({ limit: 100 }).catch(() => null);
+    for (const msg of recent?.values() || []) scheduleCleanup(msg);
+    client.on('messageCreate', msg => { if (msg.channelId === channelId) scheduleCleanup(msg); });
     setInterval(() => { if (panelDirty) refreshPanel(); }, 2 * MIN);
 }
 

@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Casino: stop reposting the panel
+
+- The panel is never deleted/re-sent any more (each repost was a fresh notification). It's posted once and only edited in place; it's re-sent only if it goes missing
+- Everything else in `#casino` deletes itself instead: the bot's robbery/gift/big-win posts after 1 hour, other messages after 5 minutes. On startup the last 100 messages are swept so cleanup timers survive restarts
+
 ## [2026-10-15] — Casino: economy + gambling panel (private testing)
 
 - New self-contained `casino.js` (UnbelievaBoat-style). No slash commands: one button panel in `#casino`, every menu and game reply ephemeral; robberies, gifts and net wins ≥ 10k are posted publicly
