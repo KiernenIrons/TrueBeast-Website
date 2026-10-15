@@ -24,7 +24,7 @@ const {
     ModalBuilder, TextInputBuilder, TextInputStyle,
     SlashCommandBuilder, REST, Routes, AttachmentBuilder,
     AuditLogEvent, MessageFlags,
-    StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
+    StringSelectMenuBuilder, StringSelectMenuOptionBuilder, UserSelectMenuBuilder,
     UserFlags, GuildMemberFlags,
     ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize,
     MediaGalleryBuilder, MediaGalleryItemBuilder,
@@ -394,9 +394,10 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🥳 NEW: !party, ?party & /party', value: 'Throw a party on any message! Reply to a message with !party or ?party (or send it on its own to party the message above) and the bot piles on 13 party emojis.' },
-    { name: '🎉 /party & "Party!" app', value: 'Use /party with a message link or ID (or leave it blank for the latest message), or right-click any message → Apps → Party!' },
-    { name: '💃 New dancing emojis', value: '11 new animated party & dance emojis have been added to the server — use them anywhere!' },
+    { name: '🔊 NEW: Voice Rooms', value: 'Join to Create is gone. Hop in ⏳ Waiting Room, then use the panel in #create-a-vc to make your own room with a name and a people limit.' },
+    { name: '🔓 Public or 🔒 private', value: 'Public rooms: anyone can join. Private rooms: everyone can see them, but you have to ask someone inside to let you in.' },
+    { name: '🙋 Ask to join', value: 'Pick someone from the "Ask to join" dropdown, or use !vcreq @name or /vcreq. They get Accept/Decline buttons, and if they accept you get pulled right in.' },
+    { name: '👑 Room owners', value: 'Rename your room, change the limit, lock/unlock it or hand it to someone else from the panel. If you leave, the person who has been in longest becomes owner.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -1873,9 +1874,10 @@ const VIP_PERK_ROLES = [
 let   bumpKingUserId = null;    // current role holder
 let   _bumpWeekKey   = null;    // ISO week that bumpCounts was last reset for
 
-// ── Temp Voice Channels ───────────────────────────────────────────────────────
+// ── Custom Voice Channels (see "Custom VCs" section) ──────────────────────────
+// The old Join-to-Create trigger is now the Waiting Room; rooms are made from the #create-a-vc panel.
 const TEMP_VC_TRIGGER_ID = '1484970124292128992';
-// channelId → { ownerId, ownerName, deleteTimer }
+// channelId → { ownerId, ownerName, private, joinedAt: { userId: ms }, renames: [ms], deleteTimer }
 const tempVoiceChannels = new Map();
 
 // ── Reaction Roles ────────────────────────────────────────────────────────────
@@ -4344,155 +4346,680 @@ async function logToChannel(msg) {
     } catch (_) {}
 }
 
-async function createTempVC(state) {
-    const member  = state.member;
-    const guild   = state.guild;
-    const trigger = guild.channels.cache.get(TEMP_VC_TRIGGER_ID);
-    const categoryId = trigger?.parentId || null;
-    const channelName = `${member.displayName}'s Channel`;
+// ── Custom VCs: Waiting Room + public panel ──────────────────────────────────
+// Members wait in the Waiting Room (TEMP_VC_TRIGGER_ID) and use one public panel in
+// #create-a-vc to make a room, edit it, lock/unlock it, hand it over, or ask to join one.
+// Nothing is ephemeral: every reply is public, and short-lived ones delete themselves.
+// Rooms are always visible; private ones deny Connect to @everyone, so the only way in
+// is a request accepted by someone inside. State lives in botConfig/customVc.
+const CVC_PANEL_CHANNEL_NAME = 'create-a-vc';
+const CVC_WAITING_ROOM_NAME  = '⏳ Waiting Room';
+const CVC_ACCENT             = 0x8b5cf6;
+const CVC_REQUEST_TTL        = 2 * 60 * 1000;  // unanswered join requests expire after this
+const CVC_RESOLVED_TTL       = 60 * 1000;      // resolved requests / notices hang around this long
+const CVC_ERROR_TTL          = 8 * 1000;       // "you can't do that" replies
+let   cvcPanelChannelId = null;
+let   cvcPanelMessageId = null;
+let   cvcLoaded         = false;               // guards saves so an empty map never overwrites Firestore
+// `${requesterId}:${targetId}` → { vcId, message, cmdMessage, timer }
+const cvcPendingRequests = new Map();
+let   cvcRefreshTimer = null;
+let   cvcBumpTimer    = null;
+let   cvcSaveTimer    = null;
+let   cvcPanelQueue   = Promise.resolve();     // serialises panel edits/reposts
 
-    await logToChannel(`🔊 **Temp VC triggered** by ${member.user.tag} — creating \`${channelName}\` (category: ${categoryId || 'none'})`);
+const cvcNoPings = { parse: [] };
 
+function cvcAutoDelete(msg, ms) {
+    if (msg && ms) setTimeout(() => msg.delete().catch(() => {}), ms);
+}
+
+// Public reply to an interaction; deleted after `ms` (0 = keep)
+async function cvcReply(interaction, content, ms = CVC_ERROR_TTL, extra = {}) {
+    const payload = { content, allowedMentions: cvcNoPings, ...extra };
     try {
-        const permOverwrites = [
-            // Channel owner — full VC management rights
-            {
-                id: member.id,
-                allow: [
-                    PermissionFlagsBits.ManageChannels,
-                    PermissionFlagsBits.MoveMembers,
-                    PermissionFlagsBits.MuteMembers,
-                    PermissionFlagsBits.DeafenMembers,
-                    PermissionFlagsBits.PrioritySpeaker,
-                    PermissionFlagsBits.Stream,
-                    PermissionFlagsBits.Speak,
-                    PermissionFlagsBits.Connect,
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.UseVAD,
-                    PermissionFlagsBits.SendMessages,
-                ],
-            },
-            // Bot — needs ManageChannels to delete the VC later
-            {
-                id: client.user.id,
-                allow: [
-                    PermissionFlagsBits.ManageChannels,
-                    PermissionFlagsBits.MoveMembers,
-                    PermissionFlagsBits.Connect,
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                ],
-            },
-        ];
+        if (interaction.deferred || interaction.replied) await interaction.editReply(payload);
+        else await interaction.reply(payload);
+        if (ms) setTimeout(() => interaction.deleteReply().catch(() => {}), ms);
+    } catch (e) { console.error('[CustomVC] reply failed:', e.message); }
+}
 
-        // Mods get full management rights too
-        if (MOD_ROLE_ID) {
-            permOverwrites.push({
-                id: MOD_ROLE_ID,
-                allow: [
-                    PermissionFlagsBits.ManageChannels,
-                    PermissionFlagsBits.MoveMembers,
-                    PermissionFlagsBits.MuteMembers,
-                    PermissionFlagsBits.DeafenMembers,
-                    PermissionFlagsBits.Connect,
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.Speak,
-                    PermissionFlagsBits.SendMessages,
-                ],
-            });
+function cvcFindOwnedVc(userId) {
+    for (const [id, d] of tempVoiceChannels) if (d.ownerId === userId) return id;
+    return null;
+}
+
+function cvcHumans(ch) {
+    return ch ? [...ch.members.values()].filter(m => !m.user.bot) : [];
+}
+
+function cvcIsFull(ch) {
+    return ch.userLimit > 0 && cvcHumans(ch).length >= ch.userLimit;
+}
+
+// Longest-present member still in the room (falls back to anyone inside)
+function cvcLongestMember(ch, d, excludeId = null) {
+    const inside = cvcHumans(ch).filter(m => m.id !== excludeId);
+    if (!inside.length) return null;
+    inside.sort((a, b) => (d.joinedAt[a.id] ?? Infinity) - (d.joinedAt[b.id] ?? Infinity));
+    return inside[0];
+}
+
+function cvcScheduleSave() {
+    if (!cvcLoaded) return;
+    clearTimeout(cvcSaveTimer);
+    cvcSaveTimer = setTimeout(() => {
+        const out = {};
+        for (const [id, d] of tempVoiceChannels) {
+            out[id] = { ownerId: d.ownerId, ownerName: d.ownerName, private: !!d.private, joinedAt: d.joinedAt || {} };
         }
+        firestoreMergeStringField('botConfig', 'customVc', 'vcsJson', JSON.stringify(out));
+    }, 2000);
+}
 
-        // Server owner (Kiernen) always gets full rights
-        const guildOwner = await guild.fetchOwner().catch(() => null);
-        if (guildOwner && guildOwner.id !== member.id) {
-            permOverwrites.push({
-                id: guildOwner.id,
-                allow: [
-                    PermissionFlagsBits.ManageChannels,
-                    PermissionFlagsBits.MoveMembers,
-                    PermissionFlagsBits.MuteMembers,
-                    PermissionFlagsBits.DeafenMembers,
-                    PermissionFlagsBits.Connect,
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.Speak,
-                    PermissionFlagsBits.SendMessages,
-                ],
-            });
-        }
+// ── Panel ────────────────────────────────────────────────────────────────────
+function cvcBuildPanel(guild) {
+    const rooms = [...tempVoiceChannels]
+        .map(([id, d]) => ({ ch: guild.channels.cache.get(id), d }))
+        .filter(r => r.ch);
 
-        // Quarantine role — deny view + connect so flagged users can't see or enter
-        permOverwrites.push({
-            id: QUARANTINE_ROLE_ID,
-            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-        });
+    const list = rooms.length
+        ? rooms.map(({ ch, d }) =>
+            `${d.private ? '🔒' : '🔓'} **${ch.name}** · ${cvcHumans(ch).length}/${ch.userLimit || '∞'}` +
+            (d.ownerId ? ` · 👑 <@${d.ownerId}>` : '')).join('\n')
+        : '-# No rooms open yet. Be the first.';
 
-        const tempChannel = await guild.channels.create({
-            name: channelName,
-            type: ChannelType.GuildVoice,
-            parent: categoryId,
-            permissionOverwrites: permOverwrites,
-            reason: `Temp VC for ${member.user.tag}`,
-        });
-
-        // Move them in
-        await member.voice.setChannel(tempChannel);
-
-        // Track it
-        tempVoiceChannels.set(tempChannel.id, {
-            ownerId: member.id,
-            ownerName: member.displayName,
-            deleteTimer: null,
-        });
-
-        // Post a commands guide in the VC's built-in text chat
-        // Small delay so Discord fully initialises the VC text channel before we post
-        await new Promise(r => setTimeout(r, 1500));
-        try {
-            await tempChannel.send({
-                embeds: [{
-                    color: 0x22c55e,
-                    title: `🎙️ ${channelName}`,
-                    description: `${member}, this is your channel. Auto-deletes **1 min after everyone leaves**.`,
-                    fields: [
-                        {
-                            name: '⚙️ Controls',
-                            value:
-                                '- **Rename / user limit** — right-click channel → Edit Channel\n' +
-                                '- **Mute / kick** — right-click a member in the VC\n' +
-                                '- **Lock** — Edit Channel → Permissions → deny Connect for @everyone',
-                        },
-                        {
-                            name: '💤 AFK',
-                            value:
-                                '`/afk [reason]`\n' +
-                                '> Adds `[AFK]` to your name\n' +
-                                '> Announces your return when you type\n' +
-                                '> Notifies others if they ping an AFK member',
-                        },
-                        {
-                            name: '⏰ Leave Timer',
-                            value:
-                                '`/leavetimer [time] [reason]`\n' +
-                                '> Sets a countdown before you auto-leave the VC\n' +
-                                '> Gives the channel a 1 min heads-up before you go\n' +
-                                '`/cleartimer`\n' +
-                                '> Cancels your active leave timer',
-                        },
-                    ],
-                    footer: { text: 'Only you, mods, and the server owner can manage this channel' },
-                }],
-            });
-        } catch (e) {
-            console.error('[BeastBot] Failed to post temp VC guide:', e.message);
-            await logToChannel(`⚠️ Failed to post guide in \`${channelName}\`: \`${e.message}\``);
-        }
-
-        console.log(`[BeastBot] 🔊 Created temp VC: "${channelName}" for ${member.user.tag}`);
-        await logToChannel(`✅ **Temp VC created:** \`${channelName}\` — moved ${member.user.tag} in`);
-    } catch (e) {
-        console.error('[BeastBot] Failed to create temp VC:', e.message);
-        await logToChannel(`❌ **Temp VC creation FAILED** for ${member.user.tag}\n\`\`\`${e.message}\`\`\``);
+    const people = [];
+    for (const { ch, d } of rooms) {
+        for (const m of cvcHumans(ch)) people.push({ m, ch, d });
     }
+
+    const askMenu = new StringSelectMenuBuilder().setCustomId('cvc:ask').setPlaceholder('🙋 Ask to join… pick someone inside');
+    if (people.length) {
+        askMenu.addOptions(people.slice(0, 25).map(({ m, ch, d }) => ({
+            label: m.displayName.slice(0, 100),
+            value: m.id,
+            description: `${d.private ? '🔒' : '🔓'} ${ch.name} (${cvcHumans(ch).length}/${ch.userLimit || '∞'})`.slice(0, 100),
+        })));
+    } else {
+        askMenu.addOptions({ label: 'Nobody is in a room yet', value: 'none' }).setDisabled(true);
+    }
+
+    return new ContainerBuilder()
+        .setAccentColor(CVC_ACCENT)
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(
+            `## 🔊 Voice Rooms\nHop in <#${TEMP_VC_TRIGGER_ID}>, then make your own space.\n` +
+            '-# 🔓 public: anyone can join · 🔒 private: ask someone inside',
+        ))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addTextDisplayComponents(new TextDisplayBuilder().setContent(list))
+        .addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small))
+        .addActionRowComponents(
+            new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('cvc:create:pub').setLabel('Create public').setEmoji('🔓').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('cvc:create:priv').setLabel('Create private').setEmoji('🔒').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('cvc:edit').setLabel('Edit my room').setEmoji('✏️').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('cvc:lock').setLabel('Lock / unlock').setEmoji('🔁').setStyle(ButtonStyle.Secondary),
+            ),
+            new ActionRowBuilder().addComponents(askMenu),
+            new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder().setCustomId('cvc:transfer').setPlaceholder('👑 Hand your room to…'),
+            ),
+        );
+}
+
+async function cvcGetPanelChannel() {
+    if (!cvcPanelChannelId) return null;
+    return client.channels.cache.get(cvcPanelChannelId) || await client.channels.fetch(cvcPanelChannelId).catch(() => null);
+}
+
+function cvcQueue(fn) {
+    cvcPanelQueue = cvcPanelQueue.then(fn).catch(e => console.error('[CustomVC] panel op failed:', e.message));
+    return cvcPanelQueue;
+}
+
+// Delete the old panel and post a fresh one at the bottom of the channel
+function cvcRepostPanel() {
+    return cvcQueue(async () => {
+        const ch = await cvcGetPanelChannel();
+        if (!ch) return;
+        const msg = await ch.send({ flags: MessageFlags.IsComponentsV2, components: [cvcBuildPanel(ch.guild)], allowedMentions: cvcNoPings });
+        const oldId = cvcPanelMessageId;
+        cvcPanelMessageId = msg.id;
+        firestoreMergeStringField('botConfig', 'customVc', 'panelMessageId', msg.id);
+        if (oldId) ch.messages.delete(oldId).catch(() => {});
+    });
+}
+
+// Edit the panel in place (live room list + "Ask to join" options)
+function cvcRefreshPanel(delay = 3000) {
+    clearTimeout(cvcRefreshTimer);
+    cvcRefreshTimer = setTimeout(() => cvcQueue(async () => {
+        const ch = await cvcGetPanelChannel();
+        if (!ch) return;
+        const msg = cvcPanelMessageId ? await ch.messages.fetch(cvcPanelMessageId).catch(() => null) : null;
+        if (!msg) { cvcPanelMessageId = null; cvcRepostPanel(); return; }
+        await msg.edit({ flags: MessageFlags.IsComponentsV2, components: [cvcBuildPanel(ch.guild)], allowedMentions: cvcNoPings });
+    }), delay);
+}
+
+// Any message landing in the panel channel pushes the panel back to the bottom (debounced)
+function cvcNoteMessage(message) {
+    if (!cvcPanelChannelId || message.channelId !== cvcPanelChannelId) return;
+    if (message.id === cvcPanelMessageId) return;
+    if (message.author.id === client.user?.id && message.flags?.has(MessageFlags.IsComponentsV2)) return; // a panel
+    clearTimeout(cvcBumpTimer);
+    cvcBumpTimer = setTimeout(async () => {
+        const ch = await cvcGetPanelChannel();
+        if (ch && ch.lastMessageId === cvcPanelMessageId) return; // already at the bottom
+        clearTimeout(cvcRefreshTimer);
+        cvcRepostPanel();
+    }, 5000);
+}
+
+// Short public notice in the panel channel
+async function cvcNotice(content, ms = CVC_RESOLVED_TTL) {
+    const ch = await cvcGetPanelChannel();
+    if (!ch) return;
+    const msg = await ch.send({ content, allowedMentions: cvcNoPings }).catch(() => null);
+    cvcAutoDelete(msg, ms);
+}
+
+// ── Ownership ────────────────────────────────────────────────────────────────
+async function cvcSetOwner(vcId, newOwner) {
+    const d  = tempVoiceChannels.get(vcId);
+    const ch = client.channels.cache.get(vcId);
+    if (!d || !ch) return;
+    const oldId = d.ownerId;
+    d.ownerId   = newOwner.id;
+    d.ownerName = newOwner.displayName;
+    // Old owner keeps Connect so they can come back; only the owner perk goes
+    if (oldId && oldId !== newOwner.id) await ch.permissionOverwrites.edit(oldId, { PrioritySpeaker: null }).catch(() => {});
+    await ch.permissionOverwrites.edit(newOwner.id, { Connect: true, ViewChannel: true, Speak: true, Stream: true, PrioritySpeaker: true }).catch(() => {});
+    cvcScheduleSave();
+    cvcRefreshPanel();
+}
+
+// ── Create ───────────────────────────────────────────────────────────────────
+async function createCustomVC(member, name, limit, isPrivate) {
+    const guild   = member.guild;
+    const waiting = guild.channels.cache.get(TEMP_VC_TRIGGER_ID);
+
+    // One room per owner: an old empty one goes now, an occupied one is handed on
+    const oldId = cvcFindOwnedVc(member.id);
+    if (oldId) {
+        const oldCh = guild.channels.cache.get(oldId);
+        const oldD  = tempVoiceChannels.get(oldId);
+        const heir  = oldCh ? cvcLongestMember(oldCh, oldD, member.id) : null;
+        if (heir) await cvcSetOwner(oldId, heir);
+        else {
+            if (oldD?.deleteTimer) clearTimeout(oldD.deleteTimer);
+            tempVoiceChannels.delete(oldId);
+            if (oldCh) await oldCh.delete('Custom VC: owner made a new room').catch(() => {});
+        }
+    }
+
+    const mgmt = [
+        PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.MuteMembers,
+        PermissionFlagsBits.DeafenMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.Speak, PermissionFlagsBits.SendMessages,
+    ];
+    const permOverwrites = [
+        // Owner can talk, stream and get in, but can't edit the channel (that goes through the panel)
+        {
+            id: member.id,
+            allow: [
+                PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Speak,
+                PermissionFlagsBits.Stream, PermissionFlagsBits.UseVAD, PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.PrioritySpeaker,
+            ],
+        },
+        // Bot — manages, moves members in, deletes it later
+        {
+            id: client.user.id,
+            allow: [PermissionFlagsBits.ManageChannels, PermissionFlagsBits.MoveMembers, PermissionFlagsBits.Connect, PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+        },
+        // Quarantine role — can't see or enter
+        { id: QUARANTINE_ROLE_ID, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
+    ];
+    if (MOD_ROLE_ID) permOverwrites.push({ id: MOD_ROLE_ID, allow: mgmt });
+    const guildOwner = await guild.fetchOwner().catch(() => null);
+    if (guildOwner && guildOwner.id !== member.id) permOverwrites.push({ id: guildOwner.id, allow: mgmt });
+    // Private: visible to everyone, but only accepted people can connect
+    if (isPrivate) permOverwrites.push({ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.Connect] });
+
+    const ch = await guild.channels.create({
+        name,
+        type: ChannelType.GuildVoice,
+        parent: waiting?.parentId || null,
+        userLimit: limit || 0,
+        permissionOverwrites: permOverwrites,
+        reason: `Custom VC for ${member.user.tag}`,
+    });
+
+    tempVoiceChannels.set(ch.id, {
+        ownerId: member.id,
+        ownerName: member.displayName,
+        private: !!isPrivate,
+        joinedAt: { [member.id]: Date.now() },
+        renames: [],
+        deleteTimer: null,
+    });
+    cvcScheduleSave();
+
+    await member.voice.setChannel(ch).catch(() => {});
+    cvcRefreshPanel();
+
+    // Short guide in the VC's own text chat (small delay so Discord finishes setting it up)
+    setTimeout(() => {
+        ch.send({
+            embeds: [{
+                color: CVC_ACCENT,
+                title: `${isPrivate ? '🔒' : '🔓'} ${name}`,
+                description:
+                    `${member}, this is your room. It closes **1 min after everyone leaves**.\n\n` +
+                    `Rename it, change the limit, lock/unlock it or hand it over from the panel in <#${cvcPanelChannelId}>.\n` +
+                    (isPrivate ? 'People ask to join from the panel, and you (or anyone they ask) can accept.\n' : '') +
+                    '\n💤 `/afk` · ⏰ `/leavetimer` · `/cleartimer`',
+            }],
+        }).catch(() => {});
+    }, 1500);
+
+    console.log(`[BeastBot] 🔊 Created custom VC "${name}" (${isPrivate ? 'private' : 'public'}, limit ${limit || '∞'}) for ${member.user.tag}`);
+    await logToChannel(`✅ **Custom VC created:** \`${name}\` (${isPrivate ? 'private' : 'public'}) by ${member.user.tag}`);
+    return ch;
+}
+
+// ── Join requests ────────────────────────────────────────────────────────────
+// Works out what should happen when `requester` asks `targetId` to let them in.
+// Returns { kind: 'error' | 'done' | 'request', content, components?, pingIds? }
+async function cvcBuildJoinRequest(guild, requester, targetId) {
+    const target = guild.members.cache.get(targetId) || await guild.members.fetch(targetId).catch(() => null);
+    if (!target || target.user.bot) return { kind: 'error', content: "❌ Couldn't find that person." };
+    if (target.id === requester.id) return { kind: 'error', content: "😅 That's you." };
+
+    const vcId = target.voice.channelId;
+    const d    = vcId && tempVoiceChannels.get(vcId);
+    const ch   = d && guild.channels.cache.get(vcId);
+    if (!ch) return { kind: 'error', content: `❌ **${target.displayName}** isn't in a room right now.` };
+    if (requester.voice.channelId === vcId) return { kind: 'error', content: `You're already in **${ch.name}** 🙂` };
+    if (cvcIsFull(ch)) return { kind: 'error', content: `🚫 **${ch.name}** is full (${cvcHumans(ch).length}/${ch.userLimit}).` };
+
+    if (!d.private) {
+        if (requester.voice.channelId) {
+            const moved = await requester.voice.setChannel(ch).then(() => true).catch(() => false);
+            if (moved) return { kind: 'done', content: `🔓 **${ch.name}** is public, so ${requester} has been moved right in.` };
+        }
+        return { kind: 'done', content: `🔓 **${ch.name}** is public, ${requester}. Just hop in!` };
+    }
+
+    if (cvcPendingRequests.has(`${requester.id}:${target.id}`)) {
+        return { kind: 'error', content: `⏳ You've already asked **${target.displayName}**. Hang tight.` };
+    }
+
+    return {
+        kind: 'request',
+        vcId,
+        targetId: target.id,
+        content: `🙋 ${target}, **${requester.displayName}** wants to join **${ch.name}**.\n-# Only ${target.displayName} can answer · expires in 2 min`,
+        pingIds: [target.id],
+        components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`cvc:acc:${requester.id}:${target.id}:${vcId}`).setLabel('Accept').setEmoji('✅').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`cvc:dec:${requester.id}:${target.id}:${vcId}`).setLabel('Decline').setEmoji('✖️').setStyle(ButtonStyle.Secondary),
+        )],
+    };
+}
+
+// Posts the outcome of cvcBuildJoinRequest. `send(payload)` must return the posted Message.
+// `cmdMessage` (a typed !vcreq) is tidied up together with the request.
+async function cvcSendJoinRequest(guild, requester, targetId, send, cmdMessage = null) {
+    const res = await cvcBuildJoinRequest(guild, requester, targetId);
+    const msg = await send({
+        content: res.content,
+        components: res.components || [],
+        allowedMentions: res.pingIds ? { users: res.pingIds } : cvcNoPings,
+    }).catch(e => { console.error('[CustomVC] request send failed:', e.message); return null; });
+
+    if (res.kind !== 'request') {
+        const ttl = res.kind === 'error' ? CVC_ERROR_TTL : CVC_RESOLVED_TTL;
+        cvcAutoDelete(msg, ttl);
+        cvcAutoDelete(cmdMessage, ttl);
+        return;
+    }
+    if (!msg) return;
+
+    const key = `${requester.id}:${res.targetId}`;
+    const timer = setTimeout(async () => {
+        if (!cvcPendingRequests.has(key)) return;
+        cvcPendingRequests.delete(key);
+        await msg.edit({ content: `⌛ **${requester.displayName}**'s request expired.`, components: [], allowedMentions: cvcNoPings }).catch(() => {});
+        cvcAutoDelete(msg, 30 * 1000);
+        cvcAutoDelete(cmdMessage, 30 * 1000);
+    }, CVC_REQUEST_TTL);
+    cvcPendingRequests.set(key, { vcId: res.vcId, message: msg, cmdMessage, timer });
+}
+
+async function cvcHandleRequestAnswer(interaction) {
+    const [, action, requesterId, targetId, vcId] = interaction.customId.split(':');
+    if (interaction.user.id !== targetId) {
+        await cvcReply(interaction, `Only <@${targetId}> can answer this one.`);
+        return;
+    }
+    const key     = `${requesterId}:${targetId}`;
+    const pending = cvcPendingRequests.get(key);
+    const finish  = async (content) => {
+        await interaction.update({ content, components: [], allowedMentions: cvcNoPings }).catch(() => {});
+        cvcAutoDelete(interaction.message, CVC_RESOLVED_TTL);
+        if (pending) {
+            clearTimeout(pending.timer);
+            cvcPendingRequests.delete(key);
+            cvcAutoDelete(pending.cmdMessage, CVC_RESOLVED_TTL);
+        }
+    };
+
+    if (!pending) return finish('⌛ This request expired.');
+    const ch = interaction.guild.channels.cache.get(vcId);
+    if (!ch || !tempVoiceChannels.has(vcId)) return finish('❌ That room has closed.');
+
+    if (action === 'dec') return finish(`✖️ <@${targetId}> passed on <@${requesterId}>'s request to join **${ch.name}**.`);
+
+    if (cvcIsFull(ch)) return finish(`🚫 **${ch.name}** filled up before this was accepted.`);
+    try {
+        await ch.permissionOverwrites.edit(requesterId, { Connect: true, ViewChannel: true });
+    } catch (e) {
+        console.error('[CustomVC] grant failed:', e.message);
+        return finish("❌ Couldn't let them in. Try again in a moment.");
+    }
+    const requester = interaction.guild.members.cache.get(requesterId) || await interaction.guild.members.fetch(requesterId).catch(() => null);
+    const moved = requester?.voice.channelId
+        ? await requester.voice.setChannel(ch).then(() => true).catch(() => false)
+        : false;
+    return finish(`✅ <@${targetId}> let <@${requesterId}> into **${ch.name}**${moved ? '.' : '. Hop in whenever you\'re ready!'}`);
+}
+
+// ── Panel interactions (customId prefix `cvc:`) ─────────────────────────────
+async function handleCustomVcInteraction(interaction) {
+    const id     = interaction.customId;
+    const member = interaction.member;
+    const guild  = interaction.guild;
+
+    // Create (button → modal)
+    if (interaction.isButton() && id.startsWith('cvc:create:')) {
+        if (member.voice.channelId !== TEMP_VC_TRIGGER_ID) {
+            return cvcReply(interaction, `👋 ${member}, hop into <#${TEMP_VC_TRIGGER_ID}> first, then hit the button again.`);
+        }
+        const mode  = id.endsWith(':priv') ? 'priv' : 'pub';
+        const modal = new ModalBuilder()
+            .setCustomId(`cvc:create_modal:${mode}`)
+            .setTitle(mode === 'priv' ? '🔒 New private room' : '🔓 New public room')
+            .addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('name').setLabel('Room name').setStyle(TextInputStyle.Short)
+                        .setMaxLength(100).setRequired(true).setValue(`${member.displayName}'s Space`.slice(0, 100)),
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('limit').setLabel('Max people (1–99, blank = no limit)').setStyle(TextInputStyle.Short)
+                        .setMaxLength(2).setRequired(false).setPlaceholder('e.g. 4'),
+                ),
+            );
+        return interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit() && id.startsWith('cvc:create_modal:')) {
+        const isPrivate = id.endsWith(':priv');
+        const name      = interaction.fields.getTextInputValue('name').trim();
+        const limitRaw  = interaction.fields.getTextInputValue('limit').trim();
+        const limit     = limitRaw ? parseInt(limitRaw, 10) : 0;
+        if (!name) return cvcReply(interaction, '❌ The room needs a name.');
+        if (limitRaw && (!/^\d+$/.test(limitRaw) || limit < 1 || limit > 99)) return cvcReply(interaction, '❌ Max people has to be a number from 1 to 99 (or blank).');
+        if (member.voice.channelId !== TEMP_VC_TRIGGER_ID) {
+            return cvcReply(interaction, `👋 ${member}, hop into <#${TEMP_VC_TRIGGER_ID}> first, then try again.`);
+        }
+        await interaction.deferReply();
+        try {
+            await createCustomVC(member, name, limit, isPrivate);
+        } catch (e) {
+            console.error('[CustomVC] create failed:', e.message);
+            await logToChannel(`❌ **Custom VC creation FAILED** for ${member.user.tag}\n\`\`\`${e.message}\`\`\``);
+            return cvcReply(interaction, "❌ Couldn't create the room. Try again in a moment.");
+        }
+        return cvcReply(interaction,
+            `${isPrivate ? '🔒' : '🔓'} ${member} opened **${name}** · ${isPrivate ? 'private' : 'public'}${limit ? ` · ${limit} max` : ''}`,
+            CVC_RESOLVED_TTL);
+    }
+
+    // Everything below needs the person to own a room
+    const vcId = cvcFindOwnedVc(member.id);
+    const d    = vcId && tempVoiceChannels.get(vcId);
+    const ch   = d && guild.channels.cache.get(vcId);
+
+    if (interaction.isButton() && id === 'cvc:edit') {
+        if (!ch) return cvcReply(interaction, `${member}, you don't own a room right now.`);
+        const modal = new ModalBuilder()
+            .setCustomId(`cvc:edit_modal:${vcId}`)
+            .setTitle('✏️ Edit your room')
+            .addComponents(
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('name').setLabel('Room name').setStyle(TextInputStyle.Short)
+                        .setMaxLength(100).setRequired(true).setValue(ch.name),
+                ),
+                new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId('limit').setLabel('Max people (1–99, blank = no limit)').setStyle(TextInputStyle.Short)
+                        .setMaxLength(2).setRequired(false).setValue(ch.userLimit ? String(ch.userLimit) : ''),
+                ),
+            );
+        return interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit() && id.startsWith('cvc:edit_modal:')) {
+        if (!ch || vcId !== id.split(':')[2]) return cvcReply(interaction, `${member}, you don't own that room anymore.`);
+        const name     = interaction.fields.getTextInputValue('name').trim();
+        const limitRaw = interaction.fields.getTextInputValue('limit').trim();
+        const limit    = limitRaw ? parseInt(limitRaw, 10) : 0;
+        if (!name) return cvcReply(interaction, '❌ The room needs a name.');
+        if (limitRaw && (!/^\d+$/.test(limitRaw) || limit < 1 || limit > 99)) return cvcReply(interaction, '❌ Max people has to be a number from 1 to 99 (or blank).');
+
+        await interaction.deferReply();
+        const changes = [];
+        let note = '';
+        if (limit !== ch.userLimit) {
+            await ch.setUserLimit(limit).catch(() => {});
+            changes.push(`limit ${limit || '∞'}`);
+        }
+        if (name !== ch.name) {
+            // Discord allows 2 renames per channel per 10 min; past that the request just hangs, so check first
+            d.renames = (d.renames || []).filter(t => Date.now() - t < 10 * 60 * 1000);
+            if (d.renames.length >= 2) {
+                note = '\n-# Discord only allows 2 renames every 10 minutes, so the name stays for now.';
+            } else {
+                d.renames.push(Date.now());
+                await ch.setName(name).catch(() => {});
+                changes.push(`renamed to **${name}**`);
+            }
+        }
+        cvcRefreshPanel();
+        return cvcReply(interaction, (changes.length ? `✏️ ${member} updated their room: ${changes.join(', ')}.` : 'Nothing changed.') + note, 15 * 1000);
+    }
+
+    if (interaction.isButton() && id === 'cvc:lock') {
+        if (!ch) return cvcReply(interaction, `${member}, you don't own a room right now.`);
+        const everyone = guild.roles.everyone.id;
+        try {
+            if (d.private) {
+                await ch.permissionOverwrites.edit(everyone, { Connect: null });
+            } else {
+                // Everyone already inside keeps access so they can drop and rejoin
+                for (const m of cvcHumans(ch)) await ch.permissionOverwrites.edit(m.id, { Connect: true, ViewChannel: true }).catch(() => {});
+                await ch.permissionOverwrites.edit(everyone, { Connect: false });
+            }
+        } catch (e) {
+            console.error('[CustomVC] lock toggle failed:', e.message);
+            return cvcReply(interaction, "❌ Couldn't change that. Try again in a moment.");
+        }
+        d.private = !d.private;
+        cvcScheduleSave();
+        cvcRefreshPanel();
+        return cvcReply(interaction, d.private
+            ? `🔒 **${ch.name}** is now private. People ask to join from the panel.`
+            : `🔓 **${ch.name}** is now public. Anyone can hop in.`, 15 * 1000);
+    }
+
+    if (interaction.isUserSelectMenu() && id === 'cvc:transfer') {
+        if (!ch) return cvcReply(interaction, `${member}, you don't own a room right now.`);
+        const heirMember = guild.members.cache.get(interaction.values[0]) || await guild.members.fetch(interaction.values[0]).catch(() => null);
+        if (!heirMember || heirMember.id === member.id || heirMember.user.bot) return cvcReply(interaction, '❌ Pick someone else in your room.');
+        if (heirMember.voice.channelId !== vcId) return cvcReply(interaction, `❌ **${heirMember.displayName}** has to be in **${ch.name}** to take it over.`);
+        await cvcSetOwner(vcId, heirMember);
+        return cvcReply(interaction, `👑 ${member} handed **${ch.name}** to ${heirMember}.`, 30 * 1000);
+    }
+
+    if (interaction.isStringSelectMenu() && id === 'cvc:ask') {
+        const targetId = interaction.values[0];
+        if (targetId === 'none') return interaction.deferUpdate().catch(() => {});
+        await cvcSendJoinRequest(guild, member, targetId, async (payload) => {
+            await interaction.reply(payload);
+            return interaction.fetchReply();
+        });
+        cvcRefreshPanel(0); // resets the dropdown
+        return;
+    }
+
+    if (interaction.isButton() && (id.startsWith('cvc:acc:') || id.startsWith('cvc:dec:'))) {
+        return cvcHandleRequestAnswer(interaction);
+    }
+}
+
+// ── Voice events for custom rooms (called from voiceStateUpdate; oldCh !== newCh) ──
+async function cvcOnVoiceMove(oldState, newState) {
+    const oldCh  = oldState.channelId;
+    const newCh  = newState.channelId;
+    const member = newState.member || oldState.member;
+    const human  = member && !member.user.bot;
+    let touched  = false;
+
+    // Joined a room → cancel its delete timer, note when they arrived
+    if (newCh && tempVoiceChannels.has(newCh)) {
+        const d = tempVoiceChannels.get(newCh);
+        if (d.deleteTimer) {
+            clearTimeout(d.deleteTimer);
+            d.deleteTimer = null;
+            console.log(`[BeastBot] 🔊 Member joined "${d.ownerName}'s room" — delete timer cancelled`);
+        }
+        if (human) {
+            d.joinedAt[member.id] = Date.now();
+            if (!d.ownerId) await cvcSetOwner(newCh, member);
+        }
+        touched = true;
+    }
+
+    // Left a room → close it after 1 min if empty, or pass ownership on if the owner left
+    if (oldCh && tempVoiceChannels.has(oldCh)) {
+        const d  = tempVoiceChannels.get(oldCh);
+        const ch = newState.guild.channels.cache.get(oldCh);
+        if (human) delete d.joinedAt[member.id];
+
+        if (!ch || ch.members.size === 0) {
+            if (d.deleteTimer) clearTimeout(d.deleteTimer);
+            d.deleteTimer = setTimeout(async () => {
+                const live = client.channels.cache.get(oldCh);
+                if (live && live.members.size > 0) { d.deleteTimer = null; return; }
+                try {
+                    if (live) await live.delete('Custom VC: empty for 1 minute');
+                    console.log(`[BeastBot] 🔊 Custom VC deleted: "${live?.name ?? oldCh}"`);
+                } catch (e) {
+                    console.error('[BeastBot] Failed to delete custom VC:', e.message);
+                }
+                tempVoiceChannels.delete(oldCh);
+                cvcScheduleSave();
+                cvcRefreshPanel();
+            }, 60 * 1000);
+            console.log(`[BeastBot] 🔊 "${ch?.name ?? oldCh}" is empty — deleting in 1 minute`);
+        } else if (human && member.id === d.ownerId) {
+            const heir = cvcLongestMember(ch, d);
+            if (heir) {
+                await cvcSetOwner(oldCh, heir);
+                cvcNotice(`👑 ${member.displayName} left **${ch.name}**, so ${heir} is the owner now.`, 30 * 1000);
+            }
+        }
+        touched = true;
+    }
+
+    if (touched) {
+        cvcScheduleSave();
+        cvcRefreshPanel();
+    }
+}
+
+// ── Startup: Waiting Room, panel channel, restore rooms ─────────────────────
+async function cvcInit() {
+    const waiting = await client.channels.fetch(TEMP_VC_TRIGGER_ID).catch(() => null);
+    if (!waiting) { console.error('[CustomVC] Waiting Room channel not found'); return; }
+    const guild = waiting.guild;
+    if (waiting.name !== CVC_WAITING_ROOM_NAME) {
+        await waiting.setName(CVC_WAITING_ROOM_NAME, 'Custom VC: Waiting Room').catch(e => console.error('[CustomVC] rename Waiting Room failed:', e.message));
+    }
+
+    const doc = await firestoreGet('botConfig', 'customVc');
+    let saved = {};
+    try { saved = JSON.parse(doc?.vcsJson || '{}'); } catch (_) {}
+    cvcPanelChannelId = doc?.panelChannelId || null;
+    cvcPanelMessageId = doc?.panelMessageId || null;
+
+    // Restore saved rooms; delete ones that emptied while the bot was down
+    for (const [id, s] of Object.entries(saved)) {
+        const ch = guild.channels.cache.get(id);
+        if (!ch) continue;
+        if (ch.members.size === 0) {
+            await ch.delete('Custom VC: empty on restart').catch(() => {});
+            continue;
+        }
+        const joinedAt = {};
+        for (const m of cvcHumans(ch)) joinedAt[m.id] = s.joinedAt?.[m.id] ?? Date.now();
+        tempVoiceChannels.set(id, { ownerId: s.ownerId || null, ownerName: s.ownerName || '', private: !!s.private, joinedAt, renames: [], deleteTimer: null });
+    }
+
+    // Old Join-to-Create rooms ("<name>'s Channel") from before this system
+    if (waiting.parentId) {
+        const isLegacy = ch => ch.type === ChannelType.GuildVoice && ch.parentId === waiting.parentId &&
+            ch.id !== TEMP_VC_TRIGGER_ID && !tempVoiceChannels.has(ch.id) && ch.name.endsWith("'s Channel");
+        for (const [, ch] of guild.channels.cache.filter(isLegacy)) {
+            if (ch.members.size === 0) {
+                await ch.delete('Temp VC: orphaned on restart').catch(() => {});
+                console.log(`[BeastBot] 🔊 Deleted orphaned temp VC: ${ch.name}`);
+                continue;
+            }
+            const joinedAt = {};
+            for (const m of cvcHumans(ch)) joinedAt[m.id] = Date.now();
+            const owner = cvcHumans(ch)[0];
+            tempVoiceChannels.set(ch.id, { ownerId: owner?.id || null, ownerName: owner?.displayName || '', private: false, joinedAt, renames: [], deleteTimer: null });
+        }
+    }
+    cvcLoaded = true;
+    cvcScheduleSave();
+    console.log(`[CustomVC] Restored ${tempVoiceChannels.size} room(s)`);
+
+    // Panel channel: saved ID → existing #create-a-vc → create it next to the Waiting Room
+    let panelCh = cvcPanelChannelId ? await client.channels.fetch(cvcPanelChannelId).catch(() => null) : null;
+    if (!panelCh) panelCh = guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.name === CVC_PANEL_CHANNEL_NAME) || null;
+    if (!panelCh) {
+        panelCh = await guild.channels.create({
+            name: CVC_PANEL_CHANNEL_NAME,
+            type: ChannelType.GuildText,
+            parent: waiting.parentId || null,
+            topic: 'Make your own voice room or ask to join one. Everything here is public.',
+            reason: 'Custom VC panel channel',
+        }).catch(e => { console.error('[CustomVC] create panel channel failed:', e.message); return null; });
+    }
+    if (!panelCh) return;
+    if (panelCh.id !== cvcPanelChannelId) {
+        cvcPanelChannelId = panelCh.id;
+        await firestoreMergeStringField('botConfig', 'customVc', 'panelChannelId', panelCh.id);
+    }
+
+    // Reuse the panel if it's still the last message, otherwise post a fresh one at the bottom
+    const existing = cvcPanelMessageId ? await panelCh.messages.fetch(cvcPanelMessageId).catch(() => null) : null;
+    if (existing && panelCh.lastMessageId === existing.id) cvcRefreshPanel(0);
+    else { if (!existing) cvcPanelMessageId = null; cvcRepostPanel(); }
 }
 
 // ── Leave timer store ────────────────────────────────────────────────────────
@@ -4707,46 +5234,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         }
     }
 
-    // ── Someone joined the trigger → create their VC ─────────────────────────
-    if (newCh === TEMP_VC_TRIGGER_ID) {
-        await logToChannel(`🎙️ **voiceStateUpdate fired** — ${newState.member?.user?.tag} joined trigger channel`);
-        await createTempVC(newState);
-        return;
-    }
-
-    // ── Someone joined an existing temp VC → cancel its delete timer ──────────
-    if (newCh && tempVoiceChannels.has(newCh)) {
-        const vcData = tempVoiceChannels.get(newCh);
-        if (vcData.deleteTimer) {
-            clearTimeout(vcData.deleteTimer);
-            vcData.deleteTimer = null;
-            tempVoiceChannels.set(newCh, vcData);
-            console.log(`[BeastBot] 🔊 Member joined "${vcData.ownerName}'s Channel" — delete timer cancelled`);
-        }
-    }
-
-    // ── Someone left a temp VC → if empty, start 1-min delete timer ──────────
-    if (oldCh && tempVoiceChannels.has(oldCh)) {
-        const vcChannel = newState.guild.channels.cache.get(oldCh);
-        const vcData    = tempVoiceChannels.get(oldCh);
-        const memberCount = vcChannel ? vcChannel.members.size : 0;
-
-        if (memberCount === 0) {
-            if (vcData.deleteTimer) clearTimeout(vcData.deleteTimer);
-            vcData.deleteTimer = setTimeout(async () => {
-                try {
-                    const ch = client.channels.cache.get(oldCh);
-                    if (ch) await ch.delete('Temp VC: empty for 1 minute');
-                    console.log(`[BeastBot] 🔊 Temp VC deleted: "${vcData.ownerName}'s Channel"`);
-                } catch (e) {
-                    console.error('[BeastBot] Failed to delete temp VC:', e.message);
-                }
-                tempVoiceChannels.delete(oldCh);
-            }, 60 * 1000);
-            tempVoiceChannels.set(oldCh, vcData);
-            console.log(`[BeastBot] 🔊 "${vcData.ownerName}'s Channel" is empty — deleting in 1 minute`);
-        }
-    }
+    // ── Custom rooms: owner hand-off, delete-when-empty, panel refresh ───────
+    await cvcOnVoiceMove(oldState, newState).catch(e => console.error('[CustomVC] voice handler failed:', e.message));
 
     // ── Voice channel join / leave logging ───────────────────────────────────
     if (!newState.member?.user?.bot) {
@@ -6917,6 +7406,10 @@ client.once('clientReady', async () => {
                 .setName('Party!')
                 .setType(ApplicationCommandType.Message),
             new SlashCommandBuilder()
+                .setName('vcreq')
+                .setDescription('Ask someone in a voice room to let you in')
+                .addUserOption(opt => opt.setName('user').setDescription('Someone inside the room you want to join').setRequired(true)),
+            new SlashCommandBuilder()
                 .setName('party')
                 .setDescription('Throw a party on a message with a pile of party emojis 🥳')
                 .addStringOption(opt => opt.setName('message').setDescription('Message link or ID (defaults to the latest message here)')),
@@ -7202,35 +7695,8 @@ client.once('clientReady', async () => {
     // Post first puzzle 30s after startup (gives the bot time to fully init)
     setTimeout(() => postUnscramblePuzzle().catch(() => {}), 30 * 1000);
 
-    // Clean up orphaned temp VCs (empty VCs in same category as trigger, left from before restart)
-    // Also re-register any non-empty temp VCs so the leave handler can delete them later.
-    try {
-        const trigger = await client.channels.fetch(TEMP_VC_TRIGGER_ID);
-        if (trigger?.parentId) {
-            const guild    = trigger.guild;
-            const category = guild.channels.cache.get(trigger.parentId);
-            if (category) {
-                const isTempVC = ch =>
-                    ch.type === ChannelType.GuildVoice &&
-                    ch.id !== TEMP_VC_TRIGGER_ID &&
-                    ch.name.endsWith("'s Channel");
-
-                for (const [, ch] of category.children.cache.filter(isTempVC)) {
-                    if (ch.members.size === 0) {
-                        await ch.delete('Temp VC: orphaned on restart').catch(() => {});
-                        console.log(`[BeastBot] 🔊 Deleted orphaned temp VC: ${ch.name}`);
-                    } else {
-                        // Re-register so the voiceStateUpdate leave handler can track it
-                        const ownerName = ch.name.replace(/'s Channel$/, '');
-                        tempVoiceChannels.set(ch.id, { ownerId: null, ownerName, deleteTimer: null });
-                        console.log(`[BeastBot] 🔊 Re-registered active temp VC: ${ch.name} (${ch.members.size} members)`);
-                    }
-                }
-            }
-        }
-    } catch (e) {
-        console.error('[BeastBot] Temp VC cleanup failed:', e.message);
-    }
+    // Custom VCs: rename the Waiting Room, restore rooms, set up #create-a-vc and its panel
+    await cvcInit().catch(e => console.error('[CustomVC] init failed:', e.message));
 
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
@@ -10275,6 +10741,15 @@ client.on('interactionCreate', async (interaction) => {
         return handlePondModalInteraction(interaction);
     }
 
+    // ── Custom VC panel (create / edit / lock / hand over / ask to join) ──────
+    if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu() || interaction.isUserSelectMenu())
+        && interaction.customId.startsWith('cvc:')) {
+        return handleCustomVcInteraction(interaction).catch(e => {
+            console.error('[CustomVC] interaction failed:', e);
+            if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong, try again in a moment.', allowedMentions: { parse: [] } }).then(() => setTimeout(() => interaction.deleteReply().catch(() => {}), 8000)).catch(() => {});
+        });
+    }
+
     // ── Announcement form buttons / modal submits ─────────────────────────────
     if (interaction.isButton() && interaction.customId.startsWith('annform_')) {
         return handleAnnFormButton(interaction);
@@ -11559,6 +12034,8 @@ client.on('interactionCreate', async (interaction) => {
                 } catch (_) {}
                 tempVoiceChannels.delete(chId);
             }
+            cvcScheduleSave();
+            cvcRefreshPanel(0);
             await interaction.reply({ content: `🧹 Cleaned up **${deleted}** temp voice channel(s).`, ephemeral: true });
             return;
         }
@@ -12621,6 +13098,15 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.deferReply({ ephemeral: true });
             await pushDiscordWidget();
             await interaction.editReply('Widget stats refreshed.');
+            return;
+        }
+
+        if (interaction.commandName === 'vcreq') {
+            const target = interaction.options.getUser('user');
+            await cvcSendJoinRequest(interaction.guild, interaction.member, target.id, async (payload) => {
+                await interaction.reply(payload);
+                return interaction.fetchReply();
+            });
             return;
         }
 
@@ -14301,6 +14787,9 @@ client.on('interactionCreate', async (interaction) => {
 // ── Messages ──────────────────────────────────────────────────────────────────
 
 client.on('messageCreate', async (message) => {
+    // Custom VC panel channel: anything posted pushes the panel back to the bottom
+    cvcNoteMessage(message);
+
     // Counting channel game
     if (message.channel.id === COUNTING_CHANNEL_ID) {
         await handleCountingMessage(message);
@@ -14594,6 +15083,19 @@ client.on('messageCreate', async (message) => {
                 components: [row],
             });
             await message.react('✅');
+            return;
+        }
+
+        // !vcreq @user — ask someone in a voice room to let you in (same as the panel dropdown)
+        if (/^!vcreq\b/i.test(msgContent)) {
+            const target = message.mentions.users.first();
+            if (!target) {
+                const r = await message.reply({ content: 'Tag someone inside the room, like `!vcreq @Tom`.', allowedMentions: { parse: [] } }).catch(() => null);
+                cvcAutoDelete(r, 8000);
+                cvcAutoDelete(message, 8000);
+                return;
+            }
+            await cvcSendJoinRequest(message.guild, message.member, target.id, (payload) => message.channel.send(payload), message);
             return;
         }
 

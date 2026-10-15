@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Custom VC system: Waiting Room + #create-a-vc panel
+
+- Join to Create is removed. `TEMP_VC_TRIGGER_ID` is now the Waiting Room: `cvcInit` renames it to `⏳ Waiting Room` on startup, and joining it no longer creates anything
+- `cvcInit` finds or creates `#create-a-vc` in the same category and posts a Components v2 panel. The panel has create public/private buttons, edit, lock/unlock, an "Ask to join" string select listing everyone in a room, and a hand-over user select. `panelChannelId` and `panelMessageId` are stored in `botConfig/customVc`
+- No ephemeral replies: everything is public. Error replies delete after 8s and resolved requests after 60s. `cvcNoteMessage` reposts the panel at the bottom of the channel (5s debounce, skipped if it's already last)
+- `createCustomVC(member, name, limit, isPrivate)` replaces `createTempVC`. Owners get no ManageChannels/MoveMembers; edits go through the panel. Private rooms deny Connect to `@everyone` but keep them visible. One room per owner: an old empty room is deleted and an occupied one is handed on
+- Join requests: the panel dropdown, `!vcreq @user` and `/vcreq user:` all go through `cvcSendJoinRequest`. Only the tagged person can Accept/Decline (`cvc:acc|dec:<req>:<target>:<vc>`). Accept grants a Connect overwrite and moves the requester in if they're in voice. Requests expire after 2 min (in-memory `cvcPendingRequests`). Public rooms move the requester straight in, and full rooms block the request
+- Lock toggle flips `@everyone` Connect, and gives everyone already inside a Connect overwrite before locking. Renames are capped client-side at 2 per 10 min (Discord's limit) so the request doesn't hang in the REST queue
+- Ownership: manual hand-over via the user select. On owner leave, ownership auto-transfers to the earliest `joinedAt` and a notice is posted. Empty rooms still delete after 1 min
+- Room state (`ownerId`, `ownerName`, `private`, `joinedAt`) is persisted to `botConfig/customVc.vcsJson` (2s debounce, `cvcLoaded` guard) and restored on startup. This replaces the old `'s Channel` name-suffix re-registration; legacy rooms are still adopted or cleaned up
+
 ## [2026-10-12] — Party reactions: !party, ?party, /party, "Party!" app
 
 - New `PARTY_EMOJIS` constant (13 emojis: 🥳 + 12 animated server emojis) and `partyReact(msg)` helper that reacts sequentially (keeps order) and silently skips failures (e.g. a deleted emoji)
