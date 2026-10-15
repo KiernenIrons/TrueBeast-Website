@@ -1,5 +1,17 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Casino: economy + gambling panel (private testing)
+
+- New self-contained `casino.js` (UnbelievaBoat-style). No slash commands: one button panel in `#casino`, every menu and game reply ephemeral; robberies, gifts and net wins ≥ 10k are posted publicly
+- `#casino` is auto-created at startup in the #testing category with `@everyone` denied ViewChannel (owner + bot only). Nothing touches its permissions afterwards, so going public = edit overwrites in Discord
+- Money: cash (bettable, robbable) + bank (safe). Start 1,000. Daily (1,000 +150/streak day, max at 11; 20h cooldown, 48h streak window), Work (150–450, 45m), Crime (55%: +400–1,200 / fine 250–700, 2h), Rob (40% +20% with gloves, steals 15–45% of target cash, caught = pay target 20%; 3h cooldown, victims protected 1h, padlocks block), Give
+- Games: Blackjack (hit/stand/double, 3:2 naturals), Slots (~97.5% RTP), Roulette (European, colour/odd-even/halves/dozens/0), Coinflip (2x), Mines (4×5 grid, 1–15 mines, 3% edge), Crash (live multiplier, optional auto cash out, 3% edge, capped 1000x). "Again" button replays the same bet
+- Shop: padlock, robber gloves, lucky clover (double daily), and titles shown on wallet/leaderboard
+- Bets move into `escrow` while a game runs; idle games auto-resolve after 10 min and any escrow left after a restart is refunded on load
+- State in `botConfig/casino` (`playersJson`, `panelChannelId`, `panelMessageId`), debounced 3s saves with `updateMask`, guarded by a loaded flag, also flushed on shutdown
+- Panel stays the newest message (reposted 20s after other messages) and its Richest top 3 refreshes every 2 min
+- `botFeatures.casino` flag; routing for `cas:` buttons/modals/user selects added after the Pond in `interactionCreate`
+
 ## [2026-10-15] — Custom VC: delete my room button
 
 - New red 🗑️ "Delete my room" button on the panel (`cvc:delete`, owner only). It posts a public confirm that only the owner can press (`cvc:delyes:<owner>:<vc>`, auto-deletes after 20s). On confirm it moves everyone inside to the Waiting Room, deletes the channel, saves and refreshes the panel

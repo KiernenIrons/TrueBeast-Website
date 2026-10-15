@@ -41,6 +41,7 @@ const { Readable } = require('stream');
 const path = require('path');
 const sodium = require('libsodium-wrappers');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
+const { startCasino, isCasinoInteraction, handleCasinoInteraction, flushCasino } = require('./casino');
 const { streakCommands, isStreakCommand, isStreakButton, handleStreakCommand, handleStreakAutocomplete, handleStreakButton, streakTick, initStreaks, serializeStreaks, saveStreakMirror } = require('./streaks');
 // Words that must never be used by the Unscramble game (checked at pick time, so they stay
 // banned even if someone re-adds them to a list below).
@@ -413,6 +414,7 @@ let botFeatures = {
     traitorsGame:        true,
     escapeRoomGame:      true,
     pondFrogs:           true,
+    casino:              true, // #casino economy + gambling panel (casino.js)
     unscrambleGame:      true,
     instagramPreviews:   true,
     voiceStreaks:        true, // daily 30-min voice streaks (streaks.js)
@@ -7769,6 +7771,9 @@ client.once('clientReady', async () => {
     await getBotFeatures();
     setInterval(() => getBotFeatures().catch(() => {}), 30 * 60 * 1000); // refresh every 30 min
 
+    // Casino: restore balances, find/create the private #casino channel and its panel
+    startCasino(client, { testingChannelId: ANNOUNCE_TESTING_CHANNEL_ID }).catch(e => console.error('[Casino] init failed:', e.message));
+
     // Start The Pond's hourly hunger/happiness decay tick
     startPondTicker(client);
 
@@ -10806,6 +10811,17 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: 'The Pond is currently disabled.', ephemeral: true });
         }
         return handlePondModalInteraction(interaction);
+    }
+
+    // ── Casino panel (casino.js) — buttons, modals and user pickers all use cas: ──
+    if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isUserSelectMenu()) && isCasinoInteraction(interaction)) {
+        if (botFeatures.casino === false) {
+            return interaction.reply({ content: 'The casino is currently closed.', flags: 64 });
+        }
+        return handleCasinoInteraction(interaction).catch(e => {
+            console.error('[Casino] interaction failed:', e);
+            if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong — try again in a moment.', flags: 64 }).catch(() => {});
+        });
     }
 
     // ── Custom VC panel (create / edit / lock / hand over / ask to join) ──────
@@ -16087,6 +16103,8 @@ async function flushBeforeExit() {
     await saveDiscordBackup().catch(e => console.error('[BeastBot] Shutdown Discord backup failed:', e.message));
     // Streaks have their own Firestore mirror doc (guarded until loaded), safe to write on shutdown
     await saveStreakMirror().catch(e => console.error('[Streaks] Shutdown mirror save failed:', e.message));
+    // Casino balances live in their own doc (guarded until loaded)
+    await flushCasino().catch(e => console.error('[Casino] Shutdown save failed:', e.message));
     console.log('[BeastBot] Flush complete');
 }
 
