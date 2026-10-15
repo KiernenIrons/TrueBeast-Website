@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-10-15] — Custom VC: delete my room button
+
+- New red 🗑️ "Delete my room" button on the panel (`cvc:delete`, owner only). It posts a public confirm that only the owner can press (`cvc:delyes:<owner>:<vc>`, auto-deletes after 20s). On confirm it moves everyone inside to the Waiting Room, deletes the channel, saves and refreshes the panel
+
 ## [2026-10-15] — Custom VC requests: let in once / always allow / decline
 
 - Requesters must be in a voice channel (any) to ask, so the bot can move them; otherwise there's a public "join a voice channel first" reply

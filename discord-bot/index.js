@@ -398,7 +398,7 @@ const UPDATE_NOTES = [
     { name: '🔓 Public or 🔒 private', value: 'Public rooms: anyone can join. Private rooms: everyone can see them, but you have to ask someone inside to let you in.' },
     { name: '🙋 Ask to join', value: 'Be in any voice channel, then pick someone from the "Ask to join" dropdown (or !vcreq @name / /vcreq). Full rooms are fine; the bot squeezes you in.' },
     { name: '🚪 Once or 🔑 always', value: 'Whoever you ask picks: Let in once (leave a private room and you have to ask again), Always allow (come and go whenever), or Decline.' },
-    { name: '👑 Room owners', value: 'Rename your room, change the limit, lock/unlock it or hand it to someone else from the panel. If you leave, the person who has been in longest becomes owner.' },
+    { name: '👑 Room owners', value: 'Rename your room, change the limit, lock/unlock it, delete it or hand it to someone else from the panel. If you leave, the person who has been in longest becomes owner.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -4461,6 +4461,7 @@ function cvcBuildPanel(guild) {
                 new ButtonBuilder().setCustomId('cvc:create:priv').setLabel('Create private').setEmoji('🔒').setStyle(ButtonStyle.Primary),
                 new ButtonBuilder().setCustomId('cvc:edit').setLabel('Edit my room').setEmoji('✏️').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('cvc:lock').setLabel('Lock / unlock').setEmoji('🔁').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('cvc:delete').setLabel('Delete my room').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
             ),
             new ActionRowBuilder().addComponents(askMenu),
             new ActionRowBuilder().addComponents(
@@ -4876,6 +4877,36 @@ async function handleCustomVcInteraction(interaction) {
         }
         cvcRefreshPanel();
         return cvcReply(interaction, (changes.length ? `✏️ ${member} updated their room: ${changes.join(', ')}.` : 'Nothing changed.') + note, 15 * 1000);
+    }
+
+    // Delete: ask first (public, owner-only confirm), then move everyone to the Waiting Room and remove it
+    if (interaction.isButton() && id === 'cvc:delete') {
+        if (!ch) return cvcReply(interaction, `${member}, you don't own a room right now.`);
+        return cvcReply(interaction, `🗑️ ${member}, delete **${ch.name}**? Everyone inside goes back to the Waiting Room.`, 20 * 1000, {
+            components: [new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`cvc:delyes:${member.id}:${vcId}`).setLabel('Yes, delete it').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+            )],
+        });
+    }
+
+    if (interaction.isButton() && id.startsWith('cvc:delyes:')) {
+        const [, , ownerId, targetVcId] = id.split(':');
+        if (interaction.user.id !== ownerId) return cvcReply(interaction, `Only <@${ownerId}> can confirm this.`);
+        const room = tempVoiceChannels.get(targetVcId);
+        const roomCh = guild.channels.cache.get(targetVcId);
+        if (!room || !roomCh || room.ownerId !== ownerId) {
+            await interaction.update({ content: '❌ That room is already gone, or isn\'t yours anymore.', components: [] }).catch(() => {});
+            return cvcAutoDelete(interaction.message, CVC_ERROR_TTL);
+        }
+        const name = roomCh.name;
+        for (const m of [...roomCh.members.values()]) await m.voice.setChannel(TEMP_VC_TRIGGER_ID).catch(() => {});
+        if (room.deleteTimer) clearTimeout(room.deleteTimer);
+        tempVoiceChannels.delete(targetVcId);
+        await roomCh.delete(`Custom VC: deleted by owner ${interaction.user.tag}`).catch(e => console.error('[CustomVC] delete failed:', e.message));
+        cvcScheduleSave();
+        cvcRefreshPanel();
+        await interaction.update({ content: `🗑️ ${member} closed **${name}**.`, components: [], allowedMentions: cvcNoPings }).catch(() => {});
+        return cvcAutoDelete(interaction.message, 30 * 1000);
     }
 
     if (interaction.isButton() && id === 'cvc:lock') {
