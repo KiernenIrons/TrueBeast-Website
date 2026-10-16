@@ -263,8 +263,9 @@ function againRow(type, bet, extra = '') {
     );
 }
 
-function resultLine(net, p) {
-    const head = net > 0 ? `✅ **You won ${fmt(net)}!**` : net === 0 ? '➖ **Push — your bet is back.**' : `❌ **You lost ${fmt(-net)}.**`;
+// Wins show the full payout (stake included) so "2x" on a 500 bet reads as 1,000 back
+function resultLine(net, p, bet) {
+    const head = net > 0 ? `✅ **You won ${fmt(net + bet)}!** (+${fmt(net)} profit)` : net === 0 ? '➖ **Push — your bet is back.**' : `❌ **You lost ${fmt(-net)}.**`;
     return `${head}\nCash: ${fmt(p.cash)}`;
 }
 
@@ -326,7 +327,7 @@ function bjView(g, p, finished = false, net = 0) {
             { name: `Dealer (${finished ? handValue(g.dealer) : '?'})`, value: showHand(g.dealer, !finished), inline: true },
         );
     if (finished) {
-        e.setDescription(`${g.note ? g.note + '\n' : ''}${resultLine(net, p)}`);
+        e.setDescription(`${g.note ? g.note + '\n' : ''}${resultLine(net, p, g.bet)}`);
         return { embeds: [e], components: [againRow('bj', g.baseBet)] };
     }
     const canDouble = g.player.length === 2 && p.cash >= g.baseBet;
@@ -412,7 +413,7 @@ async function slotsPlay(ix, p, bet, mode) {
     const spinning = `**[ ${spinReel().e} | ${spinReel().e} | ${spinReel().e} ]**`;
     await respond(ix, { embeds: [embed(GOLD, `🎰 Slots — bet ${fmt(bet)}`, `${spinning}\n\nSpinning...`)], components: [] }, mode);
     await new Promise(r => setTimeout(r, 1200));
-    const e = embed(net > 0 ? GREEN : RED, `🎰 Slots — bet ${fmt(bet)}`, `**[ ${reels.map(r => r.e).join(' | ')} ]**\n\n${note}\n${resultLine(net, p)}`)
+    const e = embed(net > 0 ? GREEN : RED, `🎰 Slots — bet ${fmt(bet)}`, `**[ ${reels.map(r => r.e).join(' | ')} ]**\n\n${note}\n${resultLine(net, p, bet)}`)
         .setFooter({ text: SLOT_SYMBOLS.map(s => `${s.e}${s.x}x`).join('  ') + '  · any pair 1.2x' });
     await ix.editReply({ embeds: [e], components: [againRow('slots', bet)] }).catch(() => {});
 }
@@ -466,7 +467,7 @@ async function choiceAction(ix, g, action) {
         await ix.update({ embeds: [embed(GOLD, `🪙 Coinflip — bet ${fmt(g.bet)}`, `You called **${action}**...\n\n🪙 *flipping...*`)], components: [] });
         await new Promise(r => setTimeout(r, 1000));
         return ix.editReply({
-            embeds: [embed(net > 0 ? GREEN : RED, `🪙 Coinflip — bet ${fmt(g.bet)}`, `You called **${action}** — it landed **${side === 'heads' ? '🙂 Heads' : '🦅 Tails'}**.\n\n${resultLine(net, p)}`)],
+            embeds: [embed(net > 0 ? GREEN : RED, `🪙 Coinflip — bet ${fmt(g.bet)}`, `You called **${action}** — it landed **${side === 'heads' ? '🙂 Heads' : '🦅 Tails'}**.\n\n${resultLine(net, p, g.bet)}`)],
             components: [againRow('coinflip', g.bet)],
         }).catch(() => {});
     }
@@ -477,7 +478,7 @@ async function choiceAction(ix, g, action) {
     await ix.update({ embeds: [embed(GOLD, `🎡 Roulette — bet ${fmt(g.bet)}`, `You bet on **${choice.label}**...\n\n🎡 *the wheel is spinning...*`)], components: [] });
     await new Promise(r => setTimeout(r, 1500));
     return ix.editReply({
-        embeds: [embed(net > 0 ? GREEN : RED, `🎡 Roulette — bet ${fmt(g.bet)}`, `You bet on **${choice.label}** — the ball landed on **${numEmoji(n)} ${n}**.\n\n${resultLine(net, p)}`)],
+        embeds: [embed(net > 0 ? GREEN : RED, `🎡 Roulette — bet ${fmt(g.bet)}`, `You bet on **${choice.label}** — the ball landed on **${numEmoji(n)} ${n}**.\n\n${resultLine(net, p, g.bet)}`)],
         components: [againRow('roulette', g.bet)],
     }).catch(() => {});
 }
@@ -508,7 +509,7 @@ function minesView(g, p, finished = false, net = 0) {
     const cur = minesMult(g.mineCount, k), next = minesMult(g.mineCount, k + 1);
     const e = embed(finished ? (net > 0 ? GREEN : RED) : GOLD, `💣 Mines — bet ${fmt(g.bet)} · ${g.mineCount} mine${g.mineCount > 1 ? 's' : ''}`);
     if (finished) {
-        e.setDescription(`${g.hit != null ? '💥 **Boom!** You hit a mine.' : `Cashed out at **${cur}x**.`}\n${resultLine(net, p)}`);
+        e.setDescription(`${g.hit != null ? '💥 **Boom!** You hit a mine.' : `Cashed out at **${cur}x**.`}\n${resultLine(net, p, g.bet)}`);
         rows.push(againRow('mines', g.bet, g.mineCount));
     } else {
         e.setDescription(`Find the 💎, dodge the 💣. Cash out any time.\nCurrent: **${cur}x** (${fmt(Math.floor(g.bet * cur))}) · Next tile: **${next}x**`);
@@ -556,8 +557,8 @@ function crashView(g, p, mult, state, net = 0) {
         };
     }
     const desc = state === 'crashed'
-        ? `# 💥 Crashed at ${g.crashAt.toFixed(2)}x\n${resultLine(net, p)}`
-        : `# ✅ Cashed out at ${mult.toFixed(2)}x\nIt crashed at **${g.crashAt.toFixed(2)}x**.\n${resultLine(net, p)}`;
+        ? `# 💥 Crashed at ${g.crashAt.toFixed(2)}x\n${resultLine(net, p, g.bet)}`
+        : `# ✅ Cashed out at ${mult.toFixed(2)}x\nIt crashed at **${g.crashAt.toFixed(2)}x**.\n${resultLine(net, p, g.bet)}`;
     return { embeds: [embed(state === 'crashed' ? RED : GREEN, `📈 Crash — bet ${fmt(g.bet)}`, desc)], components: [againRow('crash', g.bet, g.auto || '')] };
 }
 

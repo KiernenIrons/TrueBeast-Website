@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-10-16] — Casino: show full payout on wins
+
+- Payout math was already correct (stake is escrowed at start, a 2x win returns 2x the bet), but `resultLine` only showed the profit, so a 500 coinflip win read "You won 500" and looked like 1x
+- Wins now read "You won 🪙1,000! (+🪙500 profit)" across every game; `resultLine(net, p, bet)` takes the stake (blackjack passes the doubled bet)
+
 ## [2026-10-16] — Streaks: turn off the "streak about to end" DM
 
 - New `EVENING_REMINDERS = false` constant in `streaks.js` gates the evening (~3h before midnight) at-risk DM in `sweep()` — no one gets it anymore
