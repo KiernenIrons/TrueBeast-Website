@@ -520,6 +520,10 @@ function minesView(g, p, finished = false, net = 0) {
 async function minesStart(ix, bet, mineCount, mode) {
     const mines = new Set(shuffle([...Array(MINES_TILES).keys()]).slice(0, mineCount));
     const g = openGame(ix, 'mines', bet, { mines, mineCount, revealed: new Set(), hit: null });
+    // Owner-visible in `flyctl logs`: bomb positions (row/col from 1, top-left) plus a grid map (X = bomb)
+    const spots = [...mines].sort((a, b) => a - b).map(i => `r${Math.floor(i / 5) + 1}c${(i % 5) + 1}`).join(', ');
+    const grid = [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4].map(c => mines.has(r * 5 + c) ? 'X' : '.').join('')).join('/');
+    console.log(`[Casino] Mines ${g.id} — ${ix.user.tag || ix.user.username} bet ${bet}, ${mineCount} mine(s): ${spots} | ${grid}`);
     return respond(ix, minesView(g, players.get(g.userId)), mode);
 }
 

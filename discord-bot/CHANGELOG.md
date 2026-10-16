@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-10-16] — Mines: log bomb positions to Fly logs
+
+- `minesStart` now logs a `[Casino] Mines <gameId>` line with the player, bet, mine count, bomb positions (`r<row>c<col>`, 1-based from top-left) and a grid map (`X` = bomb, rows separated by `/`) — owner-only, visible via `flyctl logs`
+- Intentionally left out of public UPDATE_NOTES
+
 ## [2026-10-15] — Casino: consistent reply cards
 
 - Every ephemeral casino reply is now a titled embed card (new `card()` helper), matching Work/Crime: grey for cooldowns and "can't do that", green for success, red for getting caught
