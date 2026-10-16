@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-10-16] — Fix YouTube API quota drain from the homepage
+
+- Root cause: `fetchYouTubeSlots` in `src/pages/Home.tsx` paged through the *entire* uploads playlist plus `videos.list` for every upload, from every visitor's browser (localStorage cache only, 1h TTL, nothing for crawlers/new visitors) — that exhausted the site key's 10k/day quota and broke the admin "New Post" auto-fill
+- New `refreshYoutubeSlots()` in the bot (on ready + hourly, uses `WIDGET_YOUTUBE_API_KEY`) computes Latest Video / Short / Stream / Most Viewed and writes `botConfig/youtubeSlots` (`slotsJson`, `updatedAt`)
+- Homepage now reads that doc via Firestore REST and never calls the YouTube API; falls back to the static `SITE_CONFIG.videos` if the doc is missing
+
 ## [2026-10-16] — Casino: show full payout on wins
 
 - Payout math was already correct (stake is escrowed at start, a 2x win returns 2x the bet), but `resultLine` only showed the profit, so a 500 coinflip win read "You won 500" and looked like 1x

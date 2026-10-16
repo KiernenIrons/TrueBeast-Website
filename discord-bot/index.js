@@ -1475,6 +1475,63 @@ async function pushDiscordWidget() {
     }
 }
 
+// ── Homepage "Latest Creations" slots ────────────────────────────────────────
+// The website used to page through the whole uploads playlist from every visitor's browser,
+// which burned the site's YouTube quota daily. Now the bot does it once an hour and the
+// homepage just reads botConfig/youtubeSlots (slotsJson) from Firestore.
+async function refreshYoutubeSlots() {
+    if (!WIDGET_YT_API_KEY) return;
+    const key = WIDGET_YT_API_KEY;
+    const uploadsId = WIDGET_YT_CHANNEL.replace(/^UC/, 'UU');
+    const parseDur = (iso) => {
+        const m = (iso || '').match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+        return m ? (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0)) : 0;
+    };
+    try {
+        const items = [];
+        let pageToken = '';
+        do {
+            const d = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsId}&maxResults=50&key=${key}${pageToken ? '&pageToken=' + pageToken : ''}`).then(r => r.json());
+            if (d.error) throw new Error(d.error.message);
+            for (const it of d.items || []) items.push({ id: it.snippet.resourceId.videoId, title: it.snippet.title });
+            pageToken = d.nextPageToken || '';
+        } while (pageToken);
+        if (!items.length) return;
+
+        const details = {};
+        for (let i = 0; i < items.length; i += 50) {
+            const ids = items.slice(i, i + 50).map(v => v.id).join(',');
+            const d = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,liveStreamingDetails,statistics&id=${ids}&key=${key}`).then(r => r.json());
+            if (d.error) throw new Error(d.error.message);
+            for (const v of d.items || []) details[v.id] = v;
+        }
+
+        // Uploads playlist is newest-first
+        const streams = [], shorts = [], videos = [];
+        for (const item of items) {
+            const det = details[item.id];
+            if (!det) continue;
+            const dur = parseDur(det.contentDetails?.duration);
+            const v = { ...item, views: parseInt(det.statistics?.viewCount || '0', 10) };
+            if (det.liveStreamingDetails) streams.push(v);
+            else if (dur > 0 && dur <= 60) shorts.push(v);
+            else videos.push(v);
+        }
+        const slots = {};
+        if (streams.length) slots.stream = { id: streams[0].id, title: streams[0].title, category: 'Latest Stream' };
+        if (shorts.length)  slots.short  = { id: shorts[0].id,  title: shorts[0].title,  category: 'Latest Short' };
+        if (videos.length)  slots.latest = { id: videos[0].id,  title: videos[0].title,  category: 'Latest Video' };
+        const used = new Set([slots.stream?.id, slots.short?.id, slots.latest?.id].filter(Boolean));
+        const popular = [...shorts, ...videos].filter(v => !used.has(v.id)).sort((a, b) => b.views - a.views)[0];
+        if (popular) slots.popular = { id: popular.id, title: popular.title, category: 'Most Viewed' };
+
+        await firestoreSet('botConfig', 'youtubeSlots', { slotsJson: JSON.stringify(slots), updatedAt: Date.now() });
+        console.log(`[YouTubeSlots] Updated from ${items.length} uploads`);
+    } catch (e) {
+        console.error('[YouTubeSlots] Refresh failed:', e.message);
+    }
+}
+
 // ── Steam ─────────────────────────────────────────────────────────────────────
 
 async function fetchSteamGames() {
@@ -7175,6 +7232,8 @@ client.once('clientReady', async () => {
     setInterval(() => checkAnnounceSchedule().catch(() => {}), 60 * 60 * 1000); // check every hour
         pushDiscordWidget().catch(() => {});
         setInterval(() => pushDiscordWidget().catch(() => {}), 15 * 60 * 1000);
+        refreshYoutubeSlots().catch(() => {});
+        setInterval(() => refreshYoutubeSlots().catch(() => {}), 60 * 60 * 1000);
 
         // Resume tracking for members already in voice channels
         guild.channels.cache
