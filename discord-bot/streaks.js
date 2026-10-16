@@ -25,6 +25,7 @@ const VIP_MAX_FREEZES       = 5; // VIP role holders
 const STARTING_FREEZES      = 1;
 const DEFAULT_TZ            = 'Europe/London';
 const REMINDER_BEFORE_MS    = 3 * 60 * 60 * 1000; // DM reminder 3h before local midnight
+const EVENING_REMINDERS     = false;              // "streak about to end" DM — switched off server-wide
 const OUTAGE_MIN_MS         = 10 * 60 * 1000;     // downtime shorter than this isn't "an outage"
 const HISTORY_KEEP_DAYS     = 45;
 const SWEEP_INTERVAL_MS     = 5 * 60 * 1000;
@@ -113,7 +114,7 @@ function newRecord() {
         progressDay:  null,
         progressMins: 0,
         lastSettled:  null, // last local day whose outcome has been decided
-        reminders:    true, // DMs: evening reminder, freeze used, streak lost
+        reminders:    true, // DMs: freeze used, streak lost (evening reminder gated by EVENING_REMINDERS)
         celebrate:    true, // VC-chat message when the daily goal is hit
         remindedDay:  null,
         lastLost:     null, // { count, day } — lets mods undo a loss with /streak-admin restore
@@ -287,7 +288,7 @@ const HELP_TEXT = [
     `**5.** No freezes left and you miss a day → the streak resets, but your **best streak** is kept forever — and your next streak starts with a fresh freeze.`,
     ``,
     `🛡️ If the bot is ever offline for a while, that day is **forgiven automatically** — no freeze used.`,
-    `🔔 You'll get a friendly DM ~3h before midnight if your streak is at risk. Turn that off with \`/streak-settings reminders:False\`.`,
+    `🔔 You'll get a DM if a freeze is used or your streak ends. Turn that off with \`/streak-settings reminders:False\`.`,
     `-# Time in the AFK channel doesn't count. \`/streak-leaderboard\` shows the longest active streaks.`,
 ].join('\n');
 
@@ -417,7 +418,7 @@ async function sweep() {
         }
 
         // Evening reminder: streak alive, today not done yet, not currently in voice, ~3h left
-        if (!r.reminders || r.current <= 0 || activeIds.has(uid)) continue;
+        if (!EVENING_REMINDERS || !r.reminders || r.current <= 0 || activeIds.has(uid)) continue;
         const today = localDay(now, r.tz);
         if (r.history[today] === 'd' || r.remindedDay === today) continue;
         const midnight = localMidnightMs(addDays(today, 1), r.tz);
@@ -520,7 +521,7 @@ const streakCommands = [
         .setName('streak-settings')
         .setDescription('Set your streak timezone and notification preferences')
         .addStringOption(o => o.setName('timezone').setDescription('Your timezone, e.g. "London" or "New York" — so your day resets at your midnight').setAutocomplete(true))
-        .addBooleanOption(o => o.setName('reminders').setDescription('DM me when my streak is at risk / a freeze is used / it ends'))
+        .addBooleanOption(o => o.setName('reminders').setDescription('DM me when a streak freeze is used or my streak ends'))
         .addBooleanOption(o => o.setName('celebrations').setDescription('Post a message in voice chat when I hit my daily goal')),
     new SlashCommandBuilder()
         .setName('streak-leaderboard')

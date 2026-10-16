@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-10-16] — Streaks: turn off the "streak about to end" DM
+
+- New `EVENING_REMINDERS = false` constant in `streaks.js` gates the evening (~3h before midnight) at-risk DM in `sweep()` — no one gets it anymore
+- Freeze-used and streak-lost DMs are unchanged and still follow each user's `reminders` setting
+- Updated the `/streak` how-it-works text and the `/streak-settings reminders` option description to stop promising the evening DM
+
 ## [2026-10-16] — Mines: log bomb positions to Fly logs
 
 - `minesStart` now logs a `[Casino] Mines <gameId>` line with the player, bet, mine count, bomb positions (`r<row>c<col>`, 1-based from top-left) and a grid map (`X` = bomb, rows separated by `/`) — owner-only, visible via `flyctl logs`
