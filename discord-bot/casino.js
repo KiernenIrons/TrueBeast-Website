@@ -765,6 +765,16 @@ function buy(p, key) {
     return `✅ Bought ${it.emoji} **${it.name}**!`;
 }
 
+// Who has robbable cash on them right now, most first. 🛡️ = robbed recently, protected for now.
+function cashHolders(n, excludeId = null) {
+    return [...players.entries()]
+        .filter(([id, p]) => p.name && id !== excludeId && p.cash >= ROB_MIN_CASH)
+        .sort((a, b) => b[1].cash - a[1].cash).slice(0, n)
+        .map(([, p]) => `${cooldownLeft(p.robbedAt, ROB_PROTECT) ? '🛡️' : '💵'} ${p.name} — ${fmt(p.cash)}`).join('\n');
+}
+
+const splitOf = p => `💵 ${short(p.cash)} · 🏦 ${short(p.bank)}`;
+
 function topPlayers(n) {
     return [...players.entries()].filter(([, p]) => p.name).sort((a, b) => (b[1].cash + b[1].bank) - (a[1].cash + a[1].bank)).slice(0, n);
 }
@@ -773,14 +783,15 @@ function leaderboardView(userId) {
     const medals = ['🥇', '🥈', '🥉'];
     const lines = topPlayers(10).map(([id, p], i) => {
         const t = titleOf(p);
-        return `${medals[i] || `**${i + 1}.**`} ${id === userId ? '__' : ''}${p.name}${id === userId ? '__' : ''}${t ? ` ${t.split(' ')[0]}` : ''} — ${fmt(p.cash + p.bank)}`;
+        return `${medals[i] || `**${i + 1}.**`} ${id === userId ? '__' : ''}${p.name}${id === userId ? '__' : ''}${t ? ` ${t.split(' ')[0]}` : ''} — ${fmt(p.cash + p.bank)} (${splitOf(p)})`;
     });
     return { embeds: [embed(GOLD, '🏆 Richest players', lines.join('\n') || 'Nobody has played yet.')], components: [] };
 }
 
 // ── Panel ───────────────────────────────────────────────────────────────────
 function panelPayload() {
-    const top = topPlayers(3).map(([, p], i) => `${['🥇', '🥈', '🥉'][i]} ${p.name} — ${fmt(p.cash + p.bank)}`).join('\n');
+    const top = topPlayers(3).map(([, p], i) => `${['🥇', '🥈', '🥉'][i]} ${p.name} — ${fmt(p.cash + p.bank)} (${splitOf(p)})`).join('\n');
+    const holders = cashHolders(8);
     const e = embed(GOLD, PANEL_TITLE,
         `Fake coins, real bragging rights. Everyone starts with **${fmt(START_CASH)}**.\n\n` +
         '**Earn** — 🎁 Daily · 💼 Work · 🦹 Crime · 🥷 Rob someone\'s cash\n' +
@@ -788,6 +799,7 @@ function panelPayload() {
         '**Protect** — 🏦 Bank your coins (robbers only take cash) · 🔒 padlocks in the 🛒 Shop\n\n' +
         '-# Everything you click is private to you. Only robberies, gifts and big wins get posted here.');
     if (top) e.addFields({ name: '🏆 Richest', value: top });
+    if (holders) e.addFields({ name: '💵 Carrying cash (robbable)', value: `${holders}\n-# 🛡️ = robbed recently, safe for now` });
     return {
         embeds: [e],
         components: [
@@ -863,7 +875,7 @@ async function handleCasinoInteraction(ix) {
         if (what === 'rob') {
             const blocked = robBlocked(p);
             if (blocked) return ix.reply({ ...card(GREY, '🥷 Rob', blocked), flags: 64 });
-            return ix.reply({ ...userPicker('cas:rob:pick', 'Who are you robbing?', '🥷 Rob', `Pick a target. 40% success — steal 15-45% of their cash. Get caught and you pay them 20% of yours.${p.items.gloves ? '\n🧤 Your gloves will add +20%.' : ''}`), flags: 64 });
+            return ix.reply({ ...userPicker('cas:rob:pick', 'Who are you robbing?', '🥷 Rob', `Pick a target. 40% success — steal 15-45% of their cash. Get caught and you pay them 20% of yours.${p.items.gloves ? '\n🧤 Your gloves will add +20%.' : ''}\n\n**Carrying cash right now:**\n${cashHolders(10, ix.user.id) || 'Nobody has enough cash on them. Everyone\'s banked it.'}`), flags: 64 });
         }
         return;
     }
@@ -1000,7 +1012,7 @@ async function startCasino(discordClient, { testingChannelId }) {
     const recent = await ch.messages.fetch({ limit: 100 }).catch(() => null);
     for (const msg of recent?.values() || []) scheduleCleanup(msg);
     client.on('messageCreate', msg => { if (msg.channelId === channelId) scheduleCleanup(msg); });
-    setInterval(() => { if (panelDirty) refreshPanel(); }, 2 * MIN);
+    setInterval(() => { if (panelDirty) refreshPanel(); }, 1 * MIN);
 }
 
 module.exports = { startCasino, isCasinoInteraction, handleCasinoInteraction, flushCasino };

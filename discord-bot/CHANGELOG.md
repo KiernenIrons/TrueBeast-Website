@@ -1,5 +1,13 @@
 # Beast Bot Changelog
 
+## [2026-10-16] — Casino: show cash vs bank on the panel
+
+- Panel's 🏆 Richest now shows each player's cash/bank split (`splitOf`)
+- New panel field "💵 Carrying cash (robbable)": top 8 players with at least `ROB_MIN_CASH` in cash, most first; 🛡️ marks anyone still inside the 1h post-robbery protection (`cashHolders`)
+- The Rob picker lists the top 10 cash holders (excluding yourself) above the user dropdown
+- Leaderboard lines show the cash/bank split too
+- Panel refresh interval when data changed: 2 min → 1 min (edits only, no notifications)
+
 ## [2026-10-16] — Fix YouTube API quota drain from the homepage
 
 - Root cause: `fetchYouTubeSlots` in `src/pages/Home.tsx` paged through the *entire* uploads playlist plus `videos.list` for every upload, from every visitor's browser (localStorage cache only, 1h TTL, nothing for crawlers/new visitors) — that exhausted the site key's 10k/day quota and broke the admin "New Post" auto-fill
