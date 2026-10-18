@@ -1,5 +1,11 @@
 # Beast Bot Changelog
 
+## [2026-10-18] — Casino: resume dismissed games + admin coin grants
+
+- Dismissing an ephemeral game message isn't reported to the bot, so the bet sat in escrow until the 10-min idle timeout with no result shown. Now any game button, "Again", or the new Wallet ▶️ Resume button (`cas:resume`) re-shows the unfinished game (`activeGame` / `resumeGame`) in a fresh ephemeral; `g.ix` is swapped so crash ticks and idle timeouts edit the new message. Roulette/coinflip pick screens moved into `choiceView(g)` so they can be re-rendered
+- Admin grants: owner (`OWNER_DISCORD_ID`, now passed to `startCasino`) or anyone with Administrator sees a second dropdown in 🤝 Give (`cas:agive:pick` → modal `cas:m:agive:<id>`). Positive amounts mint coins into the target's cash; a minus amount takes coins (cash first, then bank). Both post publicly
+- UPDATE_NOTES: added a line about resuming dismissed games
+
 ## [2026-10-16] — Casino: show cash vs bank on the panel
 
 - Panel's 🏆 Richest now shows each player's cash/bank split (`splitOf`)

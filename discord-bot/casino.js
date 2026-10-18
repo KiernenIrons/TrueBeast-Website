@@ -82,6 +82,9 @@ let panelMessageId = null;
 let saveTimer = null;
 let panelDirty = false;
 let panelQueue = Promise.resolve();
+let adminOwnerId = null;     // server owner — plus anyone with Administrator — can grant/take coins
+
+const isAdmin = ix => ix.user.id === adminOwnerId || !!ix.memberPermissions?.has(PermissionFlagsBits.Administrator);
 
 function newPlayer() {
     return {
@@ -253,6 +256,25 @@ function refund(g) {
     p.escrow = Math.max(0, p.escrow - g.bet);
     p.cash += g.bet;
     markDirty();
+}
+
+function activeGame(userId) {
+    for (const g of games.values()) if (g.userId === userId && !g.done) return g;
+    return null;
+}
+
+// Dismissing an ephemeral message doesn't tell the bot, so unfinished games stay open:
+// any game button (or Wallet → Resume) re-shows the game in a fresh message and play carries on.
+function resumeGame(ix, g) {
+    const p = players.get(g.userId);
+    g.ix = ix; // future edits (crash ticks, idle timeout) go to the new message
+    if (g.type !== 'crash') touch(g);
+    const view = g.type === 'bj' ? bjView(g, p)
+        : g.type === 'mines' ? minesView(g, p)
+        : g.type === 'crash' ? crashView(g, p, crashMult(Date.now() - g.start), 'live')
+        : choiceView(g);
+    view.embeds[0].setFooter({ text: `▶️ You still had this ${GAMES[g.type].name} game going. Picking up where you left off.` });
+    return ix.reply({ ...view, flags: 64 });
 }
 
 function againRow(type, bet, extra = '') {
@@ -434,24 +456,27 @@ const ROULETTE_BETS = {
 };
 const numEmoji = n => n === 0 ? '🟢' : RED_NUMS.has(n) ? '🔴' : '⚫';
 
-async function choiceStart(ix, type, bet, mode) {
-    const g = openGame(ix, type, bet);
+function choiceView(g) {
     const cancel = btn(`cas:g:${g.id}:cancel`, 'Cancel', ButtonStyle.Danger);
-    if (type === 'coinflip') {
-        return respond(ix, {
-            embeds: [embed(GOLD, `🪙 Coinflip — bet ${fmt(bet)}`, 'Call it! Win pays **2x**.')],
+    if (g.type === 'coinflip') {
+        return {
+            embeds: [embed(GOLD, `🪙 Coinflip — bet ${fmt(g.bet)}`, 'Call it! Win pays **2x**.')],
             components: [row(btn(`cas:g:${g.id}:heads`, 'Heads', ButtonStyle.Primary, '🙂'), btn(`cas:g:${g.id}:tails`, 'Tails', ButtonStyle.Primary, '🦅'), cancel)],
-        }, mode);
+        };
     }
     const b = (k, style) => btn(`cas:g:${g.id}:${k}`, ROULETTE_BETS[k].label, style, ROULETTE_BETS[k].emoji || null);
-    return respond(ix, {
-        embeds: [embed(GOLD, `🎡 Roulette — bet ${fmt(bet)}`, 'Pick your bet.\n🔴/⚫, odd/even, 1-18/19-36 pay **2x** · dozens pay **3x** · 🟢 0 pays **36x**')],
+    return {
+        embeds: [embed(GOLD, `🎡 Roulette — bet ${fmt(g.bet)}`, 'Pick your bet.\n🔴/⚫, odd/even, 1-18/19-36 pay **2x** · dozens pay **3x** · 🟢 0 pays **36x**')],
         components: [
             row(b('red', ButtonStyle.Danger), b('black', ButtonStyle.Secondary), b('green', ButtonStyle.Success), b('odd'), b('even')),
             row(b('low'), b('high'), b('d1'), b('d2'), b('d3')),
             row(cancel),
         ],
-    }, mode);
+    };
+}
+
+async function choiceStart(ix, type, bet, mode) {
+    return respond(ix, choiceView(openGame(ix, type, bet)), mode);
 }
 
 async function choiceAction(ix, g, action) {
@@ -624,7 +649,8 @@ function walletView(p, userId) {
             { name: 'Stats', value: `Games: ${p.stats.games.toLocaleString()}\nWon: ${fmt(p.stats.won)}\nLost: ${fmt(p.stats.lost)}\nBiggest win: ${fmt(p.stats.biggest)}`, inline: true },
         );
     if (p.escrow) e.setFooter({ text: `${Math.floor(p.escrow).toLocaleString()} coins currently riding on games` });
-    return { embeds: [e], components: [] };
+    const g = activeGame(userId);
+    return { embeds: [e], components: g ? [row(btn('cas:resume', `Resume ${GAMES[g.type].name}`, ButtonStyle.Success, '▶️'))] : [] };
 }
 
 function claimDaily(p) {
@@ -863,7 +889,10 @@ async function handleCasinoInteraction(ix) {
     // Panel buttons (also reused by "Change bet" / "Wallet" on game messages)
     if (id.startsWith('cas:p:')) {
         const what = id.slice(6);
-        if (GAMES[what]) return ix.showModal(betModal(what));
+        if (GAMES[what]) {
+            const g = activeGame(ix.user.id);
+            return g ? resumeGame(ix, g) : ix.showModal(betModal(what));
+        }
         if (what === 'wallet') return ix.reply({ ...walletView(p, ix.user.id), flags: 64 });
         if (what === 'daily') return ix.reply({ embeds: [claimDaily(p)], flags: 64 });
         if (what === 'work') return ix.reply({ embeds: [doWork(p)], flags: 64 });
@@ -871,7 +900,14 @@ async function handleCasinoInteraction(ix) {
         if (what === 'bank') return ix.reply({ ...bankView(p), flags: 64 });
         if (what === 'shop') return ix.reply({ ...shopView(p), flags: 64 });
         if (what === 'lb') return ix.reply({ ...leaderboardView(ix.user.id), flags: 64 });
-        if (what === 'give') return ix.reply({ ...userPicker('cas:give:pick', 'Who are you giving coins to?', '🤝 Give', `Pick someone to give cash to. You have ${fmt(p.cash)}.`), flags: 64 });
+        if (what === 'give') {
+            const view = userPicker('cas:give:pick', 'Who are you giving coins to?', '🤝 Give', `Pick someone to give cash to. You have ${fmt(p.cash)}.`);
+            if (isAdmin(ix)) {
+                view.embeds[0].setDescription(`${view.embeds[0].data.description}\n\n🛠️ **Admin:** use the second dropdown to grant free coins, or take some away with a minus amount (e.g. \`-500\`).`);
+                view.components.push(row(new UserSelectMenuBuilder().setCustomId('cas:agive:pick').setPlaceholder('🛠️ Admin: grant or take coins').setMinValues(1).setMaxValues(1)));
+            }
+            return ix.reply({ ...view, flags: 64 });
+        }
         if (what === 'rob') {
             const blocked = robBlocked(p);
             if (blocked) return ix.reply({ ...card(GREY, '🥷 Rob', blocked), flags: 64 });
@@ -892,7 +928,15 @@ async function handleCasinoInteraction(ix) {
     if (id.startsWith('cas:a:')) {
         const [, , type, bet, extra] = id.split(':');
         if (!GAMES[type]) return;
+        const g = activeGame(ix.user.id);
+        if (g) return resumeGame(ix, g);
         return startGame(ix, type, bet, extra || '', 'update');
+    }
+
+    if (id === 'cas:resume') {
+        const g = activeGame(ix.user.id);
+        if (!g) return ix.reply({ ...card(GREY, '🎰 Casino', 'You don\'t have a game in progress.'), flags: 64 });
+        return resumeGame(ix, g);
     }
 
     // In-game buttons: cas:g:<gameId>:<action>
@@ -954,13 +998,50 @@ async function handleCasinoInteraction(ix) {
 Cash: ${fmt(p.cash)}`);
         return post(`🤝 **${p.name}** gave <@${targetId}> **${fmt(amt)}**!`, [targetId]);
     }
+
+    // Admin grant: free coins (or a minus amount to take them away), from the Give menu
+    if (id === 'cas:agive:pick' || id.startsWith('cas:m:agive:')) {
+        if (!isAdmin(ix)) return ix.reply({ ...card(GREY, '🛠️ Admin', 'Only admins can do that.'), flags: 64 });
+        if (id === 'cas:agive:pick') {
+            const target = ix.users.first();
+            if (!target || target.bot) return ix.update(card(GREY, '🛠️ Admin', 'Pick a real person.'));
+            return ix.showModal(amountModal(`cas:m:agive:${target.id}`, `🛠️ Coins for ${(ix.members?.first()?.displayName || target.username).slice(0, 28)}`, 'Amount (minus to take away, e.g. -500)'));
+        }
+        const targetId = id.slice(12);
+        const raw = ix.fields.getTextInputValue('amount').trim();
+        const taking = raw.startsWith('-');
+        const amt = parseAmount(raw.replace(/^-/, ''), 0);
+        const done = (color, text) => ix.isFromMessage() ? ix.update(card(color, '🛠️ Admin', text)) : ix.reply({ ...card(color, '🛠️ Admin', text), flags: 64 });
+        if (!Number.isFinite(amt) || amt <= 0 || amt > 1_000_000_000) return done(GREY, 'That isn\'t a valid amount. Try `5000`, `10k`, `1m` or `-500`.');
+        let target = players.get(targetId);
+        if (!target) {
+            target = newPlayer();
+            const m = await ix.guild.members.fetch(targetId).catch(() => null);
+            target.name = m?.displayName || 'Someone';
+            players.set(targetId, target);
+        }
+        if (taking) {
+            // Cash first, then bank
+            const fromCash = Math.min(target.cash, amt);
+            const fromBank = Math.min(target.bank, amt - fromCash);
+            target.cash -= fromCash; target.bank -= fromBank;
+            markDirty();
+            const took = fromCash + fromBank;
+            await done(RED, `Took **${fmt(took)}** from **${target.name}**${took < amt ? ' (that\'s all they had)' : ''}.\nThey now have ${splitOf(target)}.`);
+            return post(`🛠️ **${p.name}** took **${fmt(took)}** from <@${targetId}>.`, [targetId]);
+        }
+        target.cash += amt; markDirty();
+        await done(GREEN, `Gave **${fmt(amt)}** to **${target.name}** (free, not from your cash).\nThey now have ${splitOf(target)}.`);
+        return post(`🛠️ **${p.name}** granted <@${targetId}> **${fmt(amt)}**!`, [targetId]);
+    }
 }
 
 // ── Startup ─────────────────────────────────────────────────────────────────
 // Finds or creates #casino (private: @everyone can't see it) in the same category as
 // `testingChannelId`, restores balances, and posts (or edits) the one panel message.
-async function startCasino(discordClient, { testingChannelId }) {
+async function startCasino(discordClient, { testingChannelId, ownerId }) {
     client = discordClient;
+    adminOwnerId = ownerId || null;
     let state = null;
     for (let attempt = 1; attempt <= 5 && !state; attempt++) {
         state = await loadState().catch(e => { console.error(`[Casino] load failed (attempt ${attempt}):`, e.message); return null; });

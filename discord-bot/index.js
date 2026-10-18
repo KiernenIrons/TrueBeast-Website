@@ -400,6 +400,7 @@ const UPDATE_NOTES = [
     { name: '🃏 Gamble', value: 'Blackjack, Slots, Roulette, Coinflip, Mines and Crash. Only you can see your games; big wins get announced.' },
     { name: '🥷 Rob your friends', value: "Steal from someone's cash, but get caught and you pay them. Keep your coins safe in the 🏦 Bank or buy a 🔒 padlock from the 🛒 Shop." },
     { name: '🏆 Flex', value: 'Buy titles in the shop and climb the leaderboard for richest player.' },
+    { name: '▶️ Dismissed a game by accident?', value: 'Your bet is safe. Click any game button (or Wallet → Resume) and you pick up right where you left off.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -7831,7 +7832,7 @@ client.once('clientReady', async () => {
     setInterval(() => getBotFeatures().catch(() => {}), 30 * 60 * 1000); // refresh every 30 min
 
     // Casino: restore balances, find/create the private #casino channel and its panel
-    startCasino(client, { testingChannelId: ANNOUNCE_TESTING_CHANNEL_ID }).catch(e => console.error('[Casino] init failed:', e.message));
+    startCasino(client, { testingChannelId: ANNOUNCE_TESTING_CHANNEL_ID, ownerId: OWNER_DISCORD_ID }).catch(e => console.error('[Casino] init failed:', e.message));
 
     // Start The Pond's hourly hunger/happiness decay tick
     startPondTicker(client);
