@@ -42,6 +42,7 @@ const path = require('path');
 const sodium = require('libsodium-wrappers');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
 const { startCasino, isCasinoInteraction, handleCasinoInteraction, flushCasino } = require('./casino');
+const { startSessions, isSessionInteraction, handleSessionInteraction, handleSessionChannelDelete, flushSessions } = require('./sessions');
 const { streakCommands, isStreakCommand, isStreakButton, handleStreakCommand, handleStreakAutocomplete, handleStreakButton, streakTick, initStreaks, serializeStreaks, saveStreakMirror } = require('./streaks');
 // Words that must never be used by the Unscramble game (checked at pick time, so they stay
 // banned even if someone re-adds them to a list below).
@@ -395,12 +396,12 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🎰 NEW: The Casino', value: 'Head to #casino and use the panel there. No commands, just buttons. Everyone starts with 🪙 1,000 fake coins.' },
-    { name: '💼 Earn', value: 'Claim your 🎁 Daily (bigger every day you keep your streak), 💼 Work, or risk a 🦹 Crime.' },
-    { name: '🃏 Gamble', value: 'Blackjack, Slots, Roulette, Coinflip, Mines and Crash. Only you can see your games; big wins get announced.' },
-    { name: '🥷 Rob your friends', value: "Steal from someone's cash, but get caught and you pay them. Keep your coins safe in the 🏦 Bank or buy a 🔒 padlock from the 🛒 Shop." },
-    { name: '🏆 Flex', value: 'Buy titles in the shop and climb the leaderboard for richest player.' },
-    { name: '▶️ Dismissed a game by accident?', value: 'Your bet is safe. Click any game button (or Wallet → Resume) and you pick up right where you left off.' },
+    { name: '📅 NEW: Plan a Session', value: 'Head to #plan-a-session to set up gaming, recording or streaming sessions. Each one gets its own text + voice channel.' },
+    { name: '🔒 Public or private', value: 'Public sessions are listed so anyone can join. Private ones are invite-only, hidden, and only the people in them (plus mods) can see the channels.' },
+    { name: '📣 Custom announcement', value: 'Name your session, add a Steam or store link (Steam links pull in the game art) and write a little announcement for the crew.' },
+    { name: '🗓️ Find a time', value: 'Hosts can open the truebeast.io/meet scheduler from the session. The bot shows the best times everyone is free and the host can lock one in.' },
+    { name: '⏰ Reminders', value: 'Once a time is locked in, everyone in the session gets pinged 15 minutes before and when it starts.' },
+    { name: '🛠️ Host tools', value: 'Add or remove people anytime (removed people lose access straight away), edit the announcement, switch public/private or end the session.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -416,6 +417,7 @@ let botFeatures = {
     escapeRoomGame:      true,
     pondFrogs:           true,
     casino:              true, // #casino economy + gambling panel (casino.js)
+    sessions:            true, // #plan-a-session planned sessions panel (sessions.js)
     unscrambleGame:      true,
     instagramPreviews:   true,
     voiceStreaks:        true, // daily 30-min voice streaks (streaks.js)
@@ -7827,6 +7829,9 @@ client.once('clientReady', async () => {
     // Custom VCs: rename the Waiting Room, restore rooms, set up #create-a-vc and its panel
     await cvcInit().catch(e => console.error('[CustomVC] init failed:', e.message));
 
+    // Planned sessions: restore sessions, set up #plan-a-session and its panel
+    startSessions(client, { modRoleId: MOD_ROLE_ID, quarantineRoleId: QUARANTINE_ROLE_ID }).catch(e => console.error('[Sessions] init failed:', e.message));
+
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
     setInterval(() => getBotFeatures().catch(() => {}), 30 * 60 * 1000); // refresh every 30 min
@@ -10881,6 +10886,18 @@ client.on('interactionCreate', async (interaction) => {
         return handleCasinoInteraction(interaction).catch(e => {
             console.error('[Casino] interaction failed:', e);
             if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong — try again in a moment.', flags: 64 }).catch(() => {});
+        });
+    }
+
+    // ── Planned sessions (sessions.js) — panel + per-session tools all use ses: ──
+    if ((interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu() || interaction.isUserSelectMenu())
+        && isSessionInteraction(interaction)) {
+        if (botFeatures.sessions === false) {
+            return interaction.reply({ content: 'Sessions are currently turned off.', flags: 64 });
+        }
+        return handleSessionInteraction(interaction).catch(e => {
+            console.error('[Sessions] interaction failed:', e);
+            if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong, try again in a moment.', flags: 64 }).catch(() => {});
         });
     }
 
@@ -15879,6 +15896,7 @@ client.on('channelUpdate', async (oldChannel, newChannel) => {
 
 client.on('channelDelete', async (channel) => {
     if (!channel.guild) return;
+    handleSessionChannelDelete(channel).catch(e => console.error('[Sessions] channel delete cleanup failed:', e.message));
     const entry = await getAuditEntry(channel.guild, AuditLogEvent.ChannelDelete, channel.id, 8000);
     await sendLog(channel.guild, {
         color: LOG_COLORS.info,
@@ -16165,6 +16183,7 @@ async function flushBeforeExit() {
     await saveStreakMirror().catch(e => console.error('[Streaks] Shutdown mirror save failed:', e.message));
     // Casino balances live in their own doc (guarded until loaded)
     await flushCasino().catch(e => console.error('[Casino] Shutdown save failed:', e.message));
+    await flushSessions().catch(e => console.error('[Sessions] Shutdown save failed:', e.message));
     console.log('[BeastBot] Flush complete');
 }
 

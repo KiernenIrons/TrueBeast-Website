@@ -1,5 +1,18 @@
 # Beast Bot Changelog
 
+## [2026-10-22] — Planned sessions panel (#plan-a-session)
+
+- New self-contained `sessions.js` (`startSessions`, `isSessionInteraction`, `handleSessionInteraction`, `handleSessionChannelDelete`, `flushSessions`), customId prefix `ses:`. Started from `ready` after `cvcInit`; routed in `interactionCreate` before `cvc:`; gated by new `botFeatures.sessions`
+- Creates a `📅 Sessions` category and a read-only `#plan-a-session` panel (Components v2): Create public / Create private / My sessions, plus a "Join a public session" select. Private sessions are never listed
+- Create modal uses `LabelBuilder`: name, type select (Gaming/Recording/Streaming/Hangout/Other), link, announcement, and either "When?" (public) or a 25-user invite picker (private). Steam store links fetch `appdetails` for the game name + header image
+- Each session = hidden text + voice channel. `@everyone` denied View; per-user allow overwrites for host + members, plus `MOD_ROLE_ID`, server owner and the bot; quarantine role denied. Removing someone deletes their overwrites on both channels and disconnects them from the session VC
+- Pinned announcement + tools message in the session channel: add people (user select), remove people (select of members), Find a time / Attach meet link / Best times / Edit announcement, Make public/private, Leave, End session (confirm). Host, mods, server owner and admins can manage; anyone in the session can leave or check best times
+- Meet integration: "Find a time" links to `/meet?name=…&session=<textChannelId>`; the site stores `discordSession` on the event (it retries without the field if the rules reject it). The bot polls `meetEvents` via REST `runQuery` every 5 min (sessions < 14 days old) or accepts a pasted link, then reads `meetEvents/{id}/people` to rank windows of consecutive 15-min slots where the same people are free. "Lock in" sets `lockedStart/lockedEnd` (dates mode) or a weekly `when` label (days-of-week mode)
+- Reminder tick every minute: pings everyone 15 min before and at `lockedStart` (skipped if the bot was down past the window)
+- State in `botConfig/sessions` (`sessionsJson`, `panelChannelId`, `panelMessageId`, `categoryId`) with masked PATCH and a `loaded` guard; flushed on shutdown. Deleting either session channel by hand ends the session and removes the other channel
+- Limits: 3 sessions per host (staff exempt), 20 total (keeps the category under 50 channels)
+- UPDATE_NOTES rewritten for the sessions feature
+
 ## [2026-10-18] — Casino: resume dismissed games + admin coin grants
 
 - Dismissing an ephemeral game message isn't reported to the bot, so the bet sat in escrow until the 10-min idle timeout with no result shown. Now any game button, "Again", or the new Wallet ▶️ Resume button (`cas:resume`) re-shows the unfinished game (`activeGame` / `resumeGame`) in a fresh ephemeral; `g.ix` is swapped so crash ticks and idle timeouts edit the new message. Roulette/coinflip pick screens moved into `choiceView(g)` so they can be re-rendered

@@ -38,6 +38,8 @@ export interface MeetEvent {
   endHour: number;
   timezone: string;
   createdAt: number;
+  /** Discord session text channel id, when made from the bot's "Find a time" button. */
+  discordSession?: string;
 }
 
 export interface MeetPerson {
@@ -285,7 +287,14 @@ function db() {
 
 export async function createEvent(data: Omit<MeetEvent, 'id' | 'createdAt'>) {
   const id = randomId();
-  await setDoc(doc(db(), EVENTS, id), { ...data, createdAt: Date.now() });
+  try {
+    await setDoc(doc(db(), EVENTS, id), { ...data, createdAt: Date.now() });
+  } catch (e) {
+    // If the rules don't accept the Discord tag, still create the event; the host can paste the link in Discord instead.
+    if (!data.discordSession || !isPermissionError(e)) throw e;
+    const { discordSession: _, ...plain } = data;
+    await setDoc(doc(db(), EVENTS, id), { ...plain, createdAt: Date.now() });
+  }
   return id;
 }
 

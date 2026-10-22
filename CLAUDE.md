@@ -68,6 +68,9 @@ The bot detects `/bump` by watching for Disboard's bot confirmation message (fro
 ### Pond game (`pond.js`)
 Fully self-contained module — no circular requires with `index.js`. Exports: `pondCommands`, `isPondCommand`, `handlePondInteraction`, `isPondButton`, `handlePondButtonInteraction`, `isPondModal`, `handlePondModalInteraction`, `startPondTicker`. All frog state goes through `normalizeFrog()` to backfill missing fields safely.
 
+### Planned sessions (`sessions.js`)
+Self-contained like `casino.js` (`startSessions`, `isSessionInteraction`, `handleSessionInteraction`, `handleSessionChannelDelete`, `flushSessions`; customId prefix `ses:`). Panel lives in the read-only `#plan-a-session` inside the `📅 Sessions` category. Each session = hidden text + voice channel; access is per-user channel overwrites (owner, invitees, `MOD_ROLE_ID`, server owner), so removing someone deletes their overwrites. State in `botConfig/sessions` (`sessionsJson`). The "Find a time" button opens `/meet?name=…&session=<textChannelId>`; the site stores `discordSession` on the `meetEvents` doc and the bot finds it by REST `runQuery` (read-only), suggests best windows from `meetEvents/{id}/people` and lets the host lock one in (15-min + start reminders).
+
 ### Interaction routing in index.js
 `interactionCreate` dispatches in this order: autocomplete → pond commands → slash commands → buttons (pond buttons, then bot-own buttons) → modal submits (pond modals, then bot-own modals) → select menus. Each handler checks `interaction.commandName` / `interaction.customId` prefix.
 

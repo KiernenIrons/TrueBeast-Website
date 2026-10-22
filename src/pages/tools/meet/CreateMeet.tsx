@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { MEET_CSS } from './TimeGrid';
@@ -14,8 +14,11 @@ interface Drag { anchor: number; hover: number; add: boolean }
 
 export default function CreateMeet() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // Opened from a Discord session's "Find a time" button: ?name=<session name>&session=<channel id>
+  const discordSession = /^\d{17,20}$/.test(params.get('session') ?? '') ? params.get('session')! : '';
   const today = todayIso();
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => (params.get('name') ?? '').slice(0, 100));
   const [mode, setMode] = useState<MeetMode>('dates');
   const [dates, setDates] = useState<Set<string>>(new Set());
   const [days, setDays] = useState<Set<string>>(new Set());
@@ -128,6 +131,7 @@ export default function CreateMeet() {
         startHour,
         endHour: effectiveEnd,
         timezone,
+        ...(discordSession ? { discordSession } : {}),
       });
       navigate(`/meet/${id}`);
     } catch (e) {
@@ -154,6 +158,12 @@ export default function CreateMeet() {
             </p>
           </div>
 
+          {discordSession && (
+            <p className="text-center text-xs meet-muted mb-3">
+              Linked to your Discord session. Once you create it, the bot posts it there within a few minutes
+              (or paste the link with <span className="text-gray-300">🔗 Attach meet link</span>).
+            </p>
+          )}
           <input
             className="meet-input text-center !text-lg !py-3 mb-6 text-white"
             placeholder="Event name"
