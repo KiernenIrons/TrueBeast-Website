@@ -1,5 +1,15 @@
 # Beast Bot Changelog
 
+## [2026-10-22] — Sessions: Powder Park announcement layout + channel names
+
+- Announcement is a Components v2 card again, copying the hand-made Powder Park post: no accent, media gallery (Steam art) → separator → section [`# <XZlive> __Mark Availability__ <XZrightarrow>` + `## __Title__`, announcement text] with a Schedule link-button accessory → separator → Voice Chat + Steam link buttons
+- Heading changes with state: "Mark Availability ➡" while voting, "Starts <t:R>" once locked (full date in a small footer line), the weekly label for days-mode locks, nothing if no schedule. With no schedule there's no section, just text displays
+- XZlive / XZrightarrow IDs are hardcoded; calendar / voice / Steam emojis are looked up by name in the guild cache (`serverEmoji`), falling back to 📅 / 🔊 / 🎮
+- Invitee pings moved into a `-# 👋 @…` line on the first post only (v2 messages can't have content); later edits drop it
+- `upsert` now handles both kinds and reposts if the stored message is the other kind (v2 ↔ normal can't be converted)
+- Channel names are now `🎮│Name` (`channelName`); existing session channels without `│` are renamed on startup
+- UPDATE_NOTES: announcement entry updated
+
 ## [2026-10-22] — Sessions: link-based schedule step
 
 - Replaced the "When is it?" step (bot-created scheduler with tz/days/hours pickers, exact time) with a private "Find a time" message: Create schedule (link to `/meet?name=…`), Submit link (modal → `readMeetModal` checks the event exists) and Skip. The click is deferred before the link check so it never misses Discord's 3s window

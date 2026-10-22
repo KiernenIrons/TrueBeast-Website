@@ -9,7 +9,8 @@
  * event link) or Skip. Public sessions are listed on the panel so anyone can join; private
  * ones never are.
  *
- * Chat stays clean: the tools embed is posted first, then the announcement embed (pinned).
+ * Chat stays clean: the tools embed is posted first, then the announcement card (pinned,
+ * Components v2, same layout as the hand-made Powder Park post).
  * Adds/removes/joins only get ephemeral confirmations (added people get a DM with a button).
  * The only public posts are the lock-in and the 15-min / start reminders, which ping everyone.
  *
@@ -20,6 +21,7 @@ const {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
     StringSelectMenuBuilder, UserSelectMenuBuilder, LabelBuilder, ChannelType, PermissionFlagsBits,
     MessageFlags, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, EmbedBuilder,
+    SectionBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder,
 } = require('discord.js');
 
 const FIREBASE_PROJECT = process.env.FIREBASE_PROJECT_ID;
@@ -293,25 +295,55 @@ async function revoke(s, userId) {
 }
 
 // ── Session channel messages (tools first, then the pinned announcement) ────
-function whenLine(s) {
-    if (s.lockedStart) return `🗓️ **<t:${s.lockedStart}:F>** (<t:${s.lockedStart}:R>)`;
-    if (s.when) return `🗓️ **${s.when}**`;
-    return '';
-}
+const channelName = (t, title) => `${t.emoji}│${title}`.slice(0, 100);
 
-function buildAnnouncement(s) {
-    const t = typeOf(s);
-    const e = new EmbedBuilder().setColor(ACCENT).setTitle(`${t.emoji} ${s.title}`).setDescription([
-        `-# ${t.label} · ${s.private ? '🔒 Private' : '🔓 Public'} · hosted by <@${s.ownerId}>`,
-        s.gameName && s.gameName !== s.title ? `**${s.gameName}**` : '',
-        s.details,
-        whenLine(s),
-    ].filter(Boolean).join('\n\n'));
-    if (s.image) e.setImage(s.image);
-    const buttons = [joinVoiceBtn(s)];
-    if (s.meetId && !s.lockedStart && !s.when) buttons.push(linkBtn(meetEventUrl(s), "Mark when you're free", '📅'));
-    if (s.link) buttons.push(linkBtn(s.link, /store\.steampowered\.com/i.test(s.link) ? 'View on Steam' : 'Open link', '🔗'));
-    return { embeds: [e], components: [row(...buttons)] };
+// Server emojis for the announcement. The two animated ones are known; the calendar / voice /
+// Steam ones are looked up by name, falling back to a normal emoji if the server doesn't have one.
+const LIVE_EMOJI  = { id: '1529761688893788160', name: 'XZlive', animated: true };
+const ARROW_EMOJI = { id: '1469382157649575987', name: 'XZrightarrow', animated: true };
+function serverEmoji(pattern, fallback) {
+    const e = guild()?.emojis.cache.find(x => pattern.test(x.name));
+    return e ? { id: e.id, name: e.name, animated: !!e.animated } : { name: fallback };
+}
+const emojiText = e => e.id ? `<${e.animated ? 'a' : ''}:${e.name}:${e.id}>` : e.name;
+const cleanTitle = t => t.replace(/[_*~`|\\]/g, '\\$&');
+
+// Components v2 card, same layout as the hand-made Powder Park post:
+// game art │ "Mark Availability ➡" + title + announcement with a Schedule button │ Voice Chat + Steam
+function buildAnnouncement(s, pingIds = []) {
+    const td = text => new TextDisplayBuilder().setContent(text);
+    const sep = () => new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
+    const c = new ContainerBuilder();
+    if (s.image) {
+        c.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(s.image)))
+            .addSeparatorComponents(sep());
+    }
+
+    const live = emojiText(LIVE_EMOJI);
+    const heading = s.lockedStart ? `# ${live} __Starts <t:${s.lockedStart}:R>__\n`
+        : s.when ? `# ${live} __${s.when}__\n`
+        : s.meetId ? `# ${live} __Mark Availability__ ${emojiText(ARROW_EMOJI)}\n`
+        : '';
+    const texts = [`${heading}## __${cleanTitle(s.title)}__`];
+    if (s.details) texts.push(s.details);
+    const foot = [s.lockedStart ? `🗓️ <t:${s.lockedStart}:F>` : '', pingIds.length ? `👋 ${mentions(pingIds)}` : ''].filter(Boolean);
+    if (foot.length) texts.push(`-# ${foot.join(' · ')}`);
+
+    if (s.meetId) {
+        c.addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(...texts.map(td))
+            .setButtonAccessory(linkBtn(meetEventUrl(s), 'Schedule', serverEmoji(/calendar|schedule/i, '📅'))));
+    } else {
+        c.addTextDisplayComponents(...texts.map(td));
+    }
+
+    const buttons = [linkBtn(voiceUrl(s), 'Voice Chat', serverEmoji(/^(voice|vc|speaker|volume)/i, '🔊'))];
+    if (s.link) {
+        const steam = /store\.steampowered\.com/i.test(s.link);
+        buttons.push(linkBtn(s.link, steam ? 'Steam' : 'Link', steam ? serverEmoji(/steam/i, '🎮') : { name: '🔗' }));
+    }
+    c.addSeparatorComponents(sep()).addActionRowComponents(row(...buttons));
+    return { flags: V2, components: [c] };
 }
 
 function buildTools(s) {
@@ -344,14 +376,16 @@ function buildTools(s) {
     };
 }
 
-// Edit a stored message, or post it fresh if it's gone. Returns true if it had to be (re)posted.
+// Edit a stored message, or post it fresh if it's gone (or is the wrong kind: a Components v2
+// message can't be turned into a normal one or back). Returns true if it had to be (re)posted.
 async function upsert(ch, s, key, payload, firstPost = {}) {
+    const wantV2 = payload.flags === V2;
     const existing = s[key] ? await ch.messages.fetch(s[key]).catch(() => null) : null;
-    if (existing && !existing.flags.has(V2)) {
+    if (existing && existing.flags.has(V2) === wantV2) {
         await existing.edit({ ...payload, allowedMentions: NO_PINGS }).catch(e => console.error('[Sessions] edit failed:', e.message));
         return false;
     }
-    if (existing) await existing.delete().catch(() => {}); // old Components v2 post from the first version
+    if (existing) await existing.delete().catch(() => {});
     const msg = await ch.send({ ...payload, ...firstPost }).catch(e => { console.error('[Sessions] post failed:', e.message); return null; });
     s[key] = msg?.id || '';
     scheduleSave();
@@ -369,12 +403,11 @@ async function refreshSession(s, { pingIds = [] } = {}) {
         await ch.messages.delete(s.announceMsgId).catch(() => {});
         s.announceMsgId = '';
     }
+    // Invitees are pinged by a small line in the first post only; later edits drop it
     const fresh = !s.announceMsgId;
-    await upsert(ch, s, 'announceMsgId', buildAnnouncement(s), {
-        content: pingIds.length ? mentions(pingIds) : undefined,
-        allowedMentions: { users: pingIds },
-    });
-    if (fresh && s.announceMsgId) await ch.messages.pin(s.announceMsgId).catch(() => {});
+    const pings = fresh ? pingIds : [];
+    const posted = await upsert(ch, s, 'announceMsgId', buildAnnouncement(s, pings), { allowedMentions: { users: pings } });
+    if (posted && s.announceMsgId) await ch.messages.pin(s.announceMsgId).catch(() => {});
 }
 
 // ── Panel (Components v2, like the Voice Rooms panel) ───────────────────────
@@ -725,7 +758,7 @@ async function finishCreate(ix, p, when) {
     try {
         const meta = await lookupLink(p.link);
         text = await g.channels.create({
-            name: `${t.emoji}・${p.title}`.slice(0, 100),
+            name: channelName(t, p.title),
             type: ChannelType.GuildText,
             parent: CATEGORY_ID,
             topic: `${t.label} session hosted by ${member.displayName}. Only people in the session (and mods) can see this.`,
@@ -733,7 +766,7 @@ async function finishCreate(ix, p, when) {
             reason: `Planned session for ${member.user.tag}`,
         });
         voice = await g.channels.create({
-            name: `${t.emoji} ${p.title}`.slice(0, 100),
+            name: channelName(t, p.title),
             type: ChannelType.GuildVoice,
             parent: CATEGORY_ID,
             permissionOverwrites: baseOverwrites(g, 'voice', member.id, p.members),
@@ -933,8 +966,8 @@ async function handleSessionInteraction(ix) {
                 else {
                     s.renames.push(Date.now());
                     const t = TYPES[type] || TYPES.other;
-                    await guild().channels.cache.get(s.textId)?.setName(`${t.emoji}・${title}`.slice(0, 100)).catch(() => {});
-                    await guild().channels.cache.get(s.voiceId)?.setName(`${t.emoji} ${title}`.slice(0, 100)).catch(() => {});
+                    await guild().channels.cache.get(s.textId)?.setName(channelName(t, title)).catch(() => {});
+                    await guild().channels.cache.get(s.voiceId)?.setName(channelName(t, title)).catch(() => {});
                 }
             }
             if ((link || '') !== s.link) Object.assign(s, { link: link || '' }, await lookupLink(link));
@@ -1102,6 +1135,8 @@ async function startSessions(discordClient, { modRoleId: mod, quarantineRoleId: 
         for (const cid of [s.textId, s.voiceId]) {
             const ch = g.channels.cache.get(cid);
             if (ch && ch.parentId !== CATEGORY_ID) await ch.setParent(CATEGORY_ID, { lockPermissions: false }).catch(e => console.error('[Sessions] move failed:', e.message));
+            // Names from before the "🎮│Name" format
+            if (ch && !ch.name.includes('│')) await ch.setName(channelName(typeOf(s), s.title)).catch(e => console.error('[Sessions] rename failed:', e.message));
         }
     }
     if (state.categoryId && state.categoryId !== CATEGORY_ID) {
