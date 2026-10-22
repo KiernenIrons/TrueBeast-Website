@@ -1,5 +1,17 @@
 # Beast Bot Changelog
 
+## [2026-10-22] — Sessions: schedule on create, embeds, quieter chat
+
+- Session channels now go in Custom Voice Chats (`CATEGORY_ID` `1560119653500715028`); `ensureCategory` removed. On startup, existing sessions are moved there and the old `📅 Sessions` category is deleted if empty. `MAX_TOTAL` 20 → 15 since the category is shared with custom VC rooms
+- Create flow: modal (public drops the "When?" field) → ephemeral "When is it?" setup (`ses:su:*`, pending map with 15-min TTL): time zone / days / hours selects + Let everyone vote / Exact time / Decide later
+- Bot now creates `meetEvents` docs itself via REST (`createMeetEvent`, same shape as `/meet`, tagged `discordSession`). Verified that anonymous create, `runQuery` and people reads are allowed (delete isn't)
+- Exact-time modal with a flexible `parseDate` (today/tomorrow/weekday/25/10/2026-10-25/25 Oct) + `parseTime` (8pm/20:00/7:30pm), converted with `zonedToUtc` (ported from meet lib.ts). Per-user time zone remembered in `tzJson`
+- Session channel messages switched from Components v2 to classic embeds. Tools are posted first, then the pinned announcement (which carries the creation pings). Announcement: no When/Voice/Going lines; buttons for Join voice (channel URL), Mark when you're free (meet link while voting), Steam/link. The locked time shows only once it's set. Old v2 messages are replaced on startup
+- Tools: Best times / Set exact time (`ses:time`, modal with tz select) / Edit / Public-private; Let everyone vote (`ses:poll` ephemeral picker, state carried in customIds) or Open scheduler; Attach meet link; Leave; End
+- Best times is now an ephemeral embed (no colour) with numbered windows, "X of Y free", who can't make it, Pick 1/2/3 buttons (managers only), Mark-free link and Refresh
+- No channel posts for add/remove/join/leave/visibility/meet attach (ephemeral confirmations only); added users get a DM embed with an Open session button. Remaining public posts (lock-in, reminders) are embeds with a Join voice button
+- Edit modal no longer has a When field
+
 ## [2026-10-22] — Planned sessions panel (#plan-a-session)
 
 - New self-contained `sessions.js` (`startSessions`, `isSessionInteraction`, `handleSessionInteraction`, `handleSessionChannelDelete`, `flushSessions`), customId prefix `ses:`. Started from `ready` after `cvcInit`; routed in `interactionCreate` before `cvc:`; gated by new `botFeatures.sessions`

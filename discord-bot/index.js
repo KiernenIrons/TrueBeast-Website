@@ -396,12 +396,11 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '📅 NEW: Plan a Session', value: 'Head to #plan-a-session to set up gaming, recording or streaming sessions. Each one gets its own text + voice channel.' },
-    { name: '🔒 Public or private', value: 'Public sessions are listed so anyone can join. Private ones are invite-only, hidden, and only the people in them (plus mods) can see the channels.' },
-    { name: '📣 Custom announcement', value: 'Name your session, add a Steam or store link (Steam links pull in the game art) and write a little announcement for the crew.' },
-    { name: '🗓️ Find a time', value: 'Hosts can open the truebeast.io/meet scheduler from the session. The bot shows the best times everyone is free and the host can lock one in.' },
-    { name: '⏰ Reminders', value: 'Once a time is locked in, everyone in the session gets pinged 15 minutes before and when it starts.' },
-    { name: '🛠️ Host tools', value: 'Add or remove people anytime (removed people lose access straight away), edit the announcement, switch public/private or end the session.' },
+    { name: '🗓️ Schedule while you create', value: 'Making a session now asks "When is it?": let everyone vote on days and hours, set an exact time, or decide later.' },
+    { name: '📣 Cleaner announcements', value: 'The announcement now has buttons to join the voice chat, mark when you’re free and open the Steam page. No more member list.' },
+    { name: '📊 Easier best times', value: 'Best times is now a tidy card only you can see, with a one-tap Pick button for each option.' },
+    { name: '🧹 Quieter chat', value: 'No more bot messages when people are added, removed or join. Added people get a DM with a button instead.' },
+    { name: '📁 New home', value: 'Session channels now live in the Custom Voice Chats category.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
