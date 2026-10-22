@@ -161,7 +161,7 @@ export default function CreateMeet() {
           {discordSession && (
             <p className="text-center text-xs meet-muted mb-3">
               Linked to your Discord session. Once you create it, the bot posts it there within a few minutes
-              (or paste the link with <span className="text-gray-300">🔗 Attach meet link</span>).
+              (or paste the link with <span className="text-gray-300">🔗 Submit schedule link</span>).
             </p>
           )}
           <input

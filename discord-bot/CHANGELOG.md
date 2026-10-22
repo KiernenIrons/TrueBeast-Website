@@ -1,5 +1,12 @@
 # Beast Bot Changelog
 
+## [2026-10-22] — Sessions: link-based schedule step
+
+- Replaced the "When is it?" step (bot-created scheduler with tz/days/hours pickers, exact time) with a private "Find a time" message: Create schedule (link to `/meet?name=…`), Submit link (modal → `readMeetModal` checks the event exists) and Skip. The click is deferred before the link check so it never misses Discord's 3s window
+- Tools: "Let everyone vote" picker (`ses:poll*`) removed; now Create schedule (link to `/meet?name=…&session=…`) + Submit schedule link (`ses:meet`, shared `meetLinkModal`), or Open schedule + Change schedule link once attached
+- Removed `createMeetEvent`, `pollDates`, `DAY_OPTIONS`, `HOUR_OPTIONS`, `pollView`. The bot no longer writes to `meetEvents`
+- Site: CreateMeet hint now mentions "🔗 Submit schedule link"
+
 ## [2026-10-22] — Sessions: schedule on create, embeds, quieter chat
 
 - Session channels now go in Custom Voice Chats (`CATEGORY_ID` `1560119653500715028`); `ensureCategory` removed. On startup, existing sessions are moved there and the old `📅 Sessions` category is deleted if empty. `MAX_TOTAL` 20 → 15 since the category is shared with custom VC rooms

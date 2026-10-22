@@ -396,7 +396,7 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🗓️ Schedule while you create', value: 'Making a session now asks "When is it?": let everyone vote on days and hours, set an exact time, or decide later.' },
+    { name: '🗓️ Schedule while you create', value: 'After making a session you get a private message: create the schedule on the site, submit the link, or skip it for now.' },
     { name: '📣 Cleaner announcements', value: 'The announcement now has buttons to join the voice chat, mark when you’re free and open the Steam page. No more member list.' },
     { name: '📊 Easier best times', value: 'Best times is now a tidy card only you can see, with a one-tap Pick button for each option.' },
     { name: '🧹 Quieter chat', value: 'No more bot messages when people are added, removed or join. Added people get a DM with a button instead.' },

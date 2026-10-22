@@ -4,10 +4,10 @@
  * channel in that category that only the host, the people they invite, mods and the server
  * owner can see. Removing someone deletes their channel overwrites, so they lose access at once.
  *
- * Creating: modal (name, type, link, announcement, invitees) → a "When is it?" step with
- * buttons: let everyone vote (the bot creates a truebeast.io/meet scheduler for the chosen
- * days/hours), set an exact time, or decide later. Public sessions are listed on the panel so
- * anyone can join; private ones never are.
+ * Creating: modal (name, type, link, announcement, invitees) → a private "Find a time" message
+ * with buttons: Create schedule (opens truebeast.io/meet pre-filled), Submit link (paste the
+ * event link) or Skip. Public sessions are listed on the panel so anyone can join; private
+ * ones never are.
  *
  * Chat stays clean: the tools embed is posted first, then the announcement embed (pinned).
  * Adds/removes/joins only get ephemeral confirmations (added people get a DM with a button).
@@ -38,7 +38,7 @@ const MEET_POLL_MS       = 5 * MIN;          // look for a scheduler made on the
 const MEET_POLL_MAX_AGE  = 14 * DAY;
 const REMIND_BEFORE_S    = 15 * 60;
 const SLOT_S             = 15 * 60;          // meet slots are 15 minutes
-const SETUP_TTL          = 15 * MIN;         // unfinished "When is it?" steps are dropped after this
+const SETUP_TTL          = 30 * MIN;         // unfinished "Find a time" steps are dropped after this
 const DEFAULT_TZ         = 'Europe/London';
 
 const TYPES = {
@@ -60,19 +60,6 @@ const TIMEZONES = [
     ['Australia/Brisbane', 'Australia (Brisbane)'], ['Australia/Sydney', 'Australia East'], ['Pacific/Auckland', 'New Zealand'],
     ['UTC', 'UTC'],
 ];
-const DAY_OPTIONS = {
-    next7:    { label: 'Next 7 days' },
-    next14:   { label: 'Next 14 days' },
-    weekends: { label: 'Next 4 weekends' },
-    weekdays: { label: 'Weekdays, next 2 weeks' },
-};
-const HOUR_OPTIONS = {
-    evening:   { label: 'Evening (6pm – midnight)',  start: 18, end: 24 },
-    afternoon: { label: 'Afternoon (12pm – 6pm)',    start: 12, end: 18 },
-    daytime:   { label: 'Daytime (9am – 6pm)',       start: 9,  end: 18 },
-    allday:    { label: 'All day (9am – midnight)',  start: 9,  end: 24 },
-};
-
 const EPH      = MessageFlags.Ephemeral;
 const V2       = MessageFlags.IsComponentsV2;
 const NO_PINGS = { parse: [] };
@@ -93,7 +80,7 @@ const toFlagObj = (flags, value) => Object.fromEntries(
 // ── State ───────────────────────────────────────────────────────────────────
 const sessions = new Map();        // text channel id → session
 const userTz   = new Map();        // userId → last time zone they picked
-const pending  = new Map();        // userId → unfinished create (modal done, "When is it?" step open)
+const pending  = new Map();        // userId → unfinished create (modal done, "Find a time" step open)
 let loaded = false;                // guards saves so an empty map never overwrites Firestore
 let client = null;
 let modRoleId = null, quarantineRoleId = null;
@@ -217,19 +204,6 @@ function addDays(date, n) {
     return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
 }
 const dowOf = date => { const [y, m, d] = date.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
-
-function pollDates(option, tz) {
-    const today = todayIn(tz);
-    const out = [];
-    for (let i = 0; i < 40 && out.length < 14; i++) {
-        const date = addDays(today, i), dow = dowOf(date);
-        if (option === 'next7' && i < 7) out.push(date);
-        else if (option === 'next14' && i < 14) out.push(date);
-        else if (option === 'weekends' && (dow === 0 || dow === 6) && out.length < 8) out.push(date);
-        else if (option === 'weekdays' && dow >= 1 && dow <= 5 && out.length < 10) out.push(date);
-    }
-    return out;
-}
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -361,8 +335,8 @@ function buildTools(s) {
                 btn(`ses:vis:${s.id}`, s.private ? 'Make public' : 'Make private', s.private ? '🔓' : '🔒'),
             ),
             row(...[
-                s.meetId ? linkBtn(meetEventUrl(s), 'Open scheduler', '📅') : btn(`ses:poll:${s.id}`, 'Let everyone vote', '📅'),
-                s.meetId ? null : btn(`ses:meet:${s.id}`, 'Attach meet link', '🔗'),
+                s.meetId ? linkBtn(meetEventUrl(s), 'Open schedule', '📅') : linkBtn(meetCreateUrl(s), 'Create schedule', '📅'),
+                btn(`ses:meet:${s.id}`, s.meetId ? 'Change schedule link' : 'Submit schedule link', '🔗'),
                 btn(`ses:leave:${s.id}`, 'Leave', '🚪'),
                 btn(`ses:end:${s.id}`, 'End session', '🗑️', ButtonStyle.Danger),
             ].filter(Boolean)),
@@ -467,33 +441,6 @@ const fsVal = v => v == null ? null
     : null;
 const fsDoc = d => Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, fsVal(v)]));
 
-function randomMeetId(len = 10) {
-    const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
-    return Array.from(require('crypto').randomBytes(len), b => chars[b % chars.length]).join('');
-}
-
-// Same document shape the /meet page writes; returns the new event id or null
-async function createMeetEvent(s, dates, startHour, endHour, tz) {
-    const id = randomMeetId();
-    const fields = {
-        name:           { stringValue: s.title.slice(0, 100) },
-        mode:           { stringValue: 'dates' },
-        dates:          { arrayValue: { values: dates.map(d => ({ stringValue: d })) } },
-        startHour:      { integerValue: String(startHour) },
-        endHour:        { integerValue: String(endHour) },
-        timezone:       { stringValue: tz },
-        createdAt:      { integerValue: String(Date.now()) },
-        discordSession: { stringValue: s.id },
-    };
-    try {
-        const res = await fetch(`${FS_BASE}/meetEvents?documentId=${id}&key=${FIREBASE_API_KEY}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }), signal: AbortSignal.timeout(8000),
-        });
-        if (!res.ok) { console.error('[Sessions] meet create failed:', res.status, (await res.text()).slice(0, 200)); return null; }
-        return id;
-    } catch (e) { console.error('[Sessions] meet create failed:', e.message); return null; }
-}
-
 // → event object, null if it doesn't exist, undefined if it couldn't be checked
 async function fetchMeetEvent(id) {
     try {
@@ -572,7 +519,7 @@ async function showBestTimes(ix, s) {
         if (found) { s.meetId = found; scheduleSave(); await refreshSession(s); }
     }
     if (!s.meetId) {
-        return reply(ix, '', { embeds: [embed('📊 Best times', `There's no scheduler yet. <@${s.ownerId}> can start one with **📅 Let everyone vote** in the tools.`)] });
+        return reply(ix, '', { embeds: [embed('📊 Best times', `There's no schedule yet. <@${s.ownerId}> can make one with **📅 Create schedule** in the tools, then **🔗 Submit schedule link**.`)] });
     }
     await ix.deferReply({ flags: EPH });
     const ev = await fetchMeetEvent(s.meetId);
@@ -695,6 +642,20 @@ function timeModal(customId, tz, withTz) {
     return m;
 }
 
+function meetLinkModal(customId, value = '') {
+    return new ModalBuilder().setCustomId(customId).setTitle('🔗 Submit schedule link').addLabelComponents(
+        textLabel('Schedule link', 'Copy it from the event page after you create it', input('url', TextInputStyle.Short, 200, { required: true, value, placeholder: 'https://truebeast.io/meet/…' })));
+}
+
+// Modal → meet event id, after checking it exists. → { meetId } or { error }
+async function readMeetModal(ix) {
+    const raw = ix.fields.getTextInputValue('url').trim();
+    const meetId = raw.match(/\/meet\/([a-z0-9]{6,24})/i)?.[1] || (/^[a-z0-9]{6,24}$/i.test(raw) ? raw : null);
+    if (!meetId) return { error: "❌ That doesn't look like a schedule link. It should look like `https://truebeast.io/meet/abc123xyz`." };
+    if (await fetchMeetEvent(meetId) === null) return { error: "❌ Couldn't find that event. Double-check the link." };
+    return { meetId };
+}
+
 // → { start } (epoch seconds) or { error }
 function readTimeModal(ix, tz) {
     const date = parseDate(ix.fields.getTextInputValue('date'), tz);
@@ -706,26 +667,18 @@ function readTimeModal(ix, tz) {
     return { start };
 }
 
-// ── Create: modal → "When is it?" step → channels ───────────────────────────
+// ── Create: modal → "Find a time" step → channels ──────────────────────────
 function setupView(p) {
-    const e = embed(`🗓️ When is ${p.title}?`,
-        '📅 **Let everyone vote**: I\'ll make a scheduler for the days and hours you pick below, and everyone marks when they\'re free.\n' +
-        '🕒 **Exact time**: you already know when.\n' +
-        '⏭️ **Decide later**: set it from the session tools whenever.');
     return {
-        embeds: [e],
-        components: [
-            row(tzMenu('ses:su:tz', p.tz).setPlaceholder('Time zone')),
-            row(new StringSelectMenuBuilder().setCustomId('ses:su:days').addOptions(
-                Object.entries(DAY_OPTIONS).map(([value, o]) => ({ label: o.label, value, emoji: '📆', default: value === p.days })))),
-            row(new StringSelectMenuBuilder().setCustomId('ses:su:hours').addOptions(
-                Object.entries(HOUR_OPTIONS).map(([value, o]) => ({ label: o.label, value, emoji: '🕑', default: value === p.hours })))),
-            row(
-                btn('ses:su:vote', 'Let everyone vote', '📅', ButtonStyle.Success),
-                btn('ses:su:exact', 'Exact time', '🕒', ButtonStyle.Primary),
-                btn('ses:su:later', 'Decide later', '⏭️'),
-            ),
-        ],
+        embeds: [embed(`📅 Find a time for ${p.title}`,
+            '**1.** Hit **Create schedule** and make the event on the site.\n' +
+            '**2.** Copy the event link, come back and hit **Submit link**.\n\n' +
+            '-# Already know when it is, or want to do it later? **Skip**. You can still add a schedule or set an exact time from the session tools.')],
+        components: [row(
+            linkBtn(`${MEET_URL}?name=${encodeURIComponent(p.title)}`, 'Create schedule', '📅'),
+            btn('ses:su:link', 'Submit link', '🔗', ButtonStyle.Success),
+            btn('ses:su:skip', 'Skip', '⏭️'),
+        )],
     };
 }
 
@@ -746,7 +699,7 @@ async function startCreate(ix, isPrivate) {
     const p = {
         isPrivate, title, type, link: link || '', details,
         members: invited.filter(u => !u.bot && u.id !== member.id).map(u => u.id),
-        tz: userTz.get(member.id) || DEFAULT_TZ, days: 'next7', hours: 'evening', at: Date.now(),
+        tz: userTz.get(member.id) || DEFAULT_TZ, at: Date.now(),
     };
     pending.set(member.id, p);
     return ix.reply({ ...setupView(p), flags: EPH });
@@ -759,7 +712,7 @@ function createLimitError(member) {
     return null;
 }
 
-// `when`: { vote: true } | { start } | {}. `ix` has already been deferred (update) on the setup message.
+// `when`: { meetId } | {}. `ix` has already been deferred (update) on the setup message.
 async function finishCreate(ix, p, when) {
     const member = ix.member, g = ix.guild;
     pending.delete(member.id);
@@ -795,11 +748,7 @@ async function finishCreate(ix, p, when) {
             members: p.members, meetId: '', lockedStart: null, lockedEnd: null, reminded15: false, remindedStart: false,
             announceMsgId: '', toolsMsgId: '', renames: [], createdAt: Date.now(),
         };
-        if (when.start) setLocked(s, when.start);
-        if (when.vote) {
-            const h = HOUR_OPTIONS[p.hours] || HOUR_OPTIONS.evening;
-            s.meetId = await createMeetEvent(s, pollDates(p.days, p.tz), h.start, h.end, p.tz) || '';
-        }
+        if (when.meetId) s.meetId = when.meetId;
         sessions.set(s.id, s);
         scheduleSave();
         await refreshSession(s, { pingIds: p.members });
@@ -815,9 +764,7 @@ async function finishCreate(ix, p, when) {
 
     const notes = [
         p.isPrivate ? `🔒 Private${p.members.length ? ` · ${p.members.length} invited` : ''}` : '🔓 Public · listed on the panel so anyone can join',
-        s.lockedStart ? `🗓️ <t:${s.lockedStart}:F>` : '',
-        when.vote && s.meetId ? '📅 Scheduler is up, everyone can mark when they\'re free' : '',
-        when.vote && !s.meetId ? '⚠️ Couldn\'t make the scheduler. Try **📅 Let everyone vote** in the tools.' : '',
+        s.meetId ? "📅 Schedule attached, everyone can mark when they're free" : '',
     ].filter(Boolean);
     return ix.editReply({
         embeds: [embed('✅ Your session is ready', notes.join('\n'))],
@@ -887,20 +834,13 @@ async function handleSessionInteraction(ix) {
             return ix.update({ embeds: [embed('⌛ This setup expired', 'Hit Create on the panel to start again.')], components: [] }).catch(() => {});
         }
         const what = parts[2];
-        if (ix.isStringSelectMenu()) {
-            if (what === 'tz') { p.tz = ix.values[0]; userTz.set(ix.user.id, p.tz); scheduleSave(); }
-            if (what === 'days') p.days = ix.values[0];
-            if (what === 'hours') p.hours = ix.values[0];
-            return ix.update(setupView(p));
-        }
-        if (what === 'vote')  { await ix.deferUpdate(); return finishCreate(ix, p, { vote: true }); }
-        if (what === 'later') { await ix.deferUpdate(); return finishCreate(ix, p, {}); }
-        if (what === 'exact') return ix.showModal(timeModal('ses:su:exactm', p.tz, false));
-        if (what === 'exactm' && ix.isModalSubmit()) {
-            const r = readTimeModal(ix, p.tz);
+        if (what === 'skip') { await ix.deferUpdate(); return finishCreate(ix, p, {}); }
+        if (what === 'link') return ix.showModal(meetLinkModal('ses:su:linkm'));
+        if (what === 'linkm' && ix.isModalSubmit()) {
+            await ix.deferUpdate(); // the link check can take longer than Discord's 3s window
+            const r = await readMeetModal(ix);
             if (r.error) return reply(ix, r.error);
-            await ix.deferUpdate();
-            return finishCreate(ix, p, { start: r.start });
+            return finishCreate(ix, p, { meetId: r.meetId });
         }
         return;
     }
@@ -1024,53 +964,21 @@ async function handleSessionInteraction(ix) {
             return;
         }
 
-        case 'poll': {
-            if (!manage) return denied();
-            const p = { tz: userTz.get(ix.user.id) || s.tz || DEFAULT_TZ, days: 'next7', hours: 'evening' };
-            return reply(ix, '', pollView(s, p));
-        }
-
-        case 'pollset': {
-            // ses:pollset:<sid>:<tz|days|hours>:<current tz>:<days>:<hours> — state rides in the customIds
-            if (!manage) return denied();
-            const p = { tz: parts[4], days: parts[5], hours: parts[6] };
-            p[parts[3]] = ix.values[0];
-            if (parts[3] === 'tz') { userTz.set(ix.user.id, p.tz); scheduleSave(); }
-            return ix.update(pollView(s, p));
-        }
-
-        case 'pollgo': {
-            if (!manage) return denied();
-            const [tz, days, hours] = [parts[3], parts[4], parts[5]];
-            await ix.deferUpdate();
-            const h = HOUR_OPTIONS[hours] || HOUR_OPTIONS.evening;
-            const meetId = await createMeetEvent(s, pollDates(days, tz), h.start, h.end, tz);
-            if (!meetId) return ix.editReply({ embeds: [embed('❌ Couldn\'t make the scheduler', 'Try again in a moment.')], components: [] });
-            Object.assign(s, { meetId, tz, when: '', lockedStart: null });
-            scheduleSave();
-            await refreshSession(s);
-            refreshPanel();
-            return ix.editReply({ embeds: [embed('📅 Scheduler is up', 'The **Mark when you\'re free** button is on the announcement.')], components: [row(linkBtn(meetEventUrl(s), 'Open scheduler', '📅'))] });
-        }
-
         case 'meet':
             if (!manage) return denied();
-            return ix.showModal(new ModalBuilder().setCustomId(`ses:meetm:${s.id}`).setTitle('🔗 Attach a meet link').addLabelComponents(
-                textLabel('Meet link', 'A link from truebeast.io/meet', input('url', TextInputStyle.Short, 200, { required: true, placeholder: 'https://truebeast.io/meet/…' }))));
+            return ix.showModal(meetLinkModal(`ses:meetm:${s.id}`, s.meetId ? meetEventUrl(s) : ''));
 
         case 'meetm': {
             if (!ix.isModalSubmit()) break;
             if (!manage) return denied();
-            const raw = ix.fields.getTextInputValue('url').trim();
-            const meetId = raw.match(/\/meet\/([a-z0-9]{6,24})/i)?.[1] || (/^[a-z0-9]{6,24}$/i.test(raw) ? raw : null);
-            if (!meetId) return reply(ix, '❌ That doesn\'t look like a meet link. It should look like `https://truebeast.io/meet/abc123xyz`.');
             await ix.deferReply({ flags: EPH });
-            const ev = await fetchMeetEvent(meetId);
-            if (ev === null) return ix.editReply('❌ Couldn\'t find that event. Double-check the link.');
-            s.meetId = meetId;
+            const r = await readMeetModal(ix);
+            if (r.error) return ix.editReply(r.error);
+            Object.assign(s, { meetId: r.meetId, when: '', lockedStart: null });
             scheduleSave();
             await refreshSession(s);
-            return ix.editReply('🔗 Attached. The **Mark when you\'re free** button is on the announcement.');
+            refreshPanel();
+            return ix.editReply("🔗 Schedule attached. The **Mark when you're free** button is on the announcement.");
         }
 
         case 'best':
@@ -1092,22 +1000,6 @@ async function handleSessionInteraction(ix) {
             return;
         }
     }
-}
-
-// Ephemeral "Let everyone vote" picker from the tools (state is carried in the customIds)
-function pollView(s, p) {
-    const state = `${p.tz}:${p.days}:${p.hours}`;
-    return {
-        embeds: [embed('📅 Let everyone vote', 'Pick the days and hours to vote on, then hit **Create scheduler**.')],
-        components: [
-            row(tzMenu(`ses:pollset:${s.id}:tz:${state}`, p.tz)),
-            row(new StringSelectMenuBuilder().setCustomId(`ses:pollset:${s.id}:days:${state}`).addOptions(
-                Object.entries(DAY_OPTIONS).map(([value, o]) => ({ label: o.label, value, emoji: '📆', default: value === p.days })))),
-            row(new StringSelectMenuBuilder().setCustomId(`ses:pollset:${s.id}:hours:${state}`).addOptions(
-                Object.entries(HOUR_OPTIONS).map(([value, o]) => ({ label: o.label, value, emoji: '🕑', default: value === p.hours })))),
-            row(btn(`ses:pollgo:${s.id}:${state}`, 'Create scheduler', '📅', ButtonStyle.Success)),
-        ],
-    };
 }
 
 async function endSession(s, why) {
