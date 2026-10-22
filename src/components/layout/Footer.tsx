@@ -3,7 +3,7 @@ import { SITE_CONFIG } from '@/config';
 export default function Footer() {
   return (
     <footer className="glass mt-auto border-t border-white/[0.06]">
-      <div className="mx-auto max-w-[72rem] px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-white/50">
+      <div className="mx-auto max-w-[96rem] px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-white/50">
         {/* Copyright */}
         <p>&copy; 2026 TrueBeast - Built by Kiernen Irons</p>
 

@@ -379,7 +379,7 @@ export default function MeetEvent() {
     <PageLayout title={`${event.name} | Meet`} description="Mark when you're free and see when the group can meet." gradientVariant="green">
       <style>{MEET_CSS}</style>
       <section className="meet py-6 sm:py-10">
-        <div className="w-full max-w-[120rem] mx-auto px-3 sm:px-6 2xl:px-10">
+        <div className="w-full max-w-[96rem] mx-auto px-3 sm:px-6">
           {/* Header */}
           <div className="flex flex-wrap items-end justify-between gap-4 mb-5 sm:mb-7">
             <div className="min-w-0">

@@ -665,8 +665,8 @@ export default function TechSupport() {
 
   return (
     <PageLayout title="Tech Support | TrueBeast" gradientVariant="green">
-      <section className="py-16 sm:py-24">
-        <div className="max-w-[56rem] mx-auto px-4 sm:px-6 space-y-16">
+      <section className="py-10 sm:py-16 lg:py-24">
+        <div className="max-w-[72rem] mx-auto px-4 sm:px-6 space-y-12 sm:space-y-16">
 
           {/* ---------------------------------------------------------------- */}
           {/* A. Hero + Sub-nav tabs                                            */}

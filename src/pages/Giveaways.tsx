@@ -276,8 +276,8 @@ export default function Giveaways() {
 
   return (
     <PageLayout title="Giveaways | TrueBeast" gradientVariant="gold">
-      <section className="py-20 sm:py-28">
-        <div className="max-w-[72rem] mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-20 lg:py-28">
+        <div className="max-w-[96rem] mx-auto px-4 sm:px-6">
 
           {/* Hero */}
           <div className="text-center mb-14 space-y-5">

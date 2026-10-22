@@ -97,7 +97,7 @@ export default function CardsLeaderboard() {
 
   return (
     <PageLayout gradientVariant="green" title="Card Leaderboard | TrueBeast">
-      <div className="max-w-4xl mx-auto px-6 py-16">
+      <div className="max-w-[72rem] mx-auto px-4 sm:px-6 py-10 sm:py-16">
         <div className="text-center mb-12">
           <span className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3 block">
             Trading Cards

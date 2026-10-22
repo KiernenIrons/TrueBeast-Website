@@ -53,7 +53,7 @@ export default function CardsProfile() {
 
   return (
     <PageLayout gradientVariant="green" title={`${login} | Card Collection | TrueBeast`}>
-      <div className="max-w-6xl mx-auto px-6 py-16">
+      <div className="max-w-[96rem] mx-auto px-4 sm:px-6 py-10 sm:py-16">
         <Link to="/cards" className="text-green-400 text-sm font-semibold hover:underline mb-6 inline-block">
           ← Back to leaderboard
         </Link>

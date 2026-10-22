@@ -176,7 +176,7 @@ function HeroSection() {
         style={{ animationDelay: '1s' }}
       />
 
-      <div className="relative z-10 max-w-[56rem] mx-auto text-center">
+      <div className="relative z-10 max-w-[64rem] mx-auto text-center">
         {/* Badge */}
         <div className="reveal inline-flex items-center gap-2 glass rounded-full px-5 py-2.5 mb-8">
           <span className="relative flex h-2.5 w-2.5">
@@ -256,7 +256,7 @@ function HeroSection() {
 function AboutSection() {
   return (
     <section id="about" className="relative py-24 px-6">
-      <div className="max-w-[72rem] mx-auto">
+      <div className="max-w-[96rem] mx-auto">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
           {/* Left - Photo */}
           <div className="reveal relative">
@@ -391,7 +391,7 @@ function ContentSection() {
 
   return (
     <section id="content" className="relative py-24 px-6">
-      <div className="max-w-[72rem] mx-auto">
+      <div className="max-w-[96rem] mx-auto">
         {/* Header */}
         <div className="reveal text-center mb-14">
           <span className="text-violet-400 text-sm font-semibold uppercase tracking-widest mb-3 block">
@@ -503,7 +503,7 @@ function CommunitySection() {
 
   return (
     <section id="community" className="relative py-24 px-6">
-      <div className="max-w-[72rem] mx-auto">
+      <div className="max-w-[96rem] mx-auto">
         <div className="reveal glass-strong glass-glow rounded-3xl p-8 sm:p-12 lg:p-16 relative overflow-hidden">
           {/* Background decoration */}
           <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-green-500/20 via-emerald-500/10 to-transparent rounded-full blur-3xl pointer-events-none" />
@@ -631,7 +631,7 @@ function ConnectSection() {
 
   return (
     <section id="connect" className="relative py-24 px-6">
-      <div className="max-w-[64rem] mx-auto">
+      <div className="max-w-[80rem] mx-auto">
         {/* Header */}
         <div className="reveal text-center mb-14">
           <span className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3 block">

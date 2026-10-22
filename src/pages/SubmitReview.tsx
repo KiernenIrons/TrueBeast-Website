@@ -60,8 +60,8 @@ export default function SubmitReview() {
 
   return (
     <PageLayout gradientVariant="green" title="Leave a Review | TrueBeast">
-      <section className="py-16 sm:py-24">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-16 lg:py-24">
+        <div className="max-w-[48rem] mx-auto px-4 sm:px-6">
 
           {/* Header */}
           <div className="text-center space-y-4 mb-12">

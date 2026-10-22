@@ -802,8 +802,8 @@ export default function Ripple() {
     <PageLayout title="Ripple | TrueBeast Tools" gradientVariant="purple">
       {credsOpen && <CredentialsModal creds={creds} onSave={saveCreds} onClose={() => setCredsOpen(false)} />}
 
-      <section className="py-20 sm:py-28">
-        <div className="max-w-[88rem] mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-20 lg:py-28">
+        <div className="max-w-[104rem] mx-auto px-4 sm:px-6">
 
           <Link to="/tools" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors mb-10">
             <ArrowLeft size={14} /> Back to Tools

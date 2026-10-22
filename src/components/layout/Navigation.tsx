@@ -312,7 +312,7 @@ export default function Navigation() {
           scrolled ? 'py-2' : 'py-4'
         }`}
       >
-        <div className="max-w-[80rem] mx-auto px-4 sm:px-6">
+        <div className="max-w-[96rem] mx-auto px-3 sm:px-6">
           <div
             className={`glass rounded-2xl px-6 py-4 transition-all duration-500 ${scrolled ? 'shadow-2xl shadow-black/50' : ''}`}
             style={{ background: 'rgba(15, 15, 22, 0.38)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)' }}

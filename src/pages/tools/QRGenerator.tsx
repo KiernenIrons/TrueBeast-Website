@@ -493,8 +493,8 @@ export default function QRGenerator() {
 
   return (
     <PageLayout title="QR Generator | TrueBeast Tools" gradientVariant="green">
-      <section className="py-20 sm:py-28">
-        <div className="max-w-[80rem] mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-20 lg:py-28">
+        <div className="max-w-[104rem] mx-auto px-4 sm:px-6">
 
           <Link to="/tools" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors mb-10">
             <ArrowLeft size={14} />
@@ -766,7 +766,7 @@ export default function QRGenerator() {
             </div>
 
             {/* Right: preview */}
-            <div className="lg:w-[340px] flex-shrink-0">
+            <div className="lg:w-[26rem] xl:w-[32rem] flex-shrink-0">
               <div className="lg:sticky lg:top-28 flex flex-col gap-4">
                 <div className="glass rounded-2xl p-5">
                   <SL>Preview</SL>

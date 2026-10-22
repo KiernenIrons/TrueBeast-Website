@@ -1669,7 +1669,7 @@ export default function ResumeBuilder() {
 
       <div className="rb-scope">
         {/* Back to Tools */}
-        <div className="max-w-7xl mx-auto px-4 mb-3 no-print">
+        <div className="max-w-[104rem] mx-auto px-4 mb-3 no-print">
           <Link to="/tools" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors">
             <ArrowLeft size={14} />
             Back to Tools
@@ -1684,7 +1684,7 @@ export default function ResumeBuilder() {
         )}
 
         {/* Top Bar */}
-        <div className="max-w-7xl mx-auto px-4 mb-4 no-print">
+        <div className="max-w-[104rem] mx-auto px-4 mb-4 no-print">
           <div className="glass rounded-2xl p-4">
             <div className="flex flex-wrap items-center gap-3">
               <select className="inp" style={{maxWidth:200}} value={resume.id} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => switchResume(e.target.value)}>
@@ -1762,7 +1762,7 @@ export default function ResumeBuilder() {
         </div>
 
         {/* Main Layout */}
-        <div className="max-w-7xl mx-auto px-4 pb-20 no-print">
+        <div className="max-w-[104rem] mx-auto px-4 pb-20 no-print">
           <div className="flex gap-4" style={{alignItems:'flex-start'}}>
             {/* Editor Panel */}
             <div className={`flex-1 min-w-0 ${mobileView==='preview'?'hidden md:block':''}`} style={{maxWidth:560}}>

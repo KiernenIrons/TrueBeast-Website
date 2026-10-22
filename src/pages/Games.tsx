@@ -29,9 +29,9 @@ const GAMES = [
 export default function Games() {
   return (
     <PageLayout gradientVariant="green" title="Games | TrueBeast">
-      <div className="max-w-6xl mx-auto px-6 py-16">
+      <div className="max-w-[96rem] mx-auto px-4 sm:px-6 py-10 sm:py-16">
         {/* Header */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-10 sm:mb-16">
           <span className="text-green-400 text-sm font-semibold uppercase tracking-widest mb-3 block">
             Arcade
           </span>
@@ -71,13 +71,13 @@ export default function Games() {
                 </div>
 
                 {/* Content */}
-                <div className="p-8 sm:p-10">
+                <div className="p-5 sm:p-10">
                   <div className="flex items-start justify-between gap-4 mb-4">
-                    <div>
+                    <div className="min-w-0">
                       <h2 className="text-2xl sm:text-3xl font-bold font-display text-white group-hover:text-green-400 transition-colors">
                         {game.name}
                       </h2>
-                      <div className="flex gap-2 mt-2">
+                      <div className="flex flex-wrap gap-2 mt-2">
                         {game.tags.map((tag) => (
                           <span key={tag} className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
                             {tag}

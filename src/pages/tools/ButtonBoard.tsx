@@ -185,8 +185,8 @@ export default function ButtonBoard() {
 
   return (
     <PageLayout title="ButtonBoard | TrueBeast Tools" gradientVariant="blue">
-      <section className="py-20 sm:py-28">
-        <div className="max-w-[56rem] mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-20 lg:py-28">
+        <div className="max-w-[80rem] mx-auto px-4 sm:px-6">
 
           {/* Back + Hero */}
           <Link

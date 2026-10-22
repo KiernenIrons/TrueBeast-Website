@@ -111,7 +111,7 @@ function CountdownDigits({ countdown }: { countdown: Countdown }) {
         <div key={label} className="flex items-start">
           {i > 0 && (
             <span
-              className="font-mono font-bold text-green-400 mt-[18px] mx-0.5 text-4xl md:text-5xl select-none"
+              className="font-mono font-bold text-green-400 mt-[20px] md:mt-[22px] mx-0.5 md:mx-2 text-[2.5rem] sm:text-5xl md:text-7xl select-none"
               style={{ textShadow: '0 0 18px rgba(74,222,128,0.5)' }}
               aria-hidden
             >
@@ -119,11 +119,11 @@ function CountdownDigits({ countdown }: { countdown: Countdown }) {
             </span>
           )}
           <div className="flex flex-col items-center px-1.5">
-            <span className="text-[9px] text-white/40 font-semibold tracking-[0.2em] mb-1.5">
+            <span className="text-[11px] text-white/40 font-semibold tracking-[0.2em] mb-1.5">
               {label}
             </span>
             <span
-              className="font-mono font-bold text-green-400 tabular-nums leading-none text-4xl md:text-5xl"
+              className="font-mono font-bold text-green-400 tabular-nums leading-none text-[2.5rem] sm:text-5xl md:text-7xl"
               style={{ textShadow: '0 0 24px rgba(74,222,128,0.6)' }}
             >
               {value}
@@ -183,7 +183,7 @@ export default function Schedule() {
       description="Live countdown to RealTrueBeast's next Twitch stream. Sun, Tue, Thu at 7:00 PM Dublin time."
       gradientVariant="green"
     >
-      <div className="max-w-lg mx-auto px-4 pb-20 pt-6">
+      <div className="max-w-[48rem] mx-auto px-4 pb-20 pt-6 sm:pt-10">
 
         {/* Header */}
         <div className="text-center mb-10">
@@ -191,15 +191,15 @@ export default function Schedule() {
             <Radio className="w-3.5 h-3.5" />
             <span>Stream Schedule</span>
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-1 tracking-tight">
+          <h1 className="text-4xl md:text-6xl font-bold text-white mb-2 tracking-tight">
             RealTrueBeast
           </h1>
-          <p className="text-white/40 text-sm">Live on Twitch</p>
+          <p className="text-white/40 text-base">Live on Twitch</p>
         </div>
 
         {/* Countdown card */}
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur-xl p-8 mb-4 text-center">
-          <p className="text-white/40 text-[10px] font-semibold tracking-[0.25em] uppercase mb-7">
+          <p className="text-white/40 text-xs font-semibold tracking-[0.25em] uppercase mb-7">
             Countdown to Next Stream
           </p>
 
@@ -235,7 +235,7 @@ export default function Schedule() {
             })}
           </div>
 
-          <p className="text-white/25 text-[10px] tracking-widest uppercase">
+          <p className="text-white/25 text-xs tracking-widest uppercase">
             Times shown as Europe/Dublin
           </p>
         </div>
@@ -243,7 +243,7 @@ export default function Schedule() {
         {/* Next stream local time */}
         <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4 mb-4 flex items-center justify-between">
           <div>
-            <p className="text-white/40 text-[10px] font-semibold tracking-[0.2em] uppercase mb-0.5">
+            <p className="text-white/40 text-xs font-semibold tracking-[0.2em] uppercase mb-0.5">
               Next stream in your timezone
             </p>
             <p className="text-white font-semibold">

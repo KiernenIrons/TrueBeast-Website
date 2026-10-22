@@ -344,3 +344,16 @@ html.perf-mode * {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Big-screen scaling ───────────────────────────────────────────────────
+ * Tailwind sizes (text, spacing, max-w-[..rem]) are rem-based, so bumping the
+ * root font size scales the whole UI up on large monitors. Only applied while
+ * a PageLayout page is mounted (class set in PageLayout), so OBS overlays and
+ * full-screen games keep their exact pixel sizes.
+ */
+@layer base {
+  @media (min-width: 1600px) { html.site-scale { font-size: 17px; } }
+  @media (min-width: 1920px) { html.site-scale { font-size: 18px; } }
+  @media (min-width: 2300px) { html.site-scale { font-size: 20px; } }
+  @media (min-width: 3000px) { html.site-scale { font-size: 24px; } }
+}

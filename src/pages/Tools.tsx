@@ -126,8 +126,8 @@ export default function Tools() {
 
   return (
     <PageLayout title="Tools | TrueBeast" gradientVariant="purple">
-      <section className="py-20 sm:py-28">
-        <div className="max-w-[72rem] mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-20 lg:py-28">
+        <div className="max-w-[96rem] mx-auto px-4 sm:px-6">
 
           {/* Hero */}
           <div className="text-center mb-16 space-y-5">

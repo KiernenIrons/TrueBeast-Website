@@ -142,7 +142,7 @@ export default function CreateMeet() {
     <PageLayout title="Meet | TrueBeast" description="Find a time that works for everyone. Pick dates, share the link, and see when your group is free." gradientVariant="green">
       <style>{MEET_CSS}</style>
       <section className="meet py-8 sm:py-14">
-        <div className="w-full max-w-[96rem] mx-auto px-3 sm:px-6 2xl:px-10">
+        <div className="w-full max-w-[80rem] mx-auto px-3 sm:px-6">
           <div className="text-center mb-8 sm:mb-12 space-y-4">
             <div className="inline-flex items-center gap-2 glass rounded-full px-5 py-2.5">
               <CalendarDays size={18} className="text-green-400" />

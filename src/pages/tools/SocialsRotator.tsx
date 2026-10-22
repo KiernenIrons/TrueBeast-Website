@@ -640,9 +640,9 @@ export default function SocialsRotator() {
   };
 
   const StepBar = () => (
-    <div className="flex items-center gap-2 mb-8">
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-8">
       {[1, 2, 3, 4, 5].map((s) => (
-        <div key={s} className="flex items-center gap-2">
+        <div key={s} className="flex items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => s < step && setStep(s)}
             className={`w-8 h-8 rounded-full text-xs font-bold transition-all ${
@@ -655,10 +655,10 @@ export default function SocialsRotator() {
           >
             {s}
           </button>
-          {s < 5 && <div className={`h-px w-8 transition-colors ${s < step ? 'bg-pink-500/40' : 'bg-white/8'}`} />}
+          {s < 5 && <div className={`h-px w-4 sm:w-8 transition-colors ${s < step ? 'bg-pink-500/40' : 'bg-white/8'}`} />}
         </div>
       ))}
-      <span className="text-gray-500 text-xs ml-2">{STEP_LABELS[step]}</span>
+      <span className="text-gray-500 text-xs sm:ml-2 basis-full sm:basis-auto">{STEP_LABELS[step]}</span>
     </div>
   );
 
@@ -666,8 +666,8 @@ export default function SocialsRotator() {
 
   return (
     <PageLayout title="Socials Rotator | TrueBeast Tools" gradientVariant="purple">
-      <section className="py-20 sm:py-28">
-        <div className="max-w-[72rem] mx-auto px-4 sm:px-6">
+      <section className="py-10 sm:py-20 lg:py-28">
+        <div className="max-w-[96rem] mx-auto px-4 sm:px-6">
 
           <Link to="/tools" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors mb-10">
             <ArrowLeft size={14} />

@@ -150,7 +150,7 @@ function TicketSearchForm() {
   };
 
   return (
-    <div className="max-w-[48rem] mx-auto px-4 py-20">
+    <div className="max-w-[64rem] mx-auto px-4 py-12 sm:py-20">
       <div className="glass-strong rounded-2xl p-8 sm:p-10">
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-green-500/20 border border-green-500/30 flex items-center justify-center mx-auto mb-5">
@@ -195,7 +195,7 @@ function TicketSearchForm() {
 
 function TicketLoading() {
   return (
-    <div className="max-w-[48rem] mx-auto px-4 py-20 flex flex-col items-center gap-4">
+    <div className="max-w-[64rem] mx-auto px-4 py-12 sm:py-20 flex flex-col items-center gap-4">
       <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
       <p className="text-gray-400">Loading ticket...</p>
     </div>
@@ -210,7 +210,7 @@ function TicketNotFound() {
   const [, setSearchParams] = useSearchParams();
 
   return (
-    <div className="max-w-[48rem] mx-auto px-4 py-20">
+    <div className="max-w-[64rem] mx-auto px-4 py-12 sm:py-20">
       <div className="glass-strong rounded-2xl p-8 sm:p-10 text-center">
         <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-white mb-2">Ticket Not Found</h2>
@@ -288,7 +288,7 @@ function TicketView({ ticket: initialTicket }: { ticket: TicketData }) {
   };
 
   return (
-    <div className="max-w-[56rem] mx-auto px-4 py-12 space-y-6">
+    <div className="max-w-[72rem] mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-6">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="glass-strong rounded-2xl p-6 sm:p-8">
         <div className="flex flex-wrap items-center gap-3 mb-4">

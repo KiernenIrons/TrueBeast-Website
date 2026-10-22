@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useLayoutEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import GradientBackground, { type GradientVariant } from '@/components/layout/GradientBackground';
 import Footer from '@/components/layout/Footer';
@@ -28,6 +28,12 @@ export default function PageLayout({
   description = 'Gaming, content creation, and community - TrueBeast by Kiernen Irons.',
   showFooter = true,
 }: PageLayoutProps) {
+  // Big-screen UI scaling (see "Big-screen scaling" in globals.css).
+  useLayoutEffect(() => {
+    document.documentElement.classList.add('site-scale');
+    return () => document.documentElement.classList.remove('site-scale');
+  }, []);
+
   return (
     <div className="relative min-h-screen flex flex-col">
       <Helmet>
