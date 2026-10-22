@@ -52,16 +52,12 @@ export default function CreateMeet() {
   };
 
   // --- drag selection (rectangle, like when2meet) ---------------------------
-  const cols = 7;
   const keyAt = (i: number) => (mode === 'dates' ? cells[i] : String(i));
   const selected = mode === 'dates' ? dates : days;
 
-  const inRect = (i: number, d: Drag) => {
-    const [ar, ac] = [Math.floor(d.anchor / cols), d.anchor % cols];
-    const [hr, hc] = [Math.floor(d.hover / cols), d.hover % cols];
-    const [r, c] = [Math.floor(i / cols), i % cols];
-    return (ar - r) * (r - hr) >= 0 && (ac - c) * (c - hc) >= 0;
-  };
+  // Linear range in reading order: dragging 15th -> 22nd fills every day between.
+  const inRect = (i: number, d: Drag) =>
+    i >= Math.min(d.anchor, d.hover) && i <= Math.max(d.anchor, d.hover);
 
   const isOn = (i: number) => (drag && inRect(i, drag) ? drag.add : selected.has(keyAt(i)));
 

@@ -17,12 +17,16 @@ html.light .meet { --cell: rgba(0,0,0,0.035); --line: rgba(0,0,0,0.14); --line-s
 .meet-col.gap { margin-left: 10px; }
 .meet-head { height: 34px; text-align: center; font-size: 11px; line-height: 1.25; color: var(--muted); }
 .meet-head b { display: block; font-size: 12px; font-weight: 600; color: inherit; opacity: .95; }
-.meet-cells { border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
-.meet-col + .meet-col:not(.gap) .meet-cells { border-left: none; }
+.meet-cells { background: var(--cell); border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.meet-col + .meet-col:not(.gap) .meet-cells { border-left: 1px solid rgba(0,0,0,.35); }
 .meet-cell { height: 11px; background: var(--cell); border-top: 1px dotted var(--line-soft); transition: background-color .08s; }
 .meet-cell.hour { border-top: 1px solid var(--line); }
 .meet-cell.none { background: repeating-linear-gradient(45deg, transparent 0 3px, var(--line-soft) 3px 4px); }
-.meet-cell.hover { outline: 2px solid rgba(var(--on), .9); outline-offset: -2px; }
+.meet-cell.filled { border-top-color: rgba(0,0,0,.16); }
+.meet-cell.filled.hour { border-top-color: rgba(0,0,0,.42); }
+.meet-cell.filled.half { border-top-style: dashed; border-top-color: rgba(0,0,0,.26); }
+.meet-cell.hover { outline: 2px solid #fff; outline-offset: -2px; }
+html.light .meet-cell.hover { outline-color: #111; }
 .meet-paint { cursor: pointer; touch-action: none; }
 .meet-legend { height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--cell), rgb(var(--on))); border: 1px solid var(--line); }
 .meet-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); display: inline-block; vertical-align: -2px; }
@@ -147,15 +151,18 @@ export default function TimeGrid({ layout, cellStyle, paint, onDragStart, onDrag
                 const slot = layout.cells[c][r];
                 const cls = ['meet-cell'];
                 if (r > 0 && m % 60 === labelEvery) cls.push('hour');
+                else if (r > 0 && m % 30 === labelEvery % 30) cls.push('half');
                 if (slot == null) cls.push('none');
                 if (slot != null && slot === hoverSlot) cls.push('hover');
+                const bg = slot != null ? cellStyle(slot, c, r) : undefined;
+                if (bg) cls.push('filled');
                 return (
                   <div
                     key={m}
                     data-c={c}
                     data-r={r}
                     className={cls.join(' ')}
-                    style={slot != null ? { background: cellStyle(slot, c, r) } : undefined}
+                    style={bg ? { background: bg } : undefined}
                   />
                 );
               })}
