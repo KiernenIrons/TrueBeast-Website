@@ -8,6 +8,7 @@
 - Invitee pings moved into a `-# 👋 @…` line on the first post only (v2 messages can't have content); later edits drop it
 - `upsert` now handles both kinds and reposts if the stored message is the other kind (v2 ↔ normal can't be converted)
 - Channel names are now `🎮│Name` (`channelName`); existing session channels without `│` are renamed on startup
+- Card title uses the Steam game name when there is one (falls back to the session name)
 - UPDATE_NOTES: announcement entry updated
 
 ## [2026-10-22] — Sessions: link-based schedule step

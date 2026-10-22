@@ -324,7 +324,7 @@ function buildAnnouncement(s, pingIds = []) {
         : s.when ? `# ${live} __${s.when}__\n`
         : s.meetId ? `# ${live} __Mark Availability__ ${emojiText(ARROW_EMOJI)}\n`
         : '';
-    const texts = [`${heading}## __${cleanTitle(s.title)}__`];
+    const texts = [`${heading}## __${cleanTitle(s.gameName || s.title)}__`]; // Steam game name when there is one, like the original
     if (s.details) texts.push(s.details);
     const foot = [s.lockedStart ? `🗓️ <t:${s.lockedStart}:F>` : '', pingIds.length ? `👋 ${mentions(pingIds)}` : ''].filter(Boolean);
     if (foot.length) texts.push(`-# ${foot.join(' · ')}`);
