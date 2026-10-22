@@ -16,6 +16,8 @@ const ButtonBoard = lazy(() => import('./pages/tools/ButtonBoard'))
 const QRGenerator = lazy(() => import('./pages/tools/QRGenerator'))
 const Ripple = lazy(() => import('./pages/tools/Ripple'))
 const SocialsRotator = lazy(() => import('./pages/tools/SocialsRotator'))
+const CreateMeet = lazy(() => import('./pages/tools/meet/CreateMeet'))
+const MeetEvent = lazy(() => import('./pages/tools/meet/MeetEvent'))
 const CloutClicker = lazy(() => import('./pages/games/CloutClicker'))
 const SubmitReview = lazy(() => import('./pages/SubmitReview'))
 const Schedule = lazy(() => import('./pages/Schedule'))
@@ -45,6 +47,8 @@ export default function App() {
         <Route path="/tools/qr-generator" element={<QRGenerator />} />
         <Route path="/tools/ripple" element={<Ripple />} />
         <Route path="/tools/socials-rotator" element={<SocialsRotator />} />
+        <Route path="/meet" element={<CreateMeet />} />
+        <Route path="/meet/:id" element={<MeetEvent />} />
         <Route path="/tech-support" element={<TechSupport />} />
         <Route path="/ticket" element={<Ticket />} />
         <Route path="/my-tickets" element={<MyTickets />} />

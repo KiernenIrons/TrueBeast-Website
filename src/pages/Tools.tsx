@@ -11,6 +11,7 @@ import {
   Grid3X3,
   FileText,
   FlaskConical,
+  CalendarDays,
 } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
 import { SITE_CONFIG } from '@/config';
@@ -20,6 +21,17 @@ import { SITE_CONFIG } from '@/config';
 // ---------------------------------------------------------------------------
 
 const BUILT_TOOLS = [
+  {
+    id: 'meet',
+    name: 'Meet',
+    description: 'Find a time that works for everyone. Share a link, drag over when you are free.',
+    icon: CalendarDays,
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10',
+    border: 'border-emerald-500/20',
+    to: '/meet',
+    tag: 'Scheduling',
+  },
   {
     id: 'ripple',
     name: 'Ripple',
