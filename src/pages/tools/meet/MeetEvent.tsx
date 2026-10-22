@@ -62,6 +62,7 @@ export default function MeetEvent() {
   const [brush, setBrush] = useState<Brush>('yes');
   const [myHover, setMyHover] = useState<number | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [tab, setTab] = useState<'mine' | 'group'>('mine'); // phones only
   const { user } = useAuth();
   const isAdmin = !!user && user.email === SITE_CONFIG.email.adminEmail;
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -299,84 +300,166 @@ export default function MeetEvent() {
 
   const hovered = hoverSlot != null ? whoAt.get(hoverSlot) ?? new Set<string>() : null;
 
+  const slotDetails = hovered && hoverSlot != null && (
+    <div>
+      <p className="text-base text-white font-semibold">{hovered.size}/{total} available</p>
+      <p className="text-sm meet-muted mt-0.5">{describeSlot(event, layout, hoverSlot)}</p>
+      <div className="grid grid-cols-2 gap-4 mt-4 text-[15px]">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wider meet-muted mb-2">Available</p>
+          {visible.filter((p) => hovered.has(p.id)).map((p) => <p key={p.id} className="text-white truncate py-0.5">{p.name}</p>)}
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wider meet-muted mb-2">Unavailable</p>
+          {visible.filter((p) => !hovered.has(p.id)).map((p) => (
+            cantAt.get(hoverSlot)?.has(p.id)
+              ? <p key={p.id} className="truncate text-red-400 py-0.5" title="Definitely can't make it">✕ {p.name}</p>
+              : <p key={p.id} className="meet-muted truncate line-through decoration-1 py-0.5">{p.name}</p>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const summary = everyone.length ? (
+    <div className="space-y-6">
+      {best && best.max > 0 && (
+        <div>
+          <p className="text-xs uppercase tracking-wider meet-muted mb-2.5">Best times · {best.max}/{total} free</p>
+          <div className="flex flex-col gap-2">
+            {best.ranges.slice(0, 5).map((rg) => {
+              const col = layout.columns[rg.col];
+              return (
+                <div key={`${rg.col}-${rg.from}`} className="rounded-xl px-3.5 py-2.5 bg-white/5 text-[15px] text-white flex items-center justify-between gap-3">
+                  <span className="font-medium">{col.top}{col.bottom && ` ${col.bottom}`}</span>
+                  <span className="text-gray-300 text-sm whitespace-nowrap">{formatMinute(layout.rows[rg.from])} – {formatMinute(layout.rows[rg.to] + SLOT_MINUTES)}</span>
+                </div>
+              );
+            })}
+            {best.ranges.length > 5 && <span className="text-sm meet-muted px-1">+{best.ranges.length - 5} more</span>}
+          </div>
+        </div>
+      )}
+      <div>
+        <p className="text-xs uppercase tracking-wider meet-muted mb-2.5">
+          Responses ({everyone.length}){filter && ` · showing ${visible.length}`}
+          {filter && <button className="underline ml-2 normal-case tracking-normal" onClick={() => setFilter(null)}>show all</button>}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {everyone.map((p) => {
+            const on = !filter || filter.has(p.id);
+            return (
+              <span key={p.id} className={`inline-flex items-center text-sm rounded-full border border-white/10 transition-colors ${on ? 'text-white bg-white/5' : 'meet-muted'}`}>
+                <button onClick={() => toggleFilter(p.id)} className={`px-3.5 py-1.5 ${on ? '' : 'line-through'}`}>
+                  {p.name}{me?.id === p.id ? ' (you)' : ''}
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => removePerson(p)}
+                    disabled={removing === p.id}
+                    className="pr-3 pl-0.5 py-1.5 meet-muted hover:text-red-400"
+                    title={`Remove ${p.name}`}
+                    aria-label={`Remove ${p.name}`}
+                  >
+                    {removing === p.id ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+        <p className="text-xs meet-muted mt-2.5">Click names to show only those people{isAdmin ? ' · × removes someone' : ''}.</p>
+      </div>
+    </div>
+  ) : (
+    <p className="text-[15px] meet-muted">No one has responded yet. Copy the link and share it to get started.</p>
+  );
+
   return (
     <PageLayout title={`${event.name} | Meet`} description="Mark when you're free and see when the group can meet." gradientVariant="green">
       <style>{MEET_CSS}</style>
-      <section className="meet py-12 sm:py-16">
-        <div className="max-w-[78rem] mx-auto px-4 sm:px-6">
+      <section className="meet py-6 sm:py-10">
+        <div className="w-full max-w-[120rem] mx-auto px-3 sm:px-6 2xl:px-10">
           {/* Header */}
-          <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-5 sm:mb-7">
             <div className="min-w-0">
-              <h1 className="font-display text-2xl sm:text-3xl font-bold text-white break-words">{event.name}</h1>
-              <p className="text-sm meet-muted mt-1">
+              <h1 className="font-display text-3xl sm:text-4xl font-bold text-white break-words">{event.name}</h1>
+              <p className="text-[15px] meet-muted mt-1">
                 {everyone.length} {everyone.length === 1 ? 'person has' : 'people have'} responded
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select className="meet-input !w-auto !py-1.5 !text-[13px] text-white max-w-[14rem]" value={viewerTz} onChange={(e) => { setViewerTz(e.target.value); writeStore(TZ_KEY, e.target.value); }} title="Your time zone">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <select className="meet-input !w-auto flex-1 sm:flex-none !py-2.5 !text-[14.5px] text-white sm:max-w-[16rem]" value={viewerTz} onChange={(e) => { setViewerTz(e.target.value); writeStore(TZ_KEY, e.target.value); }} title="Your time zone" aria-label="Your time zone">
                 {timezones.map((tz) => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>)}
               </select>
-              <button className="meet-ghost inline-flex items-center gap-1.5" onClick={copyLink}>
-                {copied ? <Check size={14} /> : <Copy size={14} />}
+              <button className="meet-ghost inline-flex items-center gap-2" onClick={copyLink}>
+                {copied ? <Check size={16} /> : <Copy size={16} />}
                 {copied ? 'Copied' : 'Copy link'}
               </button>
-              <Link to="/meet" className="meet-ghost inline-flex items-center gap-1.5"><Plus size={14} />New</Link>
+              <Link to="/meet" className="meet-ghost inline-flex items-center gap-2"><Plus size={16} />New</Link>
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          {/* Phone tabs */}
+          <div className="lg:hidden mb-4">
+            <div className="meet-seg w-full" role="tablist">
+              {(['mine', 'group'] as const).map((t) => (
+                <button key={t} role="tab" aria-checked={tab === t} aria-selected={tab === t} onClick={() => setTab(t)} className="flex-1 justify-center !py-3">
+                  {t === 'mine' ? 'Your times' : `Group (${everyone.length})`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_22rem]">
             {/* Mine */}
-            <div className="glass rounded-2xl p-5 min-w-0">
+            <div className={`glass meet-panel min-w-0 ${tab === 'mine' ? '' : 'hidden lg:block'}`}>
               {!me ? (
-                <form onSubmit={signIn} className="max-w-[22rem] mx-auto py-6 space-y-3">
-                  <h2 className="font-semibold text-white">Add your availability</h2>
-                  <p className="text-xs meet-muted leading-relaxed">
+                <form onSubmit={signIn} className="max-w-[26rem] mx-auto py-6 sm:py-12 space-y-4">
+                  <h2 className="text-xl font-semibold text-white">Add your availability</h2>
+                  <p className="text-[15px] meet-muted leading-relaxed">
                     Your name is only used for this event. New here? Pick a name (and an optional password so nobody else can edit your times).
                     Coming back? Use the same name and password.
                   </p>
                   <input className="meet-input text-white" placeholder="Your name" value={nameInput} maxLength={40} onChange={(e) => setNameInput(e.target.value)} autoFocus />
                   <input className="meet-input text-white" placeholder="Password (optional)" type="password" value={pwInput} onChange={(e) => setPwInput(e.target.value)} />
-                  {signError && <p className="text-sm text-red-400">{signError}</p>}
+                  {signError && <p className="text-[15px] text-red-400">{signError}</p>}
                   <button className="meet-btn w-full inline-flex items-center justify-center gap-2" disabled={signing || !peopleLoaded}>
-                    {signing && <Loader2 size={16} className="animate-spin" />}
+                    {signing && <Loader2 size={18} className="animate-spin" />}
                     Continue
                   </button>
                 </form>
               ) : (
                 <>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <h2 className="font-semibold text-white">{me.name}'s availability</h2>
-                      <p className="text-xs meet-muted mt-0.5">Click and drag over each day to mark your times. Saves automatically.</p>
+                  <div className="flex items-start justify-between gap-3 mb-4">
+                    <div className="min-w-0">
+                      <h2 className="text-lg sm:text-xl font-semibold text-white truncate">{me.name}'s availability</h2>
+                      <p className="text-sm meet-muted mt-0.5">Drag over each day to mark your times. Saves automatically.</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className={`text-xs ${saveState === 'error' ? 'text-red-400' : 'meet-muted'}`}>
-                        {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Not saved — retry' : ''}
+                      <span className={`text-sm ${saveState === 'error' ? 'text-red-400' : 'meet-muted'}`}>
+                        {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : saveState === 'error' ? 'Not saved — retry' : ''}
                       </span>
-                      <button className="block text-xs meet-muted underline mt-0.5 ml-auto hover:opacity-100" onClick={signOut}>Not {me.name}?</button>
+                      <button className="block text-sm meet-muted underline mt-0.5 ml-auto hover:opacity-100" onClick={signOut}>Not {me.name}?</button>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                    <div className="flex text-xs rounded-lg overflow-hidden border border-white/10" role="radiogroup" aria-label="What you're marking">
-                      <button
-                        role="radio" aria-checked={brush === 'yes'} onClick={() => setBrush('yes')}
-                        className={`px-3 py-1.5 inline-flex items-center gap-1.5 ${brush === 'yes' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
-                      >
+                    <div className="meet-seg" role="radiogroup" aria-label="What you're marking">
+                      <button role="radio" aria-checked={brush === 'yes'} onClick={() => setBrush('yes')}>
                         <span className="meet-swatch" style={{ background: 'rgb(var(--on))' }} /> I'm free
                       </button>
-                      <button
-                        role="radio" aria-checked={brush === 'no'} onClick={() => setBrush('no')}
-                        className={`px-3 py-1.5 inline-flex items-center gap-1.5 ${brush === 'no' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
-                      >
+                      <button role="radio" aria-checked={brush === 'no'} onClick={() => setBrush('no')}>
                         <span className="meet-swatch cant" /> Definitely can't
                       </button>
                     </div>
-                    <span className="text-xs meet-muted inline-flex items-center gap-1.5">
+                    <span className="text-sm meet-muted inline-flex items-center gap-2">
                       <span className="meet-swatch" style={{ background: 'var(--off)' }} /> Not free
                     </span>
                   </div>
-                  <p className="text-xs h-4 mb-2 text-gray-300">
-                    {myHover != null ? describeSlot(event, layout, myHover) : <span className="meet-muted">Hover a box to see its exact time</span>}
+                  <p className="text-sm min-h-5 mb-2 text-gray-300">
+                    {myHover != null
+                      ? describeSlot(event, layout, myHover)
+                      : <span className="meet-muted"><span className="hidden [@media(pointer:fine)]:inline">Hover a box to see its exact time</span><span className="[@media(pointer:fine)]:hidden">Swipe on the times column to scroll</span></span>}
                   </p>
                   {mySlots ? (
                     <TimeGrid layout={layout} cellStyle={myCellStyle} cellClass={myCellClass} paint onHover={setMyHover} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} />
@@ -388,99 +471,46 @@ export default function MeetEvent() {
             </div>
 
             {/* Group */}
-            <div className="glass rounded-2xl p-5 min-w-0">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div>
-                  <h2 className="font-semibold text-white">Group availability</h2>
-                  <p className="text-xs meet-muted mt-0.5">Hover (or tap) a slot to see who's free.</p>
-                </div>
+            <div className={`glass meet-panel min-w-0 ${tab === 'group' ? '' : 'hidden lg:block'}`}>
+              <div className="mb-4">
+                <h2 className="text-lg sm:text-xl font-semibold text-white">Group availability</h2>
+                <p className="text-sm meet-muted mt-0.5">
+                  <span className="hidden [@media(pointer:fine)]:inline">Hover a box to see who's free.</span>
+                  <span className="[@media(pointer:fine)]:hidden">Tap a box to see who's free.</span>
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-xs meet-muted mb-3">
-                <span>0/{total}</span>
-                <div className="meet-legend flex-1 max-w-[12rem]" />
-                <span>{total}/{total} available</span>
-                {cantAt.size > 0 && <span className="ml-2 inline-flex items-center gap-1.5"><span className="meet-swatch veto" /> someone can't</span>}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm meet-muted mb-3">
+                <span className="inline-flex items-center gap-2">
+                  0/{total}
+                  <span className="meet-legend inline-block w-28 sm:w-40" />
+                  {total}/{total} available
+                </span>
+                {cantAt.size > 0 && <span className="inline-flex items-center gap-2"><span className="meet-swatch veto" /> someone can't</span>}
               </div>
               <TimeGrid layout={layout} cellStyle={groupCellStyle} cellClass={groupCellClass} hoverSlot={hoverSlot} onHover={setHoverSlot} />
-
-              <div className="mt-5 border-t border-white/10 pt-4 min-h-[7rem]">
-                {hovered ? (
-                  <div>
-                    <p className="text-sm text-white font-medium">
-                      {hovered.size}/{total} available
-                      <span className="meet-muted font-normal"> · {describeSlot(event, layout, hoverSlot!)}</span>
-                    </p>
-                    <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
-                      <div>
-                        <p className="text-xs meet-muted mb-1.5">Available</p>
-                        {visible.filter((p) => hovered.has(p.id)).map((p) => <p key={p.id} className="text-white truncate">{p.name}</p>)}
-                      </div>
-                      <div>
-                        <p className="text-xs meet-muted mb-1.5">Unavailable</p>
-                        {visible.filter((p) => !hovered.has(p.id)).map((p) => (
-                          cantAt.get(hoverSlot!)?.has(p.id)
-                            ? <p key={p.id} className="truncate text-red-400" title="Definitely can't make it">✕ {p.name}</p>
-                            : <p key={p.id} className="meet-muted truncate line-through decoration-1">{p.name}</p>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : everyone.length ? (
-                  <div className="space-y-4">
-                    {best && best.max > 0 && (
-                      <div>
-                        <p className="text-xs meet-muted mb-1.5">Best times ({best.max}/{total} free)</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {best.ranges.slice(0, 4).map((rg) => {
-                            const col = layout.columns[rg.col];
-                            return (
-                              <span key={`${rg.col}-${rg.from}`} className="text-xs rounded-md px-2 py-1 bg-white/5 text-gray-300">
-                                {col.top}{col.bottom && ` ${col.bottom}`} · {formatMinute(layout.rows[rg.from])}–{formatMinute(layout.rows[rg.to] + SLOT_MINUTES)}
-                              </span>
-                            );
-                          })}
-                          {best.ranges.length > 4 && <span className="text-xs meet-muted px-1 py-1">+{best.ranges.length - 4} more</span>}
-                        </div>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-xs meet-muted mb-1.5">
-                        Responses {filter ? `· showing ${visible.length} of ${everyone.length}` : '· click names to filter'}
-                        {filter && <button className="underline ml-2" onClick={() => setFilter(null)}>show all</button>}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {everyone.map((p) => {
-                          const on = !filter || filter.has(p.id);
-                          return (
-                            <span key={p.id} className={`inline-flex items-center text-xs rounded-full border border-white/10 transition-colors ${on ? 'text-white bg-white/5' : 'meet-muted'}`}>
-                              <button onClick={() => toggleFilter(p.id)} className={`px-2.5 py-1 ${on ? '' : 'line-through'}`}>
-                                {p.name}{me?.id === p.id ? ' (you)' : ''}
-                              </button>
-                              {isAdmin && (
-                                <button
-                                  onClick={() => removePerson(p)}
-                                  disabled={removing === p.id}
-                                  className="pr-2 -ml-1 meet-muted hover:text-red-400"
-                                  title={`Remove ${p.name}`}
-                                  aria-label={`Remove ${p.name}`}
-                                >
-                                  {removing === p.id ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
-                                </button>
-                              )}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm meet-muted">No one has responded yet. Share the link to get started.</p>
-                )}
-              </div>
+              {/* Phones: summary lives under the group grid */}
+              <div className="lg:hidden mt-6 pt-5 border-t border-white/10">{summary}</div>
             </div>
+
+            {/* Details: right column on wide screens, full row on laptops */}
+            <aside className="hidden lg:block lg:col-span-2 xl:col-span-1 min-w-0">
+              <div className="glass meet-panel xl:sticky xl:top-28">
+                {slotDetails || summary}
+              </div>
+            </aside>
           </div>
         </div>
       </section>
+
+      {/* Phones: tapped slot details as a bottom sheet */}
+      {slotDetails && (
+        <div className="lg:hidden fixed inset-x-3 bottom-3 z-50 meet">
+          <div className="glass-strong meet-panel shadow-2xl max-h-[50vh] overflow-y-auto relative">
+            <button onClick={() => setHoverSlot(null)} className="absolute right-3 top-3 meet-ghost !p-2" aria-label="Close"><X size={16} /></button>
+            {slotDetails}
+          </div>
+        </div>
+      )}
     </PageLayout>
   );
 }

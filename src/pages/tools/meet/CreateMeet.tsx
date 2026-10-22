@@ -141,67 +141,68 @@ export default function CreateMeet() {
   return (
     <PageLayout title="Meet | TrueBeast" description="Find a time that works for everyone. Pick dates, share the link, and see when your group is free." gradientVariant="green">
       <style>{MEET_CSS}</style>
-      <section className="meet py-14 sm:py-20">
-        <div className="max-w-[56rem] mx-auto px-4 sm:px-6">
-          <div className="text-center mb-10 space-y-3">
-            <div className="inline-flex items-center gap-2 glass rounded-full px-4 py-2">
-              <CalendarDays size={15} className="text-green-400" />
-              <span className="text-sm text-gray-300 font-medium">Meet</span>
+      <section className="meet py-8 sm:py-14">
+        <div className="w-full max-w-[96rem] mx-auto px-3 sm:px-6 2xl:px-10">
+          <div className="text-center mb-8 sm:mb-12 space-y-4">
+            <div className="inline-flex items-center gap-2 glass rounded-full px-5 py-2.5">
+              <CalendarDays size={18} className="text-green-400" />
+              <span className="text-[15px] text-gray-300 font-medium">Meet</span>
             </div>
-            <h1 className="font-display text-3xl sm:text-4xl font-bold">Find a time that works</h1>
-            <p className="text-gray-400 max-w-[30rem] mx-auto text-sm leading-relaxed">
+            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-bold">Find a time that works</h1>
+            <p className="text-gray-400 max-w-[38rem] mx-auto text-base sm:text-lg leading-relaxed">
               Pick some dates, share the link, and everyone drags over when they're free. No accounts.
             </p>
           </div>
 
           {discordSession && (
-            <p className="text-center text-xs meet-muted mb-3">
+            <p className="text-center text-sm meet-muted mb-3">
               Linked to your Discord session. Once you create it, the bot posts it there within a few minutes
               (or paste the link with <span className="text-gray-300">🔗 Submit schedule link</span>).
             </p>
           )}
           <input
-            className="meet-input text-center !text-lg !py-3 mb-6 text-white"
+            className="meet-input text-center !text-xl sm:!text-2xl !py-4 mb-5 sm:mb-6 text-white"
             placeholder="Event name"
             value={name}
             maxLength={100}
             onChange={(e) => setName(e.target.value)}
           />
 
-          <div className="grid gap-5 md:grid-cols-[1.25fr_1fr]">
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
             {/* Dates */}
-            <div className="glass rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="font-semibold text-white text-sm">What dates might work?</h2>
-                <div className="flex text-xs rounded-lg overflow-hidden border border-white/10">
+            <div className="glass meet-panel">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                <h2 className="font-semibold text-white text-lg sm:text-xl">What dates might work?</h2>
+                <div className="meet-seg" role="radiogroup">
                   {(['dates', 'days'] as const).map((m) => (
                     <button
                       key={m}
                       onClick={() => setMode(m)}
-                      className={`px-3 py-1.5 ${mode === m ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
+                      role="radio"
+                      aria-checked={mode === m}
                     >
                       {m === 'dates' ? 'Specific dates' : 'Days of week'}
                     </button>
                   ))}
                 </div>
               </div>
-              <p className="text-xs meet-muted mb-4">Click and drag to select. Drag over selected days to remove them.</p>
+              <p className="text-sm meet-muted mb-5">Click and drag from one date to another to select everything in between. Drag over selected days to remove them.</p>
 
               {mode === 'dates' ? (
                 <>
-                  <div className="flex items-center justify-between mb-3">
-                    <button className="meet-ghost !px-2" onClick={() => shiftMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
-                    <span className="text-sm font-medium text-white">{monthLabel}</span>
-                    <button className="meet-ghost !px-2" onClick={() => shiftMonth(1)} aria-label="Next month"><ChevronRight size={16} /></button>
+                  <div className="flex items-center justify-between mb-4">
+                    <button className="meet-ghost !p-2.5" onClick={() => shiftMonth(-1)} aria-label="Previous month"><ChevronLeft size={20} /></button>
+                    <span className="text-lg font-semibold text-white">{monthLabel}</span>
+                    <button className="meet-ghost !p-2.5" onClick={() => shiftMonth(1)} aria-label="Next month"><ChevronRight size={20} /></button>
                   </div>
-                  <div className="grid grid-cols-7 gap-1 mb-1">
+                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2 mb-1.5">
                     {WEEKDAYS.map((d, i) => (
-                      <button key={i} onClick={() => toggleWeekday(i)} className="text-[11px] meet-muted py-1 hover:opacity-100" title={`Toggle every ${d}`}>
+                      <button key={i} onClick={() => toggleWeekday(i)} className="text-sm meet-muted py-1.5 hover:opacity-100" title={`Toggle every ${d}`}>
                         {d}
                       </button>
                     ))}
                   </div>
-                  <div className="grid grid-cols-7 gap-1 select-none" style={{ touchAction: 'none' }} onPointerDown={onDown} onPointerMove={onMove}>
+                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2 select-none" style={{ touchAction: 'none' }} onPointerDown={onDown} onPointerMove={onMove}>
                     {cells.map((d, i) => (
                       <div
                         key={d}
@@ -214,13 +215,13 @@ export default function CreateMeet() {
                   </div>
                 </>
               ) : (
-                <div className="grid grid-cols-7 gap-1 select-none" style={{ touchAction: 'none' }} onPointerDown={onDown} onPointerMove={onMove}>
+                <div className="grid grid-cols-7 gap-1.5 sm:gap-2 select-none" style={{ touchAction: 'none' }} onPointerDown={onDown} onPointerMove={onMove}>
                   {WEEKDAYS.map((d, i) => (
-                    <div key={i} data-i={i} className={`meet-cal-day !h-14 ${isOn(i) ? 'on' : ''}`}>{d}</div>
+                    <div key={i} data-i={i} className={`meet-cal-day !h-20 ${isOn(i) ? 'on' : ''}`}>{d}</div>
                   ))}
                 </div>
               )}
-              <p className="text-xs meet-muted mt-3">
+              <p className="text-sm meet-muted mt-4">
                 {chosen.length ? `${chosen.length} ${mode === 'dates' ? 'date' : 'day'}${chosen.length === 1 ? '' : 's'} selected` : 'Nothing selected yet'}
                 {chosen.length > 0 && (
                   <button className="ml-2 underline hover:opacity-100" onClick={() => (mode === 'dates' ? setDates(new Set()) : setDays(new Set()))}>clear</button>
@@ -229,30 +230,30 @@ export default function CreateMeet() {
             </div>
 
             {/* Times */}
-            <div className="glass rounded-2xl p-5 flex flex-col gap-4">
-              <h2 className="font-semibold text-white text-sm">What times might work?</h2>
+            <div className="glass meet-panel flex flex-col gap-5">
+              <h2 className="font-semibold text-white text-lg sm:text-xl">What times might work?</h2>
               <label className="block">
-                <span className="text-xs meet-muted block mb-1.5">No earlier than</span>
+                <span className="text-sm meet-muted block mb-2">No earlier than</span>
                 <select className="meet-input text-white" value={startHour} onChange={(e) => setStartHour(Number(e.target.value))}>
                   {HOURS.slice(0, 24).map((h) => <option key={h} value={h}>{formatHour(h)}</option>)}
                 </select>
               </label>
               <label className="block">
-                <span className="text-xs meet-muted block mb-1.5">No later than</span>
+                <span className="text-sm meet-muted block mb-2">No later than</span>
                 <select className="meet-input text-white" value={endHour} onChange={(e) => setEndHour(Number(e.target.value))}>
                   {HOURS.slice(1).map((h) => <option key={h} value={h % 24}>{formatHour(h)}</option>)}
                 </select>
               </label>
               <label className="block">
-                <span className="text-xs meet-muted block mb-1.5">Time zone</span>
+                <span className="text-sm meet-muted block mb-2">Time zone</span>
                 <select className="meet-input text-white" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
                   {timezones.map((tz) => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>)}
                 </select>
               </label>
               <div className="mt-auto pt-2">
-                {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
+                {error && <p className="text-[15px] text-red-400 mb-3">{error}</p>}
                 <button className="meet-btn w-full inline-flex items-center justify-center gap-2" disabled={busy} onClick={submit}>
-                  {busy && <Loader2 size={16} className="animate-spin" />}
+                  {busy && <Loader2 size={18} className="animate-spin" />}
                   Create event
                 </button>
               </div>
