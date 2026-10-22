@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Check, Copy, Loader2, Plus } from 'lucide-react';
+import { Check, Copy, Loader2, Plus, X } from 'lucide-react';
 import PageLayout from '@/components/layout/PageLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import { SITE_CONFIG } from '@/config';
 import TimeGrid, { MEET_CSS } from './TimeGrid';
 import {
-  SLOT_MINUTES, allTimezones, buildLayout, describeSlot, fetchEvent, formatMinute, isPermissionError,
+  SLOT_MINUTES, allTimezones, buildLayout, deletePerson, describeSlot, fetchEvent, formatMinute, isPermissionError,
   localTimezone, normalizeName, passwordHash, personIdFor, savePerson, subscribePeople,
   type GridLayout, type MeetEvent, type MeetPerson,
 } from './lib';
 
 interface Me { id: string; name: string; pwHash: string }
-interface Drag { c0: number; r0: number; c1: number; r1: number; add: boolean }
+type Brush = 'yes' | 'no';
+interface Drag { c0: number; r0: number; c1: number; r1: number; add: boolean; brush: Brush }
 
 const storageKey = (id: string) => `meet:${id}`;
 const TZ_KEY = 'meet:tz';
@@ -55,6 +58,12 @@ export default function MeetEvent() {
   const [viewerTz, setViewerTz] = useState(() => readStore<string>(TZ_KEY) || localTimezone());
   const [me, setMe] = useState<Me | null>(() => readStore<Me>(storageKey(id)));
   const [mySlots, setMySlots] = useState<Set<number> | null>(null);
+  const [myNo, setMyNo] = useState<Set<number>>(new Set());
+  const [brush, setBrush] = useState<Brush>('yes');
+  const [myHover, setMyHover] = useState<number | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const { user } = useAuth();
+  const isAdmin = !!user && user.email === SITE_CONFIG.email.adminEmail;
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hoverSlot, setHoverSlot] = useState<number | null>(null);
   const [filter, setFilter] = useState<Set<string> | null>(null);
@@ -79,47 +88,60 @@ export default function MeetEvent() {
   // Hydrate my slots once after sign-in / reload.
   useEffect(() => {
     if (!me || mySlots || !peopleLoaded) return;
-    setMySlots(new Set(people.find((p) => p.id === me.id)?.slots ?? []));
+    const mine = people.find((p) => p.id === me.id);
+    setMySlots(new Set(mine?.slots ?? []));
+    setMyNo(new Set(mine?.noSlots ?? []));
   }, [me, mySlots, peopleLoaded, people]);
 
   const layout = useMemo(() => (event ? buildLayout(event, viewerTz) : null), [event, viewerTz]);
 
   // --- group data ----------------------------------------------------------------
   const everyone = useMemo(() => {
-    const list = people.map((p) => (me && mySlots && p.id === me.id ? { ...p, slots: [...mySlots] } : p));
+    const list = people.map((p) => (me && mySlots && p.id === me.id ? { ...p, slots: [...mySlots], noSlots: [...myNo] } : p));
     if (me && mySlots && !list.some((p) => p.id === me.id)) {
-      list.push({ id: me.id, name: me.name, pwHash: me.pwHash, slots: [...mySlots], updatedAt: Date.now() });
+      list.push({ id: me.id, name: me.name, pwHash: me.pwHash, slots: [...mySlots], noSlots: [...myNo], updatedAt: Date.now() });
     }
     return list.sort((a, b) => a.name.localeCompare(b.name));
-  }, [people, me, mySlots]);
+  }, [people, me, mySlots, myNo]);
 
   const visible = filter ? everyone.filter((p) => filter.has(p.id)) : everyone;
   const total = visible.length;
 
-  const { counts, whoAt } = useMemo(() => {
+  const { counts, whoAt, cantAt } = useMemo(() => {
     const counts = new Map<number, number>();
     const whoAt = new Map<number, Set<string>>();
+    const cantAt = new Map<number, Set<string>>();
     for (const p of visible) {
       for (const s of p.slots) {
         counts.set(s, (counts.get(s) ?? 0) + 1);
         if (!whoAt.has(s)) whoAt.set(s, new Set());
         whoAt.get(s)!.add(p.id);
       }
+      for (const s of p.noSlots ?? []) {
+        if (!cantAt.has(s)) cantAt.set(s, new Set());
+        cantAt.get(s)!.add(p.id);
+      }
     }
-    return { counts, whoAt };
+    return { counts, whoAt, cantAt };
   }, [visible]);
 
-  const best = useMemo(() => (layout ? bestTimes(layout, counts) : null), [layout, counts]);
+  // Best times skip slots someone definitely can't make, unless that leaves nothing.
+  const best = useMemo(() => {
+    if (!layout) return null;
+    const pick = bestTimes(layout, new Map([...counts].filter(([s]) => !cantAt.has(s))));
+    return pick.max > 0 ? pick : bestTimes(layout, counts);
+  }, [layout, counts, cantAt]);
 
   // --- my grid painting ---------------------------------------------------------
   const dragRef = useRef(drag);
   dragRef.current = drag;
 
-  const persist = useCallback(async (slots: Set<number>) => {
+  const persist = useCallback(async (slots: Set<number>, no: Set<number>) => {
     if (!me) return;
     setSaveState('saving');
+    const sorted = (x: Set<number>) => [...x].sort((a, b) => a - b);
     try {
-      await savePerson(id, { ...me, slots: [...slots].sort((a, b) => a - b), updatedAt: Date.now() });
+      await savePerson(id, { ...me, slots: sorted(slots), noSlots: sorted(no), updatedAt: Date.now() });
       setSaveState('saved');
     } catch {
       setSaveState('error');
@@ -129,8 +151,9 @@ export default function MeetEvent() {
   const onDragStart = useCallback((c: number, r: number) => {
     const slot = layout?.cells[c][r];
     if (slot == null || !mySlots) return;
-    setDrag({ c0: c, r0: r, c1: c, r1: r, add: !mySlots.has(slot) });
-  }, [layout, mySlots]);
+    const target = brush === 'yes' ? mySlots : myNo;
+    setDrag({ c0: c, r0: r, c1: c, r1: r, add: !target.has(slot), brush });
+  }, [layout, mySlots, myNo, brush]);
 
   const onDragMove = useCallback((c: number, r: number) => {
     setDrag((d) => (d ? { ...d, c1: c, r1: r } : d));
@@ -139,20 +162,38 @@ export default function MeetEvent() {
   const onDragEnd = useCallback(() => {
     const d = dragRef.current;
     if (!d || !layout || !mySlots) return;
-    const next = new Set(mySlots);
+    const yes = new Set(mySlots);
+    const no = new Set(myNo);
+    const [target, other] = d.brush === 'yes' ? [yes, no] : [no, yes];
     layout.cells.forEach((col, c) => col.forEach((slot, r) => {
       if (slot == null || !inDrag(d, c, r)) return;
-      if (d.add) next.add(slot); else next.delete(slot);
+      if (d.add) { target.add(slot); other.delete(slot); } else target.delete(slot);
     }));
     setDrag(null);
-    setMySlots(next);
-    persist(next);
-  }, [layout, mySlots, persist]);
+    setMySlots(yes);
+    setMyNo(no);
+    persist(yes, no);
+  }, [layout, mySlots, myNo, persist]);
+
+  /** 'yes' | 'no' | null for one of my cells, including the drag preview. */
+  const myState = useCallback((slot: number, c: number, r: number): Brush | null => {
+    if (drag && inDrag(drag, c, r)) {
+      if (drag.add) return drag.brush;
+      if (drag.brush === 'yes' && mySlots?.has(slot)) return null;
+      if (drag.brush === 'no' && myNo.has(slot)) return null;
+    }
+    return mySlots?.has(slot) ? 'yes' : myNo.has(slot) ? 'no' : null;
+  }, [drag, mySlots, myNo]);
 
   const myCellStyle = useCallback((slot: number, c: number, r: number) => {
-    const on = drag && inDrag(drag, c, r) ? drag.add : mySlots?.has(slot);
-    return on ? 'rgb(var(--on))' : undefined;
-  }, [drag, mySlots]);
+    const st = myState(slot, c, r);
+    return st === 'yes' ? 'rgb(var(--on))' : st === 'no' ? 'rgb(var(--no))' : 'var(--off)';
+  }, [myState]);
+
+  const myCellClass = useCallback((slot: number, c: number, r: number) =>
+    (myState(slot, c, r) === 'no' ? 'cant' : undefined), [myState]);
+
+  const groupCellClass = useCallback((slot: number) => (cantAt.has(slot) ? 'veto' : undefined), [cantAt]);
 
   const groupCellStyle = useCallback((slot: number) => {
     const n = counts.get(slot) ?? 0;
@@ -185,10 +226,12 @@ export default function MeetEvent() {
         }
         who = { id: pid, name: existing.name, pwHash: existing.pwHash };
         setMySlots(new Set(existing.slots));
+        setMyNo(new Set(existing.noSlots ?? []));
       } else {
         who = { id: pid, name, pwHash: pw };
-        await savePerson(id, { ...who, slots: [], updatedAt: Date.now() });
+        await savePerson(id, { ...who, slots: [], noSlots: [], updatedAt: Date.now() });
         setMySlots(new Set());
+        setMyNo(new Set());
       }
       writeStore(storageKey(id), who);
       setMe(who);
@@ -202,6 +245,7 @@ export default function MeetEvent() {
     writeStore(storageKey(id), null);
     setMe(null);
     setMySlots(null);
+    setMyNo(new Set());
     setSaveState('idle');
     setNameInput('');
     setPwInput('');
@@ -212,6 +256,19 @@ export default function MeetEvent() {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
+  };
+
+  const removePerson = async (p: MeetPerson) => {
+    if (!window.confirm(`Remove ${p.name} and all their times from this event?`)) return;
+    setRemoving(p.id);
+    try {
+      await deletePerson(id, p.id);
+      if (me?.id === p.id) signOut();
+      setFilter((f) => { if (!f) return f; const n = new Set(f); n.delete(p.id); return n.size ? n : null; });
+    } catch (err) {
+      window.alert(isPermissionError(err) ? "Couldn't remove them: the Firestore rules don't allow it yet." : "Couldn't remove them. Try again.");
+    }
+    setRemoving(null);
   };
 
   const toggleFilter = (pid: string) => {
@@ -290,7 +347,7 @@ export default function MeetEvent() {
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
                       <h2 className="font-semibold text-white">{me.name}'s availability</h2>
-                      <p className="text-xs meet-muted mt-0.5">Click and drag to mark when you're free. Saves automatically.</p>
+                      <p className="text-xs meet-muted mt-0.5">Click and drag over each day to mark your times. Saves automatically.</p>
                     </div>
                     <div className="text-right shrink-0">
                       <span className={`text-xs ${saveState === 'error' ? 'text-red-400' : 'meet-muted'}`}>
@@ -299,12 +356,30 @@ export default function MeetEvent() {
                       <button className="block text-xs meet-muted underline mt-0.5 ml-auto hover:opacity-100" onClick={signOut}>Not {me.name}?</button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 text-xs meet-muted mb-3">
-                    <span><span className="meet-swatch" style={{ background: 'var(--cell)' }} /> Unavailable</span>
-                    <span><span className="meet-swatch" style={{ background: 'rgb(var(--on))' }} /> Available</span>
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <div className="flex text-xs rounded-lg overflow-hidden border border-white/10" role="radiogroup" aria-label="What you're marking">
+                      <button
+                        role="radio" aria-checked={brush === 'yes'} onClick={() => setBrush('yes')}
+                        className={`px-3 py-1.5 inline-flex items-center gap-1.5 ${brush === 'yes' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        <span className="meet-swatch" style={{ background: 'rgb(var(--on))' }} /> I'm free
+                      </button>
+                      <button
+                        role="radio" aria-checked={brush === 'no'} onClick={() => setBrush('no')}
+                        className={`px-3 py-1.5 inline-flex items-center gap-1.5 ${brush === 'no' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        <span className="meet-swatch cant" /> Definitely can't
+                      </button>
+                    </div>
+                    <span className="text-xs meet-muted inline-flex items-center gap-1.5">
+                      <span className="meet-swatch" style={{ background: 'var(--off)' }} /> Not free
+                    </span>
                   </div>
+                  <p className="text-xs h-4 mb-2 text-gray-300">
+                    {myHover != null ? describeSlot(event, layout, myHover) : <span className="meet-muted">Hover a box to see its exact time</span>}
+                  </p>
                   {mySlots ? (
-                    <TimeGrid layout={layout} cellStyle={myCellStyle} paint onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} />
+                    <TimeGrid layout={layout} cellStyle={myCellStyle} cellClass={myCellClass} paint onHover={setMyHover} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} />
                   ) : (
                     <Loader2 className="animate-spin mx-auto my-10 text-gray-500" />
                   )}
@@ -324,8 +399,9 @@ export default function MeetEvent() {
                 <span>0/{total}</span>
                 <div className="meet-legend flex-1 max-w-[12rem]" />
                 <span>{total}/{total} available</span>
+                {cantAt.size > 0 && <span className="ml-2 inline-flex items-center gap-1.5"><span className="meet-swatch veto" /> someone can't</span>}
               </div>
-              <TimeGrid layout={layout} cellStyle={groupCellStyle} hoverSlot={hoverSlot} onHover={setHoverSlot} />
+              <TimeGrid layout={layout} cellStyle={groupCellStyle} cellClass={groupCellClass} hoverSlot={hoverSlot} onHover={setHoverSlot} />
 
               <div className="mt-5 border-t border-white/10 pt-4 min-h-[7rem]">
                 {hovered ? (
@@ -341,7 +417,11 @@ export default function MeetEvent() {
                       </div>
                       <div>
                         <p className="text-xs meet-muted mb-1.5">Unavailable</p>
-                        {visible.filter((p) => !hovered.has(p.id)).map((p) => <p key={p.id} className="meet-muted truncate line-through decoration-1">{p.name}</p>)}
+                        {visible.filter((p) => !hovered.has(p.id)).map((p) => (
+                          cantAt.get(hoverSlot!)?.has(p.id)
+                            ? <p key={p.id} className="truncate text-red-400" title="Definitely can't make it">✕ {p.name}</p>
+                            : <p key={p.id} className="meet-muted truncate line-through decoration-1">{p.name}</p>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -372,13 +452,22 @@ export default function MeetEvent() {
                         {everyone.map((p) => {
                           const on = !filter || filter.has(p.id);
                           return (
-                            <button
-                              key={p.id}
-                              onClick={() => toggleFilter(p.id)}
-                              className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${on ? 'border-white/10 text-white bg-white/5' : 'border-white/10 meet-muted line-through'}`}
-                            >
-                              {p.name}{me?.id === p.id ? ' (you)' : ''}
-                            </button>
+                            <span key={p.id} className={`inline-flex items-center text-xs rounded-full border border-white/10 transition-colors ${on ? 'text-white bg-white/5' : 'meet-muted'}`}>
+                              <button onClick={() => toggleFilter(p.id)} className={`px-2.5 py-1 ${on ? '' : 'line-through'}`}>
+                                {p.name}{me?.id === p.id ? ' (you)' : ''}
+                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => removePerson(p)}
+                                  disabled={removing === p.id}
+                                  className="pr-2 -ml-1 meet-muted hover:text-red-400"
+                                  title={`Remove ${p.name}`}
+                                  aria-label={`Remove ${p.name}`}
+                                >
+                                  {removing === p.id ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                                </button>
+                              )}
+                            </span>
                           );
                         })}
                       </div>

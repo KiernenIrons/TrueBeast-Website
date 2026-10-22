@@ -13,6 +13,7 @@
 
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   onSnapshot,
@@ -47,6 +48,8 @@ export interface MeetPerson {
   name: string;
   pwHash: string;
   slots: number[];
+  /** Slots this person definitely can't make (stronger than just "not available"). */
+  noSlots?: number[];
   updatedAt: number;
 }
 
@@ -140,8 +143,9 @@ export function allTimezones(): string[] {
 // Formatting
 // ---------------------------------------------------------------------------
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' });
-const hourFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', timeZone: 'UTC' });
+// Always 12-hour (9:00 AM), regardless of the viewer's locale.
+const timeFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
+const hourFmt = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: true, timeZone: 'UTC' });
 
 export function formatMinute(minute: number, short = false) {
   const d = new Date(Date.UTC(2000, 0, 1, 0, minute));
@@ -319,6 +323,11 @@ export function subscribePeople(
 export async function savePerson(eventId: string, person: MeetPerson) {
   const { id, ...rest } = person;
   await setDoc(doc(db(), EVENTS, eventId, 'people', id), { ...rest, updatedAt: Date.now() });
+}
+
+/** Admin-only (enforced by Firestore rules): removes someone's response entirely. */
+export async function deletePerson(eventId: string, personId: string) {
+  await deleteDoc(doc(db(), EVENTS, eventId, 'people', personId));
 }
 
 export function isPermissionError(e: unknown) {
