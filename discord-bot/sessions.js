@@ -310,7 +310,7 @@ const cleanTitle = t => t.replace(/[_*~`|\\]/g, '\\$&');
 
 // Components v2 card, same layout as the hand-made Powder Park post:
 // game art │ "Mark Availability ➡" + title + announcement with a Schedule button │ Voice Chat + Steam
-function buildAnnouncement(s, pingIds = []) {
+function buildAnnouncement(s) {
     const td = text => new TextDisplayBuilder().setContent(text);
     const sep = () => new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
     const c = new ContainerBuilder();
@@ -326,8 +326,7 @@ function buildAnnouncement(s, pingIds = []) {
         : '';
     const texts = [`${heading}## __${cleanTitle(s.gameName || s.title)}__`]; // Steam game name when there is one, like the original
     if (s.details) texts.push(s.details);
-    const foot = [s.lockedStart ? `🗓️ <t:${s.lockedStart}:F>` : '', pingIds.length ? `👋 ${mentions(pingIds)}` : ''].filter(Boolean);
-    if (foot.length) texts.push(`-# ${foot.join(' · ')}`);
+    if (s.lockedStart) texts.push(`-# 🗓️ <t:${s.lockedStart}:F>`);
 
     if (s.meetId) {
         c.addSectionComponents(new SectionBuilder()
@@ -403,11 +402,13 @@ async function refreshSession(s, { pingIds = [] } = {}) {
         await ch.messages.delete(s.announceMsgId).catch(() => {});
         s.announceMsgId = '';
     }
-    // Invitees are pinged by a small line in the first post only; later edits drop it
     const fresh = !s.announceMsgId;
-    const pings = fresh ? pingIds : [];
-    const posted = await upsert(ch, s, 'announceMsgId', buildAnnouncement(s, pings), { allowedMentions: { users: pings } });
+    const posted = await upsert(ch, s, 'announceMsgId', buildAnnouncement(s));
     if (posted && s.announceMsgId) await ch.messages.pin(s.announceMsgId).catch(() => {});
+    // Mentions inside a Components v2 card don't notify anyone, so invitees get a normal message under it
+    if (fresh && posted && pingIds.length) {
+        await ch.send({ content: `👋 ${mentions(pingIds)}`, allowedMentions: { users: pingIds } }).catch(() => {});
+    }
 }
 
 // ── Panel (Components v2, like the Voice Rooms panel) ───────────────────────

@@ -1,5 +1,9 @@
 # Beast Bot Changelog
 
+## [2026-10-23] — Sessions: real pings for invitees
+
+- Mentions inside the Components v2 announcement card showed up but didn't notify anyone. The card no longer has the `👋 @…` line; when a session is created, invitees get a normal `👋 @…` message right under the card with `allowedMentions.users`
+
 ## [2026-10-22] — Sessions: Powder Park announcement layout + channel names
 
 - Announcement is a Components v2 card again, copying the hand-made Powder Park post: no accent, media gallery (Steam art) → separator → section [`# <XZlive> __Mark Availability__ <XZrightarrow>` + `## __Title__`, announcement text] with a Schedule link-button accessory → separator → Voice Chat + Steam link buttons
