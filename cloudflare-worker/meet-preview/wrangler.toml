@@ -1,0 +1,8 @@
+name = "truebeast-meet-preview"
+main = "index.js"
+compatibility_date = "2024-11-01"
+
+# Only event links go through the worker; everything else on the site is untouched.
+routes = [
+  { pattern = "truebeast.io/meet/*", zone_name = "truebeast.io" },
+]
