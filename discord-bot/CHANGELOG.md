@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-10-25] — Sessions: speaker emoji on voice channels
+
+- Voice channels are now named `🔊│Name` (`voiceName`); text channels keep the session-type emoji (`🎮│name`)
+- Startup rename pass updated so existing session voice channels switch to the 🔊 prefix
+
 ## [2026-10-25] — Sessions: only the host picks the final time
 
 - New `isHost` check (owner only, no mod/admin override) for the Best times "Pick" buttons, `lockIn`, and Set exact time (`ses:time` / `ses:timem`). Everything else stays `canManage` (host + mods)

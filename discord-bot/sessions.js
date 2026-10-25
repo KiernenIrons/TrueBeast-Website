@@ -297,6 +297,7 @@ async function revoke(s, userId) {
 
 // ── Session channel messages (tools first, then the pinned announcement) ────
 const channelName = (t, title) => `${t.emoji}│${title}`.slice(0, 100);
+const voiceName   = title => `🔊│${title}`.slice(0, 100); // voice channels always get the speaker
 
 // Server emojis for the announcement. The two animated ones are known; the calendar / voice /
 // Steam ones are looked up by name, falling back to a normal emoji if the server doesn't have one.
@@ -768,7 +769,7 @@ async function finishCreate(ix, p, when) {
             reason: `Planned session for ${member.user.tag}`,
         });
         voice = await g.channels.create({
-            name: channelName(t, p.title),
+            name: voiceName(p.title),
             type: ChannelType.GuildVoice,
             parent: CATEGORY_ID,
             permissionOverwrites: baseOverwrites(g, 'voice', member.id, p.members),
@@ -969,7 +970,7 @@ async function handleSessionInteraction(ix) {
                     s.renames.push(Date.now());
                     const t = TYPES[type] || TYPES.other;
                     await guild().channels.cache.get(s.textId)?.setName(channelName(t, title)).catch(() => {});
-                    await guild().channels.cache.get(s.voiceId)?.setName(channelName(t, title)).catch(() => {});
+                    await guild().channels.cache.get(s.voiceId)?.setName(voiceName(title)).catch(() => {});
                 }
             }
             if ((link || '') !== s.link) Object.assign(s, { link: link || '' }, await lookupLink(link));
@@ -1137,8 +1138,10 @@ async function startSessions(discordClient, { modRoleId: mod, quarantineRoleId: 
         for (const cid of [s.textId, s.voiceId]) {
             const ch = g.channels.cache.get(cid);
             if (ch && ch.parentId !== CATEGORY_ID) await ch.setParent(CATEGORY_ID, { lockPermissions: false }).catch(e => console.error('[Sessions] move failed:', e.message));
-            // Names from before the "🎮│Name" format
-            if (ch && !ch.name.includes('│')) await ch.setName(channelName(typeOf(s), s.title)).catch(e => console.error('[Sessions] rename failed:', e.message));
+            // Names from older formats ("🎮 Name", or voice channels with the type emoji instead of 🔊)
+            const want = cid === s.voiceId ? voiceName(s.title) : channelName(typeOf(s), s.title);
+            const outdated = cid === s.voiceId ? !ch?.name.startsWith('🔊│') : !ch?.name.includes('│');
+            if (ch && outdated && ch.name !== want) await ch.setName(want).catch(e => console.error('[Sessions] rename failed:', e.message));
         }
     }
     if (state.categoryId && state.categoryId !== CATEGORY_ID) {
