@@ -1,5 +1,10 @@
 # Beast Bot Changelog
 
+## [2026-10-25] — Sessions: only the host picks the final time
+
+- New `isHost` check (owner only, no mod/admin override) for the Best times "Pick" buttons, `lockIn`, and Set exact time (`ses:time` / `ses:timem`). Everything else stays `canManage` (host + mods)
+- Tools embed note updated to say only the host picks the final time
+
 ## [2026-10-23] — Sessions: real pings for invitees
 
 - Mentions inside the Components v2 announcement card showed up but didn't notify anyone. The card no longer has the `👋 @…` line; when a session is created, invitees get a normal `👋 @…` message right under the card with `allowedMentions.users`

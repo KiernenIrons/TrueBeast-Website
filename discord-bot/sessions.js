@@ -156,6 +156,7 @@ function isStaff(member) {
         || member.permissions.has(PermissionFlagsBits.Administrator);
 }
 const canManage = (member, s) => s.ownerId === member.id || isStaff(member);
+const isHost = (member, s) => s.ownerId === member.id; // only the host picks the final time
 
 function normalizeLink(raw) {
     if (!raw) return null;
@@ -355,7 +356,7 @@ function buildTools(s) {
         removeMenu.addOptions({ label: 'Nobody to remove yet', value: 'none' }).setDisabled(true);
     }
     return {
-        embeds: [embed('🛠️ Session tools', `-# Managing is for <@${s.ownerId}> and mods. Anyone can check 📊 Best times or 🚪 Leave.`)],
+        embeds: [embed('🛠️ Session tools', `-# Managing is for <@${s.ownerId}> and mods; only <@${s.ownerId}> picks the final time. Anyone can check 📊 Best times or 🚪 Leave.`)],
         components: [
             row(new UserSelectMenuBuilder().setCustomId(`ses:add:${s.id}`).setPlaceholder('➕ Add people…').setMinValues(1).setMaxValues(25)),
             row(removeMenu),
@@ -574,10 +575,10 @@ async function showBestTimes(ix, s) {
             `-# ✅ ${w.names.length} of ${total} free · ${fmtLength(w.end - w.start)}${missing.length ? ` · can't make it: ${missing.join(', ')}` : ''}`;
     });
     const e = embed('📊 Best times so far', blocks.join('\n\n'))
-        .setFooter({ text: `${total} ${total === 1 ? 'person has' : 'people have'} marked their times${canManage(ix.member, s) ? ' · pick one to lock it in' : ''}` });
+        .setFooter({ text: `${total} ${total === 1 ? 'person has' : 'people have'} marked their times${isHost(ix.member, s) ? ' · pick one to lock it in' : ''}` });
     const mode = ev.mode === 'days' ? 'w' : 'd';
     const rows = [];
-    if (canManage(ix.member, s)) {
+    if (isHost(ix.member, s)) {
         rows.push(row(...windows.map((w, i) => btn(`ses:lock:${s.id}:${mode}:${w.start}:${w.end}`, `Pick ${i + 1}`, NUMS[i], ButtonStyle.Success))));
     }
     rows.push(row(markBtn, btn(`ses:best:${s.id}`, 'Refresh', '🔄')));
@@ -604,7 +605,7 @@ function setLocked(s, start) {
 }
 
 async function lockIn(ix, s, mode, start, end) {
-    if (!canManage(ix.member, s)) return reply(ix, `Only <@${s.ownerId}> or a mod can lock in a time.`);
+    if (!isHost(ix.member, s)) return reply(ix, `Only <@${s.ownerId}> (the host) can pick the final time.`);
     if (mode === 'w') {
         const ev = s.meetId ? await fetchMeetEvent(s.meetId) : null;
         s.when = weeklyLabel(start, end, ev?.timezone);
@@ -980,12 +981,12 @@ async function handleSessionInteraction(ix) {
         }
 
         case 'time':
-            if (!manage) return denied();
+            if (!isHost(ix.member, s)) return reply(ix, `Only <@${s.ownerId}> (the host) can pick the final time.`);
             return ix.showModal(timeModal(`ses:timem:${s.id}`, userTz.get(ix.user.id) || s.tz || DEFAULT_TZ, true));
 
         case 'timem': {
             if (!ix.isModalSubmit()) break;
-            if (!manage) return denied();
+            if (!isHost(ix.member, s)) return reply(ix, `Only <@${s.ownerId}> (the host) can pick the final time.`);
             const tz = ix.fields.getStringSelectValues('tz')?.[0] || DEFAULT_TZ;
             userTz.set(ix.user.id, tz);
             const r = readTimeModal(ix, tz);
