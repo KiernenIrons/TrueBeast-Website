@@ -22,10 +22,16 @@
  * Also: auto-record rules (minimum people and/or trigger users/roles), access roles,
  * /record voice-test (record yourself for a few seconds, hear it played back).
  *
+ * Stations: a standing "Record this chat" card tied to one voice channel (custom rooms and
+ * sessions get one automatically, /record station posts one anywhere). Anyone in that voice
+ * channel can start from it; while recording, the same card becomes the live panel, then flips
+ * back with a link to the last recording.
+ *
  * Storage: RECORDINGS_DIR (default /data, a Fly volume) → recordings/<id>/{meta.json,<n>.pkt},
- * jobs/<jobId>/ for finished exports. Recordings expire 7 days after they end.
- * Settings: botConfig/recorder → settingsJson ({ accessRoles, includeBots, auto }).
- * HTTP API (port 8080, public at RECORDER_PUBLIC_URL) is what the download page talks to.
+ * jobs/<jobId>/ for finished exports. Recordings expire 7 days after they end (unless kept).
+ * Settings: botConfig/recorder → settingsJson ({ accessRoles, includeBots, auto, stations }).
+ * HTTP API (port 8080, public at RECORDER_PUBLIC_URL) is what the download page talks to;
+ * /api/admin/* is the admin panel's (Firebase ID token of the site admin).
  */
 
 const fs = require('fs');
@@ -70,7 +76,7 @@ const JOB_TTL_MS      = 3 * HOUR;
 const VOICE_TEST_MS   = 15 * SEC;
 const RATE = 48000, FRAME = 960;    // Discord sends 20 ms Opus frames at 48 kHz
 const NICK_TAG = '[RECORDING] ';
-const ACCENT_LIVE = 0xef4444, ACCENT_DONE = 0x22c55e, ACCENT_IDLE = 0x6b7280;
+const ACCENT = 0xef4444; // every recorder card has a red accent bar
 
 const EPH = MessageFlags.Ephemeral;
 const V2  = MessageFlags.IsComponentsV2;
@@ -81,9 +87,11 @@ const recordings = new Map(); // id → meta (everything on disk, live or not)
 const active     = new Map(); // guildId → live recording runtime
 const tests      = new Map(); // guildId → running voice test
 const autoTimers = new Map(); // channelId → settle / stop timer
-let settings = { accessRoles: [], includeBots: false, auto: {} };
+let settings = { accessRoles: [], includeBots: false, auto: {}, stations: {} };
 let loaded = false;           // guards saves so empty settings never overwrite Firestore
-let client = null, modRoleId = null, ownerId = null;
+let markReady;
+const ready = new Promise(r => { markReady = r; }); // stations wait for settings to load
+let client = null, modRoleId = null, ownerId = null, vcOwner = () => null;
 let saveTimer = null, shuttingDown = false;
 
 async function loadState() {
@@ -173,7 +181,15 @@ function canRecord(member) {
 }
 const canManageServer = member => !!member && (member.id === member.guild.ownerId || member.id === ownerId
     || member.permissions.has(PermissionFlagsBits.ManageGuild));
+const isStaff = member => canManageServer(member) || (!!modRoleId && !!member?.roles.cache.has(modRoleId));
 const isRecOwner = (userId, m) => userId === m.requesterId || userId === ownerId;
+const startVc = m => m.startChannelId || m.channelId;
+// The room owner / session host of the channel a recording (or station) belongs to
+const channelOwner = vcId => vcOwner(vcId) || settings.stations[vcId]?.ownerId || null;
+// Stations let anyone in that voice chat start recording it
+const canStartIn = (member, channel) => canRecord(member)
+    || (!!settings.stations[channel.id] && member?.voice?.channelId === channel.id);
+const canStop = (userId, member, m) => isRecOwner(userId, m) || canRecord(member) || channelOwner(startVc(m)) === userId;
 
 function humansIn(channel) {
     return channel ? channel.members.filter(m => !m.user.bot) : new Map();
@@ -520,7 +536,7 @@ async function startRecording({ guild, channel, requester, panelChannel, auto = 
     const meta = {
         id, key: randomId(16), deleteKey: randomId(10), status: 'recording', auto, ruleChannelId,
         guildId: guild.id, guildName: guild.name, guildIcon: guild.iconURL({ extension: 'png', size: 128 }),
-        channelId: channel.id, channelName: channel.name,
+        channelId: channel.id, channelName: channel.name, startChannelId: channel.id,
         requesterId: requester.id, requester: memberInfo(guild.members.cache.get(requester.id), requester),
         startedAt: Date.now(), endedAt: null, expiresAt: null, endReason: null, prevNick,
         tracks: [], notes: [], log: [], restarts: [], panel: null,
@@ -543,7 +559,10 @@ async function startRecording({ guild, channel, requester, panelChannel, auto = 
     logEvent(rt, auto ? `🤖 Auto-recording started in <#${channel.id}>` : `🔴 Recording started by <@${requester.id}>`);
     await writeMeta(meta);
     startTicker(rt);
-    await postPanel(rt, panelChannel || channel);
+    // The voice chat's own station card becomes the live panel; otherwise post a fresh one
+    const station = settings.stations[channel.id];
+    if (station && await renderStation(channel.id)) meta.panel = { channelId: station.channelId, messageId: station.messageId };
+    else await postPanel(rt, panelChannel || channel);
     console.log(`[Recorder] Started ${id} in #${channel.name} (${auto ? 'auto' : requester.username})`);
     return rt;
 }
@@ -584,7 +603,7 @@ class UserError extends Error {}
 function panelPayload(rt) {
     const m = rt.meta;
     const live = isLive(m) && !rt.stopping;
-    const c = new ContainerBuilder().setAccentColor(live ? ACCENT_LIVE : ACCENT_DONE);
+    const c = new ContainerBuilder().setAccentColor(ACCENT);
     const owner = m.auto ? 'Auto-recording' : `${esc(m.requester.displayName)}'s recording`;
     c.addTextDisplayComponents(td(live
         ? `## 🔴 Recording…\n**${owner}** in <#${m.channelId}>`
@@ -629,21 +648,113 @@ function updatePanelSoon(rt) {
     rt.panelTimer = setTimeout(() => { rt.panelTimer = null; renderPanel(rt); }, 2500);
 }
 
+// Updates the recording's panel, plus its voice chat's station card if it has one
 async function renderPanel(rt) {
-    const p = rt.meta.panel;
-    if (!p) return;
+    const m = rt.meta;
+    const st = settings.stations[startVc(m)];
+    if (st) await renderStation(startVc(m));
+    const p = m.panel;
+    if (!p || (st && p.messageId === st.messageId)) return;
     const ch = client.channels.cache.get(p.channelId);
     const msg = ch && await ch.messages.fetch(p.messageId).catch(() => null);
-    if (!msg) { rt.meta.panel = null; return; }
+    if (!msg) { m.panel = null; return; }
     await msg.edit(panelPayload(rt)).catch(e => console.error('[Recorder] panel edit failed:', e.message));
 }
 
 const panelUrl = m => m.panel ? `https://discord.com/channels/${m.guildId}/${m.panel.channelId}/${m.panel.messageId}` : null;
 
+// ── Stations ("Record this chat" cards) ─────────────────────────────────────
+function liveFor(vcId) {
+    for (const rt of active.values()) if (startVc(rt.meta) === vcId) return rt;
+    return null;
+}
+
+function lastRecordingFor(vcId) {
+    let last = null;
+    for (const m of recordings.values()) if (!isLive(m) && startVc(m) === vcId && (!last || m.startedAt > last.startedAt)) last = m;
+    return last;
+}
+
+function stationPayload(vcId) {
+    const rt = liveFor(vcId);
+    if (rt && !rt.stopping) return panelPayload(rt);
+    const c = new ContainerBuilder().setAccentColor(ACCENT)
+        .addTextDisplayComponents(td(
+            `## 🎙️ Record this chat\nRecord <#${vcId}> with everyone on their own track. Great for podcasts, clips and highlights.`))
+        .addSeparatorComponents(sep())
+        .addTextDisplayComponents(td(
+            '**1.** Hop in the voice chat\n' +
+            '**2.** Press **Start recording**\n' +
+            '**3.** I DM you a download link: FLAC, MP3, one mixed file, or a ready-made Audacity project'));
+    const last = lastRecordingFor(vcId);
+    if (last) {
+        const people = `${last.tracks.length} ${last.tracks.length === 1 ? 'person' : 'people'}`;
+        c.addSeparatorComponents(sep()).addSectionComponents(new SectionBuilder()
+            .addTextDisplayComponents(td(`**Last recording** · ${ts(last.startedAt, 'R')}\n-# ${fmtDuration(durationMs(last))} · ${people} · by ${esc(last.requester.displayName)}`))
+            .setButtonAccessory(btn(`rec:link:${last.id}`, 'Get link', '🔗')));
+    }
+    c.addSeparatorComponents(sep())
+        .addActionRowComponents(row(
+            btn(`rec:sstart:${vcId}`, 'Start recording', '🔴', ButtonStyle.Danger),
+            btn('rec:stest', 'Sound check', '🎧'),
+            btn('rec:mine', 'My recordings', '📂'),
+            btn('rec:help', 'How it works', '❔')))
+        .addTextDisplayComponents(td('-# While I record, my name shows **[RECORDING]** so everyone knows. I stop by myself once everyone leaves.'));
+    return { flags: V2, components: [c], allowedMentions: NO_PINGS };
+}
+
+// Re-draws a station card; forgets the station if its message is gone. Returns whether it exists.
+async function renderStation(vcId) {
+    const st = settings.stations[vcId];
+    if (!st) return false;
+    const ch = client.channels.cache.get(st.channelId);
+    const msg = ch && await ch.messages.fetch(st.messageId).catch(() => null);
+    if (!msg) { delete settings.stations[vcId]; scheduleSave(); return false; }
+    await msg.edit(stationPayload(vcId)).catch(e => console.error('[Recorder] station edit failed:', e.message));
+    return true;
+}
+
+/**
+ * Makes sure a voice channel has its station card. Used for custom rooms and sessions (index.js /
+ * sessions.js) and /record station. Leaves an existing card alone unless `move` is set.
+ */
+async function postRecordingStation(voiceChannel, textChannel, { ownerId = null, kind = 'manual', move = false } = {}) {
+    await ready;
+    if (!voiceChannel || !textChannel?.isTextBased?.()) return null;
+    const vcId = voiceChannel.id;
+    const existing = settings.stations[vcId];
+    if (existing) {
+        if (ownerId && existing.ownerId !== ownerId) { existing.ownerId = ownerId; scheduleSave(); }
+        const sameSpot = existing.channelId === textChannel.id;
+        if ((!move || sameSpot) && await renderStation(vcId)) return existing;
+        if (settings.stations[vcId]) {
+            client.channels.cache.get(existing.channelId)?.messages.delete(existing.messageId).catch(() => {});
+        }
+    }
+    const perms = textChannel.permissionsFor(textChannel.guild.members.me);
+    if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return null;
+    const msg = await textChannel.send(stationPayload(vcId)).catch(e => { console.error('[Recorder] station post failed:', e.message); return null; });
+    if (!msg) return null;
+    settings.stations[vcId] = { guildId: voiceChannel.guild.id, channelId: textChannel.id, messageId: msg.id, ownerId: ownerId || existing?.ownerId || null, kind };
+    scheduleSave();
+    const rt = liveFor(vcId);
+    if (rt) { rt.meta.panel = { channelId: textChannel.id, messageId: msg.id }; writeMetaSoon(rt); }
+    return settings.stations[vcId];
+}
+
+function onChannelDelete(channel) {
+    let changed = false;
+    for (const [vcId, st] of Object.entries(settings.stations)) {
+        if (vcId === channel.id || st.channelId === channel.id) { delete settings.stations[vcId]; changed = true; }
+    }
+    if (settings.auto[channel.id]) { delete settings.auto[channel.id]; changed = true; }
+    if (changed) scheduleSave();
+}
+
 async function dmRequester(m, finished) {
     const user = await client.users.fetch(m.requesterId).catch(() => null);
     if (!user) return false;
-    const c = new ContainerBuilder().setAccentColor(finished ? ACCENT_DONE : ACCENT_LIVE);
+    const c = new ContainerBuilder().setAccentColor(ACCENT);
     if (finished) {
         c.addTextDisplayComponents(td(
             `## ✅ Recording finished\n**#${esc(m.channelName)}** in **${esc(m.guildName)}** · ${fmtDuration(durationMs(m))} · ` +
@@ -684,6 +795,8 @@ const recorderCommands = [
         .addSubcommand(s => s.setName('panel').setDescription('Re-post the recording panel here'))
         .addSubcommand(s => s.setName('voice-test').setDescription('Record yourself for a few seconds and hear how you sound'))
         .addSubcommand(s => s.setName('help').setDescription('How recording works'))
+        .addSubcommand(s => s.setName('station').setDescription('(Mods) Post a "Record this chat" panel for a voice channel here')
+            .addChannelOption(o => o.setName('voice').setDescription('Which voice channel (default: this voice chat, or the one you are in)').addChannelTypes(...voiceTypes)))
         .addSubcommandGroup(g => g.setName('autorecord').setDescription('Record a channel automatically when people join')
             .addSubcommand(s => s.setName('on').setDescription('Turn on auto-recording for a channel')
                 .addChannelOption(o => o.setName('channel').setDescription('The voice channel').setRequired(true).addChannelTypes(...voiceTypes))
@@ -705,6 +818,7 @@ const recorderCommands = [
 const isRecorderCommand = name => name === 'record';
 const isRecorderInteraction = ix => typeof ix.customId === 'string' && ix.customId.startsWith('rec:');
 
+const NEED_STOP = 'Only the person who started it, the room owner / session host, or a mod can stop this recording.';
 const NEED_PERMS = 'You need **Manage Server**, the mod role, or a recording access role to do that. A manager can add one with `/record settings access-role-add`.';
 
 async function handleRecorderCommand(ix) {
@@ -722,14 +836,25 @@ async function handleRecorderCommand(ix) {
         case 'panel': return cmdPanel(ix);
         case 'voice-test': return cmdVoiceTest(ix);
         case 'help': return reply(ix, null, { ...helpPayload(), content: undefined });
+        case 'station': return cmdStation(ix);
     }
 }
 
+async function cmdStation(ix) {
+    if (!isStaff(ix.member)) return reply(ix, 'Only mods and managers can post recording panels.');
+    const here = voiceTypes.includes(ix.channel?.type) ? ix.channel : null;
+    const voice = ix.options.getChannel('voice') || here || ix.member.voice?.channel;
+    if (!voice) return reply(ix, 'Pick a voice channel with the `voice` option (or run this in a voice chat).');
+    const st = await postRecordingStation(voice, ix.channel, { kind: 'manual', move: true });
+    if (!st) return reply(ix, 'I can\'t post in this channel. Give me Send Messages here and try again.');
+    return reply(ix, `🎙️ Done. Anyone in <#${voice.id}> can now start a recording from the panel.`);
+}
+
 function helpPayload() {
-    const c = new ContainerBuilder().setAccentColor(ACCENT_LIVE).addTextDisplayComponents(td(
+    const c = new ContainerBuilder().setAccentColor(ACCENT).addTextDisplayComponents(td(
         '## 🎙️ Recording, the easy way\n' +
-        '**1.** Join a voice channel and run `/record start`.\n' +
-        '**2.** I join, add **[RECORDING]** to my name, and post a panel with **Stop** and **Add a note** buttons.\n' +
+        '**1.** Join a voice channel and press **Start recording** on its panel (or run `/record start`).\n' +
+        '**2.** I join, add **[RECORDING]** to my name, and the panel shows **Stop** and **Add a note** buttons.\n' +
         '**3.** You get a DM with your download page. Everyone who talks gets their own track, all perfectly in sync.\n' +
         '**4.** Run `/record stop` (or hit Stop) when you\'re done. Downloads work even while recording.'))
         .addSeparatorComponents(sep())
@@ -740,16 +865,29 @@ function helpPayload() {
             '**Sound check:** `/record voice-test` records you for a few seconds and plays it back.\n' +
             '**Lost the link?** `/record list`\n' +
             '**Auto-record:** `/record autorecord on` records a channel automatically when people join.\n' +
-            '**Who can record:** Manage Server, mods, and roles added with `/record settings access-role-add`.'))
+            '**Who can record:** anyone in a voice chat that has a recording panel, plus Manage Server, mods and access roles anywhere. ' +
+            'The person who started it, the room owner / session host and mods can stop it.'))
         .addTextDisplayComponents(td(`-# Up to ${MAX_HOURS} hours per recording. Recordings are kept for ${EXPIRY_DAYS} days after they end. Stops by itself 2 minutes after everyone leaves.`));
     return { flags: V2 | EPH, components: [c], allowedMentions: NO_PINGS };
 }
 
 async function cmdStart(ix) {
-    const member = ix.member;
-    if (!canRecord(member)) return reply(ix, NEED_PERMS);
-    const channel = ix.options.getChannel('channel') || member.voice?.channel;
+    const channel = ix.options.getChannel('channel') || ix.member.voice?.channel;
     if (!channel) return reply(ix, 'Join a voice channel first, or pick one with the `channel` option.');
+    return beginRecording(ix, channel);
+}
+
+// Station "Start recording" button
+async function stationStart(ix, vcId) {
+    const channel = ix.guild.channels.cache.get(vcId);
+    if (!channel) return reply(ix, 'That voice chat doesn\'t exist anymore.');
+    if (ix.member.voice?.channelId !== vcId && !canRecord(ix.member)) return reply(ix, `Hop in <#${vcId}> first, then press **Start recording**.`);
+    return beginRecording(ix, channel);
+}
+
+async function beginRecording(ix, channel) {
+    const member = ix.member;
+    if (!canStartIn(member, channel)) return reply(ix, NEED_PERMS);
     const guild = ix.guild;
     const existing = active.get(guild.id);
     if (existing) {
@@ -778,7 +916,7 @@ async function cmdStart(ix) {
     }
     const dmed = await dmRequester(rt.meta, false);
     const buttons = [linkBtn(pageUrl(rt.meta), 'Download page', '⬇️')];
-    if (panelUrl(rt.meta)) buttons.push(linkBtn(panelUrl(rt.meta), 'Jump to panel', '🎛️'));
+    if (panelUrl(rt.meta) && rt.meta.panel.messageId !== ix.message?.id) buttons.push(linkBtn(panelUrl(rt.meta), 'Jump to panel', '🎛️'));
     return reply(ix,
         `🔴 Recording <#${channel.id}>. Everyone who talks gets their own track.\n` +
         (dmed ? 'I sent you a DM with the download page and delete key.'
@@ -793,7 +931,7 @@ function findRecordingFor(ix) {
 async function cmdStop(ix) {
     const rt = findRecordingFor(ix);
     if (!rt) return reply(ix, 'Nothing is being recorded in this server right now.');
-    if (!isRecOwner(ix.user.id, rt.meta) && !canRecord(ix.member)) return reply(ix, NEED_PERMS);
+    if (!canStop(ix.user.id, ix.member, rt.meta)) return reply(ix, NEED_STOP);
     await ix.deferReply({ flags: EPH });
     await stopRecording(rt, null, ix.user.id);
     return reply(ix, `⏹️ Stopped. ${fmtDuration(durationMs(rt.meta))} recorded, ${rt.meta.tracks.length} ${rt.meta.tracks.length === 1 ? 'track' : 'tracks'}.`,
@@ -826,21 +964,22 @@ async function cmdPanel(ix) {
     const old = rt.meta.panel;
     const msg = await postPanel(rt, ix.channel);
     if (!msg) return reply(ix, 'I can\'t post in this channel. Try another one.');
-    if (old) client.channels.cache.get(old.channelId)?.messages.delete(old.messageId).catch(() => {});
+    const isStation = old && Object.values(settings.stations).some(st => st.messageId === old.messageId);
+    if (old && !isStation) client.channels.cache.get(old.channelId)?.messages.delete(old.messageId).catch(() => {});
     return reply(ix, '🎛️ Panel posted.');
 }
 
 async function cmdList(ix) {
-    const everyone = ix.options.getBoolean('everyone') && canManageServer(ix.member);
+    const everyone = ix.options?.getBoolean?.('everyone') && canManageServer(ix.member); // buttons have no options
     const list = [...recordings.values()]
         .filter(m => m.guildId === ix.guildId && (everyone || m.requesterId === ix.user.id))
         .sort((a, b) => b.startedAt - a.startedAt)
         .slice(0, 10);
     if (!list.length) return reply(ix, everyone ? 'There are no recordings in this server right now.' : 'You don\'t have any recordings from the last week. Start one with `/record start`.');
-    const c = new ContainerBuilder().setAccentColor(ACCENT_IDLE)
+    const c = new ContainerBuilder().setAccentColor(ACCENT)
         .addTextDisplayComponents(td(`## 🎙️ ${everyone ? 'Server recordings' : 'Your recordings'}\n-# ${list.length} most recent · only you can see this`));
     for (const m of list) {
-        const status = isLive(m) ? '🔴 **Recording now**' : `${fmtDuration(durationMs(m))} · expires ${ts(m.expiresAt, 'R')}`;
+        const status = isLive(m) ? '🔴 **Recording now**' : `${fmtDuration(durationMs(m))} · ${m.keep ? 'kept' : `expires ${ts(m.expiresAt, 'R')}`}`;
         const by = everyone ? ` · by ${esc(m.requester.displayName)}` : '';
         c.addSectionComponents(new SectionBuilder()
             .addTextDisplayComponents(td(`**#${esc(m.channelName)}** · ${ts(m.startedAt, 'f')}${m.auto ? ' · *auto*' : ''}\n-# ${status} · ${m.tracks.length} ${m.tracks.length === 1 ? 'track' : 'tracks'}${by} · \`${m.id}\``))
@@ -853,6 +992,12 @@ async function cmdList(ix) {
 async function handleRecorderInteraction(ix) {
     const [, action, id] = ix.customId.split(':');
     if (action === 'vtstop') return voiceTestStopButton(ix);
+    // Station card buttons
+    if (action === 'help') return ix.reply(helpPayload());
+    if (['sstart', 'stest', 'mine'].includes(action) && !ix.inGuild()) return reply(ix, 'That only works inside the server.');
+    if (action === 'sstart') return stationStart(ix, id);
+    if (action === 'stest') return cmdVoiceTest(ix);
+    if (action === 'mine') return cmdList(ix);
     const m = recordings.get(id);
     if (!m) return reply(ix, 'That recording doesn\'t exist anymore (it may have expired or been deleted).');
     const rt = active.get(m.guildId)?.meta.id === id ? active.get(m.guildId) : null;
@@ -860,7 +1005,7 @@ async function handleRecorderInteraction(ix) {
 
     if (action === 'stop') {
         if (!rt) return reply(ix, 'That recording already ended.');
-        if (!isRecOwner(ix.user.id, m) && !canRecord(member)) return reply(ix, NEED_PERMS);
+        if (!canStop(ix.user.id, member, m)) return reply(ix, NEED_STOP);
         await ix.deferUpdate();
         return stopRecording(rt, null, ix.user.id);
     }
@@ -877,8 +1022,9 @@ async function handleRecorderInteraction(ix) {
         return reply(ix, `📝 Note added at \`${timemark(t).slice(0, -3)}\`.`);
     }
     if (action === 'link') {
-        if (!isRecOwner(ix.user.id, m) && !canRecord(member)) {
-            return reply(ix, `Only <@${m.requesterId}> (who started it) and people with recording access can get the download link. Ask them for it!`);
+        const tookPart = m.tracks.some(t => t.id === ix.user.id);
+        if (!isRecOwner(ix.user.id, m) && !canRecord(member) && !tookPart && channelOwner(startVc(m)) !== ix.user.id) {
+            return reply(ix, `Only <@${m.requesterId}> (who started it), people who were on the recording, and mods can get the download link. Ask them for it!`);
         }
         return reply(ix, `Here's the download page for \`${m.id}\`. Only share it with people who should hear it.`,
             { components: [row(linkBtn(pageUrl(m), 'Download page', '⬇️'))] });
@@ -898,9 +1044,11 @@ async function handleRecorderInteraction(ix) {
 }
 
 async function deleteRecording(id) {
+    const m = recordings.get(id);
     recordings.delete(id);
     for (const [jid, job] of jobs) if (job.recId === id) { job.abort?.abort(); jobs.delete(jid); fsp.rm(job.dir, { recursive: true, force: true }).catch(() => {}); }
     await fsp.rm(recDir(id), { recursive: true, force: true });
+    if (m && loaded) renderStation(startVc(m)).catch(() => {}); // its "Last recording" may point here
 }
 
 // ── Auto-record ─────────────────────────────────────────────────────────────
@@ -1422,6 +1570,7 @@ function jobView(job) {
 
 async function cleanJobs() {
     for (const [ip, list] of badKeyHits) if (!list.some(t => t > Date.now() - 10 * MIN)) badKeyHits.delete(ip);
+    for (const [token, until] of adminTokens) if (until < Date.now()) adminTokens.delete(token);
     const cutoff = Date.now() - JOB_TTL_MS;
     for (const [id, job] of jobs) {
         if (job.state !== 'queued' && job.state !== 'running' && (job.finishedAt || job.createdAt) < cutoff) {
@@ -1455,7 +1604,7 @@ function publicInfo(m) {
         id: m.id, live: isLive(m), status: m.status, auto: !!m.auto,
         guild: { name: m.guildName, icon: m.guildIcon }, channel: { name: m.channelName },
         requester: { name: m.requester.displayName, username: m.requester.username, avatar: m.requester.avatar },
-        startedAt: m.startedAt, endedAt: m.endedAt, expiresAt: m.expiresAt, duration: durationMs(m) / 1000,
+        startedAt: m.startedAt, endedAt: m.endedAt, expiresAt: m.keep ? null : m.expiresAt, duration: durationMs(m) / 1000,
         endReason: m.endReason, maxHours: MAX_HOURS,
         tracks: m.tracks.map(t => ({ track: t.track, name: trackName(t), username: t.username, avatar: t.avatar, bot: t.bot })),
         notes: m.notes.map(n => ({ t: n.t, text: n.text })),
@@ -1497,18 +1646,86 @@ async function serveFile(req, res, file, name, type) {
 
 const MIME = { zip: 'application/zip', flac: 'audio/flac', wav: 'audio/wav', m4a: 'audio/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg' };
 
+// ── Admin API (truebeast.io/admin → Recordings tab) ─────────────────────────
+// The site sends the signed-in Firebase user's ID token; Firebase Auth's REST lookup checks it.
+const ADMIN_EMAIL = 'kiernenyt@gmail.com'; // same super admin as SITE_CONFIG.email.adminEmail on the site
+const adminTokens = new Map(); // idToken → ms it stays trusted until
+
+async function isAdminRequest(req) {
+    const token = /^Bearer (\S{20,4096})$/.exec(req.headers.authorization || '')?.[1];
+    if (!token) return false;
+    if (adminTokens.get(token) > Date.now()) return true;
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token }),
+    }).catch(() => null);
+    if (!res?.ok) return false;
+    const email = (await res.json().catch(() => ({}))).users?.[0]?.email?.toLowerCase();
+    if (email !== ADMIN_EMAIL) return false;
+    adminTokens.set(token, Date.now() + 5 * MIN);
+    return true;
+}
+
+async function recordingSize(id) {
+    let total = 0;
+    for (const f of await fsp.readdir(recDir(id)).catch(() => [])) total += (await fsp.stat(path.join(recDir(id), f)).catch(() => ({ size: 0 }))).size;
+    return total;
+}
+
+async function handleAdmin(req, res, url, ip) {
+    if (!await isAdminRequest(req)) {
+        badKeyHits.get(ip)?.push(Date.now()) ?? badKeyHits.set(ip, [Date.now()]);
+        return send(res, 401, { error: 'Sign in as the site admin to manage recordings.' });
+    }
+    if (url.pathname === '/api/admin/recordings' && req.method === 'GET') {
+        const list = await Promise.all([...recordings.values()].map(async m => {
+            const { formats, ...info } = publicInfo(m);
+            return { ...info, url: pageUrl(m), size: await recordingSize(m.id), keep: !!m.keep, requesterId: m.requesterId, deleteKey: m.deleteKey };
+        }));
+        list.sort((a, b) => (b.live - a.live) || b.startedAt - a.startedAt);
+        let storage = null;
+        try { const s = await fsp.statfs(DATA_DIR); storage = { free: s.bavail * s.bsize, total: s.blocks * s.bsize }; } catch (_) {}
+        return send(res, 200, { recordings: list, storage, limits: { maxHours: MAX_HOURS, expiryDays: EXPIRY_DAYS } });
+    }
+    const mt = /^\/api\/admin\/recordings\/([A-Za-z0-9]{6,20})(\/stop|\/keep)?$/.exec(url.pathname);
+    const m = mt && recordings.get(mt[1]);
+    if (!m) return send(res, 404, { error: 'That recording doesn\'t exist anymore.' });
+    if (mt[2] === '/stop' && req.method === 'POST') {
+        const rt = active.get(m.guildId);
+        if (rt?.meta.id !== m.id) return send(res, 409, { error: 'That recording already ended.' });
+        await stopRecording(rt, 'Stopped from the admin panel.');
+        return send(res, 200, { ok: true });
+    }
+    if (mt[2] === '/keep' && req.method === 'POST') {
+        let body;
+        try { body = await readBody(req); } catch { return send(res, 400, { error: 'Bad request' }); }
+        m.keep = !!body.keep;
+        await writeMeta(m);
+        return send(res, 200, { ok: true, keep: m.keep });
+    }
+    if (!mt[2] && req.method === 'DELETE') {
+        if (isLive(m)) return send(res, 409, { error: 'Stop the recording first, then delete it.' });
+        await deleteRecording(m.id);
+        return send(res, 200, { ok: true });
+    }
+    return send(res, 404, { error: 'Not found' });
+}
+
 async function handleHttp(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
     const url = new URL(req.url, 'http://x');
     if (url.pathname === '/' || url.pathname === '/health') return send(res, 200, 'ok');
 
+    const ip = req.headers['fly-client-ip'] || req.socket.remoteAddress;
+    if (url.pathname.startsWith('/api/admin/')) {
+        if (rateLimited(ip)) return send(res, 429, { error: 'Too many tries. Wait a few minutes and try again.' });
+        return handleAdmin(req, res, url, ip);
+    }
     const mt = /^\/api\/rec\/([A-Za-z0-9]{6,20})(\/.*)?$/.exec(url.pathname);
     if (!mt) return send(res, 404, { error: 'Not found' });
-    const ip = req.headers['fly-client-ip'] || req.socket.remoteAddress;
     if (rateLimited(ip)) return send(res, 429, { error: 'Too many tries. Wait a few minutes and try again.' });
     const m = recordings.get(mt[1]);
     if (!m || !safeEq(url.searchParams.get('key'), m.key)) {
@@ -1597,7 +1814,7 @@ async function loadRecordings() {
 
 async function expireOld() {
     for (const m of recordings.values()) {
-        if (!isLive(m) && m.expiresAt && m.expiresAt < Date.now()) {
+        if (!isLive(m) && !m.keep && m.expiresAt && m.expiresAt < Date.now()) {
             console.log(`[Recorder] Expired ${m.id}`);
             await deleteRecording(m.id).catch(e => console.error('[Recorder] expire failed:', e.message));
         }
@@ -1642,10 +1859,12 @@ async function resumeInterrupted() {
     }
 }
 
-async function startRecorder(discordClient, { modRoleId: mod, ownerId: owner }) {
+// vcOwner: (voiceChannelId) => owner id of a custom room, so the current owner can stop its recordings
+async function startRecorder(discordClient, { modRoleId: mod, ownerId: owner, vcOwner: ownerLookup }) {
     client = discordClient;
     modRoleId = mod || null;
     ownerId = owner || null;
+    if (ownerLookup) vcOwner = id => { try { return ownerLookup(id) || null; } catch { return null; } };
     await fsp.mkdir(JOB_DIR, { recursive: true });
     for (const d of await fsp.readdir(JOB_DIR)) await fsp.rm(path.join(JOB_DIR, d), { recursive: true, force: true }).catch(() => {}); // jobs don't survive restarts
     startHttp();
@@ -1658,11 +1877,19 @@ async function startRecorder(discordClient, { modRoleId: mod, ownerId: owner }) 
     }
     if (!state) { console.error('[Recorder] giving up on settings load — recorder stays off until restart'); return; }
     try { settings = { ...settings, ...JSON.parse(state.settingsJson || '{}') }; } catch (_) {}
+    settings.stations ||= {};
     loaded = true;
-    console.log(`[Recorder] Ready: ${recordings.size} recording(s) on disk, ${Object.keys(settings.auto).length} auto-record rule(s), storage at ${DATA_DIR}`);
+    console.log(`[Recorder] Ready: ${recordings.size} recording(s) on disk, ${Object.keys(settings.auto).length} auto-record rule(s), ${Object.keys(settings.stations).length} station(s), storage at ${DATA_DIR}`);
 
     client.on('voiceStateUpdate', (o, n) => { try { onVoiceStateUpdate(o, n); } catch (e) { console.error('[Recorder] voiceStateUpdate failed:', e.message); } });
+    client.on('channelDelete', ch => { try { onChannelDelete(ch); } catch (e) { console.error('[Recorder] channelDelete failed:', e.message); } });
     await resumeInterrupted().catch(e => console.error('[Recorder] resume failed:', e.message));
+    markReady();
+    // Refresh every station card (picks up deleted/expired recordings, drops ones whose message is gone)
+    for (const vcId of Object.keys(settings.stations)) {
+        if (!client.channels.cache.has(vcId)) { delete settings.stations[vcId]; scheduleSave(); continue; }
+        await renderStation(vcId).catch(() => {});
+    }
     for (const chId of Object.keys(settings.auto)) queueAutoCheck(chId, 5 * SEC);
     setInterval(() => expireOld().catch(e => console.error('[Recorder] cleanup failed:', e.message)), 15 * MIN);
     expireOld().catch(() => {});
@@ -1691,5 +1918,5 @@ async function flushRecorder() {
 
 module.exports = {
     recorderCommands, isRecorderCommand, handleRecorderCommand,
-    isRecorderInteraction, handleRecorderInteraction, startRecorder, flushRecorder,
+    isRecorderInteraction, handleRecorderInteraction, startRecorder, flushRecorder, postRecordingStation,
 };

@@ -86,6 +86,7 @@ const pending  = new Map();        // userId → unfinished create (modal done, 
 let loaded = false;                // guards saves so an empty map never overwrites Firestore
 let client = null;
 let modRoleId = null, quarantineRoleId = null;
+let onSessionReady = null;         // (textChannel, voiceChannel, hostId) — index.js adds the recording card
 let panelChannelId = null, panelMessageId = null, guildId = null;
 let saveTimer = null, panelTimer = null, panelQueue = Promise.resolve();
 
@@ -788,6 +789,7 @@ async function finishCreate(ix, p, when) {
         sessions.set(s.id, s);
         scheduleSave();
         await refreshSession(s, { pingIds: p.members });
+        onSessionReady?.(text, voice, member.id);
         refreshPanel();
         console.log(`[Sessions] ${member.user.tag} created ${p.isPrivate ? 'private' : 'public'} session "${p.title}" (${p.members.length} invited)`);
     } catch (e) {
@@ -1097,10 +1099,11 @@ async function meetPollTick() {
 }
 
 // ── Startup ─────────────────────────────────────────────────────────────────
-async function startSessions(discordClient, { modRoleId: mod, quarantineRoleId: quarantine }) {
+async function startSessions(discordClient, { modRoleId: mod, quarantineRoleId: quarantine, onSessionReady: onReady }) {
     client = discordClient;
     modRoleId = mod || null;
     quarantineRoleId = quarantine || null;
+    onSessionReady = onReady || null;
     const category = await client.channels.fetch(CATEGORY_ID).catch(() => null);
     if (!category) { console.error('[Sessions] Custom Voice Chats category not found'); return; }
     const g = category.guild;
@@ -1131,6 +1134,11 @@ async function startSessions(discordClient, { modRoleId: mod, quarantineRoleId: 
     loaded = true;
     scheduleSave();
     console.log(`[Sessions] Restored ${sessions.size} session(s)`);
+    // Sessions made before recording cards existed get one too (no-op for ones that have it)
+    for (const s of sessions.values()) {
+        const text = g.channels.cache.get(s.textId), voice = g.channels.cache.get(s.voiceId);
+        if (text && voice) onSessionReady?.(text, voice, s.ownerId);
+    }
 
     // Move any sessions made before the switch into Custom Voice Chats, then remove the
     // old "📅 Sessions" category the first version created (only if it's left empty)

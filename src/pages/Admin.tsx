@@ -27,7 +27,9 @@ import {
   Image01,
   LayersThree01,
   UserPlus01,
+  Microphone01,
 } from '@untitledui/icons';
+import RecordingsTab from './admin/RecordingsTab';
 import { Tabs, TabList, TabPanel, Tab } from '@/components/application/tabs/tabs';
 import { Button } from '@/components/base/buttons/button';
 import { GlassCard } from '@/components/shared/GlassCard';
@@ -6606,6 +6608,7 @@ const TAB_ITEMS = [
   { id: 'tickets',          label: 'Tickets',          permKey: 'tickets' },
   { id: 'reviews',          label: 'Reviews',          permKey: 'reviews' },
   { id: 'analytics',        label: 'Analytics',        permKey: 'analytics' },
+  { id: 'recordings',       label: 'Recordings',       permKey: 'recordings', superOnly: true }, // the bot's admin API only trusts the super admin
   { id: 'admin',            label: 'Admin',            permKey: 'adminManagement' },
 ];
 
@@ -6630,6 +6633,7 @@ function AdminDashboard() {
 
   const visibleTabs = TAB_ITEMS.filter((t) => {
     if (isSuperAdmin) return true;
+    if ('superOnly' in t) return false;
     if (rolePerms === null) return false;
     return rolePerms[t.permKey] === true;
   });
@@ -6679,6 +6683,7 @@ function AdminDashboard() {
     'tickets':          <MessageSquare01 className="w-4 h-4 mr-1.5 inline-block" />,
     'reviews':          <Star01    className="w-4 h-4 mr-1.5 inline-block" />,
     'analytics':        <BarChart01 className="w-4 h-4 mr-1.5 inline-block" />,
+    'recordings':       <Microphone01 className="w-4 h-4 mr-1.5 inline-block" />,
     'admin':            <Users01   className="w-4 h-4 mr-1.5 inline-block" />,
   };
 
@@ -6713,6 +6718,7 @@ function AdminDashboard() {
             <TabPanel id="tickets"          className="mt-2"><TicketsTab /></TabPanel>
             <TabPanel id="reviews"          className="mt-2"><ReviewsTab /></TabPanel>
             <TabPanel id="analytics"        className="mt-2"><AnalyticsTab /></TabPanel>
+            <TabPanel id="recordings"       className="mt-2"><RecordingsTab /></TabPanel>
             <TabPanel id="admin"            className="mt-2"><AdminManagementTab /></TabPanel>
           </Tabs>
         </div>

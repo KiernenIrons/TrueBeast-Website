@@ -1,5 +1,16 @@
 # Beast Bot Changelog
 
+## [2026-10-29] — Recorder: voice chat recording panels + admin recordings tab
+
+- Stations: a standing red Components v2 "Record this chat" card per voice channel (`settings.stations` in `botConfig/recorder`, keyed by voice channel id → `{ guildId, channelId, messageId, ownerId, kind }`). Buttons: Start recording (`rec:sstart:<vcId>`), Sound check (`rec:stest`), My recordings (`rec:mine`), How it works (`rec:help`)
+- When a recording of that channel starts (from the card, `/record start` or auto-record) the card itself becomes the live panel, then flips back with a "Last recording · Get link" section. `renderPanel` updates the station plus any separate panel; `deleteRecording` re-renders it
+- Posted automatically: in each custom room's own chat right after the guide embed (`cvc` create), in every session's text channel after creation (new `onSessionReady` option on `startSessions`), and backfilled at startup for open rooms and sessions (`postRecordingStation` is a no-op if the card exists). `/record station [voice]` (mods/managers) posts or moves one anywhere
+- Permissions: anyone in a voice channel with a station can start (`canStartIn`). Stop (`canStop`): the requester, recording-access people, or the room owner / session host (`vcOwner` lookup from `tempVoiceChannels`, falls back to the station's ownerId). Get link: also anyone who has a track on that recording
+- Stations and auto-record rules are dropped on `channelDelete`. Cards are refreshed on boot (stale ones forgotten)
+- All recorder cards now use a red accent (`ACCENT = 0xef4444`)
+- Admin API: `GET /api/admin/recordings` (every recording + size + storage free/total), `POST …/:id/stop`, `POST …/:id/keep` (`{ keep }`, kept recordings never expire), `DELETE …/:id`. Auth: `Authorization: Bearer <Firebase ID token>`, checked with Identity Toolkit `accounts:lookup` and must be `kiernenyt@gmail.com` (cached 5 min). Bad tokens count toward the per-IP rate limit
+- Site: new super-admin-only "Recordings" tab in the admin panel (`src/pages/admin/RecordingsTab.tsx`): storage meter, live count, All/Live/Kept filter, search, and per recording Open / Copy link / Keep / Stop / Delete. Auto-refreshes (10s while something is live)
+
 ## [2026-10-29] — Recorder: Craig-style multi-track recording + download page
 
 - New self-contained `recorder.js` (`recorderCommands`, `isRecorderCommand`, `handleRecorderCommand`, `isRecorderInteraction`, `handleRecorderInteraction`, `startRecorder`, `flushRecorder`), routed first in `interactionCreate` (slash + `rec:` buttons/modals, incl. DM buttons), gated by `botFeatures.recorder`

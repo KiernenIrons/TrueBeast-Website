@@ -44,7 +44,7 @@ const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handle
 const { startCasino, isCasinoInteraction, handleCasinoInteraction, flushCasino } = require('./casino');
 const { startSessions, isSessionInteraction, handleSessionInteraction, handleSessionChannelDelete, flushSessions } = require('./sessions');
 const { vcPingCommands, isVcPingCommand, handleVcPingCommand, startVcPing, flushVcPing } = require('./vcping');
-const { recorderCommands, isRecorderCommand, handleRecorderCommand, isRecorderInteraction, handleRecorderInteraction, startRecorder, flushRecorder } = require('./recorder');
+const { recorderCommands, isRecorderCommand, handleRecorderCommand, isRecorderInteraction, handleRecorderInteraction, startRecorder, flushRecorder, postRecordingStation } = require('./recorder');
 const { streakCommands, isStreakCommand, isStreakButton, handleStreakCommand, handleStreakAutocomplete, handleStreakButton, streakTick, initStreaks, serializeStreaks, saveStreakMirror } = require('./streaks');
 // Words that must never be used by the Unscramble game (checked at pick time, so they stay
 // banned even if someone re-adds them to a list below).
@@ -398,10 +398,10 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🎙️ New /record command', value: 'Record a voice chat with /record start. Everyone who talks gets their own track, all in sync, which is perfect for podcasts and clips. /record stop when you\'re done.' },
-    { name: '🔴 You\'ll always know', value: 'While recording, the bot\'s name shows [RECORDING] and a live panel in chat has Stop, Add a note and Get download link buttons.' },
-    { name: '⬇️ Download page', value: 'You get a DM with a download page: FLAC, WAV, MP3, AAC, one mixed file, or a ready-made Audacity or Audition project. Works mid-recording, kept 7 days.' },
-    { name: '📝 Notes, sound check, auto-record', value: '/record note adds chapter markers, /record voice-test plays your mic back to you, and /record autorecord can record a channel when people join.' },
+    { name: '🎙️ Record button in your voice chat', value: 'Every custom room and every session now has a red "Record this chat" panel. Hop in the voice chat and press Start recording, no commands needed.' },
+    { name: '🔴 Live controls', value: 'While recording, the same panel shows Stop, Add a note and Get download link. After, it shows a link to your last recording.' },
+    { name: '🎧 Sound check & My recordings', value: 'The panel also has Sound check (hear how your mic sounds) and My recordings (all your download links in one place).' },
+    { name: '✋ Who can do what', value: 'Anyone in the voice chat can start a recording. Whoever started it, the room owner or session host, and mods can stop it. Everyone on the recording can grab the link.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -4685,9 +4685,13 @@ async function createCustomVC(member, name, limit, isPrivate) {
                     `${member}, this is your room. It closes **1 min after everyone leaves**.\n\n` +
                     `Rename it, change the limit, lock/unlock it or hand it over from the panel in <#${cvcPanelChannelId}>.\n` +
                     (isPrivate ? 'People ask to join from the panel, and you (or anyone they ask) can accept.\n' : '') +
+                    '🎙️ Want to record? Use the panel below.\n' +
                     '\n💤 `/afk` · ⏰ `/leavetimer` · `/cleartimer`',
             }],
-        }).catch(() => {});
+        }).catch(() => {})
+            // then the red "Record this chat" card, under the guide
+            .then(() => postRecordingStation(ch, ch, { ownerId: member.id, kind: 'room' }))
+            .catch(e => console.error('[Recorder] room station failed:', e.message));
     }, 1500);
 
     console.log(`[BeastBot] 🔊 Created custom VC "${name}" (${isPrivate ? 'private' : 'public'}, limit ${limit || '∞'}) for ${member.user.tag}`);
@@ -7833,13 +7837,24 @@ client.once('clientReady', async () => {
     await cvcInit().catch(e => console.error('[CustomVC] init failed:', e.message));
 
     // Planned sessions: restore sessions, set up #plan-a-session and its panel
-    startSessions(client, { modRoleId: MOD_ROLE_ID, quarantineRoleId: QUARANTINE_ROLE_ID }).catch(e => console.error('[Sessions] init failed:', e.message));
+    startSessions(client, {
+        modRoleId: MOD_ROLE_ID, quarantineRoleId: QUARANTINE_ROLE_ID,
+        // every session gets a red "Record this chat" card for its voice channel
+        onSessionReady: (text, voice, hostId) => postRecordingStation(voice, text, { ownerId: hostId, kind: 'session' })
+            .catch(e => console.error('[Recorder] session station failed:', e.message)),
+    }).catch(e => console.error('[Sessions] init failed:', e.message));
 
     // VC Ping: /vcping is the only way to ping @vcping (2 a week, 15 min in voice first)
     startVcPing(client, { afkChannelId: AFK_CHANNEL_ID }).catch(e => console.error('[VcPing] init failed:', e.message));
 
     // Recorder: Craig-style multi-track recording, download API, resumes recordings cut off by a deploy
-    startRecorder(client, { modRoleId: MOD_ROLE_ID, ownerId: OWNER_DISCORD_ID }).catch(e => console.error('[Recorder] init failed:', e.message));
+    startRecorder(client, { modRoleId: MOD_ROLE_ID, ownerId: OWNER_DISCORD_ID, vcOwner: id => tempVoiceChannels.get(id)?.ownerId })
+        .catch(e => console.error('[Recorder] init failed:', e.message));
+    // Custom rooms open from before this deploy get their recording card too (no-op if they have one)
+    for (const [id, d] of tempVoiceChannels) {
+        const ch = client.channels.cache.get(id);
+        if (ch) postRecordingStation(ch, ch, { ownerId: d.ownerId, kind: 'room' }).catch(e => console.error('[Recorder] room station failed:', e.message));
+    }
 
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
