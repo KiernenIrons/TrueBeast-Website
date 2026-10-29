@@ -1,5 +1,14 @@
 # Beast Bot Changelog
 
+## [2026-10-29] — VC Ping: /vcping with weekly limit and 15-min voice gate
+
+- New self-contained `vcping.js` (`vcPingCommands`, `isVcPingCommand`, `handleVcPingCommand`, `startVcPing`, `flushVcPing`), routed first in `interactionCreate`, gated by `botFeatures.vcPing`
+- Role is found by name (normalized `vcping`) or `VC_PING_ROLE_ID` env; on startup the bot sets it non-mentionable so only the bot can ping it (bot needs Mention All Roles, which is checked and logged)
+- Limit: 2 uses per rolling 7 days; each use comes back 7 days after it was used. The use is taken before any await (double-click safe) and given back if the defer/send fails
+- Voice gate: must be in a non-AFK voice channel for 15 min. Own `joinedAt` map, kept on channel moves, reset on leaving voice/AFK. Its own `voiceStateUpdate` listener
+- Ephemeral reply on every attempt with uses left and next refill time (`<t:…:F>` + relative)
+- State in `botConfig/vcPing` (`usesJson`, `joinJson`, masked PATCH, 10s debounced save, flushed on shutdown). Join times are restored for people still in voice so a deploy doesn't reset their 15 min
+
 ## [2026-10-25] — Sessions: speaker emoji on voice channels
 
 - Voice channels are now named `🔊│Name` (`voiceName`); text channels keep the session-type emoji (`🎮│name`)

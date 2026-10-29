@@ -43,6 +43,7 @@ const sodium = require('libsodium-wrappers');
 const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handlePondButtonInteraction, isPondModal, handlePondModalInteraction, startPondTicker } = require('./pond');
 const { startCasino, isCasinoInteraction, handleCasinoInteraction, flushCasino } = require('./casino');
 const { startSessions, isSessionInteraction, handleSessionInteraction, handleSessionChannelDelete, flushSessions } = require('./sessions');
+const { vcPingCommands, isVcPingCommand, handleVcPingCommand, startVcPing, flushVcPing } = require('./vcping');
 const { streakCommands, isStreakCommand, isStreakButton, handleStreakCommand, handleStreakAutocomplete, handleStreakButton, streakTick, initStreaks, serializeStreaks, saveStreakMirror } = require('./streaks');
 // Words that must never be used by the Unscramble game (checked at pick time, so they stay
 // banned even if someone re-adds them to a list below).
@@ -396,11 +397,9 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🗓️ Schedule while you create', value: 'After making a session you get a private message: create the schedule on the site, submit the link, or skip it for now.' },
-    { name: '📣 New announcement card', value: 'Session announcements now show the game art, a Mark Availability header with a Schedule button, and Voice Chat + Steam buttons.' },
-    { name: '📊 Easier best times', value: 'Best times is now a tidy card only you can see, with a one-tap Pick button for each option.' },
-    { name: '🧹 Quieter chat', value: 'No more bot messages when people are added, removed or join. Added people get a DM with a button instead.' },
-    { name: '📁 New home', value: 'Session channels now live in the Custom Voice Chats category.' },
+    { name: '🔊 New /vcping command', value: 'Want people in your voice chat? Use /vcping to ping the @vcping role, with an optional note. The role can no longer be tagged directly, only through the command.' },
+    { name: '⏱️ 15 minutes in voice first', value: 'You need to have been in a voice chat for 15 minutes before you can use /vcping. Moving between channels keeps your time, leaving voice resets it.' },
+    { name: '🎟️ 2 pings a week', value: 'Everyone gets 2 pings per 7 days. Each one comes back 7 days after you used it, and a private reply tells you how many you have left and the exact time your next one returns.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -7699,6 +7698,7 @@ client.once('clientReady', async () => {
                 .setDescription('(Owner only) Manually refresh the Discord profile widget stats'),
             ...pondCommands,
             ...streakCommands,
+            ...vcPingCommands,
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -7830,6 +7830,9 @@ client.once('clientReady', async () => {
 
     // Planned sessions: restore sessions, set up #plan-a-session and its panel
     startSessions(client, { modRoleId: MOD_ROLE_ID, quarantineRoleId: QUARANTINE_ROLE_ID }).catch(e => console.error('[Sessions] init failed:', e.message));
+
+    // VC Ping: /vcping is the only way to ping @vcping (2 a week, 15 min in voice first)
+    startVcPing(client, { afkChannelId: AFK_CHANNEL_ID }).catch(e => console.error('[VcPing] init failed:', e.message));
 
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
@@ -10840,6 +10843,17 @@ async function handleRolePick(interaction) {
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
+    // ── VC Ping (vcping.js) ──────────────────────────────────────────────────
+    if (interaction.isChatInputCommand() && isVcPingCommand(interaction.commandName)) {
+        if (botFeatures.vcPing === false) {
+            return interaction.reply({ content: 'VC Ping is currently turned off.', flags: 64 });
+        }
+        return handleVcPingCommand(interaction).catch(e => {
+            console.error('[VcPing] command failed:', e);
+            if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong, try again in a moment.', flags: 64 }).catch(() => {});
+        });
+    }
+
     // ── Voice streaks ────────────────────────────────────────────────────────
     if (interaction.isAutocomplete() && isStreakCommand(interaction.commandName)) {
         return handleStreakAutocomplete(interaction).catch(e => console.error('[Streaks] autocomplete failed:', e.message));
@@ -16183,6 +16197,7 @@ async function flushBeforeExit() {
     // Casino balances live in their own doc (guarded until loaded)
     await flushCasino().catch(e => console.error('[Casino] Shutdown save failed:', e.message));
     await flushSessions().catch(e => console.error('[Sessions] Shutdown save failed:', e.message));
+    await flushVcPing().catch(e => console.error('[VcPing] Shutdown save failed:', e.message));
     console.log('[BeastBot] Flush complete');
 }
 
