@@ -44,6 +44,7 @@ const { pondCommands, isPondCommand, handlePondInteraction, isPondButton, handle
 const { startCasino, isCasinoInteraction, handleCasinoInteraction, flushCasino } = require('./casino');
 const { startSessions, isSessionInteraction, handleSessionInteraction, handleSessionChannelDelete, flushSessions } = require('./sessions');
 const { vcPingCommands, isVcPingCommand, handleVcPingCommand, startVcPing, flushVcPing } = require('./vcping');
+const { recorderCommands, isRecorderCommand, handleRecorderCommand, isRecorderInteraction, handleRecorderInteraction, startRecorder, flushRecorder } = require('./recorder');
 const { streakCommands, isStreakCommand, isStreakButton, handleStreakCommand, handleStreakAutocomplete, handleStreakButton, streakTick, initStreaks, serializeStreaks, saveStreakMirror } = require('./streaks');
 // Words that must never be used by the Unscramble game (checked at pick time, so they stay
 // banned even if someone re-adds them to a list below).
@@ -397,9 +398,10 @@ async function partyReact(msg) {
 
 // ── Latest update notes (shown via /bot-updates) ─────────────────────────────
 const UPDATE_NOTES = [
-    { name: '🔊 New /vcping command', value: 'Want people in your voice chat? Use /vcping to ping the @vcping role, with an optional note. The role can no longer be tagged directly, only through the command.' },
-    { name: '⏱️ 15 minutes in voice first', value: 'You need to have been in a voice chat for 15 minutes before you can use /vcping. Moving between channels keeps your time, leaving voice resets it.' },
-    { name: '🎟️ 2 pings a week', value: 'Everyone gets 2 pings per 7 days. Each one comes back 7 days after you used it, and a private reply tells you how many you have left and the exact time your next one returns.' },
+    { name: '🎙️ New /record command', value: 'Record a voice chat with /record start. Everyone who talks gets their own track, all in sync, which is perfect for podcasts and clips. /record stop when you\'re done.' },
+    { name: '🔴 You\'ll always know', value: 'While recording, the bot\'s name shows [RECORDING] and a live panel in chat has Stop, Add a note and Get download link buttons.' },
+    { name: '⬇️ Download page', value: 'You get a DM with a download page: FLAC, WAV, MP3, AAC, one mixed file, or a ready-made Audacity or Audition project. Works mid-recording, kept 7 days.' },
+    { name: '📝 Notes, sound check, auto-record', value: '/record note adds chapter markers, /record voice-test plays your mic back to you, and /record autorecord can record a channel when people join.' },
 ];
 
 // ── Bot feature flags (loaded from Firestore botConfig/features every 5 min) ──
@@ -421,6 +423,7 @@ let botFeatures = {
     voiceStreaks:        true, // daily 30-min voice streaks (streaks.js)
     announceDrafts:      true, // approval-queue announcement automation
     nsfwDetection:       true, // self-hosted image content scanning (see loadNsfwModel/checkMessageForNsfwContent)
+    recorder:            true, // /record multi-track voice recording (recorder.js)
 };
 
 // ── Unscramble Game ───────────────────────────────────────────────────────────
@@ -7699,6 +7702,7 @@ client.once('clientReady', async () => {
             ...pondCommands,
             ...streakCommands,
             ...vcPingCommands,
+            ...recorderCommands,
         ].map(c => c.toJSON());
 
         await rest.put(Routes.applicationGuildCommands(client.user.id, client.guilds.cache.first().id), { body: commands });
@@ -7833,6 +7837,9 @@ client.once('clientReady', async () => {
 
     // VC Ping: /vcping is the only way to ping @vcping (2 a week, 15 min in voice first)
     startVcPing(client, { afkChannelId: AFK_CHANNEL_ID }).catch(e => console.error('[VcPing] init failed:', e.message));
+
+    // Recorder: Craig-style multi-track recording, download API, resumes recordings cut off by a deploy
+    startRecorder(client, { modRoleId: MOD_ROLE_ID, ownerId: OWNER_DISCORD_ID }).catch(e => console.error('[Recorder] init failed:', e.message));
 
     // Load bot feature flags from Firestore (admin-toggled via admin panel)
     await getBotFeatures();
@@ -10843,6 +10850,19 @@ async function handleRolePick(interaction) {
 // ── Button interactions ───────────────────────────────────────────────────────
 
 client.on('interactionCreate', async (interaction) => {
+    // ── Recorder (recorder.js) — /record plus rec: buttons and modals (some live in DMs) ──
+    if ((interaction.isChatInputCommand() && isRecorderCommand(interaction.commandName))
+        || ((interaction.isButton() || interaction.isModalSubmit()) && isRecorderInteraction(interaction))) {
+        if (botFeatures.recorder === false) {
+            return interaction.reply({ content: 'Recording is currently turned off.', flags: 64 });
+        }
+        const run = interaction.isChatInputCommand() ? handleRecorderCommand : handleRecorderInteraction;
+        return run(interaction).catch(e => {
+            console.error('[Recorder] interaction failed:', e);
+            if (!interaction.replied && !interaction.deferred) interaction.reply({ content: '❌ Something went wrong, try again in a moment.', flags: 64 }).catch(() => {});
+        });
+    }
+
     // ── VC Ping (vcping.js) ──────────────────────────────────────────────────
     if (interaction.isChatInputCommand() && isVcPingCommand(interaction.commandName)) {
         if (botFeatures.vcPing === false) {
@@ -16186,6 +16206,8 @@ client.on('error', (err) => console.error('[BeastBot] Client error:', err.messag
 // On shutdown: credit voice sessions, save Discord backup, save Firestore snapshot
 async function flushBeforeExit() {
     console.log('[BeastBot] Flushing state before shutdown...');
+    // First, so live recordings are safely on disk well inside the 30s kill timeout
+    await flushRecorder().catch(e => console.error('[Recorder] Shutdown flush failed:', e.message));
     // Credit any remaining voice time into in-memory before snapshot
     for (const [uid] of voiceStartTimes) creditVoiceTime(uid);
     // Save to Discord backup channel only — do NOT write Firestore on shutdown.

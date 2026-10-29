@@ -10,7 +10,20 @@ primary_region = 'ord'
 [env]
   NODE_ENV = 'production'
 
-# No HTTP service — headless Discord bot, runs continuously via WebSocket.
+# HTTP is only the recorder's download API (recorder.js), used by truebeast.io/rec/<id>.
+# The bot itself still runs continuously via WebSocket.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+# Voice recordings + finished exports (recorder.js). Kept across deploys so recordings
+# survive restarts; they expire 7 days after they end.
+[[mounts]]
+  source = 'recordings'
+  destination = '/data'
 
 [[vm]]
   memory = '1024mb'

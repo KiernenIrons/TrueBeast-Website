@@ -2,3 +2,6 @@
 node_modules/
 dist/
 *.local
+
+# Local recorder test data
+discord-bot/data/

@@ -24,6 +24,7 @@ const Schedule = lazy(() => import('./pages/Schedule'))
 const CardsLeaderboard = lazy(() => import('./pages/cards/Leaderboard'))
 const CardsProfile = lazy(() => import('./pages/cards/Profile'))
 const CardsOverlay = lazy(() => import('./pages/overlay/CardsOverlay'))
+const Recording = lazy(() => import('./pages/Recording'))
 
 function LoadingFallback() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="/tools/socials-rotator" element={<SocialsRotator />} />
         <Route path="/meet" element={<CreateMeet />} />
         <Route path="/meet/:id" element={<MeetEvent />} />
+        <Route path="/rec/:id" element={<Recording />} />
         <Route path="/tech-support" element={<TechSupport />} />
         <Route path="/ticket" element={<Ticket />} />
         <Route path="/my-tickets" element={<MyTickets />} />

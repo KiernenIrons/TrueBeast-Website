@@ -1,5 +1,21 @@
 # Beast Bot Changelog
 
+## [2026-10-29] — Recorder: Craig-style multi-track recording + download page
+
+- New self-contained `recorder.js` (`recorderCommands`, `isRecorderCommand`, `handleRecorderCommand`, `isRecorderInteraction`, `handleRecorderInteraction`, `startRecorder`, `flushRecorder`), routed first in `interactionCreate` (slash + `rec:` buttons/modals, incl. DM buttons), gated by `botFeatures.recorder`
+- `/record start|stop|note|list|panel|voice-test|help`, `/record autorecord on|off|view` (minimum members and/or trigger users/roles, optional post channel, 2s settle, stops after 30s unmet), `/record settings view|access-role-add|access-role-remove|bots`
+- Who can record: server owner, Manage Server, `MOD_ROLE_ID`, access roles. Refuses to record without Change Nickname (adds a `[RECORDING] ` nickname tag, restored afterwards). One recording per guild
+- Live Components v2 panel (activity log, tracks, notes, Stop / Add a note / Get download link), DM to requester with download page + delete key at start and a summary at the end (Delete button in DM)
+- Recording: hooks `VoiceReceiver.onUdpMessage` to keep RTP timestamps (same steps as 0.19.2: ssrcMap → speaking → `parsePacket` incl. DAVE), with a wall-clock fallback. `@discordjs/voice` pinned to exactly 0.19.2 for this. Raw Opus appended per speaker to `<track>.pkt` ([u32 pos][u16 len][opus]); never decoded live
+- Positions follow RTP, re-anchored to the wall clock if they drift >250ms after a pause or >2s mid-speech, so tracks stay in sync
+- Auto-stops: 6h limit, 2 min after the channel empties, storage <300MB. Warns at 45s with no audio and after 5 min of silence. Handles being moved, server-deafened, disconnected (3 reconnect tries)
+- Deploy-safe: `flushRecorder` (first thing in `flushBeforeExit`) closes files and leaves the recording live; on boot `resumeInterrupted` rejoins and keeps appending (gap = silence, listed in info.txt/page), or ends it at the last alive time if the channel emptied
+- Exports: tracks rebuilt as gap-free Ogg Opus from 0 to full length (silence frames), then ffmpeg (`nice`): multi-track ZIP in FLAC/WAV/AAC/MP3/Vorbis/Opus/ALAC/Ogg FLAC/ADPCM/8-bit/original Opus, single-track mix (`amix normalize=0` + `alimiter`), Audacity `.aup` (notes as label track), Audition `.sesx` (notes as markers), optional `dynaudnorm`, per-track include/exclude, info.txt + Audacity labels file. One job at a time, queue capped at 20, finished files cached 3h
+- HTTP API on :8080 (`/api/rec/:id?key=` info, `POST /jobs`, job status/cancel/file with Range support, `info.txt`, `avatars.zip`, `DELETE` with delete key). Keys are random base62 and compared in constant time; bad keys are rate limited per IP
+- Storage: Fly volume `recordings` mounted at `/data` (`RECORDINGS_DIR` override). Recordings expire 7 days after they end. Settings in `botConfig/recorder` (`settingsJson`, masked PATCH, guarded by `loaded`)
+- fly.toml: added `[http_service]` (internal 8080, force HTTPS, never auto-stop) and the `[[mounts]]` entry. New dependency: `archiver`
+- Site: new `/rec/:id?key=` download page (`src/pages/Recording.tsx`) with format picker, plain-language "Which do I use?", people toggles, volume toggle, job progress (auto-download), notes, gaps, and delete
+
 ## [2026-10-29] — VC Ping: /vcping with weekly limit and 15-min voice gate
 
 - New self-contained `vcping.js` (`vcPingCommands`, `isVcPingCommand`, `handleVcPingCommand`, `startVcPing`, `flushVcPing`), routed first in `interactionCreate`, gated by `botFeatures.vcPing`
